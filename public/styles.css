@@ -341,3 +341,79 @@ body.admin{background:var(--bg2)}
 .logo-chip{display:inline-flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg2)}
 .logo-chip img{height:40px;max-width:160px;object-fit:contain;background:#fff;border-radius:6px}
 .logo-chip .img-remove{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:13px}
+
+/* =========================================================
+   ПРЕМИУМ-ПОЛИРОВКА — витрина как приложение (особенно телефоны)
+   ========================================================= */
+:root{
+  --radius:20px;
+  --radius-sm:14px;
+  --shadow:0 1px 2px rgba(17,17,26,.04), 0 6px 20px rgba(17,17,26,.05);
+  --shadow-lg:0 18px 50px rgba(17,17,26,.16);
+}
+html{scroll-behavior:smooth}
+body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
+
+/* безопасные зоны (чёлка / жестовая полоса) */
+.site-header{padding-top:env(safe-area-inset-top)}
+.site-footer{padding-bottom:calc(40px + env(safe-area-inset-bottom))}
+
+/* хедер */
+.logo{letter-spacing:-.03em}
+.icon-btn{border-radius:12px;transition:background .15s}
+.icon-btn:active{background:var(--bg2)}
+
+/* категории — премиальные пилюли */
+.nav-cat{background:var(--bg2);color:var(--text);font-weight:500;font-size:13.5px;padding:7px 14px;transition:transform .12s, background .15s, color .15s}
+.nav-cat:active{transform:scale(.94)}
+.nav-cat.active{background:var(--text);color:#fff}
+
+/* заголовки */
+.hero h1{letter-spacing:-.035em;font-weight:660}
+.hero p{color:var(--muted)}
+.section-head h2,.deals-title{letter-spacing:-.025em;font-weight:660}
+
+/* карточки-плитки */
+.card{border:1px solid #ececf0;border-radius:var(--radius);box-shadow:var(--shadow);transition:transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s}
+.card:hover{box-shadow:var(--shadow-lg)}
+.card:active{transform:scale(.98)}
+.card-media{background:linear-gradient(160deg,#f4f6fa 0%,#e8ecf2 100%)}
+.card-cat{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:#9c9ca4;font-weight:600}
+.card-name{font-size:15px;font-weight:600;letter-spacing:-.012em;line-height:1.32;margin:3px 0 8px}
+.card-price{font-size:17px;font-weight:680;letter-spacing:-.02em}
+.old-price{font-size:13px}
+.card-add .btn{border-radius:13px;font-weight:600;padding:11px 12px}
+
+/* кнопки */
+.btn{letter-spacing:-.01em;font-weight:600}
+.btn-primary{box-shadow:0 6px 18px rgba(0,113,227,.26)}
+.btn-primary:active{box-shadow:0 2px 8px rgba(0,113,227,.3)}
+
+/* деталь товара */
+.product-name{letter-spacing:-.03em}
+.product-price{letter-spacing:-.02em}
+
+@media(max-width:720px){
+  /* категории — чистая горизонтальная лента, гамбургер не нужен */
+  .menu-toggle{display:none !important}
+  .site-nav{position:static;transform:none;background:transparent;border-top:1px solid var(--border)}
+  body.nav-open .site-nav{transform:none}
+  .nav-inner{flex-wrap:nowrap;overflow-x:auto;padding:10px 16px;gap:8px;-webkit-overflow-scrolling:touch}
+
+  .header-row{height:56px;gap:10px}
+  .container{padding:0 16px}
+  .hero{padding:30px 0 24px}
+
+  .grid{grid-template-columns:repeat(2,1fr);gap:12px}
+  .card-body{padding:12px 13px 4px}
+  .card-add{padding:10px 13px 13px}
+  .section{padding:22px 0}
+  .section-head{margin-bottom:14px}
+
+  /* деталь товара: покупка «липнет» снизу — как в приложении */
+  .product .buy-row{position:sticky;bottom:0;z-index:30;margin:16px -16px 0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(255,255,255,.92);backdrop-filter:saturate(180%) blur(16px);border-top:1px solid var(--border)}
+  .product .buy-row .add-to-cart{flex:1}
+
+  /* корзина — на весь экран, как лист приложения */
+  .cart-drawer{width:100%;max-width:100%;border-radius:0}
+}
