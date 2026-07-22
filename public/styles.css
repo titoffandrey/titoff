@@ -300,10 +300,10 @@ body.admin{background:var(--bg2)}
 /* =========================================================
    ГОРЯЩИЕ СКИДКИ
    ========================================================= */
-.badge-hot{background:linear-gradient(135deg,#ff3b30,#ff7a00);box-shadow:0 2px 8px rgba(255,59,48,.35)}
+.badge-hot{background:linear-gradient(135deg,#e0281f,#e06a00);box-shadow:0 2px 8px rgba(215,0,21,.32)}
 .card-hot{border-color:#ffd9d3}
-.price-hot{color:#ff3b30}
-.deal-timer{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:12.5px;font-weight:600;color:#ff3b30;font-variant-numeric:tabular-nums}
+.price-hot{color:#d70015}
+.deal-timer{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:12.5px;font-weight:600;color:#c21027;font-variant-numeric:tabular-nums}
 .deal-timer .dt-ico{font-size:12px}
 .deal-timer.deal-ended{color:var(--muted)}
 
@@ -417,3 +417,8 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   /* корзина — на весь экран, как лист приложения */
   .cart-drawer{width:100%;max-width:100%;border-radius:0}
 }
+
+/* кнопка-переключатель «в корзине» */
+.add-to-cart.in-cart{background:#e9f7ee;color:#137a37;border:1px solid #b7e0c4;box-shadow:none}
+.add-to-cart.in-cart:hover{background:#ddf2e4}
+.add-to-cart.in-cart:active{transform:scale(.98)}

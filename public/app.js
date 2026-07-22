@@ -33,9 +33,11 @@
     clear: function () { this.items = []; this.save(); this.render(); },
     count: function () { return this.items.reduce(function (a, i) { return a + i.qty; }, 0); },
     total: function () { return this.items.reduce(function (a, i) { return a + i.price * i.qty; }, 0); },
+    has: function (id) { return this.items.some(function (i) { return i.id === id; }); },
     updateBadge: function () {
-      var b = document.getElementById('cart-badge'); if (!b) return;
-      var c = this.count(); b.textContent = c; b.hidden = c === 0;
+      var b = document.getElementById('cart-badge');
+      if (b) { var c = this.count(); b.textContent = c; b.hidden = c === 0; }
+      syncCartButtons();
     },
     open: function () { this.render(); document.body.classList.add('cart-open'); },
     close: function () { document.body.classList.remove('cart-open'); },
@@ -76,6 +78,20 @@
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  // Кнопка «в корзину» как переключатель: показывает статус в зависимости от корзины.
+  function setBtnState(btn, inCart) {
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent.trim();
+    if (inCart) { btn.classList.add('in-cart'); btn.textContent = '✓ В корзине'; }
+    else { btn.classList.remove('in-cart'); btn.textContent = btn.dataset.label; }
+  }
+  function syncCartButtons() {
+    var btns = document.querySelectorAll('.add-to-cart');
+    for (var i = 0; i < btns.length; i++) {
+      if (btns[i].disabled) continue;
+      setBtnState(btns[i], Cart.has(btns[i].dataset.id));
+    }
   }
 
   var toastTimer;
@@ -125,12 +141,19 @@
       if (btn) {
         e.preventDefault(); e.stopPropagation();
         if (btn.disabled) return;
-        var qty = 1;
-        if (btn.hasAttribute('data-qty-source')) {
-          var box = document.querySelector('[data-qty] .qty-input');
-          if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
+        var id = btn.dataset.id;
+        if (Cart.has(id)) {
+          // повторное нажатие — убрать из корзины, кнопка вернётся в исходный вид
+          Cart.remove(id);
+          toast('Убрано из корзины');
+        } else {
+          var qty = 1;
+          if (btn.hasAttribute('data-qty-source')) {
+            var box = document.querySelector('[data-qty] .qty-input');
+            if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
+          }
+          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty);
         }
-        Cart.add(btn.dataset.id, btn.dataset.name, Number(btn.dataset.price), qty);
         return;
       }
       // управление количеством в корзине
