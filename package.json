@@ -1,0 +1,16 @@
+{
+  "name": "universal-tech-store",
+  "version": "1.0.0",
+  "description": "Универсальный интернет-магазин техники: витрина, корзина, отзывы с модерацией, админка, заявки в Telegram. Без внешних зависимостей.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js",
+    "seed:all": "node seed.js --all"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}
