@@ -81,7 +81,7 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
 .card-media{position:relative;aspect-ratio:1/1;background:var(--bg2);display:flex;align-items:center;justify-content:center}
 .card-media img,.card-media .ph{width:100%;height:100%;object-fit:contain}
-.card-media img{padding:4%}
+.card-media img{padding:0}
 .badge{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:980px;z-index:2}
 .badge-muted{background:#8e8e93}
 .card-body{padding:12px 14px 4px;flex:1}
@@ -162,6 +162,22 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .foot-note{margin-top:4px}
 .foot-contact{margin-top:8px}
 .foot-contact a{color:var(--accent)}
+
+/* ===== Telegram — всегда фирменный цвет, независимо от темы магазина ===== */
+:root{--tg:#229ed9;--tg-dark:#1b8fc7}
+.tg-ico{fill:currentColor;display:block}
+.foot-tg{margin-top:14px}
+.foot-tg .tg-link{display:inline-flex;align-items:center;gap:9px;color:var(--tg);font-weight:600;font-size:18px;line-height:1}
+.foot-tg .tg-link:hover{color:var(--tg-dark)}
+.foot-tg .tg-link .tg-ico{width:24px;height:24px;flex:none}
+.tg-header{display:inline-flex;align-items:center;gap:7px;background:var(--tg);color:#fff;padding:9px 15px;border-radius:980px;font-weight:600;font-size:14.5px;line-height:1;white-space:nowrap;box-shadow:0 4px 14px rgba(34,158,217,.35);transition:filter .15s,transform .06s}
+.tg-header:hover{filter:brightness(1.06)}
+.tg-header:active{transform:scale(.96)}
+.tg-header .tg-ico{width:18px;height:18px;flex:none}
+@media(max-width:720px){
+  .tg-header{padding:9px}
+  .tg-header-txt{display:none}
+}
 .foot-legal{margin-top:14px;font-size:12px}
 
 /* ===== Корзина ===== */
