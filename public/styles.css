@@ -273,8 +273,9 @@ body.admin{background:var(--bg2)}
 .a-form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0 18px}
 .a-form-actions{display:flex;gap:10px;margin-top:12px}
 .img-chips{display:flex;gap:12px;flex-wrap:wrap}
-.img-chip{border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center;font-size:12px}
+.img-chip{border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center;font-size:12px;display:flex;flex-direction:column;gap:6px;align-items:center}
 .img-chip img{width:80px;height:80px;object-fit:contain}
+.img-chip .img-color{max-width:110px;font-size:12px;padding:3px 4px;border:1px solid var(--border);border-radius:8px}
 .img-remove{display:flex;align-items:center;gap:4px;justify-content:center;margin-top:4px;color:var(--muted)}
 
 /* Логин */
@@ -465,4 +466,31 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   .rating-overview{gap:16px;padding:14px}
   .rating-num{font-size:36px}
   .aspect-row>span{min-width:92px}
+}
+
+/* ===== Галерея как на apple.com: стрелки-круги + точки, без миниатюр ===== */
+.gallery{position:relative}
+.g-arrow{
+  position:absolute;top:50%;transform:translateY(-50%);
+  width:36px;height:36px;border-radius:50%;border:none;padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(210,210,215,.64);color:rgba(29,29,31,.72);
+  transition:background .18s ease,color .18s ease;z-index:2;
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)
+}
+.g-arrow:hover{background:rgba(223,223,227,.9);color:#1d1d1f}
+.g-arrow:active{transform:translateY(-50%) scale(.94)}
+.g-prev{left:12px}
+.g-next{right:12px}
+.g-arrow svg{width:15px;height:15px;display:block}
+.g-dots{display:flex;justify-content:center;gap:8px;margin-top:14px;min-height:8px}
+.g-dot{
+  width:8px;height:8px;border-radius:50%;border:none;padding:0;cursor:pointer;
+  background:rgba(0,0,0,.2);transition:background .2s ease
+}
+.g-dot:hover{background:rgba(0,0,0,.34)}
+.g-dot.active{background:#1d1d1f}
+@media(max-width:560px){
+  .g-arrow{width:32px;height:32px}
+  .g-prev{left:8px}.g-next{right:8px}
 }

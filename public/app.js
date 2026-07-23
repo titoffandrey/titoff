@@ -174,15 +174,78 @@
         if (fields && !fields.classList.contains('show')) { fields.classList.add('show'); return; }
         submitOrder(e.target);
       }
-      // миниатюры галереи
-      var thumb = e.target.closest('.thumb');
-      if (thumb) {
-        var main = document.getElementById('gallery-main');
-        if (main) main.innerHTML = '<img src="' + thumb.dataset.src + '" alt="">';
-        document.querySelectorAll('.thumb').forEach(function (t) { t.classList.remove('active'); });
-        thumb.classList.add('active');
-      }
     });
+
+    // Галерея товара в стиле apple.com: стрелки по бокам + точки-индикатор, без миниатюр.
+    // При выборе цвета показываются фото этого цвета + общие (сначала цветовые).
+    var gallerySetColor = null;
+    (function () {
+      var gal = document.getElementById('gallery');
+      if (!gal || !gal.dataset.imgs) return;
+      var all;
+      try { all = JSON.parse(gal.dataset.imgs); } catch (e) { return; }
+      if (!all.length) return;
+      var main = document.getElementById('gallery-main');
+      var dotsBox = document.getElementById('g-dots');
+      var prev = document.getElementById('g-prev');
+      var next = document.getElementById('g-next');
+      var visible = all.slice();
+      var idx = 0;
+
+      function renderSlide() {
+        if (main) main.innerHTML = '<img src="' + visible[idx].src + '" alt="">';
+        if (dotsBox) {
+          var dots = dotsBox.querySelectorAll('.g-dot');
+          for (var i = 0; i < dots.length; i++) dots[i].classList.toggle('active', i === idx);
+        }
+      }
+      function renderDots() {
+        if (!dotsBox) return;
+        if (visible.length < 2) { dotsBox.innerHTML = ''; return; }
+        var html = '';
+        for (var i = 0; i < visible.length; i++) html += '<button type="button" class="g-dot" aria-label="Фото ' + (i + 1) + '"></button>';
+        dotsBox.innerHTML = html;
+      }
+      function updateArrows() {
+        var show = visible.length > 1;
+        if (prev) prev.style.display = show ? '' : 'none';
+        if (next) next.style.display = show ? '' : 'none';
+      }
+      function go(dir) { idx = (idx + dir + visible.length) % visible.length; renderSlide(); }
+
+      if (prev) prev.addEventListener('click', function () { go(-1); });
+      if (next) next.addEventListener('click', function () { go(1); });
+      if (dotsBox) dotsBox.addEventListener('click', function (e) {
+        var d = e.target.closest('.g-dot'); if (!d) return;
+        idx = Array.prototype.indexOf.call(dotsBox.querySelectorAll('.g-dot'), d);
+        renderSlide();
+      });
+      // свайп на мобильных
+      var tx = null;
+      if (main) {
+        main.addEventListener('touchstart', function (e) { tx = e.touches[0].clientX; }, { passive: true });
+        main.addEventListener('touchend', function (e) {
+          if (tx === null) return;
+          var dx = e.changedTouches[0].clientX - tx; tx = null;
+          if (Math.abs(dx) > 40 && visible.length > 1) go(dx < 0 ? 1 : -1);
+        }, { passive: true });
+      }
+
+      gallerySetColor = function (color) {
+        var hasColorPhotos = all.some(function (s) { return s.color; });
+        if (!hasColorPhotos) return;
+        var matched = all.filter(function (s) { return s.color === color; });
+        if (matched.length) {
+          visible = matched.concat(all.filter(function (s) { return !s.color; }));
+        } else {
+          visible = all.slice(); // для цвета фото нет — показываем всё
+        }
+        idx = 0;
+        renderDots(); updateArrows(); renderSlide();
+      };
+
+      renderDots(); updateArrows(); renderSlide();
+    })();
 
     // Количество на странице товара
     var qtyBox = document.querySelector('[data-qty]');
@@ -230,8 +293,10 @@
         colorsEl.querySelectorAll('.swatch').forEach(function (x) { x.classList.remove('active'); });
         sw.classList.add('active'); vstate.color = sw.dataset.color;
         var sc = document.getElementById('sel-color'); if (sc) sc.textContent = sw.dataset.color;
+        if (gallerySetColor) gallerySetColor(sw.dataset.color);
         applyVariant();
       });
+      if (vstate.color && gallerySetColor) gallerySetColor(vstate.color);
       var storagesEl = document.getElementById('storages');
       if (storagesEl) storagesEl.addEventListener('click', function (e) {
         var so = e.target.closest('.storage-opt'); if (!so) return;

@@ -179,12 +179,26 @@ app.post('/owner/products/:id', async (req, res) => {
   const remove = asArray(req.body.removeImages);
   let images = (p.images || []).filter(src => !remove.includes(src));
   remove.forEach(src => { try { fs.unlinkSync(path.join(db.UPLOAD_DIR, src)); } catch (e) {} });
+  const colors = parseColors(req.body.colors);
+  const colorNames = colors.map(c => c.name);
+  // Привязка фото к цветам: селекты «imgcolor:<файл>» у оставшихся фото
+  const imageColors = {};
+  for (const src of images) {
+    const c = req.body['imgcolor:' + src];
+    if (c && colorNames.includes(c)) imageColors[src] = c;
+  }
+  // Новые общие фото
   images = images.concat(await optimizeUploads(req.filesFor('images'), 1200, { square: true }));
+  // Новые фото под конкретный цвет (поля imagesColor_<индекс цвета>)
+  for (let ci = 0; ci < colors.length; ci++) {
+    const added = await optimizeUploads(req.filesFor('imagesColor_' + ci), 1200, { square: true });
+    for (const f of added) { images.push(f); imageColors[f] = colors[ci].name; }
+  }
   db.updateProduct(p.id, {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
-    colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages), images
+    colors, storages: parseStorages(req.body.storages), images, imageColors
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Сохранено'));
 });
