@@ -38,7 +38,7 @@ function originOf(req) {
   return proto + '://' + host;
 }
 // Оптимизировать загруженные фото: WebP + очистка метаданных.
-const optimizeUploads = (files, maxSize) => IMG.optimizeMany(db.UPLOAD_DIR, filenames(files), maxSize);
+const optimizeUploads = (files, maxSize, opts) => IMG.optimizeMany(db.UPLOAD_DIR, filenames(files), maxSize, opts);
 // Логотип сайта: удалить старый (если попросили), загрузить/оптимизировать новый, иначе оставить как было.
 async function resolveLogo(req, site) {
   let current = site ? site.logoImage : null;
@@ -168,7 +168,7 @@ app.post('/owner/products', async (req, res) => {
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
-    images: await optimizeUploads(req.filesFor('images'), 1600)
+    images: await optimizeUploads(req.filesFor('images'), 1200, { square: true })
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Товар создан'));
 });
@@ -179,7 +179,7 @@ app.post('/owner/products/:id', async (req, res) => {
   const remove = asArray(req.body.removeImages);
   let images = (p.images || []).filter(src => !remove.includes(src));
   remove.forEach(src => { try { fs.unlinkSync(path.join(db.UPLOAD_DIR, src)); } catch (e) {} });
-  images = images.concat(await optimizeUploads(req.filesFor('images'), 1600));
+  images = images.concat(await optimizeUploads(req.filesFor('images'), 1200, { square: true }));
   db.updateProduct(p.id, {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
