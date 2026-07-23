@@ -439,24 +439,44 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .storage-opt:hover{border-color:var(--accent)}
 .storage-opt.active{border-color:var(--accent);background:rgba(0,113,227,.08);color:var(--accent)}
 
-/* ===== Редактор цветов товара (панель владельца) ===== */
-.color-editor{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
-.color-row{display:flex;align-items:center;gap:8px}
-.color-row .color-hex{flex:none;width:40px;height:40px;padding:0;border:1px solid var(--border);border-radius:10px;background:#fff;cursor:pointer}
-.color-row .color-hex::-webkit-color-swatch-wrapper{padding:4px}
-.color-row .color-hex::-webkit-color-swatch{border:none;border-radius:7px}
-.color-row .color-hex::-moz-color-swatch{border:none;border-radius:7px}
-.color-row .color-name{flex:1;min-width:0}
-.color-row .color-hexed{flex:none;width:92px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:lowercase}
-.color-del{flex:none;width:38px;height:38px;border-radius:9px;border:1px solid var(--border);background:#fff;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;transition:border-color .12s,color .12s,background .12s}
-.color-del:hover{border-color:#e0453a;color:#e0453a;background:#fff5f4}
-#color-add{margin-top:2px;align-self:flex-start}
-.btn-sm{padding:7px 14px;font-size:13px}
-#color-uploads .cu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
-.cu-label{display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:5px}
-.cu-label .swatch{width:14px;height:14px;border-radius:4px;border:1px solid rgba(0,0,0,.15)}
+/* ===== Редактор цветов товара (панель владельца) =====
+   Селекторы намеренно с высокой специфичностью (.color-editor .color-row …),
+   чтобы перебить общие правила формы «.field input[type=text]{width:100%}». */
+.color-editor{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.color-row{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-radius:14px;padding:7px 9px;transition:border-color .15s,box-shadow .15s}
+.color-row:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,.12)}
+
+/* пипетка-свотч */
+.color-editor .color-row .color-hex{flex:none;width:44px;height:44px;min-width:44px;padding:0;border:none;border-radius:11px;background:none;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14)}
+.color-editor .color-row .color-hex::-webkit-color-swatch-wrapper{padding:0}
+.color-editor .color-row .color-hex::-webkit-color-swatch{border:none;border-radius:11px}
+.color-editor .color-row .color-hex::-moz-color-swatch{border:none;border-radius:11px}
+
+/* название — основное поле, «бесшовное» внутри карточки-строки */
+.color-editor .color-row .color-name{flex:1 1 auto;width:auto;min-width:0;border:none;background:none;border-radius:0;padding:6px 2px;font-size:15px;font-weight:500;color:var(--text)}
+.color-editor .color-row .color-name:focus{border:none;outline:none;box-shadow:none;background:none}
+.color-editor .color-row .color-name::placeholder{color:var(--muted);font-weight:400}
+
+/* hex — компактное моно-поле */
+.color-editor .color-row .color-hexed{flex:none;width:108px;min-width:108px;border:1px solid var(--border);background:var(--bg2);border-radius:9px;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;text-transform:lowercase;color:var(--muted);text-align:center}
+.color-editor .color-row .color-hexed:focus{border-color:var(--accent);background:#fff;color:var(--text);outline:none}
+
+/* удалить */
+.color-del{flex:none;width:36px;height:36px;min-width:36px;border-radius:9px;border:1px solid transparent;background:none;color:var(--muted);font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s,background .15s}
+.color-del:hover{border-color:#f2b8bb;color:#d70015;background:#fff5f5}
+
+/* добавить */
+#color-add{margin-top:2px;align-self:flex-start;border-style:dashed;border-color:#c9e0fb;color:var(--accent);background:#f5faff}
+#color-add:hover{background:#eaf4ff;border-color:var(--accent)}
+
+/* фото по цветам */
+#color-uploads .cu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+#color-uploads .cu-field{border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:#fff}
+#color-uploads .cu-label{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;margin-bottom:8px}
+#color-uploads .cu-label .swatch{width:16px;height:16px;border-radius:5px;border:1px solid rgba(0,0,0,.15);margin:0}
+#color-uploads .cu-field input[type=file]{font-size:13px;max-width:100%}
 @media(max-width:560px){
-  .color-row .color-hexed{width:78px}
+  .color-editor .color-row .color-hexed{width:88px;min-width:88px}
   #color-uploads .cu-grid{grid-template-columns:1fr}
 }
 
