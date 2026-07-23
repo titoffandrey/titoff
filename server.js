@@ -26,6 +26,9 @@ const settings = () => db.getSettings();
 const filenames = (files) => (files || []).map(f => f.filename);
 const asArray = (v) => v == null ? [] : (Array.isArray(v) ? v : [v]);
 const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return isNaN(t) ? null : t; };
+// Варианты из формы: цвета «Название|#hex» и память «Метка|доплата» по строке.
+const parseColors = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex] = l.split('|'); return { name: (name || '').trim(), hex: (hex || '#cccccc').trim() }; }).filter(c => c.name);
+const parseStorages = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add] = l.split('|'); return { label: (label || '').trim(), add: parseInt(add, 10) || 0 }; }).filter(s => s.label);
 function tgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function siteOf(req) { return T.resolveSite(req.headers.host, req.query.site); }
 // Абсолютный адрес сайта (для canonical, Open Graph, sitemap).
@@ -85,9 +88,13 @@ app.post('/api/reviews', async (req, res) => {
   const site = siteOf(req);
   const p = db.getProduct(req.body.productId);
   if (!p) return res.json({ ok: false, error: 'Товар не найден' }, 400);
+  const clamp5 = v => { const n = parseInt(v, 10); return n >= 1 && n <= 5 ? n : null; };
+  const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
+    ? { delivery: clamp5(req.body.aspect_delivery), service: clamp5(req.body.aspect_service), price: clamp5(req.body.aspect_price) }
+    : null;
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text,
-    photos: await optimizeUploads(req.filesFor('photos'), 1400), status: 'pending'
+    photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'pending'
   });
   const ss = T.siteSettings(site);
   if (ss.notifyReviews) {
@@ -105,8 +112,16 @@ app.post('/api/order', async (req, res) => {
     const view = T.siteProductView(site, it.id);
     if (!view) continue;
     const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
-    const price = D.effectivePrice(view);
-    items.push({ id: view.id, name: view.name, price, qty });
+    let price = D.effectivePrice(view);
+    let name = view.name;
+    const storageLabel = String(it.storage || '').trim();
+    if (storageLabel && Array.isArray(view.storages)) {
+      const s = view.storages.find(x => x.label === storageLabel);
+      if (s) { price += Number(s.add) || 0; name += ' ' + s.label; }
+    }
+    const color = String(it.color || '').trim();
+    if (color && Array.isArray(view.colors) && view.colors.some(c => c.name === color)) name += ', ' + color;
+    items.push({ id: view.id, name, price, qty });
     total += price * qty;
   }
   if (!items.length) return res.json({ ok: false, error: 'Корзина пуста' }, 400);
@@ -152,6 +167,7 @@ app.post('/owner/products', async (req, res) => {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
+    colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
     images: await optimizeUploads(req.filesFor('images'), 1600)
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Товар создан'));
@@ -167,7 +183,8 @@ app.post('/owner/products/:id', async (req, res) => {
   db.updateProduct(p.id, {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
-    hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil), images
+    hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
+    colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages), images
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Сохранено'));
 });
@@ -180,7 +197,10 @@ app.post('/owner/reviews/new', async (req, res) => {
   if (!guardOwner(req, res)) return;
   const p = db.getProduct(req.body.productId); if (!p) return res.redirect('/owner/reviews');
   let createdAt = Date.now(); if (req.body.date) { const t = Date.parse(req.body.date); if (!isNaN(t)) createdAt = t; }
-  db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), status: 'approved', createdAt });
+  const c5 = v => { const n = parseInt(v, 10); return n >= 1 && n <= 5 ? n : null; };
+  const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
+    ? { delivery: c5(req.body.aspect_delivery), service: c5(req.body.aspect_service), price: c5(req.body.aspect_price) } : null;
+  db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'approved', createdAt });
   res.redirect('/owner/reviews?flash=' + encodeURIComponent('Отзыв опубликован'));
 });
 app.post('/owner/reviews/:id/approve', (req, res) => { if (!guardOwner(req, res)) return; db.setReviewStatus(req.params.id, 'approved'); res.redirect('/owner/reviews?status=pending&flash=' + encodeURIComponent('Отзыв опубликован')); });

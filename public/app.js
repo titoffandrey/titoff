@@ -17,9 +17,11 @@
     items: [],
     load: function () { try { this.items = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { this.items = []; } },
     save: function () { localStorage.setItem(KEY, JSON.stringify(this.items)); this.updateBadge(); },
-    add: function (id, name, price, qty) {
+    add: function (id, name, price, qty, opts) {
+      opts = opts || {};
       var ex = this.items.find(function (i) { return i.id === id; });
-      if (ex) ex.qty += qty; else this.items.push({ id: id, name: name, price: price, qty: qty });
+      if (ex) { ex.qty += qty; ex.name = name; ex.price = price; ex.storage = opts.storage || ''; ex.color = opts.color || ''; }
+      else this.items.push({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '' });
       this.save(); this.render();
       toast(name + ' — в корзине');
     },
@@ -152,7 +154,7 @@
             var box = document.querySelector('[data-qty] .qty-input');
             if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
           }
-          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty);
+          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color });
         }
         return;
       }
@@ -193,18 +195,70 @@
       });
     }
 
-    // Ввод рейтинга (звёзды) в форме отзыва
-    var rate = document.getElementById('rate-input');
-    if (rate) {
-      var hidden = document.getElementById('rating-value');
+    // Ввод рейтинга (звёзды): общая оценка + аспекты (доставка/сервис/цена)
+    document.querySelectorAll('.rate-input').forEach(function (rate) {
+      var hidden = rate.parentNode.querySelector('input[type="hidden"]');
       function paint(v) { rate.querySelectorAll('.rate-star').forEach(function (s) { s.classList.toggle('on', Number(s.dataset.v) <= v); }); }
-      paint(5);
+      paint(Number(hidden ? hidden.value : 5) || 5);
       rate.addEventListener('click', function (e) {
         var s = e.target.closest('.rate-star'); if (!s) return;
-        var v = Number(s.dataset.v); hidden.value = v; paint(v);
+        var v = Number(s.dataset.v); if (hidden) hidden.value = v; rate.dataset.value = v; paint(v);
       });
       rate.addEventListener('mouseover', function (e) { var s = e.target.closest('.rate-star'); if (s) paint(Number(s.dataset.v)); });
-      rate.addEventListener('mouseleave', function () { paint(Number(hidden.value)); });
+      rate.addEventListener('mouseleave', function () { paint(Number(hidden ? hidden.value : rate.dataset.value) || 5); });
+    });
+
+    // Выбор варианта (цвет + память) на странице товара
+    var addBtn = document.querySelector('.add-to-cart[data-qty-source]');
+    if (addBtn && (document.getElementById('colors') || document.getElementById('storages'))) {
+      var basePrice = Number(addBtn.dataset.basePrice) || 0;
+      var baseName = addBtn.dataset.baseName || '';
+      var vstate = { color: '', storageLabel: '', storageAdd: 0 };
+      var fc = document.querySelector('#colors .swatch'); if (fc) vstate.color = fc.dataset.color;
+      var fs = document.querySelector('#storages .storage-opt'); if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
+      function applyVariant() {
+        var total = basePrice + vstate.storageAdd;
+        var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
+        addBtn.dataset.price = total;
+        addBtn.dataset.name = baseName + (vstate.storageLabel ? ' ' + vstate.storageLabel : '') + (vstate.color ? ', ' + vstate.color : '');
+        addBtn.dataset.storage = vstate.storageLabel;
+        addBtn.dataset.color = vstate.color;
+      }
+      var colorsEl = document.getElementById('colors');
+      if (colorsEl) colorsEl.addEventListener('click', function (e) {
+        var sw = e.target.closest('.swatch'); if (!sw) return;
+        colorsEl.querySelectorAll('.swatch').forEach(function (x) { x.classList.remove('active'); });
+        sw.classList.add('active'); vstate.color = sw.dataset.color;
+        var sc = document.getElementById('sel-color'); if (sc) sc.textContent = sw.dataset.color;
+        applyVariant();
+      });
+      var storagesEl = document.getElementById('storages');
+      if (storagesEl) storagesEl.addEventListener('click', function (e) {
+        var so = e.target.closest('.storage-opt'); if (!so) return;
+        storagesEl.querySelectorAll('.storage-opt').forEach(function (x) { x.classList.remove('active'); });
+        so.classList.add('active'); vstate.storageLabel = so.dataset.label; vstate.storageAdd = Number(so.dataset.add) || 0;
+        applyVariant();
+      });
+      applyVariant();
+    }
+
+    // Сортировка отзывов
+    var revList = document.getElementById('reviews-list');
+    var toolbar = document.querySelector('.reviews-toolbar');
+    if (revList && toolbar) {
+      toolbar.addEventListener('click', function (e) {
+        var b = e.target.closest('.sort-btn'); if (!b) return;
+        toolbar.querySelectorAll('.sort-btn').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        var mode = b.dataset.sort;
+        var arts = Array.prototype.slice.call(revList.querySelectorAll('.review'));
+        arts.sort(function (a, z) {
+          if (mode === 'new') return Number(z.dataset.ts) - Number(a.dataset.ts);
+          var d = Number(z.dataset.rating) - Number(a.dataset.rating); if (d) return d;
+          return Number(z.dataset.len) - Number(a.dataset.len);
+        });
+        arts.forEach(function (a) { revList.appendChild(a); });
+      });
     }
 
     // Отправка отзыва
@@ -240,7 +294,7 @@
     if (!contact.trim()) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Укажите контакт для связи'; } return; }
     btn.disabled = true; btn.textContent = 'Отправляем...';
     var payload = {
-      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty }; }),
+      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '' }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
       contact: contact,
       comment: (document.getElementById('co-comment') || {}).value || ''
