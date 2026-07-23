@@ -50,7 +50,7 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 /* ===== Шапка ===== */
 .site-header{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--border)}
 .header-row{display:flex;align-items:center;gap:12px;height:56px}
-.logo{font-size:20px;font-weight:600;letter-spacing:-.02em;margin-right:auto}
+.logo{font-size:23px;font-weight:600;letter-spacing:-.02em;margin-right:auto}
 .icon-btn{background:none;border:none;color:var(--text);padding:6px;cursor:pointer;display:inline-flex;position:relative;border-radius:10px}
 .icon-btn:hover{background:var(--bg2)}
 .menu-toggle{display:none}
@@ -270,8 +270,10 @@ body.admin{background:var(--bg2)}
 .a-actions > *:last-child{margin-right:0}
 .a-actions form{margin:0 6px 4px 0}
 /* контурные кнопки-действия в едином стиле с «Удалить» (нейтральная обводка), нормального размера */
-.a-actions .btn{background:transparent;border:1px solid var(--border);color:var(--text);font-weight:500;border-radius:10px;padding:9px 16px;font-size:14px;min-width:96px}
+.a-actions .btn{background:transparent;border:1px solid var(--border);color:var(--text);font-weight:500;border-radius:10px;padding:9px 16px;font-size:14px;min-width:130px;justify-content:center;transition:background .15s,border-color .15s,transform .06s}
 .a-actions .btn:hover{background:#f2f2f4;border-color:#c7c7cc}
+/* статус-пилюля выровнена по ширине с кнопками, чтобы «Удалить» стояли в одну колонку */
+.a-actions .pill{min-width:130px;justify-content:center}
 .a-actions .btn-danger{background:transparent;border:1px solid #ecd0d2;color:#d70015}
 .a-actions .btn-danger:hover{background:#fdf3f3;border-color:#e6b8bb}
 .pill{display:inline-flex;align-items:center;font-size:14px;font-weight:500;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--muted);line-height:1.2}
@@ -353,7 +355,10 @@ body.admin{background:var(--bg2)}
 .logo{font-family:var(--brand-font)}
 .hero h1{font-family:var(--brand-font)}
 .logo-txt{display:inline-block}
-.logo-accent{color:var(--secondary)}
+/* Акцентная буква логотипа медленно проворачивается (лёгкая GPU-анимация, без нагрузки) */
+.logo-accent{color:var(--secondary);display:inline-block;transform-origin:50% 55%;animation:logoSpin 5s ease-in-out infinite;will-change:transform}
+@keyframes logoSpin{0%,14%{transform:rotate(0)}62%,100%{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.logo-accent{animation:none}}
 .logo-img{height:34px;width:auto;max-width:200px;display:block;object-fit:contain}
 .logo-chip{display:inline-flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg2)}
 .logo-chip img{height:40px;max-width:160px;object-fit:contain;background:#fff;border-radius:6px}
@@ -401,10 +406,11 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .old-price{font-size:13px}
 .card-add .btn{border-radius:13px;font-weight:600;padding:11px 12px}
 
-/* кнопки */
+/* кнопки — без свечения, аккуратный hover (лёгкий подъём + мягкая нейтральная тень) и press */
 .btn{letter-spacing:-.01em;font-weight:600}
-.btn-primary{box-shadow:0 6px 18px rgba(0,113,227,.26)}
-.btn-primary:active{box-shadow:0 2px 8px rgba(0,113,227,.3)}
+.btn-primary{box-shadow:none}
+.btn-primary:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.14)}
+.btn-primary:active{transform:translateY(0) scale(.98);filter:brightness(.98);box-shadow:none}
 
 /* деталь товара */
 .product-name{letter-spacing:-.03em}
@@ -569,3 +575,20 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   .nav-cat{font-size:14px;padding:9px 12px}
   .nav-cat.active::after{left:12px;right:12px}
 }
+
+/* ===== Кнопки «В корзину / Оформить заказ» — премиальный вид ===== */
+.add-to-cart{position:relative;overflow:hidden;border-radius:14px;
+  background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.06));
+  transition:transform .14s cubic-bezier(.2,.8,.2,1),filter .18s,box-shadow .22s,background-color .2s}
+.card-add .add-to-cart{border-radius:14px}
+.add-to-cart:hover{transform:translateY(-1px);filter:brightness(1.05);box-shadow:0 8px 20px rgba(0,0,0,.14)}
+.add-to-cart:active{transform:translateY(0) scale(.98);box-shadow:0 3px 10px rgba(0,0,0,.12)}
+/* лёгкий блик по кнопке при наведении */
+.add-to-cart::after{content:"";position:absolute;top:0;left:-75%;width:45%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);
+  transform:skewX(-18deg);pointer-events:none;opacity:0}
+.add-to-cart:hover::after{animation:btnSheen .75s ease}
+@keyframes btnSheen{0%{left:-75%;opacity:.9}100%{left:130%;opacity:0}}
+.add-to-cart.in-cart{background-color:#1a7f37;background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.08))}
+.add-to-cart.in-cart:hover{background-color:#17863a}
+@media(prefers-reduced-motion:reduce){.add-to-cart:hover::after{animation:none}}
