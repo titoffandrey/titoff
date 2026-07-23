@@ -47,20 +47,63 @@ const IPADAIR = [
 ];
 
 const products = [
-  /* ===================== iPhone ===================== */
+  /* ===================== iPhone 17 ===================== */
+  {
+    id: 'iphone-17-pro-max', name: 'iPhone 17 Pro Max', category: 'iPhone',
+    price: 144990, oldPrice: 154990, badge: 'Хит', inStock: true,
+    shortDesc: 'A19 Pro, три камеры 48 Мп, экран 6.9".',
+    description: 'Флагман линейки 17. Чип A19 Pro, все три камеры по 48 Мп с 4-кратным оптическим зумом, дисплей 6.9" яркостью до 3000 нит. Единственная модель с версией 2 ТБ.',
+    specs: 'Экран: 6.9" OLED ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro\nКамеры: 48 Мп + 48 Мп СШУ + 48 Мп теле 4×\nМатериал: алюминий\nРазъём: USB-C 3',
+    colors: [{ name: 'Космический оранжевый', hex: '#c75b2a' }, { name: 'Глубокий синий', hex: '#2e3f5c' }, { name: 'Серебристый', hex: '#e3e4e6' }],
+    storages: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }, { label: '2 ТБ', add: 60000 }],
+    hotDeal: true, hotDealPrice: 134990, hotDealUntil: now + 3 * DAY,
+    images: [], createdAt: now - 0.3 * DAY
+  },
+  {
+    id: 'iphone-17-pro', name: 'iPhone 17 Pro', category: 'iPhone',
+    price: 119990, oldPrice: 129990, badge: 'Новинка', inStock: true,
+    shortDesc: 'A19 Pro, зум 4×, компактный флагман.',
+    description: 'Компактный флагман: чип A19 Pro, три камеры 48 Мп, дисплей ProMotion 6.3" и улучшенное охлаждение в алюминиевом корпусе.',
+    specs: 'Экран: 6.3" OLED ProMotion 120 Гц\nЧип: A19 Pro\nКамеры: 48 Мп + 48 Мп СШУ + 48 Мп теле 4×\nМатериал: алюминий\nРазъём: USB-C 3',
+    colors: [{ name: 'Космический оранжевый', hex: '#c75b2a' }, { name: 'Глубокий синий', hex: '#2e3f5c' }, { name: 'Серебристый', hex: '#e3e4e6' }],
+    storages: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }],
+    images: [], createdAt: now - 0.4 * DAY
+  },
+  {
+    id: 'iphone-air', name: 'iPhone Air', category: 'iPhone',
+    price: 104990, oldPrice: null, badge: 'Новинка', inStock: true,
+    shortDesc: 'Тоньше всех: 5.6 мм, экран 6.5".',
+    description: 'Самый тонкий iPhone в истории — около 5.6 мм и рекордно лёгкий. Дисплей ProMotion 6.5", чип A19 Pro и камера 48 Мп в титановой рамке.',
+    specs: 'Экран: 6.5" OLED ProMotion 120 Гц\nЧип: A19 Pro\nКамера: 48 Мп\nТолщина: ~5.6 мм\nМатериал: титановая рамка\nРазъём: USB-C',
+    colors: [{ name: 'Космический чёрный', hex: '#35353a' }, { name: 'Облачно-белый', hex: '#f2f1ec' }, { name: 'Светлое золото', hex: '#e6d6b8' }, { name: 'Небесно-голубой', hex: '#c3d3e2' }],
+    storages: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }],
+    images: [], createdAt: now - 0.5 * DAY
+  },
+  {
+    id: 'iphone-17', name: 'iPhone 17', category: 'iPhone',
+    price: 89990, oldPrice: 94990, badge: '', inStock: true,
+    shortDesc: 'A19, ProMotion наконец в базовой модели.',
+    description: 'Базовая модель линейки 17 впервые получила дисплей ProMotion 120 Гц. Чип A19, камера 48 Мп и фронталка Center Stage 18 Мп.',
+    specs: 'Экран: 6.3" OLED ProMotion 120 Гц\nЧип: A19\nКамера: 48 Мп + 12 Мп СШУ\nФронталка: 18 Мп Center Stage\nРазъём: USB-C',
+    colors: [{ name: 'Чёрный', hex: '#1f2020' }, { name: 'Белый', hex: '#f5f5f0' }, { name: 'Лавандовый', hex: '#d4c8e0' }, { name: 'Шалфей', hex: '#b8c4ae' }, { name: 'Туманно-голубой', hex: '#b9c7d6' }],
+    storages: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }],
+    images: [], createdAt: now - 0.6 * DAY
+  },
+
+  /* ===================== iPhone 16 и старше ===================== */
   {
     id: 'iphone-16-pro-max', name: 'iPhone 16 Pro Max', category: 'iPhone',
-    price: 139990, oldPrice: 149990, badge: 'Хит', inStock: true,
+    price: 114990, oldPrice: 139990, badge: 'Выгодно', inStock: true,
     shortDesc: 'Титан, A18 Pro, камера 48 Мп, экран 6.9".',
     description: 'Самый большой и мощный iPhone. Титановый корпус, чип A18 Pro, система камер Pro 48 Мп с 5-кратным зумом и кнопка Camera Control.',
     specs: 'Экран: 6.9" OLED ProMotion 120 Гц\nЧип: A18 Pro\nОсновная камера: 48 Мп + 48 Мп СШУ + 12 Мп теле 5×\nМатериал: титан\nРазъём: USB-C 3\nАвтономность: до 33 ч видео',
     colors: TITAN, storages: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 15000 }, { label: '1 ТБ', add: 35000 }],
-    hotDeal: true, hotDealPrice: 129990, hotDealUntil: now + 3 * DAY,
+    hotDeal: true, hotDealPrice: 107990, hotDealUntil: now + 3 * DAY,
     images: [], createdAt: now - 1 * DAY
   },
   {
     id: 'iphone-16-pro', name: 'iPhone 16 Pro', category: 'iPhone',
-    price: 119990, oldPrice: 129990, badge: 'Хит', inStock: true,
+    price: 94990, oldPrice: 119990, badge: 'Выгодно', inStock: true,
     shortDesc: 'Титан, A18 Pro, кнопка Camera Control.',
     description: 'Флагман в компактном титановом корпусе. Чип A18 Pro, камера 48 Мп с 5-кратным зумом, дисплей ProMotion 120 Гц и кнопка Camera Control.',
     specs: 'Экран: 6.3" OLED ProMotion 120 Гц\nЧип: A18 Pro\nОсновная камера: 48 Мп + 48 Мп СШУ + 12 Мп теле\nМатериал: титан\nРазъём: USB-C 3',
@@ -69,7 +112,7 @@ const products = [
   },
   {
     id: 'iphone-16-plus', name: 'iPhone 16 Plus', category: 'iPhone',
-    price: 99990, oldPrice: null, badge: '', inStock: true,
+    price: 79990, oldPrice: 99990, badge: '', inStock: true,
     shortDesc: 'Большой экран 6.7", A18, Camera Control.',
     description: 'Большой дисплей, чип A18, обновлённая камера Fusion 48 Мп, кнопка Camera Control и увеличенная автономность.',
     specs: 'Экран: 6.7" OLED\nЧип: A18\nКамера: 48 Мп + 12 Мп СШУ\nРазъём: USB-C\nАвтономность: до 27 ч видео',
@@ -78,7 +121,7 @@ const products = [
   },
   {
     id: 'iphone-16', name: 'iPhone 16', category: 'iPhone',
-    price: 84990, oldPrice: 89990, badge: '', inStock: true,
+    price: 69990, oldPrice: 84990, badge: '', inStock: true,
     shortDesc: 'A18, Camera Control, 5 цветов.',
     description: 'Чип A18, камера Fusion 48 Мп, кнопка Camera Control и кнопка «Действие». Пять ярких цветов корпуса.',
     specs: 'Экран: 6.1" OLED\nЧип: A18\nКамера: 48 Мп + 12 Мп СШУ\nРазъём: USB-C\nКнопки: Действие, Camera Control',
@@ -87,7 +130,7 @@ const products = [
   },
   {
     id: 'iphone-16e', name: 'iPhone 16e', category: 'iPhone',
-    price: 59990, oldPrice: null, badge: 'Выгодно', inStock: true,
+    price: 54990, oldPrice: null, badge: 'Выгодно', inStock: true,
     shortDesc: 'A18, доступный флагманский чип.',
     description: 'Доступный iPhone с флагманским чипом A18, камерой 48 Мп и рекордной автономностью. Два лаконичных цвета.',
     specs: 'Экран: 6.1" OLED\nЧип: A18\nКамера: 48 Мп\nРазъём: USB-C\nАвтономность: до 26 ч видео',
@@ -97,17 +140,17 @@ const products = [
   },
   {
     id: 'iphone-15', name: 'iPhone 15', category: 'iPhone',
-    price: 74990, oldPrice: 84990, badge: '', inStock: true,
+    price: 62990, oldPrice: 74990, badge: '', inStock: true,
     shortDesc: 'Dynamic Island, камера 48 Мп, USB-C.',
     description: 'Динамический остров, чип A16 Bionic, основная камера 48 Мп и разъём USB-C. Отличный выбор по сниженной цене.',
     specs: 'Экран: 6.1" OLED\nЧип: A16 Bionic\nКамера: 48 Мп + 12 Мп СШУ\nРазъём: USB-C',
     colors: IP15, storages: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 8000 }, { label: '512 ГБ', add: 18000 }],
-    hotDeal: true, hotDealPrice: 66990, hotDealUntil: now + 4 * DAY,
+    hotDeal: true, hotDealPrice: 57990, hotDealUntil: now + 4 * DAY,
     images: [], createdAt: now - 6 * DAY
   },
   {
     id: 'iphone-14', name: 'iPhone 14', category: 'iPhone',
-    price: 59990, oldPrice: null, badge: '', inStock: true,
+    price: 46990, oldPrice: null, badge: '', inStock: true,
     shortDesc: 'Надёжный выбор по доступной цене.',
     description: 'Проверенный временем iPhone: чип A15 Bionic, двойная камера и до 20 часов воспроизведения видео.',
     specs: 'Экран: 6.1" OLED\nЧип: A15 Bionic\nКамера: 12 Мп + 12 Мп\nРазъём: Lightning',
@@ -311,6 +354,10 @@ const products = [
 
 // Демо-отзывы. Аспекты: delivery (доставка), service (обслуживание), price (цена/качество), 1–5.
 const reviews = [
+  { id: 'r16', productId: 'iphone-17-pro-max', author: 'Владимир', rating: 5, text: 'Оранжевый цвет вживую смотрится дорого. Зум 4× на все 48 Мп — фото ночью заметно лучше, чем на 15 Pro. Доставили за день.', aspects: { delivery: 5, service: 5, price: 4 }, photos: [], status: 'approved', createdAt: now - 1 * DAY },
+  { id: 'r17', productId: 'iphone-17-pro-max', author: 'Анна С.', rating: 4, text: 'Телефон супер, но ждала неделю нужный цвет — на складе был только серебристый. Менеджер честно предупредил о сроках.', aspects: { delivery: 3, service: 5, price: 4 }, photos: [], status: 'approved', createdAt: now - 3 * DAY },
+  { id: 'r18', productId: 'iphone-air', author: 'Кирилл', rating: 5, text: 'Он реально невесомый, в кармане не чувствуется. Батареи хватает на день при моём сценарии. Цена приятнее, чем у Pro.', aspects: { delivery: 5, service: 4, price: 5 }, photos: [], status: 'approved', createdAt: now - 2 * DAY },
+  { id: 'r19', productId: 'iphone-17', author: 'Светлана', rating: 5, text: 'Наконец 120 Гц в обычной модели! Взяла лавандовый, очень довольна. Оформили быстро, привезли вовремя.', aspects: { delivery: 5, service: 5, price: 5 }, photos: [], status: 'approved', createdAt: now - 4 * DAY },
   { id: 'r1', productId: 'iphone-16-pro-max', author: 'Алексей М.', rating: 5, text: 'Титан реально приятнее в руке. Камера с 5-кратным зумом огонь, батарея держит весь день. Привезли на следующий день.', aspects: { delivery: 5, service: 5, price: 4 }, photos: [], status: 'approved', createdAt: now - 2 * DAY },
   { id: 'r2', productId: 'iphone-16-pro-max', author: 'Ирина В.', rating: 4, text: 'Телефон отличный, всё честно и запечатано. Немного ждала доставку из-за нужного цвета, но менеджер держал в курсе.', aspects: { delivery: 3, service: 5, price: 4 }, photos: [], status: 'approved', createdAt: now - 5 * DAY },
   { id: 'r3', productId: 'iphone-16-pro', author: 'Дмитрий', rating: 5, text: 'Взял на 256, кнопка Camera Control удобная. Консультант помог выбрать между Pro и Pro Max, спасибо.', aspects: { delivery: 5, service: 5, price: 5 }, photos: [], status: 'approved', createdAt: now - 4 * DAY },
