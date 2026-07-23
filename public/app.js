@@ -85,7 +85,7 @@
   // Кнопка «в корзину» как переключатель: показывает статус в зависимости от корзины.
   function setBtnState(btn, inCart) {
     if (!btn.dataset.label) btn.dataset.label = btn.textContent.trim();
-    if (inCart) { btn.classList.add('in-cart'); btn.textContent = '✓ В корзине'; }
+    if (inCart) { btn.classList.add('in-cart'); btn.textContent = 'Оформить заказ'; }
     else { btn.classList.remove('in-cart'); btn.textContent = btn.dataset.label; }
   }
   function syncCartButtons() {
@@ -94,6 +94,14 @@
       if (btns[i].disabled) continue;
       setBtnState(btns[i], Cart.has(btns[i].dataset.id));
     }
+  }
+  // Товар уже в корзине → открыть корзину и сразу перейти к оформлению
+  function goToCheckout() {
+    Cart.open();
+    var fields = document.getElementById('checkout-fields');
+    if (fields) fields.classList.add('show');
+    var btn = document.getElementById('checkout-btn');
+    if (btn) { try { btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
   }
 
   var toastTimer;
@@ -145,9 +153,8 @@
         if (btn.disabled) return;
         var id = btn.dataset.id;
         if (Cart.has(id)) {
-          // повторное нажатие — убрать из корзины, кнопка вернётся в исходный вид
-          Cart.remove(id);
-          toast('Убрано из корзины');
+          // товар уже в корзине — ведём к оформлению (удалить можно внутри корзины)
+          goToCheckout();
         } else {
           var qty = 1;
           if (btn.hasAttribute('data-qty-source')) {

@@ -170,7 +170,7 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .foot-tg .tg-link{display:inline-flex;align-items:center;gap:9px;color:var(--tg);font-weight:600;font-size:18px;line-height:1}
 .foot-tg .tg-link:hover{color:var(--tg-dark)}
 .foot-tg .tg-link .tg-ico{width:24px;height:24px;flex:none}
-.tg-header{display:inline-flex;align-items:center;gap:7px;background:var(--tg);color:#fff;padding:9px 15px;border-radius:980px;font-weight:600;font-size:14.5px;line-height:1;white-space:nowrap;box-shadow:0 4px 14px rgba(34,158,217,.35);transition:filter .15s,transform .06s}
+.tg-header{display:inline-flex;align-items:center;gap:7px;background:var(--tg);color:#fff;padding:9px 15px;border-radius:980px;font-weight:600;font-size:14.5px;line-height:1;white-space:nowrap;transition:filter .15s,transform .06s}
 .tg-header:hover{filter:brightness(1.06)}
 .tg-header:active{transform:scale(.96)}
 .tg-header .tg-ico{width:18px;height:18px;flex:none}
@@ -436,8 +436,8 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 }
 
 /* кнопка-переключатель «в корзине» */
-.add-to-cart.in-cart{background:#e9f7ee;color:#137a37;border:1px solid #b7e0c4;box-shadow:none}
-.add-to-cart.in-cart:hover{background:#ddf2e4}
+.add-to-cart.in-cart{background:#1a7f37;color:#fff;border:1px solid #1a7f37;box-shadow:none}
+.add-to-cart.in-cart:hover{background:#16702f;border-color:#16702f}
 .add-to-cart.in-cart:active{transform:scale(.98)}
 
 /* ===== Варианты товара (цвет + память) ===== */
@@ -550,4 +550,22 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 @media(max-width:560px){
   .g-arrow{width:32px;height:32px}
   .g-prev{left:8px}.g-next{right:8px}
+}
+
+/* ===== Меню категорий — минималистичные текст-табы с акцентным индикатором =====
+   Заменяет прежние «пилюли»: без заливки, без обводки, только текст + тонкая
+   акцентная черта под активным разделом. Один общий разделитель — низ шапки. */
+.site-nav{border-top:none;background:transparent}
+.nav-inner{display:flex;gap:2px;overflow-x:auto;padding:3px 16px 7px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.nav-inner::-webkit-scrollbar{display:none}
+.nav-cat{position:relative;background:none;border:none;border-radius:0;color:var(--muted);font-weight:500;font-size:14px;letter-spacing:-.01em;padding:9px 13px;white-space:nowrap;transition:color .18s ease}
+.nav-cat:hover{background:none;color:var(--text)}
+.nav-cat.active{background:none;color:var(--text);font-weight:600}
+.nav-cat.active::after{content:"";position:absolute;left:13px;right:13px;bottom:1px;height:2px;border-radius:2px;background:var(--accent)}
+@media(max-width:720px){
+  .site-nav{position:static;transform:none;border-top:none;background:transparent}
+  body.nav-open .site-nav{transform:none}
+  .nav-inner{flex-wrap:nowrap;overflow-x:auto;padding:3px 12px 7px;gap:0}
+  .nav-cat{font-size:14px;padding:9px 12px}
+  .nav-cat.active::after{left:12px;right:12px}
 }
