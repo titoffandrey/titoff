@@ -403,6 +403,9 @@ const sites = [
   }
 ];
 
+// Актуальные новинки Apple (2025–2026), общий модуль с add-novinki.js
+products.push(...require('./new-products'));
+
 module.exports = {
   settings: {
     storeName: 'iStore',
