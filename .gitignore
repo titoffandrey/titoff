@@ -1,0 +1,8 @@
+node_modules/
+data/
+npm-debug.log*
+.DS_Store
+
+# служебное
+.DS_Store
+*.log
