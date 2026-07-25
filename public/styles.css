@@ -651,6 +651,8 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .spec-ico{flex:none;width:35px;height:35px;display:flex;align-items:center;justify-content:center;color:var(--text)}
 .spec-ico svg{width:35px;height:35px;max-height:35px;fill:currentColor;stroke:none}
 .spec-ico svg [fill="none"]{fill:none}
+/* глифы, нарисованные обводкой (shield, water) — заливать их нельзя */
+.spec-ico svg[stroke]{fill:none;stroke:currentColor}
 .spec-txt{font-size:17px;line-height:1.4705;letter-spacing:-.022em;color:var(--text);font-weight:400;padding-top:4px}
 .spec-key{font-weight:600}
 @media(max-width:734px){

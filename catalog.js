@@ -117,7 +117,7 @@ const products = [
     price: 89990, oldPrice: 104990, badge: 'Хит', inStock: true,
     shortDesc: 'A19 Pro, три камеры 48 Мп, 6.9", до 39 ч видео.',
     description: 'Самый мощный iPhone. Чип A19 Pro с 6-ядерным GPU и паровой камерой охлаждения, три камеры по 48 Мп с 8-кратным оптическим зумом и рекордная автономность — до 39 часов видео. Цельный корпус из кованого алюминия, Ceramic Shield 2 спереди и Ceramic Shield сзади.',
-    specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 39 ч видео\nПамять: от 256 ГБ до 2 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7',
+    specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 39 ч видео\nПамять: от 256 ГБ до 2 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_17_PRO, storages: ST.ph256max,
     hotDeal: true, hotDealPrice: 84990, hotDealUntil: now + 4 * DAY,
     images: [], createdAt: now - 0.2 * DAY
@@ -127,7 +127,7 @@ const products = [
     price: 82990, oldPrice: 94990, badge: '', inStock: true,
     shortDesc: 'A19 Pro, три камеры 48 Мп, 6.3".',
     description: 'Вся мощь Pro в компактном корпусе 6.3". Чип A19 Pro, тройная система камер 48 Мп с оптическим зумом 8×, до 33 часов видео и корпус из кованого алюминия.',
-    specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 33 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7',
+    specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 33 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_17_PRO, storages: ST.ph256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.3 * DAY
@@ -137,7 +137,7 @@ const products = [
     price: 79990, oldPrice: 0, badge: 'Новинка', inStock: true,
     shortDesc: 'Самый тонкий iPhone: A19 Pro, титан, 6.5".',
     description: 'Самый тонкий iPhone в истории — и при этом с производительностью Pro. Титановый корпус, чип A19 Pro, камера 48 Мп Fusion и фронтальная камера Center Stage 18 Мп.',
-    specs: 'Экран: 6.5" Super Retina XDR, ProMotion 120 Гц\nЧип: A19 Pro\nКамера: 48 Мп Fusion\nФронталка: 18 Мп Center Stage\nАвтономность: до 27 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield 2\nЗащита: IP68\nТолщина: 5.6 мм\nРазъём: USB-C\nСвязь: 5G, eSIM',
+    specs: 'Экран: 6.5" Super Retina XDR, ProMotion 120 Гц\nЧип: A19 Pro\nКамера: 48 Мп Fusion Main, зум 2×\nФронталка: 18 Мп Center Stage\nАвтономность: до 27 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield 2\nЗащита: IP68\nТолщина: 5.6 мм\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, eSIM\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_AIR, storages: ST.ph256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.4 * DAY
@@ -147,7 +147,7 @@ const products = [
     price: 67990, oldPrice: 74990, badge: 'Выбор покупателей', inStock: true,
     shortDesc: 'A19, ProMotion 120 Гц, две камеры 48 Мп.',
     description: 'Впервые в базовой модели — ProMotion 120 Гц и стартовая память 256 ГБ. Чип A19, две камеры по 48 Мп, до 30 часов видео и Ceramic Shield 2 с втрое лучшей стойкостью к царапинам.',
-    specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц\nЧип: A19, 5-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ\nФронталка: 18 Мп Center Stage\nАвтономность: до 30 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7',
+    specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц\nЧип: A19, 5-ядерный GPU\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ\nФронталка: 18 Мп Center Stage\nАвтономность: до 30 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_17, storages: ST.ph256s,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.5 * DAY
@@ -157,7 +157,7 @@ const products = [
     price: 54990, oldPrice: 59990, badge: 'Новинка', inStock: true,
     shortDesc: 'A19, камера 48 Мп, 6.1" — доступный iPhone.',
     description: 'Максимум возможностей за минимальные деньги: чип A19 с поддержкой Apple Intelligence, камера 48 Мп Fusion с 2-кратным оптическим зумом, кнопка «Действие» и стартовая память 256 ГБ.',
-    specs: 'Экран: 6.1" Super Retina XDR\nЧип: A19\nКамера: 48 Мп Fusion, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C\nСвязь: 5G',
+    specs: 'Экран: 6.1" Super Retina XDR\nЧип: A19\nКамера: 48 Мп Fusion Main, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C\nСвязь: 5G\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_17E, storages: ST.ph256s,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.6 * DAY
@@ -167,7 +167,7 @@ const products = [
     price: 57990, oldPrice: 64990, badge: '', inStock: true,
     shortDesc: 'A18, две камеры, пять цветов.',
     description: 'Проверенный флагман прошлого поколения по сниженной цене. Чип A18 с поддержкой Apple Intelligence, камера 48 Мп Fusion, кнопка Camera Control и прочный корпус из алюминия.',
-    specs: 'Экран: 6.1" Super Retina XDR\nЧип: A18\nКамеры: 48 Мп Fusion + 12 Мп СШУ\nФронталка: 12 Мп TrueDepth\nАвтономность: до 22 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие, Camera Control\nРазъём: USB-C',
+    specs: 'Экран: 6.1" Super Retina XDR\nЧип: A18\nКамеры: 48 Мп Fusion + 12 Мп СШУ\nФронталка: 12 Мп TrueDepth\nАвтономность: до 22 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_16, storages: ST.ph128,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1 * DAY
@@ -179,7 +179,7 @@ const products = [
     price: 69990, oldPrice: 0, badge: 'Новинка', inStock: true,
     shortDesc: 'Самый доступный MacBook: 13", лёгкий, четыре цвета.',
     description: 'Магия Mac по удивительной цене. Лёгкий 13-дюймовый ноутбук в четырёх ярких цветах, тоньше половины дюйма, с поддержкой Apple Intelligence и целым днём автономной работы.',
-    specs: 'Экран: 13.3" Liquid Retina\nЧип: Apple silicon с нейронным движком\nОЗУ: 16 ГБ\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.2 кг\nПорты: 2× USB-C, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: стереодинамики, 3 микрофона\nКлавиатура: Magic Keyboard с Touch ID',
+    specs: 'Экран: 13.3" Liquid Retina\nЧип: Apple silicon с нейронным движком\nОЗУ: 16 ГБ\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.2 кг\nПорты: 2× USB-C, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: стереодинамики, 3 микрофона\nКлавиатура: Magic Keyboard с Touch ID\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_NEO, storages: ST.mac256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.7 * DAY
@@ -189,7 +189,7 @@ const products = [
     price: 119990, oldPrice: 129990, badge: 'Хит', inStock: true,
     shortDesc: 'M5, 13.6", до 18 часов работы, 1.24 кг.',
     description: 'Тонкий, быстрый, мощный и портативный. Чип M5 с 10-ядерным CPU, безвентиляторная конструкция, до 18 часов автономной работы и вес всего 1.24 кг.',
-    specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6',
+    specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_AIR, storages: ST.mac256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.8 * DAY
@@ -199,7 +199,7 @@ const products = [
     price: 139990, oldPrice: 149990, badge: '', inStock: true,
     shortDesc: 'M5, большой экран 15.3", шесть динамиков.',
     description: 'Всё то же, что в 13-дюймовом Air, но с большим экраном 15.3" и системой из шести динамиков. Идеально, когда нужен простор для работы и кино.',
-    specs: 'Экран: 15.3" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.51 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6',
+    specs: 'Экран: 15.3" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.51 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_AIR, storages: ST.mac256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.9 * DAY
@@ -209,7 +209,7 @@ const products = [
     price: 189990, oldPrice: 209990, badge: '', inStock: true,
     shortDesc: 'M5 / M5 Pro / M5 Max, Liquid Retina XDR 120 Гц.',
     description: 'Самый продвинутый ноутбук Mac для требовательных задач. Чипы M5, M5 Pro или M5 Max, дисплей Liquid Retina XDR с ProMotion 120 Гц, Thunderbolt 5 и до 24 часов автономной работы.',
-    specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6',
+    specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_PRO, storages: ST.mac512,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.1 * DAY
@@ -219,7 +219,7 @@ const products = [
     price: 279990, oldPrice: 299990, badge: '', inStock: true,
     shortDesc: 'M5 Pro / M5 Max, 16.2" XDR, до 26 часов.',
     description: 'Максимальный экран и максимальная производительность. Чипы M5 Pro и M5 Max, до 128 ГБ объединённой памяти, четыре порта Thunderbolt 5 и самая долгая автономность среди ноутбуков Mac.',
-    specs: 'Экран: 16.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 Pro (до M5 Max)\nОЗУ: 24 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 26 ч\nВес: 2.14 кг\nПорты: 4× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6',
+    specs: 'Экран: 16.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 Pro (до M5 Max)\nОЗУ: 24 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 26 ч\nВес: 2.14 кг\nПорты: 4× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_PRO, storages: ST.mac512,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.2 * DAY
@@ -229,7 +229,7 @@ const products = [
     price: 139990, oldPrice: 0, badge: '', inStock: true,
     shortDesc: 'Моноблок 24" 4.5K, семь цветов, M5.',
     description: 'Моноблок для творчества и работы: дисплей 24" Retina 4.5K, чип M5, камера Center Stage 12 Мп и подобранные в цвет Magic Keyboard и Magic Mouse в комплекте.',
-    specs: 'Экран: 24" Retina 4.5K, 500 нит\nЧип: Apple M5\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nКамера: 12 Мп Center Stage с Desk View\nАудио: 6 динамиков, Spatial Audio\nПорты: 2× Thunderbolt 4, 2× USB-C\nКлавиатура: Magic Keyboard в цвет корпуса\nСвязь: Wi-Fi 7, Bluetooth 6',
+    specs: 'Экран: 24" Retina 4.5K, 500 нит\nЧип: Apple M5\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nКамера: 12 Мп Center Stage с Desk View\nАудио: 6 динамиков, Spatial Audio\nПорты: 2× Thunderbolt 4, 2× USB-C\nКлавиатура: Magic Keyboard в цвет корпуса\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: IMAC, storages: ST.mac256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.3 * DAY
@@ -249,7 +249,7 @@ const products = [
     price: 239990, oldPrice: 0, badge: '', inStock: true,
     shortDesc: 'M5 Max / M3 Ultra, Thunderbolt 5, 10 Гбит Ethernet.',
     description: 'Настольная станция для профессионалов: чипы M5 Max и M3 Ultra, до 512 ГБ объединённой памяти, четыре порта Thunderbolt 5 и Ethernet 10 Гбит/с в компактном корпусе.',
-    specs: 'Чип: Apple M5 Max (опция M3 Ultra)\nОЗУ: 36 ГБ (до 512 ГБ)\nПамять: от 512 ГБ SSD\nПорты: 4× Thunderbolt 5, 2× USB-A, HDMI, SDXC, Ethernet 10 Гбит/с\nРазмер: 19.7 × 19.7 × 9.5 см\nАудио: аудиоразъём для наушников высокого сопротивления\nСвязь: Wi-Fi 7, Bluetooth 6',
+    specs: 'Чип: Apple M5 Max (опция M3 Ultra)\nОЗУ: 36 ГБ (до 512 ГБ)\nПамять: от 512 ГБ SSD\nПорты: 4× Thunderbolt 5, 2× USB-A, HDMI, SDXC, Ethernet 10 Гбит/с\nРазмер: 19.7 × 19.7 × 9.5 см\nАудио: аудиоразъём для наушников высокого сопротивления\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: [C.silver], storages: ST.mac512,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.5 * DAY
@@ -281,7 +281,7 @@ const products = [
     price: 134990, oldPrice: 144990, badge: 'Хит', inStock: true,
     shortDesc: 'M5, Ultra Retina XDR OLED 13", Thunderbolt.',
     description: 'Самый мощный iPad. Чип M5, тандемный OLED-дисплей Ultra Retina XDR, толщина корпуса 5.1 мм, Thunderbolt и поддержка Apple Pencil Pro с Magic Keyboard.',
-    specs: 'Экран: 13" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.1 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)',
+    specs: 'Экран: 13" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.1 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_PRO, storages: ST.pad256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.8 * DAY
@@ -291,7 +291,7 @@ const products = [
     price: 104990, oldPrice: 114990, badge: '', inStock: true,
     shortDesc: 'M5, OLED 11", 5.3 мм, Apple Pencil Pro.',
     description: 'Компактный iPad Pro с чипом M5 и тандемным OLED-дисплеем Ultra Retina XDR. Толщина всего 5.3 мм при полной производительности Pro.',
-    specs: 'Экран: 11" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.3 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)',
+    specs: 'Экран: 11" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.3 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_PRO, storages: ST.pad256,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.9 * DAY
@@ -301,7 +301,7 @@ const products = [
     price: 79990, oldPrice: 89990, badge: '', inStock: true,
     shortDesc: 'M4, большой экран 13", четыре цвета.',
     description: 'Серьёзная производительность в тонком и легком корпусе. Чип M4, дисплей Liquid Retina 13", поддержка Apple Pencil Pro и клавиатуры Magic Keyboard.',
-    specs: 'Экран: 13" Liquid Retina, 600 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 618 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)',
+    specs: 'Экран: 13" Liquid Retina, 600 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 618 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_AIR, storages: ST.pad128,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2 * DAY
@@ -311,7 +311,7 @@ const products = [
     price: 59990, oldPrice: 66990, badge: 'Выбор покупателей', inStock: true,
     shortDesc: 'M4, 11", лёгкий и универсальный.',
     description: 'Универсальный iPad для учёбы, работы и творчества: чип M4, дисплей Liquid Retina 11", поддержка Apple Pencil Pro и Apple Intelligence.',
-    specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 460 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)',
+    specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 460 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_AIR, storages: ST.pad128,
     hotDeal: true, hotDealPrice: 55990, hotDealUntil: now + 2 * DAY,
     images: [], createdAt: now - 2.1 * DAY
@@ -331,7 +331,7 @@ const products = [
     price: 49990, oldPrice: 54990, badge: '', inStock: true,
     shortDesc: 'A17 Pro, 8.3" — весь iPad в кармане.',
     description: 'Полноценный iPad в ультрапортативном формате. Чип A17 Pro с поддержкой Apple Intelligence, дисплей 8.3" и поддержка Apple Pencil Pro.',
-    specs: 'Экран: 8.3" Liquid Retina, 500 нит\nЧип: Apple A17 Pro\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 293 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro\nСвязь: Wi-Fi 6E, 5G (опция)',
+    specs: 'Экран: 8.3" Liquid Retina, 500 нит\nЧип: Apple A17 Pro\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 293 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_AIR, storages: ST.pad128,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.3 * DAY
@@ -343,7 +343,7 @@ const products = [
     price: 42990, oldPrice: 47990, badge: 'Хит', inStock: true,
     shortDesc: 'Уведомления о гипертонии, оценка сна, 5G.',
     description: 'Лучший способ следить за здоровьем: уведомления о признаках гипертонии, оценка качества сна, ЭКГ и кислород в крови. Экран в 2 раза устойчивее к царапинам, до 24 часов работы и связь 5G.',
-    specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Retina LTPO3 Always-On, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nДатчики: пульс, ЭКГ, кислород в крови, температура\nЗащита: WR50, IP6X\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C\nПоддержка: Ion-X стекло, ремешки всех размеров',
+    specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
     colors: W_ALU, storages: ST.watch42,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.4 * DAY
@@ -353,7 +353,7 @@ const products = [
     price: 72990, oldPrice: 0, badge: '', inStock: true,
     shortDesc: 'Титановый корпус, сапфировое стекло, 5G.',
     description: 'Series 11 в полированном титановом корпусе с сапфировым стеклом. Все функции здоровья флагманских часов и премиальные материалы в трёх оттенках.',
-    specs: 'Корпус: титан 42 или 46 мм\nЭкран: Retina LTPO3 Always-On, сапфировое стекло\nЧип: S11 SiP\nАвтономность: до 24 ч\nДатчики: пульс, ЭКГ, кислород в крови, температура\nЗащита: WR50, IP6X\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
+    specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, ЭКГ, кислород в крови, температура\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
     colors: W_TITAN, storages: ST.watch42,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.5 * DAY
@@ -363,7 +363,7 @@ const products = [
     price: 89990, oldPrice: 99990, badge: '', inStock: true,
     shortDesc: 'Титан 49 мм, спутник, до 42 часов, WR100.',
     description: 'Часы для спорта и приключений. Титановый корпус 49 мм, самый большой дисплей Apple Watch, спутниковая связь и экстренный вызов SOS, до 42 часов работы и до 72 часов в режиме энергосбережения.',
-    specs: 'Корпус: титан 49 мм\nЭкран: Retina LTPO3 Always-On, до 3000 нит\nЧип: S11 SiP\nАвтономность: до 42 ч (72 ч в экономном режиме)\nСвязь: 5G, спутниковые сообщения, Emergency SOS\nДатчики: пульс, ЭКГ, кислород, температура, глубиномер\nЗащита: WR100, MIL-STD 810H, IP6X\nКнопки: Действие, двойное нажатие\nПоддержка: погружения до 40 м',
+    specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит\nЧип: S11 SiP\nАвтономность: до 42 ч (72 ч в экономном режиме)\nНавигация: двухчастотный GPS\nСвязь: 5G, спутниковые сообщения\nБезопасность: Emergency SOS, сирена 86 дБ\nДатчики: Vitals — пульс, ЭКГ, кислород, температура, глубиномер\nЗащита: WR100, погружения до 40 м, MIL-STD 810H\nСон: оценка сна и отслеживание фаз\nКнопки: Действие, двойное нажатие',
     colors: [{ name: 'Натуральный титан', hex: '#cfc9c0' }, { name: 'Чёрный титан', hex: '#2b2b2e' }],
     storages: [],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
@@ -374,7 +374,7 @@ const products = [
     price: 27990, oldPrice: 31990, badge: 'Выгодно', inStock: true,
     shortDesc: 'Основные функции здоровья по приятной цене.',
     description: 'Все главные возможности Apple Watch за меньшие деньги: датчик температуры, уведомления об апноэ во время сна, определение аварии и до 18 часов работы.',
-    specs: 'Корпус: алюминий 40 или 44 мм\nЭкран: Retina Always-On\nЧип: S10 SiP\nАвтономность: до 18 ч\nДатчики: пульс, температура, акселерометр\nЗащита: WR50\nСвязь: LTE (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, USB-C',
+    specs: 'Корпус: алюминий 40 или 44 мм\nЭкран: Always-On Retina\nЧип: S10 SiP\nАвтономность: до 18 ч\nНавигация: GPS\nЗащита: WR50\nДатчики: пульс, температура, акселерометр\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Crash Detection\nСвязь: LTE (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, USB-C',
     colors: [C.midnight, C.starlight], storages: ST.watch40,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.7 * DAY
@@ -384,7 +384,7 @@ const products = [
     price: 149990, oldPrice: 0, badge: '', inStock: true,
     shortDesc: 'Титан, эксклюзивные ремешки и циферблаты Hermès.',
     description: 'Совместная модель Apple и Hermès: титановый корпус, кожаные ремешки ручной работы и эксклюзивные циферблаты, недоступные в других версиях.',
-    specs: 'Корпус: титан 42 или 46 мм\nЭкран: Retina LTOP3 Always-On, сапфировое стекло\nЧип: S11 SiP\nАвтономность: до 24 ч\nДатчики: пульс, ЭКГ, кислород в крови\nЗащита: WR50, IP6X\nСвязь: 5G, Wi-Fi\nПоддержка: эксклюзивные ремешки и циферблаты Hermès',
+    specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, ЭКГ, кислород в крови\nЗдоровье: уведомления о гипертонии\nБезопасность: Emergency SOS, Fall Detection\nСвязь: 5G, Wi-Fi\nРемешки: эксклюзивные ремешки и циферблаты Hermès',
     colors: [{ name: 'Титан Hermès', hex: '#cfc9c0' }], storages: ST.watch42,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.8 * DAY
