@@ -82,6 +82,8 @@ function siteFields(body, current) {
     accentColor: safeHex(body.accentColor, '#0071e3'), currency: short(body.currency, 12).replace(/[<>&]/g, '') || '₽',
     currencyPosition: body.currencyPosition === 'before' ? 'before' : 'after', priceMultiplier: body.priceMultiplier,
     contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100), footerNote: short(body.footerNote, 500),
+    legalOperator: short(body.legalOperator, 240).trim(), legalDetails: short(body.legalDetails, 240).trim(),
+    legalAddress: short(body.legalAddress, 400).trim(), privacyEmail: short(body.privacyEmail, 160).trim(),
     telegramBotToken: short(body.telegramBotToken, 240), telegramChatId: short(body.telegramChatId, 100),
     notifyReviews: body.notifyReviews !== undefined,
     adminUsername: short(body.adminUsername, 100).trim() || (current && current.adminUsername) || 'admin',
@@ -89,6 +91,10 @@ function siteFields(body, current) {
     logoText: short(body.logoText, 120), logoFont: SITE_FONTS.has(body.logoFont) ? body.logoFont : 'system',
     secondaryColor: safeHex(body.secondaryColor, safeHex(body.accentColor, '#0071e3'))
   };
+}
+
+function consentAccepted(value) {
+  return value === true || ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
 }
 
 // Защита входов от перебора паролей (в памяти, IP нигде не сохраняется).
@@ -134,6 +140,21 @@ app.get('/product/:id', (req, res) => {
   res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req) }));
 });
 
+app.get('/privacy', (req, res) => {
+  const site = siteOf(req);
+  res.send(R.privacyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
+app.get('/personal-data-consent', (req, res) => {
+  const site = siteOf(req);
+  res.send(R.personalDataConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
+app.get('/personal-data-publication-consent', (req, res) => {
+  const site = siteOf(req);
+  res.send(R.publicationConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
 // robots.txt и sitemap.xml — по домену
 app.get('/robots.txt', (req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -142,7 +163,12 @@ app.get('/robots.txt', (req, res) => {
 app.get('/sitemap.xml', (req, res) => {
   const site = siteOf(req);
   const origin = originOf(req);
-  const urls = ['<url><loc>' + R.esc(origin) + '/</loc><changefreq>daily</changefreq></url>'];
+  const urls = [
+    '<url><loc>' + R.esc(origin) + '/</loc><changefreq>daily</changefreq></url>',
+    '<url><loc>' + R.esc(origin) + '/privacy</loc></url>',
+    '<url><loc>' + R.esc(origin) + '/personal-data-consent</loc></url>',
+    '<url><loc>' + R.esc(origin) + '/personal-data-publication-consent</loc></url>'
+  ];
   for (const v of T.siteProductViews(site)) urls.push('<url><loc>' + R.esc(origin) + '/product/' + v.id + '</loc></url>');
   res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls.join('') + '</urlset>');
@@ -154,6 +180,8 @@ app.post('/api/reviews', async (req, res) => {
   const site = siteOf(req);
   const p = db.getProduct(req.body.productId);
   if (!p || !T.isEnabled(p, site)) return res.json({ ok: false, error: 'Товар не найден' }, 400);
+  if (!consentAccepted(req.body.privacyAccepted)) return res.json({ ok: false, error: 'Подтвердите согласие на обработку персональных данных' }, 400);
+  if (!consentAccepted(req.body.publicationAccepted)) return res.json({ ok: false, error: 'Подтвердите согласие на публикацию отзыва' }, 400);
   if (!String(req.body.author || '').trim()) return res.json({ ok: false, error: 'Укажите имя' }, 400);
   const rating = parseInt(req.body.rating, 10);
   if (rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
@@ -163,7 +191,10 @@ app.post('/api/reviews', async (req, res) => {
     : null;
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating, text: req.body.text,
-    photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'pending'
+    photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'pending',
+    siteId: site.id, siteName: site.storeName,
+    privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION,
+    publicationConsentAt: Date.now(), publicationConsentVersion: R.PRIVACY_VERSION
   });
   const ss = T.siteSettings(site);
   if (ss.notifyReviews) {
@@ -176,6 +207,7 @@ app.post('/api/reviews', async (req, res) => {
 app.post('/api/order', async (req, res) => {
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const site = siteOf(req);
+  if (!consentAccepted(req.body.privacyAccepted)) return res.json({ ok: false, error: 'Подтвердите согласие на обработку персональных данных' }, 400);
   const rawItems = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = []; let total = 0;
   for (const it of rawItems) {
@@ -203,7 +235,8 @@ app.post('/api/order', async (req, res) => {
 
   const order = db.createOrder({
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
-    items, total, customerName: req.body.customerName, contact, comment: req.body.comment
+    items, total, customerName: req.body.customerName, contact, comment: req.body.comment,
+    privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION
   });
   const ss = T.siteSettings(site);
   const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');

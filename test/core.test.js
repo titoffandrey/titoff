@@ -153,6 +153,35 @@ test('рендер экранирует категорию, валюту и CSS-
   assert.equal(html.includes('--accent:#0071e3'), true);
 });
 
+test('подвал и юридические страницы содержат обязательную информацию без ссылки на админку', () => {
+  const settings = {
+    storeName: 'a:Market', tagline: '', accentColor: '#ef3340', currency: '₽', currencyPosition: 'after',
+    legalOperator: 'ИП <Тест>', legalDetails: 'ИНН 123', legalAddress: 'Москва', privacyEmail: 'privacy@example.test'
+  };
+  const html = render.layout(settings, { body: '' });
+  assert.match(html, /© 2017–2026 a:Market\. Все права защищены\./);
+  assert.match(html, /href="\/privacy"/);
+  assert.match(html, /id="cookie-notice"/);
+  assert.doesNotMatch(html, /Для администратора|href="\/admin"/);
+
+  const privacy = render.privacyPage(settings, { origin: 'https://example.test' });
+  assert.match(privacy, /Политика конфиденциальности и обработки персональных данных/);
+  assert.match(privacy, /cart_v1/);
+  assert.match(privacy, /cookie_notice_v1/);
+  assert.match(privacy, /ИП &lt;Тест&gt;/);
+  assert.match(privacy, /privacy@example\.test/);
+});
+
+test('публичная форма отзыва требует отдельные согласия', () => {
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
+  const html = render.productPage(settings, db, product, null, { origin: '' });
+  assert.match(html, /name="privacyAccepted"[^>]*required/);
+  assert.match(html, /name="publicationAccepted"[^>]*required/);
+  assert.match(html, /\/personal-data-publication-consent/);
+});
+
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
   const fakeDb = { categories: () => ['AirPods'], pendingReviewCount: () => 0 };
   const html = ownerViews.productForm(fakeDb, null);

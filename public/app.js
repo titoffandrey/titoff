@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   var KEY = 'cart_v1';
+  var NOTICE_KEY = 'cookie_notice_v1';
   var CUR = window.__CURRENCY__ || '₽';
   var POS = window.__CURPOS__ || 'after';
   var MAX_CART_LINES = 100;
@@ -114,6 +115,7 @@
         + '<div class="field"><label>Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Имя"></div>'
         + '<div class="field"><label>Контакт для связи *</label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram / телефон / e-mail"></div>'
         + '<div class="field"><label>Комментарий</label><textarea id="co-comment" rows="2" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
+        + '<label class="consent-check"><input type="checkbox" id="co-privacy" required><span>Даю <a href="/personal-data-consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="/privacy" target="_blank" rel="noopener">Политикой конфиденциальности</a>.</span></label>'
         + '</div>'
         + '<button class="btn btn-primary btn-block btn-lg" id="checkout-btn">Оформить заказ</button>'
         + '<p class="form-msg" id="order-msg" hidden></p>';
@@ -186,10 +188,27 @@
     setInterval(tick, 1000);
   }
 
+  function initCookieNotice() {
+    var notice = document.getElementById('cookie-notice');
+    var ok = document.getElementById('cookie-ok');
+    if (!notice || !ok) return;
+    var accepted = false;
+    try { accepted = localStorage.getItem(NOTICE_KEY) === 'ok'; } catch (e) {}
+    if (accepted) return;
+    notice.hidden = false;
+    requestAnimationFrame(function () { notice.classList.add('visible'); });
+    ok.addEventListener('click', function () {
+      try { localStorage.setItem(NOTICE_KEY, 'ok'); } catch (e) {}
+      notice.classList.remove('visible');
+      setTimeout(function () { notice.hidden = true; }, 220);
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     Cart.load();
     Cart.updateBadge();
     initCountdowns();
+    initCookieNotice();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
@@ -427,12 +446,15 @@
     var msg = document.getElementById('order-msg');
     var contact = (document.getElementById('co-contact') || {}).value || '';
     if (!contact.trim()) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Укажите контакт для связи'; } return; }
+    var privacy = document.getElementById('co-privacy');
+    if (!privacy || !privacy.checked) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Подтвердите согласие на обработку персональных данных'; } if (privacy) privacy.focus(); return; }
     btn.disabled = true; btn.textContent = 'Отправляем...';
     var payload = {
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '' }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
       contact: contact,
-      comment: (document.getElementById('co-comment') || {}).value || ''
+      comment: (document.getElementById('co-comment') || {}).value || '',
+      privacyAccepted: true
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })
