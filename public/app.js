@@ -5,6 +5,7 @@
   var CUR = window.__CURRENCY__ || '₽';
   var POS = window.__CURPOS__ || 'after';
   var MAX_CART_LINES = 100;
+  var lastCartFocus = null;
 
   function money(n) {
     var amount = Number(n);
@@ -71,8 +72,21 @@
       if (b) { var c = this.count(); b.textContent = c; b.hidden = c === 0; }
       syncCartButtons();
     },
-    open: function () { this.render(); document.body.classList.add('cart-open'); },
-    close: function () { document.body.classList.remove('cart-open'); },
+    open: function () {
+      this.render();
+      lastCartFocus = document.activeElement;
+      document.body.classList.add('cart-open');
+      var drawer = document.getElementById('cart-drawer');
+      if (drawer) drawer.setAttribute('aria-hidden', 'false');
+      var close = drawer && drawer.querySelector('.cart-head .icon-btn');
+      if (close) close.focus();
+    },
+    close: function () {
+      document.body.classList.remove('cart-open');
+      var drawer = document.getElementById('cart-drawer');
+      if (drawer) drawer.setAttribute('aria-hidden', 'true');
+      if (lastCartFocus && typeof lastCartFocus.focus === 'function') lastCartFocus.focus();
+    },
     render: function () {
       var wrap = document.getElementById('cart-items');
       var foot = document.getElementById('cart-foot');
@@ -177,6 +191,13 @@
     Cart.updateBadge();
     initCountdowns();
 
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
+    });
+    document.querySelectorAll('.nav-cat').forEach(function (link) {
+      link.addEventListener('click', function () { document.body.classList.remove('nav-open'); });
+    });
+
     // Кнопки "в корзину"
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.add-to-cart');
@@ -226,6 +247,7 @@
       try { all = JSON.parse(gal.dataset.imgs); } catch (e) { return; }
       if (!all.length) return;
       var main = document.getElementById('gallery-main');
+      var mainAlt = (main && main.querySelector('img') && main.querySelector('img').alt) || 'Фото товара';
       var dotsBox = document.getElementById('g-dots');
       var prev = document.getElementById('g-prev');
       var next = document.getElementById('g-next');
@@ -233,10 +255,13 @@
       var idx = 0;
 
       function renderSlide() {
-        if (main) main.innerHTML = '<img src="' + escapeHtml(visible[idx].src) + '" alt="" width="800" height="800" decoding="async">';
+        if (main) main.innerHTML = '<img src="' + escapeHtml(visible[idx].src) + '" alt="' + escapeHtml(mainAlt) + '" width="800" height="800" decoding="async">';
         if (dotsBox) {
           var dots = dotsBox.querySelectorAll('.g-dot');
-          for (var i = 0; i < dots.length; i++) dots[i].classList.toggle('active', i === idx);
+          for (var i = 0; i < dots.length; i++) {
+            dots[i].classList.toggle('active', i === idx);
+            dots[i].setAttribute('aria-current', i === idx ? 'true' : 'false');
+          }
         }
       }
       function renderDots() {
@@ -331,8 +356,8 @@
       var colorsEl = document.getElementById('colors');
       if (colorsEl) colorsEl.addEventListener('click', function (e) {
         var sw = e.target.closest('.swatch'); if (!sw) return;
-        colorsEl.querySelectorAll('.swatch').forEach(function (x) { x.classList.remove('active'); });
-        sw.classList.add('active'); vstate.color = sw.dataset.color;
+        colorsEl.querySelectorAll('.swatch').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
+        sw.classList.add('active'); sw.setAttribute('aria-pressed', 'true'); vstate.color = sw.dataset.color;
         var sc = document.getElementById('sel-color'); if (sc) sc.textContent = sw.dataset.color;
         if (gallerySetColor) gallerySetColor(sw.dataset.color);
         applyVariant();
@@ -341,8 +366,8 @@
       var storagesEl = document.getElementById('storages');
       if (storagesEl) storagesEl.addEventListener('click', function (e) {
         var so = e.target.closest('.storage-opt'); if (!so) return;
-        storagesEl.querySelectorAll('.storage-opt').forEach(function (x) { x.classList.remove('active'); });
-        so.classList.add('active'); vstate.storageLabel = so.dataset.label; vstate.storageAdd = Number(so.dataset.add) || 0;
+        storagesEl.querySelectorAll('.storage-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
+        so.classList.add('active'); so.setAttribute('aria-pressed', 'true'); vstate.storageLabel = so.dataset.label; vstate.storageAdd = Number(so.dataset.add) || 0;
         applyVariant();
       });
       applyVariant();
