@@ -4,46 +4,67 @@
   var KEY = 'cart_v1';
   var CUR = window.__CURRENCY__ || '₽';
   var POS = window.__CURPOS__ || 'after';
+  var MAX_CART_LINES = 100;
 
   function money(n) {
-    var v = Number(n || 0).toLocaleString('ru-RU');
-    return POS === 'before' ? CUR + v : v + ' ' + CUR;
+    var amount = Number(n);
+    var v = (Number.isFinite(amount) ? amount : 0).toLocaleString('ru-RU');
+    var currency = escapeHtml(CUR);
+    return POS === 'before' ? currency + v : v + ' ' + currency;
   }
   function miniPlaceholder() {
     return '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" fill="#eef1f6"/><rect x="13" y="9" width="14" height="22" rx="3" fill="none" stroke="#b8c0cc" stroke-width="2"/></svg>';
   }
 
   // Ключ позиции: один товар в разных вариантах (память/цвет) — это разные строки корзины.
-  function itemKey(i) { return [i.id, i.storage || '', i.color || ''].join('|'); }
+  function itemKey(i) { return JSON.stringify([i.id, i.storage || '', i.color || '']); }
+  function cleanText(value, max) { return String(value == null ? '' : value).slice(0, max); }
+  function cleanItem(item) {
+    if (!item || typeof item !== 'object') return null;
+    var id = cleanText(item.id, 100);
+    var price = Number(item.price);
+    var qty = Math.floor(Number(item.qty));
+    if (!id || !Number.isFinite(price) || price < 0 || price > 1e12) return null;
+    return {
+      id: id,
+      name: cleanText(item.name, 240) || 'Товар',
+      price: price,
+      qty: Number.isFinite(qty) ? Math.max(1, Math.min(99, qty)) : 1,
+      storage: cleanText(item.storage, 80),
+      color: cleanText(item.color, 40)
+    };
+  }
 
   var Cart = {
     items: [],
     load: function () {
       try { this.items = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { this.items = []; }
       if (!Array.isArray(this.items)) this.items = [];
-      this.items = this.items.filter(function (i) { return i && i.id && Number(i.price) >= 0; });
+      this.items = this.items.slice(0, MAX_CART_LINES).map(cleanItem).filter(Boolean);
     },
     save: function () { try { localStorage.setItem(KEY, JSON.stringify(this.items)); } catch (e) {} this.updateBadge(); },
     find: function (key) { return this.items.find(function (i) { return itemKey(i) === key; }); },
     add: function (id, name, price, qty, opts) {
       opts = opts || {};
-      var next = { id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '' };
+      var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '' });
+      if (!next) return;
       var ex = this.find(itemKey(next));
-      if (ex) { ex.qty = Math.min(99, ex.qty + qty); ex.price = price; ex.name = name; }
-      else this.items.push(next);
+      if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; }
+      else if (this.items.length < MAX_CART_LINES) this.items.push(next);
+      else { toast('В корзине слишком много разных товаров'); return; }
       this.save(); this.render();
       toast(name + ' — в корзине');
     },
     setQty: function (key, qty) {
       var it = this.find(key);
       if (!it) return;
-      it.qty = Math.max(1, Math.min(99, qty));
+      it.qty = Math.max(1, Math.min(99, Math.floor(Number(qty)) || 1));
       this.save(); this.render();
     },
     remove: function (key) { this.items = this.items.filter(function (i) { return itemKey(i) !== key; }); this.save(); this.render(); },
     clear: function () { this.items = []; this.save(); this.render(); },
-    count: function () { return this.items.reduce(function (a, i) { return a + i.qty; }, 0); },
-    total: function () { return this.items.reduce(function (a, i) { return a + i.price * i.qty; }, 0); },
+    count: function () { return this.items.reduce(function (a, i) { return a + Number(i.qty); }, 0); },
+    total: function () { return this.items.reduce(function (a, i) { return a + Number(i.price) * Number(i.qty); }, 0); },
     has: function (id) { return this.items.some(function (i) { return i.id === id; }); },
     updateBadge: function () {
       var b = document.getElementById('cart-badge');
@@ -76,9 +97,9 @@
       foot.innerHTML =
         '<div class="cart-total"><span>Итого</span><span>' + money(this.total()) + '</span></div>'
         + '<div class="checkout-fields" id="checkout-fields">'
-        + '<div class="field"><label>Ваше имя</label><input type="text" id="co-name" placeholder="Имя"></div>'
-        + '<div class="field"><label>Контакт для связи *</label><input type="text" id="co-contact" placeholder="Telegram / телефон / e-mail"></div>'
-        + '<div class="field"><label>Комментарий</label><textarea id="co-comment" rows="2" placeholder="Город, удобное время связи и т.д."></textarea></div>'
+        + '<div class="field"><label>Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Имя"></div>'
+        + '<div class="field"><label>Контакт для связи *</label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram / телефон / e-mail"></div>'
+        + '<div class="field"><label>Комментарий</label><textarea id="co-comment" rows="2" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
         + '</div>'
         + '<button class="btn btn-primary btn-block btn-lg" id="checkout-btn">Оформить заказ</button>'
         + '<p class="form-msg" id="order-msg" hidden></p>';
@@ -103,7 +124,7 @@
     for (var i = 0; i < btns.length; i++) {
       var b = btns[i];
       if (b.disabled) continue;
-      setBtnState(b, !!Cart.find([b.dataset.id, b.dataset.storage || '', b.dataset.color || ''].join('|')));
+      setBtnState(b, !!Cart.find(itemKey({ id: b.dataset.id, storage: b.dataset.storage || '', color: b.dataset.color || '' })));
     }
   }
   // Товар уже в корзине → открыть корзину и сразу перейти к оформлению
@@ -163,7 +184,7 @@
         e.preventDefault(); e.stopPropagation();
         if (btn.disabled) return;
         var id = btn.dataset.id;
-        var variantKey = [id, btn.dataset.storage || '', btn.dataset.color || ''].join('|');
+        var variantKey = itemKey({ id: id, storage: btn.dataset.storage || '', color: btn.dataset.color || '' });
         if (Cart.find(variantKey)) {
           // товар уже в корзине — ведём к оформлению (удалить можно внутри корзины)
           goToCheckout();
@@ -272,7 +293,7 @@
       qtyBox.addEventListener('click', function (e) {
         var b = e.target.closest('.qty-btn'); if (!b) return;
         var input = qtyBox.querySelector('.qty-input');
-        var v = Math.max(1, (parseInt(input.value, 10) || 1) + parseInt(b.dataset.delta, 10));
+        var v = Math.max(1, Math.min(99, (parseInt(input.value, 10) || 1) + parseInt(b.dataset.delta, 10)));
         input.value = v;
       });
     }
@@ -352,6 +373,9 @@
       rf.addEventListener('submit', function (e) {
         e.preventDefault();
         var msg = document.getElementById('review-msg');
+        var submit = rf.querySelector('button[type="submit"]');
+        if (submit && submit.disabled) return;
+        if (submit) { submit.disabled = true; submit.textContent = 'Отправляем...'; }
         var fd = new FormData(rf);
         fetch('/api/reviews', { method: 'POST', body: fd })
           .then(function (r) { return r.json(); })
@@ -368,7 +392,8 @@
               msg.textContent = d.error || 'Не удалось отправить отзыв';
             }
           })
-          .catch(function () { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Ошибка сети'; });
+          .catch(function () { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Ошибка сети'; })
+          .finally(function () { if (submit) { submit.disabled = false; submit.textContent = 'Отправить отзыв'; } });
       });
     }
   });

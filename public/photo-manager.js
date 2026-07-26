@@ -31,7 +31,10 @@
   }
   function groupFor(color) {
     color = color || '';
-    var g = chips.querySelector('.img-group[data-color="' + (window.CSS && CSS.escape ? CSS.escape(color) : color) + '"]');
+    var g = null;
+    chips.querySelectorAll('.img-group').forEach(function (candidate) {
+      if (!g && candidate.dataset.color === color) g = candidate;
+    });
     if (!g) {
       g = document.createElement('div');
       g.className = 'img-group';

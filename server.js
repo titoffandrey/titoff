@@ -20,37 +20,83 @@ const PORT = process.env.PORT || 3000;
 const app = new App({ secret: db.getSettings().sessionSecret || 'fallback-secret', uploadDir: db.UPLOAD_DIR });
 
 app.static('/static', path.join(__dirname, 'public'));
-app.static('/uploads', db.UPLOAD_DIR);
+app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'] });
 
 const settings = () => db.getSettings();
-const filenames = (files) => (files || []).map(f => f.filename);
+// Multipart держит проверенные изображения в памяти. На диск они попадают только
+// здесь — после проверки маршрута и прав доступа.
+function persistUploads(files) {
+  const names = [];
+  for (const file of (files || [])) {
+    if (!file || path.basename(file.filename || '') !== file.filename) continue;
+    if (file.content) {
+      fs.writeFileSync(path.join(db.UPLOAD_DIR, file.filename), file.content, { flag: 'wx' });
+      delete file.content;
+    }
+    names.push(file.filename);
+  }
+  return names;
+}
 const asArray = (v) => v == null ? [] : (Array.isArray(v) ? v : [v]);
 const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return isNaN(t) ? null : t; };
 // Варианты из формы: цвета «Название|#hex» и память «Метка|доплата» по строке.
-const safeHex = (v) => { const h = String(v || '').trim(); return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(h) ? h : '#cccccc'; };
+const safeHex = (v, fallback) => { const h = String(v || '').trim(); return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(h) ? h : (fallback || '#cccccc'); };
+const short = (v, max) => String(v == null ? '' : v).slice(0, max);
 const parseColors = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex) }; }).filter(c => c.name);
-const parseStorages = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add] = l.split('|'); return { label: (label || '').trim(), add: parseInt(add, 10) || 0 }; }).filter(s => s.label);
+const parseStorages = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0 }; }).filter(s => s.label);
 function tgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-function siteOf(req) { return T.resolveSite(req.headers.host, req.query.site); }
+function isLoopback(address) { return /^(?:127(?:\.\d+){3}|::1|::ffff:127(?:\.\d+){3})$/.test(String(address || '')); }
+function trustedProxy(req) { return process.env.TRUST_PROXY === '1' || isLoopback(req.socket && req.socket.remoteAddress); }
+function requestHost(req) {
+  const raw = String(req.headers.host || '').split(',')[0].trim();
+  return /^(?:[a-z0-9.-]+(?::\d{1,5})?|\[[0-9a-f:.]+\](?::\d{1,5})?)$/i.test(raw) ? raw : 'localhost';
+}
+function siteOf(req) {
+  const localHost = ['localhost', '127.0.0.1', '::1'].includes(db.normHost(requestHost(req)));
+  const localPreview = localHost && isLoopback(req.socket && req.socket.remoteAddress);
+  const siteQuery = (localPreview || process.env.ALLOW_SITE_QUERY === '1') ? req.query.site : null;
+  return T.resolveSite(req.headers.host, siteQuery);
+}
 // Абсолютный адрес сайта (для canonical, Open Graph, sitemap).
 function originOf(req) {
-  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || 'http';
-  const host = (req.headers.host || 'localhost').split(',')[0].trim();
+  const forwardedProto = trustedProxy(req) ? String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() : '';
+  const proto = forwardedProto === 'https' || !!(req.socket && req.socket.encrypted) ? 'https' : 'http';
+  const host = requestHost(req);
   return proto + '://' + host;
 }
 // Оптимизировать загруженные фото: WebP + очистка метаданных.
-const optimizeUploads = (files, maxSize, opts) => IMG.optimizeMany(db.UPLOAD_DIR, filenames(files), maxSize, opts);
+const optimizeUploads = (files, maxSize, opts) => IMG.optimizeMany(db.UPLOAD_DIR, persistUploads(files), maxSize, opts);
 // Логотип сайта: удалить старый (если попросили), загрузить/оптимизировать новый, иначе оставить как было.
 async function resolveLogo(req, site) {
-  let current = site ? site.logoImage : null;
-  if (req.body.removeLogo !== undefined && current) { try { fs.unlinkSync(path.join(db.UPLOAD_DIR, current)); } catch (e) {} current = null; }
+  const current = site ? site.logoImage : null;
+  const remove = req.body.removeLogo !== undefined;
   const up = await optimizeUploads(req.filesFor('logo'), 480);
-  return up.length ? up[0] : current;
+  const value = up.length ? up[0] : (remove ? null : current);
+  return { value, obsolete: current && current !== value ? current : null };
+}
+
+const SITE_FONTS = new Set(['system', 'rounded', 'grotesk', 'serif', 'slab', 'mono']);
+function siteFields(body, current) {
+  return {
+    storeName: short(body.storeName, 100), tagline: short(body.tagline, 240),
+    accentColor: safeHex(body.accentColor, '#0071e3'), currency: short(body.currency, 12).replace(/[<>&]/g, '') || '₽',
+    currencyPosition: body.currencyPosition === 'before' ? 'before' : 'after', priceMultiplier: body.priceMultiplier,
+    contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100), footerNote: short(body.footerNote, 500),
+    telegramBotToken: short(body.telegramBotToken, 240), telegramChatId: short(body.telegramChatId, 100),
+    notifyReviews: body.notifyReviews !== undefined,
+    adminUsername: short(body.adminUsername, 100).trim() || (current && current.adminUsername) || 'admin',
+    adminPassword: short(body.adminPassword, 500),
+    logoText: short(body.logoText, 120), logoFont: SITE_FONTS.has(body.logoFont) ? body.logoFont : 'system',
+    secondaryColor: safeHex(body.secondaryColor, safeHex(body.accentColor, '#0071e3'))
+  };
 }
 
 // Защита входов от перебора паролей (в памяти, IP нигде не сохраняется).
 const loginAttempts = new Map();
-function clientIp(req) { return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || '?'; }
+function clientIp(req) {
+  const forwarded = trustedProxy(req) ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  return forwarded || (req.socket && req.socket.remoteAddress) || '?';
+}
 function loginBlocked(req) { const r = loginAttempts.get(clientIp(req)); return !!(r && r.until > Date.now()); }
 function loginFail(req) { const ip = clientIp(req); const r = loginAttempts.get(ip) || { count: 0, until: 0 }; r.count++; if (r.count >= 6) { r.until = Date.now() + 15 * 60 * 1000; r.count = 0; } r.seen = Date.now(); loginAttempts.set(ip, r); }
 function loginOk(req) { loginAttempts.delete(clientIp(req)); }
@@ -107,14 +153,16 @@ app.post('/api/reviews', async (req, res) => {
   if (rateLimited(req, 'review', 5, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const site = siteOf(req);
   const p = db.getProduct(req.body.productId);
-  if (!p) return res.json({ ok: false, error: 'Товар не найден' }, 400);
+  if (!p || !T.isEnabled(p, site)) return res.json({ ok: false, error: 'Товар не найден' }, 400);
   if (!String(req.body.author || '').trim()) return res.json({ ok: false, error: 'Укажите имя' }, 400);
+  const rating = parseInt(req.body.rating, 10);
+  if (rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
   const clamp5 = v => { const n = parseInt(v, 10); return n >= 1 && n <= 5 ? n : null; };
   const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
     ? { delivery: clamp5(req.body.aspect_delivery), service: clamp5(req.body.aspect_service), price: clamp5(req.body.aspect_price) }
     : null;
   const review = db.createReview({
-    productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text,
+    productId: p.id, author: req.body.author, rating, text: req.body.text,
     photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'pending'
   });
   const ss = T.siteSettings(site);
@@ -128,11 +176,12 @@ app.post('/api/reviews', async (req, res) => {
 app.post('/api/order', async (req, res) => {
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const site = siteOf(req);
-  const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+  const rawItems = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = []; let total = 0;
   for (const it of rawItems) {
+    if (!it || typeof it !== 'object') continue;
     const view = T.siteProductView(site, it.id);
-    if (!view) continue;
+    if (!view || !view.inStock) continue;
     const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
     let price = D.effectivePrice(view);
     let name = view.name;
@@ -143,10 +192,12 @@ app.post('/api/order', async (req, res) => {
     }
     const color = String(it.color || '').trim();
     if (color && Array.isArray(view.colors) && view.colors.some(c => c.name === color)) name += ', ' + color;
+    if (!Number.isFinite(price) || price < 0) continue;
     items.push({ id: view.id, name, price, qty });
     total += price * qty;
   }
-  if (!items.length) return res.json({ ok: false, error: 'Корзина пуста' }, 400);
+  if (!items.length) return res.json({ ok: false, error: 'В корзине нет доступных товаров' }, 400);
+  if (!Number.isFinite(total) || total > 1e12) return res.json({ ok: false, error: 'Сумма заказа некорректна' }, 400);
   const contact = String(req.body.contact || '').trim();
   if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
 
@@ -161,7 +212,7 @@ app.post('/api/order', async (req, res) => {
     + (order.comment ? `💬 ${tgEsc(order.comment)}\n` : '')
     + `\n${lines}\n\n<b>Итого: ${R.money(total, ss)}</b>`;
   const tg = await sendTelegram(ss, msg);
-  res.json({ ok: true, number: order.number, telegram: tg.ok ? 'sent' : (tg.skipped ? 'not_configured' : 'failed') });
+  res.json({ ok: true, number: order.number, total, telegram: tg.ok ? 'sent' : (tg.skipped ? 'not_configured' : 'failed') });
 });
 
 /* =========================== ПАНЕЛЬ ВЛАДЕЛЬЦА (/owner) =========================== */
@@ -169,10 +220,10 @@ app.post('/api/order', async (req, res) => {
 function guardOwner(req, res) { if (req.session && req.session.owner) return true; res.redirect('/owner/login'); return false; }
 
 app.get('/owner/login', (req, res) => { if (req.session && req.session.owner) return res.redirect('/owner'); res.send(O.loginPage(null)); });
-app.post('/owner/login', (req, res) => {
+app.post('/owner/login', async (req, res) => {
   if (loginBlocked(req)) return res.send(O.loginPage(TOO_MANY), 429);
   const s = settings();
-  const ok = req.body.username === s.ownerUsername && auth.verifyPassword(req.body.password, s.ownerPasswordHash);
+  const ok = req.body.username === s.ownerUsername && await auth.verifyPasswordAsync(req.body.password, s.ownerPasswordHash);
   if (!ok) { loginFail(req); return res.send(O.loginPage('Неверный логин или пароль'), 401); }
   loginOk(req); req.session.owner = true; res.redirect('/owner');
 });
@@ -200,7 +251,6 @@ app.post('/owner/products/:id', async (req, res) => {
   const p = db.getProduct(req.params.id); if (!p) return res.redirect('/owner/products');
   const remove = asArray(req.body.removeImages);
   let images = (p.images || []).filter(src => !remove.includes(src));
-  remove.forEach(src => { try { fs.unlinkSync(path.join(db.UPLOAD_DIR, src)); } catch (e) {} });
   const colors = parseColors(req.body.colors);
   const colorNames = colors.map(c => c.name);
   // Привязка фото к цветам: селекты «imgcolor:<файл>» у оставшихся фото
@@ -222,6 +272,7 @@ app.post('/owner/products/:id', async (req, res) => {
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors, storages: parseStorages(req.body.storages), images, imageColors
   });
+  remove.forEach(db.deleteUploadIfUnused);
   res.redirect('/owner/products?flash=' + encodeURIComponent('Сохранено'));
 });
 app.post('/owner/products/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteProduct(req.params.id); res.redirect('/owner/products?flash=' + encodeURIComponent('Товар удалён')); });
@@ -236,12 +287,14 @@ app.post('/owner/products/:id/images/add', async (req, res) => {
   if (!p) return res.json({ ok: false, error: 'not_found' }, 404);
   const added = await optimizeUploads(req.filesFor('images'), 1200, { square: true });
   if (!added.length) return res.json({ ok: false, error: 'no_files' }, 400);
+  const current = db.getProduct(req.params.id);
+  if (!current) { added.forEach(db.deleteUploadIfUnused); return res.json({ ok: false, error: 'not_found' }, 404); }
   const color = String(req.body.color || '').trim();
-  const valid = (p.colors || []).some(c => c.name === color);
-  const images = (p.images || []).concat(added);
-  const imageColors = Object.assign({}, p.imageColors || {});
+  const valid = (current.colors || []).some(c => c.name === color);
+  const images = (current.images || []).concat(added);
+  const imageColors = Object.assign({}, current.imageColors || {});
   if (color && valid) added.forEach(f => { imageColors[f] = color; });
-  db.updateProduct(p.id, { images, imageColors });
+  db.updateProduct(current.id, { images, imageColors });
   res.json({ ok: true, images: added.map(f => ({ src: f, color: (color && valid) ? color : '' })) });
 });
 
@@ -284,7 +337,7 @@ app.post('/owner/products/:id/images/remove', (req, res) => {
   db.updateProduct(p.id, { images, imageColors });
   // сам файл удаляем только если он больше нигде не используется
   const used = db.getProducts().some(x => (x.images || []).includes(src));
-  if (!used && path.basename(src) === src) { try { fs.unlinkSync(path.join(db.UPLOAD_DIR, src)); } catch (e) {} }
+  if (!used) db.deleteUploadIfUnused(src);
   res.json({ ok: true });
 });
 
@@ -310,29 +363,20 @@ app.get('/owner/sites/new', (req, res) => { if (!guardOwner(req, res)) return; r
 app.post('/owner/sites', async (req, res) => {
   if (!guardOwner(req, res)) return;
   const logo = await optimizeUploads(req.filesFor('logo'), 480);
-  db.createSite({
-    hosts: req.body.hosts, storeName: req.body.storeName, tagline: req.body.tagline, accentColor: req.body.accentColor,
-    currency: req.body.currency, currencyPosition: req.body.currencyPosition, priceMultiplier: req.body.priceMultiplier,
-    contactTelegram: req.body.contactTelegram, contactPhone: req.body.contactPhone, footerNote: req.body.footerNote,
-    telegramBotToken: req.body.telegramBotToken, telegramChatId: req.body.telegramChatId, notifyReviews: req.body.notifyReviews !== undefined,
-    adminUsername: req.body.adminUsername, adminPassword: req.body.adminPassword,
-    logoText: req.body.logoText, logoFont: req.body.logoFont, secondaryColor: req.body.secondaryColor,
+  db.createSite(Object.assign(siteFields(req.body), {
+    hosts: req.body.hosts,
     logoImage: logo.length ? logo[0] : null
-  });
+  }));
   res.redirect('/owner/sites?flash=' + encodeURIComponent('Домен создан'));
 });
 app.get('/owner/sites/:id/edit', (req, res) => { if (!guardOwner(req, res)) return; const s = db.getSite(req.params.id); if (!s) return res.redirect('/owner/sites'); res.send(O.siteForm(db, s)); });
 app.post('/owner/sites/:id', async (req, res) => {
   if (!guardOwner(req, res)) return;
-  const logoImage = await resolveLogo(req, db.getSite(req.params.id));
-  db.updateSite(req.params.id, {
-    hosts: req.body.hosts, storeName: req.body.storeName, tagline: req.body.tagline, accentColor: req.body.accentColor,
-    currency: req.body.currency, currencyPosition: req.body.currencyPosition, priceMultiplier: req.body.priceMultiplier,
-    contactTelegram: req.body.contactTelegram, contactPhone: req.body.contactPhone, footerNote: req.body.footerNote,
-    telegramBotToken: req.body.telegramBotToken, telegramChatId: req.body.telegramChatId, notifyReviews: req.body.notifyReviews !== undefined,
-    adminUsername: req.body.adminUsername, adminPassword: req.body.adminPassword,
-    logoText: req.body.logoText, logoFont: req.body.logoFont, secondaryColor: req.body.secondaryColor, logoImage
-  });
+  const current = db.getSite(req.params.id);
+  if (!current) return res.redirect('/owner/sites');
+  const logo = await resolveLogo(req, current);
+  db.updateSite(req.params.id, Object.assign(siteFields(req.body, current), { hosts: req.body.hosts, logoImage: logo.value }));
+  if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
   res.redirect('/owner/sites?flash=' + encodeURIComponent('Сохранено'));
 });
 app.post('/owner/sites/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteSite(req.params.id); res.redirect('/owner/sites?flash=' + encodeURIComponent('Домен удалён')); });
@@ -345,7 +389,7 @@ app.post('/owner/orders/:id/delete', (req, res) => { if (!guardOwner(req, res)) 
 app.get('/owner/settings', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.settingsPage(settings(), db, req.query.flash)); });
 app.post('/owner/settings', (req, res) => {
   if (!guardOwner(req, res)) return;
-  const patch = { ownerUsername: req.body.ownerUsername };
+  const patch = { ownerUsername: String(req.body.ownerUsername || '').trim().slice(0, 100) || settings().ownerUsername || 'owner' };
   if (req.body.ownerPassword && req.body.ownerPassword.trim()) patch.ownerPasswordHash = auth.hashPassword(req.body.ownerPassword.trim());
   db.saveSettings(patch);
   res.redirect('/owner/settings?flash=' + encodeURIComponent('Сохранено'));
@@ -364,10 +408,10 @@ app.get('/admin/login', (req, res) => {
   if (req.session && req.session.siteAdmin === site.id) return res.redirect('/admin');
   res.send(S.loginPage(site, null));
 });
-app.post('/admin/login', (req, res) => {
+app.post('/admin/login', async (req, res) => {
   const site = siteOf(req);
   if (loginBlocked(req)) return res.send(S.loginPage(site, TOO_MANY), 429);
-  const ok = req.body.username === site.adminUsername && auth.verifyPassword(req.body.password, site.adminPasswordHash);
+  const ok = req.body.username === site.adminUsername && await auth.verifyPasswordAsync(req.body.password, site.adminPasswordHash);
   if (!ok) { loginFail(req); return res.send(S.loginPage(site, 'Неверный логин или пароль'), 401); }
   loginOk(req); req.session.siteAdmin = site.id; res.redirect('/admin');
 });
@@ -420,15 +464,9 @@ app.post('/admin/orders/:id/delete', (req, res) => {
 app.get('/admin/settings', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.settingsPage(db, site, req.query.flash)); });
 app.post('/admin/settings', async (req, res) => {
   const site = guardSite(req, res); if (!site) return;
-  const logoImage = await resolveLogo(req, site);
-  db.updateSite(site.id, {
-    storeName: req.body.storeName, tagline: req.body.tagline, accentColor: req.body.accentColor,
-    currency: req.body.currency, currencyPosition: req.body.currencyPosition, priceMultiplier: req.body.priceMultiplier,
-    contactTelegram: req.body.contactTelegram, contactPhone: req.body.contactPhone, footerNote: req.body.footerNote,
-    telegramBotToken: req.body.telegramBotToken, telegramChatId: req.body.telegramChatId, notifyReviews: req.body.notifyReviews !== undefined,
-    adminUsername: req.body.adminUsername, adminPassword: req.body.adminPassword,
-    logoText: req.body.logoText, logoFont: req.body.logoFont, secondaryColor: req.body.secondaryColor, logoImage
-  });
+  const logo = await resolveLogo(req, site);
+  db.updateSite(site.id, Object.assign(siteFields(req.body, site), { logoImage: logo.value }));
+  if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
   res.redirect('/admin/settings?flash=' + encodeURIComponent('Настройки сохранены'));
 });
 
