@@ -204,11 +204,41 @@
     });
   }
 
+  function initCompactHeader() {
+    var header = document.querySelector('.site-header');
+    if (!header) return;
+    var lastY = Math.max(0, window.scrollY || 0);
+    var ticking = false;
+
+    function setCompact(compact) {
+      header.classList.toggle('header-compact', compact);
+    }
+    function update() {
+      var y = Math.max(0, window.scrollY || 0);
+      var delta = y - lastY;
+      var headerInUse = header.contains(document.activeElement) || document.body.classList.contains('nav-open');
+      if (y < 48 || headerInUse) setCompact(false);
+      else if (delta > 4 && y > 96) setCompact(true);
+      else if (delta < -6) setCompact(false);
+      lastY = y;
+      ticking = false;
+    }
+
+    setCompact(lastY > 120);
+    window.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(update);
+    }, { passive: true });
+    header.addEventListener('focusin', function () { setCompact(false); });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     Cart.load();
     Cart.updateBadge();
     initCountdowns();
     initCookieNotice();
+    initCompactHeader();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();

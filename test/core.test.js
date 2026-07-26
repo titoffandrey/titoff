@@ -182,6 +182,16 @@ test('публичная форма отзыва требует отдельны
   assert.match(html, /\/personal-data-publication-consent/);
 });
 
+test('шапка сворачивается при прокрутке, а Telegram остаётся контурным', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(css, /\.site-header\.header-compact/);
+  assert.match(css, /\.site-header\.header-compact \.site-nav\{max-height:0/);
+  assert.match(css, /\.tg-header\{[^}]*border:1px solid[^}]*background:transparent/);
+  assert.match(js, /function initCompactHeader\(\)/);
+  assert.match(js, /initCompactHeader\(\);/);
+});
+
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
   const fakeDb = { categories: () => ['AirPods'], pendingReviewCount: () => 0 };
   const html = ownerViews.productForm(fakeDb, null);

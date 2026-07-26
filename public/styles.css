@@ -777,29 +777,42 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Шапка витрины */
 .site-header{
   padding-top:env(safe-area-inset-top);background:rgba(255,255,255,.88);border-color:var(--border-soft);
-  -webkit-backdrop-filter:saturate(180%) blur(22px);backdrop-filter:saturate(180%) blur(22px)
+  -webkit-backdrop-filter:saturate(180%) blur(22px);backdrop-filter:saturate(180%) blur(22px);
+  transition:background .24s ease,border-color .24s ease,box-shadow .24s ease
 }
-.header-row{height:66px;gap:12px}
-.logo{margin-right:auto;font-size:24px;font-weight:700;letter-spacing:-.045em;line-height:1}
-.logo-img{max-height:36px}
+.header-row{height:66px;gap:12px;transition:height .28s cubic-bezier(.22,.75,.25,1),min-height .28s,padding .28s,gap .28s}
+.logo{margin-right:auto;font-size:24px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}
+.logo-img{max-height:36px;transition:max-height .28s ease}
 .icon-btn{min-width:42px;min-height:42px;padding:9px;align-items:center;justify-content:center;border-radius:13px;transition:background .16s ease,transform .12s ease}
 .icon-btn:hover{background:var(--bg2)}
 .icon-btn:active{transform:scale(.94)}
-.search{position:relative;flex:0 1 300px}
+.search{position:relative;flex:0 1 300px;max-width:300px;overflow:hidden;opacity:1;transform:translateY(0);transition:flex-basis .28s cubic-bezier(.22,.75,.25,1),max-width .28s cubic-bezier(.22,.75,.25,1),max-height .28s ease,opacity .18s ease,transform .28s ease,visibility 0s linear}
 .search::before{content:"";position:absolute;left:14px;top:50%;width:13px;height:13px;border:1.7px solid #8e8e93;border-radius:50%;transform:translateY(-58%);pointer-events:none}
 .search::after{content:"";position:absolute;left:25px;top:27px;width:6px;height:1.7px;border-radius:2px;background:#8e8e93;transform:rotate(45deg);pointer-events:none}
 .search input{height:42px;padding:9px 14px 9px 38px;border-color:transparent;background:#f1f1f4;font-size:14px;transition:background .18s,border-color .18s,box-shadow .18s}
 .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,110,115,.12)}
 .cart-btn{border:1px solid transparent}
 .cart-badge{top:0;right:0;box-shadow:0 0 0 2px #fff}
-.tg-header{min-height:42px;padding:10px 15px;border-radius:13px;font-size:14px;box-shadow:none}
-.site-nav{border-top:1px solid var(--border-soft);background:transparent}
+.tg-header{min-height:42px;padding:9px 14px;border:1px solid rgba(34,158,217,.5);border-radius:13px;background:transparent;color:var(--tg);font-size:14px;box-shadow:none;transition:min-height .24s ease,padding .24s ease,border-color .18s ease,background .18s ease,color .18s ease,transform .12s ease}
+.tg-header:hover{border-color:var(--tg);background:rgba(34,158,217,.08);color:var(--tg-dark);filter:none}
+.tg-header-txt{display:inline-block;max-width:84px;overflow:hidden;opacity:1;transition:max-width .24s ease,opacity .16s ease}
+.site-nav{max-height:58px;overflow:hidden;border-top:1px solid var(--border-soft);background:transparent;opacity:1;visibility:visible;transform:translateY(0);transform-origin:top;transition:max-height .3s cubic-bezier(.22,.75,.25,1),opacity .2s ease,transform .3s cubic-bezier(.22,.75,.25,1),border-color .2s ease,visibility 0s linear}
 .nav-inner{gap:2px;padding:3px 24px 8px}
 .nav-cat{position:relative;padding:10px 13px 9px;border-radius:0;background:transparent;color:var(--muted);font-size:14px;font-weight:500;letter-spacing:-.012em;transition:color .18s ease}
 .nav-cat:hover{background:transparent;color:var(--text)}
 .nav-cat.active{background:transparent;color:var(--text);font-weight:650}
 .nav-cat.active::after{content:"";position:absolute;left:13px;right:13px;bottom:0;height:2px;border-radius:3px;background:var(--accent)}
 .menu-toggle{display:none!important}
+
+/* При прокрутке вниз оставляем только действия, нужные в любой момент. */
+.site-header.header-compact{background:rgba(255,255,255,.96);box-shadow:0 8px 28px rgba(17,17,26,.075)}
+.site-header.header-compact .header-row{height:52px}
+.site-header.header-compact .logo{font-size:21px;transform:translateY(-1px)}
+.site-header.header-compact .logo-img{max-height:30px}
+.site-header.header-compact .search{flex-basis:0;max-width:0;opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition-delay:0s,0s,0s,0s,0s,.24s}
+.site-header.header-compact .site-nav{max-height:0;border-color:transparent;opacity:0;visibility:hidden;transform:translateY(-8px);pointer-events:none;transition-delay:0s,0s,0s,0s,.28s}
+.site-header.header-compact .tg-header{min-height:38px;padding:7px 9px;gap:0}
+.site-header.header-compact .tg-header-txt{max-width:0;opacity:0}
 
 /* Первый экран */
 .store-hero{position:relative;overflow:hidden;background:#f4f4f6;border-bottom:1px solid var(--border-soft)}
@@ -1067,14 +1080,17 @@ body.admin{background:#f4f4f6;color:#242426}
 
   .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;height:auto;min-height:58px;padding-top:8px;padding-bottom:10px;gap:8px}
   .header-row .logo{margin:0;font-size:22px}
-  .header-row .tg-header{grid-column:2}
+  .header-row .tg-header{grid-column:2;min-width:42px;padding:9px}
+  .header-row .tg-header-txt{display:none}
   .header-row .cart-btn{grid-column:3}
-  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none}
+  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:50px}
   .search input{height:44px;font-size:16px}
   .search::after{top:28px}
   .nav-inner{padding:2px 16px 8px;gap:0}
   .nav-cat{padding:10px 12px 9px;font-size:13px}
   .nav-cat.active::after{left:12px;right:12px}
+  .site-header.header-compact .header-row{height:52px;min-height:52px;padding-top:4px;padding-bottom:4px;row-gap:0}
+  .site-header.header-compact .search{max-width:0;max-height:0}
 
   .store-hero-inner{display:block;padding-top:34px;padding-bottom:34px}
   .store-hero h1{max-width:540px;font-size:clamp(34px,10vw,48px)}
