@@ -1,14 +1,20 @@
 'use strict';
-// Мгновенная работа с фото товара: загрузка сразу после выбора файлов
-// и удаление по клику (файл удаляется и с сервера). Без перезагрузки страницы.
+// Мгновенная загрузка, удаление и сортировка фотографий товара.
 (function () {
   var box = document.getElementById('photo-manager');
   if (!box) return;
   var pid = box.dataset.product;
   var chips = document.getElementById('img-chips');
   var chipsWrap = document.getElementById('img-chips-wrap');
+  var MAX_FILE = 6 * 1024 * 1024;
+  var uploadQueue = Promise.resolve();
+  var orderBusy = false;
+  var dragged = null;
+  var allOrder = [];
+  try { allOrder = JSON.parse(box.dataset.order || '[]'); } catch (e) { allOrder = []; }
+  if (!Array.isArray(allOrder)) allOrder = [];
 
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]; }); }
+  function esc(s) { return String(s).replace(/[&<>\"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[m]; }); }
   function colorNames() {
     var out = [];
     document.querySelectorAll('#color-editor .color-name').forEach(function (i) {
@@ -21,7 +27,7 @@
       return '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>';
     }).join('');
   }
-  // --- группы по цветам ---
+
   function colorHex(name) {
     var hex = '#cccccc';
     document.querySelectorAll('#color-editor .color-row').forEach(function (r) {
@@ -49,25 +55,43 @@
   }
   function refreshGroups() {
     chips.querySelectorAll('.img-group').forEach(function (g) {
-      var n = g.querySelectorAll('.img-chip').length;
-      var c = g.querySelector('.img-group-count');
-      if (c) c.textContent = n ? n + ' фото' : '';
-      g.hidden = !n;
+      var items = Array.prototype.slice.call(g.querySelectorAll('.img-chip'));
+      var count = g.querySelector('.img-group-count');
+      if (count) count.textContent = items.length ? items.length + ' фото' : '';
+      items.forEach(function (chip, index) {
+        var prev = chip.querySelector('.img-move-prev');
+        var next = chip.querySelector('.img-move-next');
+        if (prev) prev.disabled = index === 0;
+        if (next) next.disabled = index === items.length - 1;
+      });
+      g.hidden = !items.length;
     });
     if (chipsWrap) chipsWrap.hidden = !chips.querySelector('.img-chip');
   }
+  function markMain(src) {
+    chips.querySelectorAll('.img-chip').forEach(function (chip) {
+      chip.classList.toggle('is-main', !!src && chip.dataset.src === src);
+    });
+  }
   function addChip(src, color) {
     if (chipsWrap) chipsWrap.hidden = false;
+    var isFirst = allOrder.length === 0;
     var d = document.createElement('div');
-    d.className = 'img-chip';
+    d.className = 'img-chip' + (isFirst ? ' is-main' : '');
     d.dataset.src = src;
+    d.draggable = true;
     d.innerHTML =
       '<div class="img-chip-media"><img src="/uploads/' + esc(src) + '" alt="">' +
       '<span class="img-main-badge">Главное</span>' +
       '<button type="button" class="img-main" title="Сделать главным фото" aria-label="Сделать главным фото">★</button>' +
       '<button type="button" class="img-del" title="Удалить фото" aria-label="Удалить фото">&times;</button></div>' +
-      '<select class="img-color" name="imgcolor:' + esc(src) + '">' + optionsHtml(color || '') + '</select>';
+      '<div class="img-chip-controls">' +
+      '<button type="button" class="img-move img-move-prev" title="Переместить раньше" aria-label="Переместить фото раньше">←</button>' +
+      '<select class="img-color" name="imgcolor:' + esc(src) + '" aria-label="Цвет фотографии">' + optionsHtml(color || '') + '</select>' +
+      '<button type="button" class="img-move img-move-next" title="Переместить позже" aria-label="Переместить фото позже">→</button>' +
+      '</div>';
     groupFor(color || '').querySelector('.img-chips').appendChild(d);
+    allOrder.push(src);
     refreshGroups();
   }
   function post(url, data) {
@@ -78,96 +102,197 @@
   }
 
   function setBusy(el, on) {
-    if (!el) return;
-    el.classList.toggle('is-busy', !!on);
+    if (el) el.classList.toggle('is-busy', !!on);
+  }
+  function setUploadProgress(input, percent, message, state) {
+    var field = input.closest('.photo-upload-field') || input.parentNode;
+    var progress = field && field.querySelector('.photo-upload-progress');
+    if (!progress) return;
+    progress.hidden = false;
+    progress.classList.toggle('is-processing', state === 'processing');
+    progress.classList.toggle('is-done', state === 'done');
+    progress.classList.toggle('is-error', state === 'error');
+    var bar = progress.querySelector('.photo-progress-track span');
+    if (bar) {
+      if (state === 'processing') bar.style.width = '';
+      else bar.style.width = (state === 'error' ? 100 : Math.max(0, Math.min(100, percent || 0))) + '%';
+    }
+    var status = progress.querySelector('.photo-upload-status');
+    if (status) status.textContent = message || '';
+  }
+  function selectionText(input, text) {
+    var field = input.closest('.photo-upload-field');
+    var selection = field && field.querySelector('.photo-upload-selection');
+    if (selection) selection.textContent = text || '';
   }
 
-  // --- загрузка сразу после выбора файлов ---
+  function upload(input, files) {
+    return new Promise(function (resolve) {
+      var field = input.closest('.photo-upload-field') || input.parentNode;
+      var data = new FormData();
+      files.forEach(function (file) { data.append('images', file, file.name); });
+      if (input.dataset.color) data.append('color', input.dataset.color);
+      setBusy(field, true);
+      input.disabled = true;
+      setUploadProgress(input, 0, 'Загрузка · 0%', 'uploading');
+
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/owner/products/' + encodeURIComponent(pid) + '/images/add');
+      xhr.upload.addEventListener('progress', function (e) {
+        if (!e.lengthComputable) return;
+        var value = Math.round(e.loaded / e.total * 100);
+        setUploadProgress(input, value, 'Загрузка · ' + value + '%', 'uploading');
+      });
+      xhr.upload.addEventListener('load', function () { setUploadProgress(input, 100, 'Обработка фото…', 'processing'); });
+      xhr.addEventListener('load', function () {
+        var json = null;
+        try { json = JSON.parse(xhr.responseText); } catch (e) { json = null; }
+        if (xhr.status >= 200 && xhr.status < 300 && json && json.ok) {
+          json.images.forEach(function (image) { addChip(image.src, image.color); });
+          setUploadProgress(input, 100, 'Готово', 'done');
+        } else setUploadProgress(input, 0, 'Ошибка загрузки', 'error');
+        finish();
+      });
+      xhr.addEventListener('error', function () { setUploadProgress(input, 0, 'Нет связи с сервером', 'error'); finish(); });
+      function finish() {
+        input.disabled = false;
+        input.value = '';
+        selectionText(input, '');
+        setBusy(field, false);
+        resolve();
+      }
+      xhr.send(data);
+    });
+  }
+
   box.addEventListener('change', function (e) {
-    var inp = e.target;
-    if (!inp.matches || !inp.matches('input[type=file][data-auto]')) return;
-    if (!inp.files || !inp.files.length) return;
-    var field = inp.closest('.field') || inp.parentNode;
-    var fd = new FormData();
-    for (var i = 0; i < inp.files.length; i++) fd.append('images', inp.files[i]);
-    if (inp.dataset.color) fd.append('color', inp.dataset.color);
-    setBusy(field, true);
-    inp.disabled = true;
-    fetch('/owner/products/' + encodeURIComponent(pid) + '/images/add', { method: 'POST', body: fd, credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j && j.ok) j.images.forEach(function (im) { addChip(im.src, im.color); });
-        else alert('Не удалось загрузить фото' + (j && j.error ? ' (' + j.error + ')' : ''));
-      })
-      .catch(function () { alert('Не удалось загрузить фото: нет связи с сервером'); })
-      .finally(function () { inp.disabled = false; inp.value = ''; setBusy(field, false); });
+    var input = e.target;
+    if (!input.matches || !input.matches('input[type=file][data-auto]')) return;
+    var selected = Array.prototype.slice.call(input.files || []);
+    if (!selected.length) return;
+    var files = selected.filter(function (file) { return file.size <= MAX_FILE; });
+    var skipped = selected.length - files.length;
+    if (!files.length) {
+      setUploadProgress(input, 0, 'Файл больше 6 МБ', 'error');
+      input.value = '';
+      return;
+    }
+    selectionText(input, files.length + ' фото выбрано');
+    setUploadProgress(input, 0, skipped ? 'В очереди · пропущено: ' + skipped : 'В очереди', 'queued');
+    uploadQueue = uploadQueue.then(function () { return upload(input, files); });
   });
 
-  // --- удаление по клику (сразу и на сервере) ---
   document.addEventListener('click', function (e) {
-    var btn = e.target.closest ? e.target.closest('.img-del') : null;
-    if (!btn) return;
+    var button = e.target.closest ? e.target.closest('.img-del') : null;
+    if (!button) return;
     e.preventDefault();
-    var chip = btn.closest('.img-chip');
+    var chip = button.closest('.img-chip');
     if (!chip || chip.classList.contains('is-busy')) return;
     var wasMain = chip.classList.contains('is-main');
     chip.classList.add('is-busy');
     post('/images/remove', { src: chip.dataset.src })
-      .then(function (j) {
-        if (j && j.ok) {
+      .then(function (json) {
+        if (json && json.ok) {
+          allOrder = allOrder.filter(function (src) { return src !== chip.dataset.src; });
           chip.remove();
-          // если удалили главное — главным становится первое оставшееся
-          if (wasMain) {
-            var first = chips.querySelector('.img-chip');
-            if (first) {
-              first.classList.add('is-main');
-              post('/images/main', { src: first.dataset.src });
-            }
-          }
+          if (wasMain) markMain(allOrder[0]);
           refreshGroups();
         } else { chip.classList.remove('is-busy'); alert('Не удалось удалить фото'); }
       })
       .catch(function () { chip.classList.remove('is-busy'); alert('Не удалось удалить фото: нет связи с сервером'); });
   });
 
-  // --- выбор главного фото ---
   document.addEventListener('click', function (e) {
-    var btn = e.target.closest ? e.target.closest('.img-main') : null;
-    if (!btn) return;
+    var button = e.target.closest ? e.target.closest('.img-main') : null;
+    if (!button) return;
     e.preventDefault();
-    var chip = btn.closest('.img-chip');
+    var chip = button.closest('.img-chip');
     if (!chip || chip.classList.contains('is-main')) return;
-    var prev = chips.querySelector('.img-chip.is-main');
-    chips.querySelectorAll('.img-chip.is-main').forEach(function (c) { c.classList.remove('is-main'); });
+    var previous = chips.querySelector('.img-chip.is-main');
+    chips.querySelectorAll('.img-chip.is-main').forEach(function (item) { item.classList.remove('is-main'); });
     chip.classList.add('is-main');
-    post('/images/main', { src: chip.dataset.src }).then(function (j) {
-      if (!j || !j.ok) {
-        chip.classList.remove('is-main');
-        if (prev) prev.classList.add('is-main');
+    post('/images/main', { src: chip.dataset.src }).then(function (json) {
+      if (json && json.ok) {
+        allOrder = [chip.dataset.src].concat(allOrder.filter(function (src) { return src !== chip.dataset.src; }));
+        chip.parentNode.insertBefore(chip, chip.parentNode.firstElementChild);
+        refreshGroups();
+      } else {
+        chip.classList.remove('is-main'); if (previous) previous.classList.add('is-main');
         alert('Не удалось назначить главное фото');
       }
-    }).catch(function () {
-      chip.classList.remove('is-main');
-      if (prev) prev.classList.add('is-main');
-    });
+    }).catch(function () { chip.classList.remove('is-main'); if (previous) previous.classList.add('is-main'); });
   });
 
-  // --- смена цвета: сохраняем сразу и переносим в нужную группу ---
   chips.addEventListener('change', function (e) {
-    var sel = e.target;
-    if (!sel.matches || !sel.matches('.img-color')) return;
-    var chip = sel.closest('.img-chip');
-    var color = sel.value;
+    var select = e.target;
+    if (!select.matches || !select.matches('.img-color')) return;
+    var chip = select.closest('.img-chip');
+    var color = select.value;
     chip.classList.add('is-busy');
     post('/images/color', { src: chip.dataset.src, color: color })
-      .then(function (j) {
+      .then(function (json) {
         chip.classList.remove('is-busy');
-        if (j && j.ok) {
-          groupFor(j.color).querySelector('.img-chips').appendChild(chip);
+        if (json && json.ok) {
+          var targetGroup = groupFor(json.color).querySelector('.img-chips');
+          if (chip.classList.contains('is-main')) targetGroup.insertBefore(chip, targetGroup.firstElementChild);
+          else targetGroup.appendChild(chip);
           refreshGroups();
         } else alert('Не удалось изменить цвет фото');
       })
       .catch(function () { chip.classList.remove('is-busy'); });
+  });
+
+  function moveChip(chip, target, after) {
+    if (orderBusy || !chip || !target || chip === target || chip.parentNode !== target.parentNode) return;
+    var parent = chip.parentNode;
+    var oldChildren = Array.prototype.slice.call(parent.children);
+    var src = chip.dataset.src;
+    var targetSrc = target.dataset.src;
+    var nextOrder = allOrder.filter(function (item) { return item !== src; });
+    var targetIndex = nextOrder.indexOf(targetSrc);
+    if (targetIndex < 0) return;
+    orderBusy = true;
+    nextOrder.splice(targetIndex + (after ? 1 : 0), 0, src);
+    parent.insertBefore(chip, after ? target.nextSibling : target);
+    setBusy(chip, true); setBusy(target, true);
+    post('/images/order', { images: nextOrder }).then(function (json) {
+      setBusy(chip, false); setBusy(target, false);
+      orderBusy = false;
+      if (json && json.ok) { allOrder = nextOrder; markMain(allOrder[0]); }
+      else { oldChildren.forEach(function (item) { parent.appendChild(item); }); alert('Не удалось изменить порядок фото'); }
+      refreshGroups();
+    }).catch(function () {
+      setBusy(chip, false); setBusy(target, false);
+      orderBusy = false;
+      oldChildren.forEach(function (item) { parent.appendChild(item); });
+      refreshGroups();
+    });
+  }
+
+  chips.addEventListener('click', function (e) {
+    var button = e.target.closest ? e.target.closest('.img-move') : null;
+    if (!button || button.disabled) return;
+    var chip = button.closest('.img-chip');
+    var target = button.classList.contains('img-move-prev') ? chip.previousElementSibling : chip.nextElementSibling;
+    moveChip(chip, target, button.classList.contains('img-move-next'));
+  });
+  chips.addEventListener('dragstart', function (e) {
+    dragged = e.target.closest ? e.target.closest('.img-chip') : null;
+    if (!dragged) return;
+    dragged.classList.add('is-dragging');
+    if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragged.dataset.src); }
+  });
+  chips.addEventListener('dragend', function () { if (dragged) dragged.classList.remove('is-dragging'); dragged = null; });
+  chips.addEventListener('dragover', function (e) {
+    var target = e.target.closest ? e.target.closest('.img-chip') : null;
+    if (dragged && target && dragged.parentNode === target.parentNode) e.preventDefault();
+  });
+  chips.addEventListener('drop', function (e) {
+    var target = e.target.closest ? e.target.closest('.img-chip') : null;
+    if (!dragged || !target || dragged.parentNode !== target.parentNode) return;
+    e.preventDefault();
+    var rect = target.getBoundingClientRect();
+    moveChip(dragged, target, e.clientX > rect.left + rect.width / 2);
   });
 
   refreshGroups();

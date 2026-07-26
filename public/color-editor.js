@@ -86,13 +86,22 @@
       var f = fileFields[c.key];
       if (!f) {
         var field = document.createElement('div');
-        field.className = 'cu-field';
-        var lab = document.createElement('label');
+        field.className = 'cu-field photo-upload-field';
+        var lab = document.createElement('div');
         lab.className = 'cu-label';
+        var uploadBox = document.createElement('label');
+        uploadBox.className = 'photo-upload-box photo-upload-box-compact';
         var input = document.createElement('input');
         input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
         input.setAttribute('data-auto', ''); // загрузка сразу после выбора файлов
-        field.appendChild(lab); field.appendChild(input);
+        uploadBox.appendChild(input);
+        uploadBox.insertAdjacentHTML('beforeend',
+          '<span class="photo-upload-icon" aria-hidden="true">＋</span>' +
+          '<span class="photo-upload-text"><b>Выбрать фото</b><span class="photo-upload-selection"></span></span>');
+        var progress = document.createElement('div');
+        progress.className = 'photo-upload-progress'; progress.hidden = true;
+        progress.innerHTML = '<div class="photo-progress-track"><span></span></div><span class="photo-upload-status" aria-live="polite"></span>';
+        field.appendChild(lab); field.appendChild(uploadBox); field.appendChild(progress);
         f = fileFields[c.key] = { field: field, label: lab, input: input };
       }
       f.label.innerHTML = '<span class="swatch" style="background:' + escAttr(c.hex) + '"></span> ' + escHtml(c.name);

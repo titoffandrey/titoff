@@ -11,6 +11,8 @@ const auth = require('../lib/auth');
 const deals = require('../lib/deals');
 const dbCore = require('../lib/db');
 const render = require('../lib/render');
+const ownerViews = require('../lib/owner-views');
+const images = require('../lib/images');
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
 
@@ -65,6 +67,19 @@ test('тип изображения определяется по содержи
   assert.equal(imageExtension(Buffer.from('474946383961000000000000', 'hex')), '.gif');
   assert.equal(imageExtension(Buffer.from('524946460000000057454250', 'hex')), '.webp');
   assert.equal(imageExtension(Buffer.from('<script>alert(1)</script>')), null);
+});
+
+test('товарное фото вписывается в квадрат без обрезки', () => {
+  const args = images.squareTransformArgs(1200, 'white');
+  assert.equal(args.includes('-trim'), false);
+  assert.deepEqual(args, ['-resize', '1080x1080>', '-background', 'white', '-gravity', 'center', '-extent', '1200x1200']);
+});
+
+test('порядок фото принимается только как точная перестановка', () => {
+  assert.equal(images.validImageOrder(['a.webp', 'b.webp'], ['b.webp', 'a.webp']), true);
+  assert.equal(images.validImageOrder(['a.webp', 'b.webp'], ['a.webp']), false);
+  assert.equal(images.validImageOrder(['a.webp', 'b.webp'], ['a.webp', 'x.webp']), false);
+  assert.equal(images.validImageOrder(['a.webp', 'b.webp'], ['a.webp', 'a.webp']), false);
 });
 
 test('хосты нормализуются вместе с IPv4, IPv6 и портами', () => {
@@ -136,6 +151,16 @@ test('рендер экранирует категорию, валюту и CSS-
   assert.equal(html.includes('window.__CURRENCY__="</script>'), false);
   assert.equal(html.includes('\\u003c/script>'), true);
   assert.equal(html.includes('--accent:#0071e3'), true);
+});
+
+test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
+  const fakeDb = { categories: () => ['AirPods'], pendingReviewCount: () => 0 };
+  const html = ownerViews.productForm(fakeDb, null);
+  assert.match(html, /class="specs-input"/);
+  assert.match(html, /class="a-form-grid product-options-grid"/);
+  assert.match(html, /class="photo-upload-progress"/);
+  assert.match(html, /\/static\/product-form\.js/);
+  assert.doesNotMatch(html, /Кружок слева|Файлы загружаются сразу|Слева метка/);
 });
 
 test('каталог не содержит дублей и некорректных вариантов', () => {

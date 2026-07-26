@@ -298,6 +298,19 @@ app.post('/owner/products/:id/images/add', async (req, res) => {
   res.json({ ok: true, images: added.map(f => ({ src: f, color: (color && valid) ? color : '' })) });
 });
 
+// Изменить порядок фотографий. Принимается только точная перестановка текущего списка:
+// добавить чужой файл или случайно потерять существующий через этот маршрут нельзя.
+app.post('/owner/products/:id/images/order', (req, res) => {
+  if (!guardApi(req, res)) return;
+  const p = db.getProduct(req.params.id);
+  if (!p) return res.json({ ok: false, error: 'not_found' }, 404);
+  const current = (p.images || []).map(String);
+  const requested = Array.isArray(req.body.images) ? req.body.images.map(String) : [];
+  if (!IMG.validImageOrder(current, requested)) return res.json({ ok: false, error: 'invalid_order' }, 400);
+  db.updateProduct(p.id, { images: requested });
+  res.json({ ok: true, images: requested });
+});
+
 // Сделать фото главным: оно идёт первым в галерее и на карточке товара
 app.post('/owner/products/:id/images/main', (req, res) => {
   if (!guardApi(req, res)) return;
