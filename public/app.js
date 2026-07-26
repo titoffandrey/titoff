@@ -92,6 +92,9 @@
       var wrap = document.getElementById('cart-items');
       var foot = document.getElementById('cart-foot');
       if (!wrap || !foot) return;
+      wrap.classList.remove('cart-items-success');
+      var cartTitle = document.querySelector('#cart-drawer .cart-head h2');
+      if (cartTitle) cartTitle.textContent = 'Корзина';
       if (!this.items.length) {
         wrap.innerHTML = '<div class="cart-empty">Корзина пуста</div>';
         foot.innerHTML = '';
@@ -575,8 +578,23 @@
           Cart.clear();
           var items = document.getElementById('cart-items');
           var foot = document.getElementById('cart-foot');
-          if (items) items.innerHTML = '<div class="cart-empty"><h3 style="color:var(--text)">Заказ принят!</h3><p>Номер ' + escapeHtml(d.number) + '.<br>Менеджер свяжется с вами в ближайшее время.</p></div>';
-          if (foot) foot.innerHTML = '<button class="btn btn-block" onclick="Cart.close()">Готово</button>';
+          var title = document.querySelector('#cart-drawer .cart-head h2');
+          var number = escapeHtml(d.number || '—');
+          if (title) title.textContent = 'Заказ оформлен';
+          if (items) {
+            items.classList.add('cart-items-success');
+            items.innerHTML = '<section class="order-success" id="order-success" role="status" aria-live="polite" tabindex="-1">'
+              + '<div class="order-success-check" aria-hidden="true">✓</div>'
+              + '<p class="order-success-eyebrow">Заявка получена</p>'
+              + '<h3>Спасибо за заказ!</h3>'
+              + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
+              + '<div class="order-success-number"><span>Номер заказа</span><strong>' + number + '</strong></div>'
+              + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
+              + '</section>';
+            var success = document.getElementById('order-success');
+            if (success) success.focus();
+          }
+          if (foot) foot.innerHTML = '<button class="btn btn-primary btn-block btn-lg" onclick="Cart.close()">Продолжить покупки</button>';
         } else {
           btn.disabled = false; btn.textContent = 'Оформить заказ';
           if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = d.error || 'Не удалось оформить заказ'; }

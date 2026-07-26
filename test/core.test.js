@@ -189,6 +189,17 @@ test('формы не содержат галочек, а отзыв требу�
   assert.match(js, /fd\.append\('publicationAccepted', '1'\)/);
 });
 
+test('после заказа показывается понятное адаптивное подтверждение', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(js, /class="order-success"/);
+  assert.match(js, /Номер заказа/);
+  assert.match(js, /Что дальше\?/);
+  assert.match(js, /Продолжить покупки/);
+  assert.match(css, /\.order-success-check\{/);
+  assert.match(css, /\.cart-items\.cart-items-success\{/);
+});
+
 test('шапка сворачивается при прокрутке, а Telegram остаётся контурным', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

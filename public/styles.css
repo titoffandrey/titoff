@@ -1003,6 +1003,19 @@ body.review-consent-open{overflow:hidden}
 .cart-foot{padding:18px 20px calc(18px + env(safe-area-inset-bottom));border-color:var(--border-soft);background:#fff}
 .cart-total{font-size:20px}
 .checkout-fields{padding-top:6px}
+.cart-items.cart-items-success{display:flex;align-items:center;padding:28px 20px}
+.order-success{width:100%;padding:30px 22px;border:1px solid #d9efe1;border-radius:24px;background:linear-gradient(180deg,#f4fbf7 0%,#fff 72%);text-align:center;outline:none}
+.order-success-check{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 18px;border-radius:50%;background:#21a366;color:#fff;box-shadow:0 12px 30px rgba(33,163,102,.2);font-size:34px;font-weight:700;line-height:1}
+.order-success-eyebrow{margin:0 0 7px;color:#16784a;font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.order-success h3{margin:0;font-size:28px;letter-spacing:-.04em}
+.order-success-copy{max-width:310px;margin:10px auto 20px;color:var(--muted);font-size:14px;line-height:1.55}
+.order-success-number{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:15px;background:#fff;text-align:left}
+.order-success-number span{color:var(--muted);font-size:12px}
+.order-success-number strong{font-size:17px;letter-spacing:.02em}
+.order-success-next{display:grid;grid-template-columns:30px minmax(0,1fr);gap:11px;margin-top:14px;padding:15px 16px;border-radius:15px;background:#f5f5f7;text-align:left}
+.order-success-step{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--text);color:#fff;font-size:13px;font-weight:700}
+.order-success-next strong{display:block;margin:1px 0 3px;font-size:13px}
+.order-success-next p{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
 .toast{bottom:calc(24px + env(safe-area-inset-bottom));border-radius:14px;box-shadow:var(--shadow-lg)}
 
 /* Панели управления */
@@ -1201,6 +1214,10 @@ body.admin{background:#f4f4f6;color:#242426}
   .cookie-notice{right:12px;left:12px;bottom:calc(12px + env(safe-area-inset-bottom));width:auto;align-items:flex-end;padding:13px}
 
   .cart-drawer{width:100%;max-width:100%;border-left:0}
+  .cart-items.cart-items-success{padding:20px 16px}
+  .order-success{padding:26px 17px;border-radius:21px}
+  .order-success-check{width:58px;height:58px;font-size:31px}
+  .order-success h3{font-size:25px}
 
   /* Мобильная админка: бренд и выход в первой строке, разделы — одной прокручиваемой лентой. */
   .a-shell{display:block}
