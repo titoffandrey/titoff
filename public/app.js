@@ -219,7 +219,11 @@
     function update() {
       var y = Math.max(0, window.scrollY || 0);
       var delta = y - lastY;
-      var headerInUse = header.contains(document.activeElement) || document.body.classList.contains('nav-open');
+      var active = document.activeElement;
+      // После закрытия корзины фокус возвращается на её кнопку. Это не должно
+      // блокировать сворачивание шапки; развёрнутой оставляем только активную строку поиска.
+      var headerFieldFocused = !!(active && header.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
+      var headerInUse = headerFieldFocused || document.body.classList.contains('nav-open');
       if (y < 48 || headerInUse) setCompact(false);
       else if (delta > 4 && y > 96) setCompact(true);
       else if (delta < -6) setCompact(false);

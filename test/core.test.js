@@ -69,10 +69,23 @@ test('тип изображения определяется по содержи
   assert.equal(imageExtension(Buffer.from('<script>alert(1)</script>')), null);
 });
 
-test('товарное фото вписывается в квадрат без обрезки', () => {
-  const args = images.squareTransformArgs(1200, 'white');
-  assert.equal(args.includes('-trim'), false);
-  assert.deepEqual(args, ['-resize', '1080x1080>', '-background', 'white', '-gravity', 'center', '-extent', '1200x1200']);
+test('товарное фото щадяще очищается от полей и получает единый фон', () => {
+  const args = images.squareTransformArgs(1200);
+  assert.deepEqual(args, [
+    '-fuzz', '2%', '-trim', '+repage',
+    '-resize', '1056x1056>',
+    '-background', '#f5f5f7', '-gravity', 'center',
+    '-extent', '1200x1200', '-alpha', 'remove', '-alpha', 'off'
+  ]);
+  assert.equal(images.PRODUCT_BG, '#f5f5f7');
+  assert.equal(images.squareTransformArgs(1200, { trim: false }).includes('-trim'), false);
+});
+
+test('карточки используют единый фон фото и естественный интервал до отзывов', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.card-media\{[^}]*background:#f5f5f7[^}]*isolation:isolate/);
+  assert.match(css, /\.card-media img\{mix-blend-mode:darken\}/);
+  assert.match(css, /\.card-name\{[^}]*min-height:0[^}]*margin:0 0 7px/);
 });
 
 test('порядок фото принимается только как точная перестановка', () => {
@@ -170,6 +183,15 @@ test('подвал и юридические страницы содержат �
   assert.match(privacy, /cookie_notice_v1/);
   assert.match(privacy, /ИП &lt;Тест&gt;/);
   assert.match(privacy, /privacy@example\.test/);
+  assert.doesNotMatch(privacy, /Редакция от|дата редакции/);
+});
+
+test('каталог не показывает технический счётчик товаров', () => {
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [] };
+  const db = { getProducts: () => [product], categories: () => ['Категория'], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage(settings, db, { category: '', q: '', origin: '' });
+  assert.doesNotMatch(html, />\s*1 товаров\s*</);
 });
 
 test('формы не содержат галочек, а отзыв требует последовательные отдельные согласия', () => {
@@ -208,6 +230,8 @@ test('шапка сворачивается при прокрутке, а Telegr
   assert.match(css, /\.tg-header\{[^}]*border:1px solid[^}]*background:transparent/);
   assert.match(js, /function initCompactHeader\(\)/);
   assert.match(js, /initCompactHeader\(\);/);
+  assert.match(js, /var headerFieldFocused/);
+  assert.doesNotMatch(js, /header\.contains\(document\.activeElement\)/);
 });
 
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
