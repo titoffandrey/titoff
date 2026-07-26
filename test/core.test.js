@@ -172,14 +172,21 @@ test('подвал и юридические страницы содержат �
   assert.match(privacy, /privacy@example\.test/);
 });
 
-test('публичная форма отзыва требует отдельные согласия', () => {
+test('формы не содержат галочек, а отзыв требует последовательные отдельные согласия', () => {
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
   const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
   const html = render.productPage(settings, db, product, null, { origin: '' });
-  assert.match(html, /name="privacyAccepted"[^>]*required/);
-  assert.match(html, /name="publicationAccepted"[^>]*required/);
-  assert.match(html, /\/personal-data-publication-consent/);
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const orderRoute = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* =========================== ПАНЕЛЬ ВЛАДЕЛЬЦА'));
+  assert.doesNotMatch(html, /type="checkbox"[^>]*name="(?:privacyAccepted|publicationAccepted)"/);
+  assert.match(html, /id="review-consent-overlay"/);
+  assert.match(js, /\/personal-data-publication-consent/);
+  assert.doesNotMatch(js, /id="co-privacy"|privacyAccepted:\s*true/);
+  assert.doesNotMatch(orderRoute, /consentAccepted|privacyConsentAt/);
+  assert.match(js, /fd\.append\('privacyAccepted', '1'\)/);
+  assert.match(js, /fd\.append\('publicationAccepted', '1'\)/);
 });
 
 test('шапка сворачивается при прокрутке, а Telegram остаётся контурным', () => {

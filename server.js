@@ -207,7 +207,6 @@ app.post('/api/reviews', async (req, res) => {
 app.post('/api/order', async (req, res) => {
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const site = siteOf(req);
-  if (!consentAccepted(req.body.privacyAccepted)) return res.json({ ok: false, error: 'Подтвердите согласие на обработку персональных данных' }, 400);
   const rawItems = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = []; let total = 0;
   for (const it of rawItems) {
@@ -235,8 +234,7 @@ app.post('/api/order', async (req, res) => {
 
   const order = db.createOrder({
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
-    items, total, customerName: req.body.customerName, contact, comment: req.body.comment,
-    privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION
+    items, total, customerName: req.body.customerName, contact, comment: req.body.comment
   });
   const ss = T.siteSettings(site);
   const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');

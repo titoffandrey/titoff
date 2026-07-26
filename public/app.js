@@ -115,7 +115,7 @@
         + '<div class="field"><label>Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Имя"></div>'
         + '<div class="field"><label>Контакт для связи *</label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram / телефон / e-mail"></div>'
         + '<div class="field"><label>Комментарий</label><textarea id="co-comment" rows="2" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
-        + '<label class="consent-check"><input type="checkbox" id="co-privacy" required><span>Даю <a href="/personal-data-consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="/privacy" target="_blank" rel="noopener">Политикой конфиденциальности</a>.</span></label>'
+        + '<p class="form-legal-note">Данные используются только для обработки заявки. <a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>'
         + '<button class="btn btn-primary btn-block btn-lg" id="checkout-btn">Оформить заказ</button>'
         + '<p class="form-msg" id="order-msg" hidden></p>';
@@ -441,16 +441,91 @@
       });
     }
 
-    // Отправка отзыва
+    // Согласия на обработку и публикацию показываются последовательно,
+    // отдельными действиями и без перегруженных чекбоксов в форме.
     var rf = document.getElementById('review-form');
     if (rf) {
-      rf.addEventListener('submit', function (e) {
-        e.preventDefault();
+      function requestReviewConsents(onConfirmed) {
+        var overlay = document.getElementById('review-consent-overlay');
+        var closeBtn = document.getElementById('review-consent-close');
+        var cancelBtn = document.getElementById('review-consent-cancel');
+        var nextBtn = document.getElementById('review-consent-next');
+        var progress = document.getElementById('review-consent-progress');
+        var title = document.getElementById('review-consent-title');
+        var copy = document.getElementById('review-consent-text');
+        var link = document.getElementById('review-consent-link');
+        if (!overlay || !closeBtn || !cancelBtn || !nextBtn || !progress || !title || !copy || !link) return false;
+        if (!overlay.hidden) return true;
+
+        var previousFocus = document.activeElement;
+        var step = 0;
+        var steps = [
+          {
+            progress: 'Шаг 1 из 2', title: 'Обработка данных',
+            copy: 'Подтвердите согласие на обработку имени, оценок, текста и фотографий, указанных в отзыве.',
+            href: '/personal-data-consent', button: 'Согласен'
+          },
+          {
+            progress: 'Шаг 2 из 2', title: 'Публикация отзыва',
+            copy: 'Подтвердите отдельное согласие на публикацию имени или псевдонима, оценки, текста и фотографий после модерации.',
+            href: '/personal-data-publication-consent', button: 'Согласен и отправить'
+          }
+        ];
+
+        function renderStep() {
+          var current = steps[step];
+          progress.textContent = current.progress;
+          title.textContent = current.title;
+          copy.textContent = current.copy;
+          link.href = current.href;
+          nextBtn.textContent = current.button;
+        }
+        function finish(confirmed) {
+          overlay.hidden = true;
+          document.body.classList.remove('review-consent-open');
+          closeBtn.removeEventListener('click', cancel);
+          cancelBtn.removeEventListener('click', cancel);
+          nextBtn.removeEventListener('click', next);
+          overlay.removeEventListener('click', backdrop);
+          document.removeEventListener('keydown', keyboard);
+          if (confirmed) onConfirmed();
+          else if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+        }
+        function cancel() { finish(false); }
+        function next() {
+          if (step === 0) { step = 1; renderStep(); nextBtn.focus(); return; }
+          finish(true);
+        }
+        function backdrop(e) { if (e.target === overlay) cancel(); }
+        function keyboard(e) {
+          if (e.key === 'Escape') { cancel(); return; }
+          if (e.key !== 'Tab') return;
+          var focusable = [closeBtn, link, cancelBtn, nextBtn];
+          var index = focusable.indexOf(document.activeElement);
+          if (e.shiftKey && index <= 0) { e.preventDefault(); nextBtn.focus(); }
+          else if (!e.shiftKey && index === focusable.length - 1) { e.preventDefault(); closeBtn.focus(); }
+        }
+
+        renderStep();
+        closeBtn.addEventListener('click', cancel);
+        cancelBtn.addEventListener('click', cancel);
+        nextBtn.addEventListener('click', next);
+        overlay.addEventListener('click', backdrop);
+        document.addEventListener('keydown', keyboard);
+        overlay.hidden = false;
+        document.body.classList.add('review-consent-open');
+        nextBtn.focus();
+        return true;
+      }
+
+      function sendReview() {
         var msg = document.getElementById('review-msg');
         var submit = rf.querySelector('button[type="submit"]');
         if (submit && submit.disabled) return;
         if (submit) { submit.disabled = true; submit.textContent = 'Отправляем...'; }
         var fd = new FormData(rf);
+        fd.append('privacyAccepted', '1');
+        fd.append('publicationAccepted', '1');
         fetch('/api/reviews', { method: 'POST', body: fd })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -468,6 +543,16 @@
           })
           .catch(function () { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Ошибка сети'; })
           .finally(function () { if (submit) { submit.disabled = false; submit.textContent = 'Отправить отзыв'; } });
+      }
+
+      rf.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var submit = rf.querySelector('button[type="submit"]');
+        if (submit && submit.disabled) return;
+        if (!requestReviewConsents(sendReview)) {
+          var msg = document.getElementById('review-msg');
+          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Не удалось открыть подтверждение. Обновите страницу.'; }
+        }
       });
     }
   });
@@ -476,15 +561,12 @@
     var msg = document.getElementById('order-msg');
     var contact = (document.getElementById('co-contact') || {}).value || '';
     if (!contact.trim()) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Укажите контакт для связи'; } return; }
-    var privacy = document.getElementById('co-privacy');
-    if (!privacy || !privacy.checked) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Подтвердите согласие на обработку персональных данных'; } if (privacy) privacy.focus(); return; }
     btn.disabled = true; btn.textContent = 'Отправляем...';
     var payload = {
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '' }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
       contact: contact,
-      comment: (document.getElementById('co-comment') || {}).value || '',
-      privacyAccepted: true
+      comment: (document.getElementById('co-comment') || {}).value || ''
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })
