@@ -16,6 +16,49 @@
     growSpecs();
   }
 
+  // ===== Цена: раскрытие блока акции и живой предпросмотр того, что увидит покупатель =====
+  var dealBox = document.getElementById('deal-box');
+  var dealToggle = document.getElementById('deal-toggle');
+  var priceInput = form.querySelector('input[name="price"]');
+  var oldInput = form.querySelector('input[name="oldPrice"]');
+  var dealInput = form.querySelector('input[name="hotDealPrice"]');
+  var preview = document.getElementById('price-preview');
+
+  function money(n) { return Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ₽'; }
+  function num(el) { var n = Number(el && el.value); return isFinite(n) && n > 0 ? n : 0; }
+
+  function renderPreview() {
+    if (!preview) return;
+    var base = num(priceInput);
+    if (!base) { preview.hidden = true; return; }
+    var deal = dealToggle && dealToggle.checked ? num(dealInput) : 0;
+    var old = num(oldInput);
+    var eff = (deal > 0 && deal < base) ? deal : base;          // та же логика, что в lib/deals.js
+    var cmp = (deal > 0 && deal < base) ? base : (old > eff ? old : 0);
+    var pct = cmp ? Math.round((1 - eff / cmp) * 100) : 0;
+    var html = 'Покупатель увидит: <b>' + money(eff) + '</b>';
+    if (cmp) html += '<span class="pp-old">' + money(cmp) + '</span><span class="pp-pct">−' + pct + '%</span>';
+    if (dealToggle && dealToggle.checked && !(deal > 0 && deal < base)) {
+      html += ' — <span class="pp-pct">скидка не сработает: цена по акции должна быть меньше базовой</span>';
+    } else if (old && old <= base) {
+      html += ' — <span class="pp-pct">старая цена ниже базовой, её не покажем</span>';
+    }
+    preview.innerHTML = html;
+    preview.hidden = false;
+  }
+
+  if (dealToggle && dealBox) {
+    dealToggle.addEventListener('change', function () {
+      dealBox.classList.toggle('is-on', dealToggle.checked);
+      if (dealToggle.checked && dealInput && !dealInput.value && num(priceInput)) {
+        dealInput.value = Math.round(num(priceInput) * 0.9);   // подставим −10%, чтобы не заполнять вручную
+      }
+      renderPreview();
+    });
+  }
+  [priceInput, oldInput, dealInput].forEach(function (el) { if (el) el.addEventListener('input', renderPreview); });
+  renderPreview();
+
   var MAX_FILE = 6 * 1024 * 1024;
   var states = [];
 

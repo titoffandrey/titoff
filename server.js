@@ -47,8 +47,29 @@ const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return is
 const safeHex = (v, fallback) => { const h = String(v || '').trim(); return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(h) ? h : (fallback || '#cccccc'); };
 const short = (v, max) => String(v == null ? '' : v).slice(0, max);
 const parseStock = (v) => !/^(нет|no|0|out)$/i.test(String(v == null ? '' : v).trim());
-const parseColors = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name);
-const parseStorages = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label);
+// Повторы схлопываем: два одинаковых цвета дают два одинаковых кружка на витрине,
+// а в корзине это вообще один и тот же вариант.
+const uniqBy = (list, key) => { const seen = new Set(); return list.filter(x => { const k = key(x).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
+const parseColors = (txt) => uniqBy(String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name), c => c.name);
+const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label), s => s.label);
+
+// Проверка формы товара. Возвращает список ошибок: пустой — можно сохранять.
+// Без неё пустая форма молча создавала товар «Без названия» с ценой 0.
+function validateProduct(body) {
+  const errors = [];
+  const price = Number(body.price);
+  if (!String(body.name || '').trim()) errors.push({ field: 'name', text: 'Укажите название товара' });
+  if (!String(body.category || '').trim()) errors.push({ field: 'category', text: 'Укажите категорию' });
+  if (!Number.isFinite(price) || price <= 0) errors.push({ field: 'price', text: 'Базовая цена должна быть больше нуля' });
+  const oldPrice = String(body.oldPrice || '').trim();
+  if (oldPrice && Number(oldPrice) <= price) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть выше базовой — иначе зачёркивать нечего' });
+  if (body.hotDeal !== undefined) {
+    const deal = String(body.hotDealPrice || '').trim();
+    if (!deal) errors.push({ field: 'hotDealPrice', text: 'Для горящей скидки нужна цена по акции' });
+    else if (!(Number(deal) > 0) || Number(deal) >= price) errors.push({ field: 'hotDealPrice', text: 'Цена по акции должна быть меньше базовой' });
+  }
+  return errors;
+}
 function tgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function isLoopback(address) { return /^(?:127(?:\.\d+){3}|::1|::ffff:127(?:\.\d+){3})$/.test(String(address || '')); }
 function trustedProxy(req) { return process.env.TRUST_PROXY === '1' || isLoopback(req.socket && req.socket.remoteAddress); }
@@ -376,6 +397,8 @@ app.get('/owner/products', (req, res) => { if (!guardOwner(req, res)) return; re
 app.get('/owner/products/new', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.productForm(db, null)); });
 app.post('/owner/products', async (req, res) => {
   if (!guardOwner(req, res)) return;
+  const errors = validateProduct(req.body);
+  if (errors.length) return res.send(O.productForm(db, null, { errors, draft: req.body }), 400);
   db.createProduct({
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
@@ -389,6 +412,8 @@ app.get('/owner/products/:id/edit', (req, res) => { if (!guardOwner(req, res)) r
 app.post('/owner/products/:id', async (req, res) => {
   if (!guardOwner(req, res)) return;
   const p = db.getProduct(req.params.id); if (!p) return res.redirect('/owner/products');
+  const errors = validateProduct(req.body);
+  if (errors.length) return res.send(O.productForm(db, p, { errors, draft: req.body }), 400);
   const remove = asArray(req.body.removeImages);
   let images = (p.images || []).filter(src => !remove.includes(src));
   const colors = parseColors(req.body.colors);

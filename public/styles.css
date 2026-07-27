@@ -356,7 +356,56 @@ body.admin{background:var(--bg2)}
 .photo-queue-actions button{width:25px;height:23px;padding:0;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;color:var(--text)}
 .photo-queue-actions button:hover{border-color:var(--accent);color:var(--accent)}
 .product-form.is-submitting{pointer-events:none}
-.product-form.is-submitting .a-form-actions{opacity:.6}
+.product-form.is-submitting .a-form-actions,.product-form.is-submitting .form-actions-bar{opacity:.6}
+
+/* ===== Форма товара: секции, ошибки, цена ===== */
+.product-form{padding:0;border:none;background:none}
+.form-section{background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px 22px;margin-bottom:14px}
+.form-section-head{margin-bottom:16px}
+.form-section-head h2{font-size:17px;margin:0;letter-spacing:-.01em}
+.form-section-head p{margin:4px 0 0;line-height:1.45}
+.form-section .field:last-child{margin-bottom:0}
+.field-hint{margin:6px 0 0;font-size:12.5px;color:var(--muted);line-height:1.4}
+.field-err{margin:6px 0 0;font-size:12.5px;color:#c8102e;line-height:1.4}
+.field.has-error input,.field.has-error textarea{border-color:#c8102e;background:#fff8f8}
+.form-alert{background:#fff5f5;border:1px solid #f6c9c9;border-radius:14px;padding:14px 18px;margin-bottom:14px;font-size:14px;color:#8a1220}
+.form-alert ul{margin:6px 0 0;padding-left:18px}
+.form-alert li{margin-top:2px}
+
+/* цена с валютой внутри поля */
+.price-field{position:relative;display:block}
+.price-field input{padding-right:34px!important}
+.price-field span{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none}
+.price-preview{margin:12px 0 0;font-size:14px;color:var(--muted)}
+.price-preview b{color:var(--text)}
+.price-preview .pp-old{text-decoration:line-through;margin-left:6px}
+.price-preview .pp-pct{color:#c8102e;margin-left:6px;font-weight:600}
+
+/* переключатель-строка */
+.switch-row{display:inline-flex;align-items:center;gap:9px;margin-top:4px;cursor:pointer;font-size:14.5px;user-select:none}
+.form-section>.switch-row{margin-top:10px}
+.switch-row input{width:38px;height:22px;-webkit-appearance:none;appearance:none;background:#d2d2d7;border-radius:22px;position:relative;cursor:pointer;transition:background .18s;flex:none;margin:0}
+.switch-row input:checked{background:var(--accent)}
+.switch-row input::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .18s}
+.switch-row input:checked::after{transform:translateX(16px)}
+
+/* блок акции раскрывается галочкой */
+.deal-box{border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:4px;transition:border-color .18s,background .18s}
+.deal-box.is-on{border-color:#ffd9cf;background:#fff8f6}
+.deal-fields{display:none;margin-top:14px}
+.deal-box.is-on .deal-fields{display:block}
+.deal-box .field:last-child{margin-bottom:0}
+
+/* панель действий прилипает к низу экрана */
+.form-actions-bar{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;
+  background:rgba(255,255,255,.86);backdrop-filter:saturate(180%) blur(16px);-webkit-backdrop-filter:saturate(180%) blur(16px);
+  border:1px solid var(--border);border-radius:16px;margin-top:16px}
+.form-actions-bar .btn-primary{min-width:150px}
+@media(max-width:734px){
+  .form-section{padding:16px 14px;border-radius:14px}
+  .form-actions-bar{padding:12px 14px}
+  .form-actions-bar .btn{flex:1;text-align:center}
+}
 
 /* группы фото по цветам */
 .img-groups{display:flex;flex-direction:column;gap:16px}
@@ -520,10 +569,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   .cart-drawer{width:100%;max-width:100%;border-radius:0}
 }
 
-/* кнопка-переключатель «в корзине» */
-.add-to-cart.in-cart{background:#1a7f37;color:#fff;border:1px solid #1a7f37;box-shadow:none}
-.add-to-cart.in-cart:hover{background:#16702f;border-color:#16702f}
-.add-to-cart.in-cart:active{transform:scale(.98)}
 
 /* ===== Варианты товара (цвет + память) ===== */
 .variant-group{margin:14px 0}
@@ -698,15 +743,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .card-add .add-to-cart{border-radius:14px}
 .add-to-cart:hover{transform:translateY(-1px);filter:brightness(1.05);box-shadow:0 8px 20px rgba(0,0,0,.14)}
 .add-to-cart:active{transform:translateY(0) scale(.98);box-shadow:0 3px 10px rgba(0,0,0,.12)}
-/* лёгкий блик по кнопке при наведении */
-.add-to-cart::after{content:"";position:absolute;top:0;left:-75%;width:45%;height:100%;
-  background:linear-gradient(100deg,transparent,rgba(255,255,255,.28),transparent);
-  transform:skewX(-18deg);pointer-events:none;opacity:0}
-.add-to-cart:hover::after{animation:btnSheen .75s ease}
-@keyframes btnSheen{0%{left:-75%;opacity:.9}100%{left:130%;opacity:0}}
-.add-to-cart.in-cart{background-color:#1a7f37;background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.08))}
-.add-to-cart.in-cart:hover{background-color:#17863a}
-@media(prefers-reduced-motion:reduce){.add-to-cart:hover::after{animation:none}}
 
 /* ===== Характеристики: highlights в стиле apple.com (глиф + строка текста) ===== */
 .spec-h{font-size:32px;line-height:1.125;letter-spacing:-.02em;font-weight:600;margin-bottom:28px}
@@ -867,9 +903,27 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .old-price{margin-left:5px;font-size:13px}
 .card-add{padding:13px 17px 17px}
 .card-add .btn{min-height:43px;border-radius:13px}
-.add-to-cart{overflow:hidden;background-image:none;box-shadow:none}
+/* ===== Кнопка «в корзину»: одно состояние — один вид ===== */
+.add-to-cart{background-image:none;box-shadow:none;position:relative;overflow:hidden;
+  transition:background-color .18s ease,border-color .18s ease,transform .12s ease,box-shadow .18s ease}
 .add-to-cart::after{display:none}
-.add-to-cart.in-cart{background:var(--success);border-color:var(--success)}
+.add-to-cart.in-cart{background:var(--success);border-color:var(--success);color:#fff}
+.add-to-cart.in-cart:hover{filter:brightness(1.04)}
+.btn-check{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;margin-right:7px;
+  border-radius:50%;background:rgba(255,255,255,.22);font-size:11px;line-height:1;flex:none}
+/* короткий отклик в момент добавления */
+.add-to-cart.just-added{animation:addedPop .42s cubic-bezier(.2,.9,.3,1.4)}
+@keyframes addedPop{0%{transform:scale(1)}38%{transform:scale(1.05)}100%{transform:scale(1)}}
+
+/* ===== Кнопка оформления: подпись слева, сумма справа ===== */
+.btn-checkout{justify-content:space-between;padding-left:22px;padding-right:18px;gap:12px}
+.btn-checkout-sum{font-variant-numeric:tabular-nums;font-weight:600;
+  background:rgba(255,255,255,.18);border-radius:980px;padding:4px 11px;font-size:14px}
+.btn-checkout:disabled .btn-checkout-sum{background:rgba(255,255,255,.12)}
+
+@media(prefers-reduced-motion:reduce){
+  .add-to-cart,.add-to-cart.just-added{animation:none;transition:none}
+}
 
 /* Специальные предложения */
 .deals-band{margin:0;padding:48px 0 52px;border-color:#f1d9d5;background:linear-gradient(180deg,#fff9f7,#fff)}

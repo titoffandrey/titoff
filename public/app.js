@@ -121,7 +121,9 @@
         + '<div class="field"><label>Комментарий</label><textarea id="co-comment" rows="2" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
         + '<p class="form-legal-note">Данные используются только для обработки заявки. <a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>'
-        + '<button class="btn btn-primary btn-block btn-lg" id="checkout-btn">Оформить заказ</button>'
+        + '<button class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-btn">'
+        + '<span class="btn-checkout-label">Оформить заказ</span>'
+        + '<span class="btn-checkout-sum">' + money(this.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>';
     }
   };
@@ -136,8 +138,20 @@
   // Кнопка «в корзину» как переключатель: показывает статус в зависимости от корзины.
   function setBtnState(btn, inCart) {
     if (!btn.dataset.label) btn.dataset.label = btn.textContent.trim();
-    if (inCart) { btn.classList.add('in-cart'); btn.textContent = 'Оформить заказ'; }
-    else { btn.classList.remove('in-cart'); btn.textContent = btn.dataset.label; }
+    var was = btn.classList.contains('in-cart');
+    if (inCart) {
+      btn.classList.add('in-cart');
+      // подпись = то, что произойдёт по клику (открыть корзину и оформить),
+      // а галочка и цвет показывают, что товар уже добавлен
+      btn.innerHTML = '<span class="btn-check" aria-hidden="true">✓</span>Оформить заказ';
+      if (!was) {                       // короткий отклик на добавление
+        btn.classList.add('just-added');
+        setTimeout(function () { btn.classList.remove('just-added'); }, 420);
+      }
+    } else {
+      btn.classList.remove('in-cart', 'just-added');
+      btn.textContent = btn.dataset.label;
+    }
   }
   function syncCartButtons() {
     var btns = document.querySelectorAll('.add-to-cart');
