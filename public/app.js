@@ -365,6 +365,9 @@
     Cart.load();
     Cart.updateBadge();
     if (document.getElementById('checkout-page')) Cart.render();   // страница оформления рисуется сразу
+    try {                                                          // благодарность после перезагрузки со свежим отзывом
+      if (sessionStorage.getItem('review_thanks')) { sessionStorage.removeItem('review_thanks'); toast('Спасибо за отзыв!'); }
+    } catch (e) {}
     initCountdowns();
     startAnalytics(true);
     initAnalyticsControls();
@@ -663,10 +666,13 @@
             msg.hidden = false;
             if (d.ok) {
               msg.className = 'form-msg ok';
-              msg.textContent = d.message || 'Спасибо! Ваш отзыв отправлен.';
+              msg.textContent = d.message || 'Спасибо за отзыв!';
               rf.reset();
               var h = document.getElementById('rating-value'); if (h) h.value = 5;
               document.querySelectorAll('.rate-star').forEach(function (s) { s.classList.add('on'); });
+              // перезагружаем страницу: сервер отдаст список отзывов уже с этим отзывом
+              try { sessionStorage.setItem('review_thanks', '1'); } catch (e) {}
+              setTimeout(function () { location.reload(); }, 400);
             } else {
               msg.className = 'form-msg err';
               msg.textContent = d.error || 'Не удалось отправить отзыв';

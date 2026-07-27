@@ -192,7 +192,12 @@ app.get('/product/:id', (req, res) => {
     return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req) }, site), 404);
   }
   trackPage(req, res, site, '/product/' + view.id);
-  res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req) }));
+  // Отзывы этого посетителя, ещё не прошедшие модерацию: их видит только он сам
+  const mine = Array.isArray(req.session && req.session.myReviews) ? req.session.myReviews : [];
+  const ownReviews = mine.length
+    ? db.getReviews().filter(rv => rv.productId === view.id && rv.status !== 'approved' && mine.includes(rv.id))
+    : [];
+  res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req), ownReviews }));
 });
 
 app.get('/checkout', (req, res) => {
@@ -306,11 +311,17 @@ app.post('/api/reviews', async (req, res) => {
     privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION,
     publicationConsentAt: Date.now(), publicationConsentVersion: R.PRIVACY_VERSION
   });
+  // Автор видит свой отзыв на странице товара сразу — id складываем в его же
+  // подписанную cookie-сессию. Для всех остальных отзыв появится только после
+  // одобрения в панели: db.reviewsForProduct(id, true) отдаёт лишь approved.
+  const mine = Array.isArray(req.session && req.session.myReviews) ? req.session.myReviews : [];
+  req.session = Object.assign({}, req.session || {}, { myReviews: mine.concat(review.id).slice(-30) });
+
   const ss = T.siteSettings(site);
   if (ss.notifyReviews) {
     sendTelegram(ss, `📝 <b>Новый отзыв на модерации</b>\nМагазин: ${tgEsc(site.storeName)}\nТовар: ${tgEsc(p.name)}\nАвтор: ${tgEsc(review.author)}\nОценка: ${'★'.repeat(review.rating)}\n${review.text ? tgEsc(review.text) : ''}`).catch(() => {});
   }
-  res.json({ ok: true, message: 'Спасибо! Ваш отзыв отправлен.' });
+  res.json({ ok: true, message: 'Спасибо за отзыв!' });
 });
 
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
