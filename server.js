@@ -12,9 +12,11 @@ const T = require('./lib/tenancy');
 const O = require('./lib/owner-views');
 const S = require('./lib/site-views');
 const IMG = require('./lib/images');
+const { Analytics, clientDetails } = require('./lib/analytics');
 const { App } = require('./lib/server-lib');
 
 db.ensureSeeded();
+const metrics = new Analytics({ dataDir: db.DATA_DIR, geoEnabled: process.env.GEOIP_ENABLED !== '0' });
 
 const PORT = process.env.PORT || 3000;
 const app = new App({ secret: db.getSettings().sessionSecret || 'fallback-secret', uploadDir: db.UPLOAD_DIR });
@@ -97,11 +99,26 @@ function consentAccepted(value) {
   return value === true || ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
 }
 
-// Защита входов от перебора паролей (в памяти, IP нигде не сохраняется).
+// Защита входов от перебора паролей: временные счётчики попыток хранятся в памяти.
 const loginAttempts = new Map();
 function clientIp(req) {
-  const forwarded = trustedProxy(req) ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
-  return forwarded || (req.socket && req.socket.remoteAddress) || '?';
+  const canTrust = trustedProxy(req);
+  const cloudflare = canTrust ? String(req.headers['cf-connecting-ip'] || '').trim() : '';
+  const forwarded = canTrust ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  const real = canTrust ? String(req.headers['x-real-ip'] || '').trim() : '';
+  return cloudflare || forwarded || real || (req.socket && req.socket.remoteAddress) || '?';
+}
+function trackPage(req, res, site, pathname) {
+  if (metrics.trackingDisabled(req)) return;
+  let id = metrics.visitorId(req);
+  if (!id) {
+    id = metrics.newVisitorId();
+    res.setHeader('Set-Cookie', metrics.cookieHeader(id, originOf(req).startsWith('https://')));
+  }
+  metrics.recordPageView({
+    id, siteId: site.id, path: pathname, host: req.headers.host,
+    context: metrics.context(req, clientIp(req), trustedProxy(req))
+  });
 }
 function loginBlocked(req) { const r = loginAttempts.get(clientIp(req)); return !!(r && r.until > Date.now()); }
 function loginFail(req) { const ip = clientIp(req); const r = loginAttempts.get(ip) || { count: 0, until: 0 }; r.count++; if (r.count >= 6) { r.until = Date.now() + 15 * 60 * 1000; r.count = 0; } r.seen = Date.now(); loginAttempts.set(ip, r); }
@@ -130,6 +147,7 @@ if (sweep.unref) sweep.unref();
 
 app.get('/', (req, res) => {
   const site = siteOf(req);
+  trackPage(req, res, site, '/');
   res.send(R.homePage(T.siteSettings(site), db, { category: req.query.category, q: req.query.q, origin: originOf(req) }, site));
 });
 
@@ -137,22 +155,64 @@ app.get('/product/:id', (req, res) => {
   const site = siteOf(req);
   const view = T.siteProductView(site, req.params.id);
   if (!view) return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req) }, site), 404);
+  trackPage(req, res, site, '/product/' + view.id);
   res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req) }));
 });
 
 app.get('/privacy', (req, res) => {
   const site = siteOf(req);
+  trackPage(req, res, site, '/privacy');
   res.send(R.privacyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
 });
 
 app.get('/personal-data-consent', (req, res) => {
   const site = siteOf(req);
+  trackPage(req, res, site, '/personal-data-consent');
   res.send(R.personalDataConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
 });
 
 app.get('/personal-data-publication-consent', (req, res) => {
   const site = siteOf(req);
+  trackPage(req, res, site, '/personal-data-publication-consent');
   res.send(R.publicationConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
+// Собственная метрика запускается автоматически при первом открытии страницы.
+app.post('/api/analytics/start', (req, res) => {
+  if (rateLimited(req, 'analytics-start', 120, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
+  const site = siteOf(req);
+  let id = metrics.visitorId(req);
+  const isNew = !id || !metrics.findVisitor(id);
+  if (!id) id = metrics.newVisitorId();
+  const secure = originOf(req).startsWith('https://');
+  const setCookies = [metrics.cookieHeader(id, secure)];
+  if (metrics.trackingDisabled(req)) setCookies.push(metrics.clearOptOutCookieHeader(secure));
+  res.setHeader('Set-Cookie', setCookies);
+  const input = {
+    id, siteId: site.id, path: req.body.path, host: req.headers.host,
+    context: Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client))
+  };
+  if (isNew) {
+    input.referrer = req.body.referrer;
+    metrics.recordPageView(input);
+  } else metrics.heartbeat(input);
+  res.json({ ok: true });
+});
+
+app.post('/api/analytics/ping', (req, res) => {
+  const site = siteOf(req);
+  const id = metrics.visitorId(req);
+  if (id) metrics.heartbeat({ id, siteId: site.id, path: req.body.path, context: metrics.context(req, clientIp(req), trustedProxy(req)) });
+  res.writeHead(204, { 'Cache-Control': 'private, no-store' });
+  res.end();
+});
+
+app.post('/api/analytics/withdraw', (req, res) => {
+  const id = metrics.visitorId(req);
+  if (id) metrics.removeVisitor(id);
+  const secure = originOf(req).startsWith('https://');
+  res.setHeader('Set-Cookie', [metrics.clearCookieHeader(secure), metrics.optOutCookieHeader(secure)]);
+  res.json({ ok: true });
 });
 
 // robots.txt и sitemap.xml — по домену
@@ -232,14 +292,28 @@ app.post('/api/order', async (req, res) => {
   const contact = String(req.body.contact || '').trim();
   if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
 
+  // Определение выполняется на сервере. Для уже встречавшегося IP используется
+  // 30-дневный кэш; внешняя геобаза вызывается только один раз для нового IP.
+  const client = await metrics.describeRequest(req, clientIp(req), trustedProxy(req));
+  const visitorId = metrics.visitorId(req) || null;
+  const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
+
   const order = db.createOrder({
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
-    items, total, customerName: req.body.customerName, contact, comment: req.body.comment
+    items, total, customerName: req.body.customerName, contact, comment: req.body.comment,
+    visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
+    clientCountry: client.country, clientIsp: client.isp, clientDevice: client.device,
+    clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
+    clientSource: (metricVisitor && metricVisitor.source) || client.source
   });
+  metrics.markOrder(visitorId, order);
   const ss = T.siteSettings(site);
   const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
   const msg = `🛒 <b>Новый заказ ${order.number}</b>\n🏬 ${tgEsc(site.storeName)}\n`
     + `👤 Имя: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
+    + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
+    + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
+    + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
     + (order.comment ? `💬 ${tgEsc(order.comment)}\n` : '')
     + `\n${lines}\n\n<b>Итого: ${R.money(total, ss)}</b>`;
   const tg = await sendTelegram(ss, msg);
@@ -261,6 +335,11 @@ app.post('/owner/login', async (req, res) => {
 app.post('/owner/logout', (req, res) => { req.session = null; res.redirect('/owner/login'); });
 
 app.get('/owner', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.dashboard(db)); });
+app.get('/owner/analytics', (req, res) => {
+  if (!guardOwner(req, res)) return;
+  const siteId = db.getSite(req.query.site) ? req.query.site : '';
+  res.send(O.analyticsPage(db, metrics.snapshot({ siteId, days: req.query.days }), siteId));
+});
 
 // Каталог (мастер)
 app.get('/owner/products', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.productsList(db, req.query.flash)); });
@@ -491,6 +570,7 @@ app.post('/admin/reviews', (req, res) => {
 
 // Заказы сайта
 app.get('/admin/orders', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.ordersList(db, site, req.query.flash)); });
+app.get('/admin/analytics', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.analyticsPage(db, site, metrics.snapshot({ siteId: site.id, days: req.query.days }))); });
 app.post('/admin/orders/:id/status', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
   const o = db.getOrders().find(x => x.id === req.params.id);
@@ -515,11 +595,23 @@ app.post('/admin/settings', async (req, res) => {
 });
 
 /* =========================== 404 =========================== */
-app.notFound = (req, res) => { const site = siteOf(req); res.send(R.homePage(T.siteSettings(site), db, { q: '' }, site), 404); };
+app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404'); res.send(R.homePage(T.siteSettings(site), db, { q: '' }, site), 404); };
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   console.log(`\n  Мультимагазин запущен на порту ${PORT}: http://localhost:${PORT}`);
   console.log(`  Витрина:        http://localhost:${PORT}   (демо-домены см. ?site=…)`);
   console.log(`  Админка сайта:  http://localhost:${PORT}/admin    (по домену; демо-логин admin / admin)`);
   console.log(`  Панель владельца: http://localhost:${PORT}/owner  (демо-логин owner / owner)\n`);
 });
+
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  metrics.flush();
+  httpServer.close(() => process.exit(0));
+  const force = setTimeout(() => process.exit(0), 5000);
+  if (force.unref) force.unref();
+}
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);

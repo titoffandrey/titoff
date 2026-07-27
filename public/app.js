@@ -2,7 +2,8 @@
 (function () {
   'use strict';
   var KEY = 'cart_v1';
-  var NOTICE_KEY = 'cookie_notice_v1';
+  var ANALYTICS_DISABLED_KEY = 'analytics_disabled_v1';
+  var analyticsTimer = null;
   var CUR = window.__CURRENCY__ || '₽';
   var POS = window.__CURPOS__ || 'after';
   var MAX_CART_LINES = 100;
@@ -191,19 +192,74 @@
     setInterval(tick, 1000);
   }
 
-  function initCookieNotice() {
-    var notice = document.getElementById('cookie-notice');
-    var ok = document.getElementById('cookie-ok');
-    if (!notice || !ok) return;
-    var accepted = false;
-    try { accepted = localStorage.getItem(NOTICE_KEY) === 'ok'; } catch (e) {}
-    if (accepted) return;
-    notice.hidden = false;
-    requestAnimationFrame(function () { notice.classList.add('visible'); });
-    ok.addEventListener('click', function () {
-      try { localStorage.setItem(NOTICE_KEY, 'ok'); } catch (e) {}
-      notice.classList.remove('visible');
-      setTimeout(function () { notice.hidden = true; }, 220);
+  function analyticsPayload(includeDetails) {
+    var payload = { path: location.pathname };
+    if (includeDetails) {
+      var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
+      var params = new URLSearchParams(location.search);
+      payload.referrer = document.referrer;
+      payload.client = {
+        screen: window.screen ? window.screen.width + '×' + window.screen.height : '',
+        viewport: window.innerWidth + '×' + window.innerHeight,
+        language: navigator.language || '',
+        timezone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '',
+        platform: (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '',
+        cpuCores: navigator.hardwareConcurrency || null,
+        deviceMemory: navigator.deviceMemory || null,
+        connection: connection.effectiveType || connection.type || '',
+        utmSource: params.get('utm_source') || '',
+        utmMedium: params.get('utm_medium') || '',
+        utmCampaign: params.get('utm_campaign') || ''
+      };
+    }
+    return JSON.stringify(payload);
+  }
+
+  function startAnalyticsHeartbeat() {
+    if (analyticsTimer) return;
+    analyticsTimer = setInterval(function () {
+      if (document.visibilityState !== 'visible') return;
+      fetch('/api/analytics/ping', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: analyticsPayload(false), keepalive: true
+      }).catch(function () {});
+    }, 60000);
+  }
+
+  function analyticsDisabled() {
+    try { return localStorage.getItem(ANALYTICS_DISABLED_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  function startAnalytics(includeReferrer) {
+    if (analyticsDisabled()) return;
+    fetch('/api/analytics/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: analyticsPayload(includeReferrer), keepalive: true
+    }).then(function (r) { if (r.ok) startAnalyticsHeartbeat(); }).catch(function () {});
+  }
+
+  function initAnalyticsControls() {
+    var disable = document.getElementById('analytics-disable');
+    if (!disable) return;
+    if (analyticsDisabled()) {
+      disable.textContent = 'Включить метрику на этом устройстве';
+      disable.addEventListener('click', function () {
+        try { localStorage.removeItem(ANALYTICS_DISABLED_KEY); } catch (e) {}
+        disable.disabled = true;
+        disable.textContent = 'Метрика включена';
+        startAnalytics(true);
+      });
+      return;
+    }
+    disable.addEventListener('click', function () {
+      disable.disabled = true;
+      fetch('/api/analytics/withdraw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', keepalive: true })
+        .then(function () {
+          try { localStorage.setItem(ANALYTICS_DISABLED_KEY, '1'); } catch (e) {}
+          if (analyticsTimer) clearInterval(analyticsTimer);
+          analyticsTimer = null;
+          disable.textContent = 'Метрика отключена';
+        }).catch(function () { disable.disabled = false; });
     });
   }
 
@@ -244,7 +300,8 @@
     Cart.load();
     Cart.updateBadge();
     initCountdowns();
-    initCookieNotice();
+    startAnalytics(true);
+    initAnalyticsControls();
     initCompactHeader();
 
     document.addEventListener('keydown', function (e) {

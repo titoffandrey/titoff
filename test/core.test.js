@@ -13,6 +13,7 @@ const dbCore = require('../lib/db');
 const render = require('../lib/render');
 const ownerViews = require('../lib/owner-views');
 const images = require('../lib/images');
+const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
 
@@ -174,16 +175,108 @@ test('подвал и юридические страницы содержат �
   const html = render.layout(settings, { body: '' });
   assert.match(html, /© 2017–2026 a:Market\. Все права защищены\./);
   assert.match(html, /href="\/privacy"/);
-  assert.match(html, /id="cookie-notice"/);
+  assert.doesNotMatch(html, /id="cookie-notice"|id="cookie-ok"|Не сейчас/);
   assert.doesNotMatch(html, /Для администратора|href="\/admin"/);
 
   const privacy = render.privacyPage(settings, { origin: 'https://example.test' });
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(privacy, /Политика конфиденциальности и обработки персональных данных/);
   assert.match(privacy, /cart_v1/);
-  assert.match(privacy, /cookie_notice_v1/);
+  assert.match(privacy, /analytics_disabled_v1/);
+  assert.match(privacy, /am_analytics/);
+  assert.match(privacy, /am_analytics_off/);
+  assert.match(privacy, /IPWhois/);
+  assert.match(privacy, /id="analytics-disable"/);
+  assert.match(privacy, /автоматически запускается собственная first-party метрика/);
+  assert.match(js, /\/api\/analytics\/start/);
+  assert.doesNotMatch(js, /\/api\/analytics\/consent|initCookieNotice/);
   assert.match(privacy, /ИП &lt;Тест&gt;/);
   assert.match(privacy, /privacy@example\.test/);
   assert.doesNotMatch(privacy, /Редакция от|дата редакции/);
+});
+
+test('метрика считает визиты пакетно, различает устройства и связывает заказ', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  const id = 'a'.repeat(32);
+  const phone = deviceFromUa('Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 Version/18.5 Mobile/15E148 Safari/604.1');
+  assert.equal(phone.device, 'Телефон');
+  assert.equal(phone.model, 'iPhone');
+  assert.match(phone.os, /^iOS 18\.5/);
+  assert.match(phone.browser, /^Safari/);
+  assert.equal(isPrivateIp('127.0.0.1'), true);
+  assert.equal(isPrivateIp('8.8.8.8'), false);
+  assert.equal(sourceFromReferrer('https://shop.test/product/x', 'shop.test:443'), 'Внутренний переход');
+  assert.equal(analytics.trackingDisabled({ headers: { cookie: 'am_analytics_off=1' } }), true);
+  assert.deepEqual(clientDetails({ screen: '1179×2556', viewport: '390×844', language: 'ru-RU', timezone: 'Europe/Moscow', cpuCores: 8, deviceMemory: 8, connection: '4g', utmCampaign: 'summer' }), {
+    screen: '1179×2556', viewport: '390×844', language: 'ru-RU', timezone: 'Europe/Moscow', platform: '',
+    cpuCores: 8, deviceMemory: 8, connection: '4g', utmSource: '', utmMedium: '', utmCampaign: 'summer'
+  });
+
+  analytics.recordPageView({ id, siteId: 'shop', path: '/product/test?q=secret', host: 'shop.test', referrer: 'https://google.com/search?q=x', context: { ip: '8.8.8.8', device: phone.device, model: phone.model, os: phone.os, browser: phone.browser, screen: '1179×2556', utmSource: 'telegram', utmCampaign: 'summer' } });
+  analytics.findVisitor(id).lastSeen = Date.now() - 60000;
+  analytics.heartbeat({ id, siteId: 'shop', path: '/product/test', context: {} });
+  analytics.markOrder(id, { id: 'order1', number: 'ORD-0001', siteId: 'shop', createdAt: Date.now() });
+  const report = analytics.snapshot({ siteId: 'shop', days: 7 });
+  assert.equal(report.unique, 1);
+  assert.equal(report.visits, 1);
+  assert.equal(report.pageViews, 1);
+  assert.equal(report.orders, 1);
+  assert.equal(report.conversion, 100);
+  assert.equal(report.averageSeconds, 60);
+  assert.equal(report.pages[0].label, '/product/test');
+  assert.equal(report.sources[0].label, 'google.com');
+  assert.equal(report.campaigns[0].label, 'telegram · summer');
+  assert.equal(report.visitors[0].orderCount, 1);
+  assert.equal(report.visitors[0].lastOrderNumber, 'ORD-0001');
+  assert.equal(report.daily.length, 7);
+  assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
+});
+
+test('раздел метрики защищён панелью и показывает понятные показатели', () => {
+  const fakeDb = {
+    getSites: () => [{ id: 'shop', storeName: 'Магазин', hosts: ['shop.test'] }],
+    getProducts: () => [{ id: 'p1', name: 'iPhone' }],
+    pendingReviewCount: () => 0
+  };
+  const snapshot = {
+    generatedAt: Date.now(), days: 7, online: 1, unique: 12, visits: 15,
+    pageViews: 42, orders: 2, conversion: 16.7,
+    daily: [{ date: '2026-07-27', visits: 2, pageViews: 5, orders: 1, visitors: 2 }],
+    pages: [{ label: '/product/p1', value: 5 }], sources: [{ label: 'Прямой заход', value: 5 }],
+    devices: [{ label: 'Телефон', value: 5 }], browsers: [{ label: 'Safari 18', value: 5 }],
+    systems: [{ label: 'iOS 18', value: 5 }], locations: [{ label: 'Москва', value: 3 }],
+    campaigns: [{ label: 'telegram · summer', value: 2 }], visitors: []
+  };
+  const html = ownerViews.analyticsPage(fakeDb, snapshot, 'shop');
+  assert.match(html, /Метрика/);
+  assert.match(html, /Онлайн сейчас/);
+  assert.match(html, /Популярные страницы/);
+  assert.match(html, /iPhone/);
+  assert.match(html, /Все домены/);
+  assert.match(html, /Среднее время/);
+  assert.match(html, /UTM-кампании/);
+  assert.match(html, /Операционные системы/);
+  assert.match(html, /Обновить/);
+});
+
+test('город по IP запрашивается один раз и затем берётся из кэша', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-geo-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const analytics = new Analytics({
+    dataDir: dir, flushMs: 600000,
+    fetcher: async () => {
+      calls++;
+      return { ok: true, json: async () => ({ success: true, city: 'Москва', region: 'Москва', country: 'Россия', connection: { isp: 'Тест' } }) };
+    }
+  });
+  const first = await analytics.geoForIp('8.8.8.8');
+  const second = await analytics.geoForIp('8.8.8.8');
+  assert.equal(first.city, 'Москва');
+  assert.equal(second.city, 'Москва');
+  assert.equal(calls, 1);
 });
 
 test('каталог не показывает технический счётчик товаров', () => {
