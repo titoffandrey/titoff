@@ -455,8 +455,12 @@
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0 };
-      var fc = document.querySelector('#colors .swatch'); if (fc) vstate.color = fc.dataset.color;
-      var fs = document.querySelector('#storages .storage-opt'); if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
+      // Стартуем с варианта, отмеченного активным на сервере: первый доступный,
+      // а не просто первый в списке (первый цвет может быть распродан).
+      var fc = document.querySelector('#colors .swatch.active') || document.querySelector('#colors .swatch');
+      if (fc) vstate.color = fc.dataset.color;
+      var fs = document.querySelector('#storages .storage-opt.active') || document.querySelector('#storages .storage-opt');
+      if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
       function applyVariant() {
         var total = basePrice + vstate.storageAdd;
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);

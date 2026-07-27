@@ -22,7 +22,7 @@
   function escHtml(s) { return String(s).replace(/[&<>]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]; }); }
   function escAttr(s) { return String(s).replace(/[&<>"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]; }); }
 
-  function makeRow(name, hex) {
+  function makeRow(name, hex, inStock) {
     hex = norm(hex);
     var row = document.createElement('div');
     row.className = 'color-row';
@@ -31,15 +31,21 @@
       '<input type="color" class="color-hex" value="' + hex + '" aria-label="Оттенок">' +
       '<input type="text" class="color-name" placeholder="Название цвета">' +
       '<input type="text" class="color-hexed" placeholder="#hex" spellcheck="false" maxlength="7" value="' + hex + '">' +
+      '<label class="stock-toggle" title="Снимите галочку, если цвет распродан">' +
+        '<input type="checkbox" class="color-stock"><span>в наличии</span></label>' +
       '<button type="button" class="color-del" title="Удалить цвет" aria-label="Удалить">&times;</button>';
     var picker = row.querySelector('.color-hex');
     var nameEl = row.querySelector('.color-name');
     var hexed = row.querySelector('.color-hexed');
+    var stock = row.querySelector('.color-stock');
     nameEl.value = name || '';
+    stock.checked = inStock !== false;
     picker.addEventListener('input', function () { hexed.value = picker.value; sync(); });
     hexed.addEventListener('input', function () { picker.value = norm(hexed.value); sync(); });
     hexed.addEventListener('blur', function () { hexed.value = norm(hexed.value); sync(); });
     nameEl.addEventListener('input', sync);
+    stock.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
+    row.classList.toggle('row-out', !stock.checked);
     row.querySelector('.color-del').addEventListener('click', function () { row.remove(); sync(); });
     editor.appendChild(row);
     return row;
@@ -51,7 +57,8 @@
       out.push({
         key: r.dataset.key,
         name: r.querySelector('.color-name').value.trim(),
-        hex: norm(r.querySelector('.color-hex').value)
+        hex: norm(r.querySelector('.color-hex').value),
+        inStock: r.querySelector('.color-stock').checked
       });
     });
     return out;
@@ -113,18 +120,19 @@
   function sync() {
     var all = readColors();
     var named = all.filter(function (c) { return c.name; });
-    raw.value = named.map(function (c) { return c.name + '|' + c.hex; }).join('\n');
+    // третье поле пишем только для распроданных — строки в наличии остаются как раньше
+    raw.value = named.map(function (c) { return c.name + '|' + c.hex + (c.inStock ? '' : '|нет'); }).join('\n');
     updateSelects(named);
     updateUploads(named);
   }
 
-  // инициализация из текущего значения
+  // инициализация из текущего значения «Название|#hex[|нет]»
   (raw.value || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean).forEach(function (l) {
-    var i = l.indexOf('|');
-    makeRow(i >= 0 ? l.slice(0, i).trim() : l.trim(), i >= 0 ? l.slice(i + 1).trim() : '');
+    var parts = l.split('|');
+    makeRow((parts[0] || '').trim(), (parts[1] || '').trim(), !/^(нет|no|0|out)$/i.test((parts[2] || '').trim()));
   });
   addBtn.addEventListener('click', function () {
-    var row = makeRow('', '#cccccc');
+    var row = makeRow('', '#cccccc', true);
     sync();
     row.querySelector('.color-name').focus();
   });
@@ -144,18 +152,24 @@
   function base() { return Number(baseInput && baseInput.value) || 0; }
   function fmt(n) { return String(Math.round(n)); }
 
-  function makeRow(label, price) {
+  function makeRow(label, price, inStock) {
     var row = document.createElement('div');
     row.className = 'storage-row';
     row.innerHTML =
       '<input type="text" class="st-label" placeholder="Например: 256 ГБ">' +
       '<div class="st-price-wrap"><input type="text" class="st-price" inputmode="numeric" placeholder="Цена">' +
       '<span class="st-cur">₽</span></div>' +
+      '<label class="stock-toggle" title="Снимите галочку, если вариант распродан">' +
+        '<input type="checkbox" class="st-stock"><span>в наличии</span></label>' +
       '<button type="button" class="color-del" title="Удалить вариант" aria-label="Удалить">&times;</button>';
+    var stock = row.querySelector('.st-stock');
     row.querySelector('.st-label').value = label || '';
     row.querySelector('.st-price').value = price != null ? fmt(price) : '';
+    stock.checked = inStock !== false;
+    row.classList.toggle('row-out', !stock.checked);
     row.querySelector('.st-label').addEventListener('input', sync);
     row.querySelector('.st-price').addEventListener('input', sync);
+    stock.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
     row.querySelector('.color-del').addEventListener('click', function () { row.remove(); sync(); });
     editor.appendChild(row);
     return row;
@@ -170,22 +184,22 @@
       var priceStr = r.querySelector('.st-price').value.replace(/\s+/g, '');
       var price = Number(priceStr);
       var add = (priceStr === '' || isNaN(price)) ? 0 : Math.max(0, Math.round(price - b));
-      lines.push(label + '|' + add);
+      lines.push(label + '|' + add + (r.querySelector('.st-stock').checked ? '' : '|нет'));
     });
     raw.value = lines.join('\n');
   }
 
-  // инициализация из «Метка|доплата» -> полная цена (база + доплата)
+  // инициализация из «Метка|доплата[|нет]» -> полная цена (база + доплата)
   (raw.value || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean).forEach(function (l) {
-    var i = l.indexOf('|');
-    var label = i >= 0 ? l.slice(0, i).trim() : l.trim();
-    var add = i >= 0 ? (parseInt(l.slice(i + 1), 10) || 0) : 0;
-    makeRow(label, base() + add);
+    var parts = l.split('|');
+    var label = (parts[0] || '').trim();
+    var add = parseInt(parts[1], 10) || 0;
+    makeRow(label, base() + add, !/^(нет|no|0|out)$/i.test((parts[2] || '').trim()));
   });
   // при смене базовой цены пересчитываем доплаты (введённые полные цены сохраняются)
   if (baseInput) baseInput.addEventListener('input', sync);
   addBtn.addEventListener('click', function () {
-    var row = makeRow('', null);
+    var row = makeRow('', null, true);
     sync();
     row.querySelector('.st-label').focus();
   });

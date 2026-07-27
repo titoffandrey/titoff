@@ -41,11 +41,14 @@ function persistUploads(files) {
 }
 const asArray = (v) => v == null ? [] : (Array.isArray(v) ? v : [v]);
 const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return isNaN(t) ? null : t; };
-// Варианты из формы: цвета «Название|#hex» и память «Метка|доплата» по строке.
+// Варианты из формы: цвета «Название|#hex|наличие» и память «Метка|доплата|наличие».
+// Третье поле необязательное: «нет» — вариант распродан. Пустое = в наличии,
+// поэтому старые данные без третьего поля читаются как раньше.
 const safeHex = (v, fallback) => { const h = String(v || '').trim(); return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(h) ? h : (fallback || '#cccccc'); };
 const short = (v, max) => String(v == null ? '' : v).slice(0, max);
-const parseColors = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex) }; }).filter(c => c.name);
-const parseStorages = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0 }; }).filter(s => s.label);
+const parseStock = (v) => !/^(нет|no|0|out)$/i.test(String(v == null ? '' : v).trim());
+const parseColors = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name);
+const parseStorages = (txt) => String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label);
 function tgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function isLoopback(address) { return /^(?:127(?:\.\d+){3}|::1|::ffff:127(?:\.\d+){3})$/.test(String(address || '')); }
 function trustedProxy(req) { return process.env.TRUST_PROXY === '1' || isLoopback(req.socket && req.socket.remoteAddress); }
@@ -296,13 +299,20 @@ app.post('/api/order', async (req, res) => {
     const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
     let price = D.effectivePrice(view);
     let name = view.name;
+    // Наличие варианта проверяем на сервере: корзина живёт в localStorage и могла
+    // сохраниться до того, как цвет или конфигурацию распродали.
     const storageLabel = String(it.storage || '').trim();
     if (storageLabel && Array.isArray(view.storages)) {
       const s = view.storages.find(x => x.label === storageLabel);
+      if (s && s.inStock === false) continue;
       if (s) { price += Number(s.add) || 0; name += ' ' + s.label; }
     }
     const color = String(it.color || '').trim();
-    if (color && Array.isArray(view.colors) && view.colors.some(c => c.name === color)) name += ', ' + color;
+    if (color && Array.isArray(view.colors)) {
+      const c = view.colors.find(x => x.name === color);
+      if (c && c.inStock === false) continue;
+      if (c) name += ', ' + color;
+    }
     if (!Number.isFinite(price) || price < 0) continue;
     items.push({ id: view.id, name, price, qty });
     total += price * qty;
