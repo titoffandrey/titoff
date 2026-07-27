@@ -205,6 +205,10 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(phone.model, 'iPhone');
   assert.match(phone.os, /^iOS 18\.5/);
   assert.match(phone.browser, /^Safari/);
+  const bot = deviceFromUa('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)');
+  assert.equal(bot.isBot, true);
+  assert.equal(bot.device, 'Робот');
+  assert.match(bot.botName, /Googlebot/i);
   assert.equal(isPrivateIp('127.0.0.1'), true);
   assert.equal(isPrivateIp('8.8.8.8'), false);
   assert.equal(sourceFromReferrer('https://shop.test/product/x', 'shop.test:443'), 'Внутренний переход');
@@ -218,6 +222,10 @@ test('метрика считает визиты пакетно, различа�
   analytics.findVisitor(id).lastSeen = Date.now() - 60000;
   analytics.heartbeat({ id, siteId: 'shop', path: '/product/test', context: {} });
   analytics.markOrder(id, { id: 'order1', number: 'ORD-0001', siteId: 'shop', createdAt: Date.now() });
+  analytics.recordPageView({ id: 'b'.repeat(32), siteId: 'shop', path: '/', requestedPath: '/', context: { isBot: true, botName: 'Googlebot' } });
+  analytics.recordPageView({ id: 'c'.repeat(32), siteId: 'shop', path: '/404', requestedPath: '/wp-admin.php', is404: true, context: {} });
+  analytics.recordPageView({ id: 'd'.repeat(32), siteId: 'shop', path: '/', provisional: true, context: { device: 'Компьютер', browser: 'Chrome 150', os: 'Windows 10/11' } });
+  analytics.findVisitor('d'.repeat(32)).lastSeen = Date.now() - 3 * 60 * 1000;
   const report = analytics.snapshot({ siteId: 'shop', days: 7 });
   assert.equal(report.unique, 1);
   assert.equal(report.visits, 1);
@@ -230,6 +238,10 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(report.campaigns[0].label, 'telegram · summer');
   assert.equal(report.visitors[0].orderCount, 1);
   assert.equal(report.visitors[0].lastOrderNumber, 'ORD-0001');
+  assert.equal(report.bots.hits, 3);
+  assert.equal(report.bots.notFound, 1);
+  assert.equal(report.visitors.length, 1);
+  assert.equal(report.pages.some(x => x.label === '/404'), false);
   assert.equal(report.daily.length, 7);
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
 });
@@ -247,7 +259,8 @@ test('раздел метрики защищён панелью и показы�
     pages: [{ label: '/product/p1', value: 5 }], sources: [{ label: 'Прямой заход', value: 5 }],
     devices: [{ label: 'Телефон', value: 5 }], browsers: [{ label: 'Safari 18', value: 5 }],
     systems: [{ label: 'iOS 18', value: 5 }], locations: [{ label: 'Москва', value: 3 }],
-    campaigns: [{ label: 'telegram · summer', value: 2 }], visitors: []
+    campaigns: [{ label: 'telegram · summer', value: 2 }], visitors: [],
+    bots: { hits: 70, notFound: 68, agents: [{ label: 'Неизвестный сканер / 404', value: 68 }], paths: [{ label: '/wp-admin', value: 20 }] }
   };
   const html = ownerViews.analyticsPage(fakeDb, snapshot, 'shop');
   assert.match(html, /Метрика/);
@@ -259,6 +272,8 @@ test('раздел метрики защищён панелью и показы�
   assert.match(html, /UTM-кампании/);
   assert.match(html, /Операционные системы/);
   assert.match(html, /Обновить/);
+  assert.match(html, /Боты и технические запросы/);
+  assert.match(html, /не влияют на основную метрику/);
 });
 
 test('город по IP запрашивается один раз и затем берётся из кэша', async t => {
@@ -277,6 +292,28 @@ test('город по IP запрашивается один раз и зате�
   assert.equal(first.city, 'Москва');
   assert.equal(second.city, 'Москва');
   assert.equal(calls, 1);
+});
+
+test('старая загрязнённая метрика мигрирует на чистые счётчики v2', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-migration-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'analytics.json'), JSON.stringify({
+    version: 1,
+    visitors: [{ id: 'e'.repeat(32), siteId: 'shop', lastSeen: Date.now(), visits: 50, pageViews: 100 }],
+    daily: { old: { siteId: 'shop', date: '2026-07-27', visits: 50, pageViews: 100 } },
+    geoCache: {}, geoUsage: { date: '', count: 0 }
+  }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  const report = analytics.snapshot({ siteId: 'shop', days: 1 });
+  assert.equal(analytics.data.version, 2);
+  assert.equal(report.unique, 0);
+  assert.equal(report.pageViews, 0);
+});
+
+test('длинные названия городов не перекрывают числа в метрике', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.metric-bar-label\{display:grid;grid-template-columns:minmax\(0,1fr\) max-content/);
+  assert.match(css, /\.metric-location-bars \.metric-bar-label span\{white-space:normal;overflow-wrap:anywhere\}/);
 });
 
 test('каталог не показывает технический счётчик товаров', () => {

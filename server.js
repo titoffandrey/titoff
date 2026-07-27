@@ -108,8 +108,16 @@ function clientIp(req) {
   const real = canTrust ? String(req.headers['x-real-ip'] || '').trim() : '';
   return cloudflare || forwarded || real || (req.socket && req.socket.remoteAddress) || '?';
 }
-function trackPage(req, res, site, pathname) {
+function metricPublicPath(site, rawPath) {
+  let pathname;
+  try { pathname = decodeURIComponent(String(rawPath || '').split('?')[0]); } catch (e) { return ''; }
+  if (['/', '/privacy', '/personal-data-consent', '/personal-data-publication-consent'].includes(pathname)) return pathname;
+  const match = pathname.match(/^\/product\/([^/]+)$/);
+  return match && T.siteProductView(site, match[1]) ? '/product/' + match[1] : '';
+}
+function trackPage(req, res, site, pathname, options) {
   if (metrics.trackingDisabled(req)) return;
+  options = options || {};
   let id = metrics.visitorId(req);
   if (!id) {
     id = metrics.newVisitorId();
@@ -117,6 +125,7 @@ function trackPage(req, res, site, pathname) {
   }
   metrics.recordPageView({
     id, siteId: site.id, path: pathname, host: req.headers.host,
+    requestedPath: options.requestedPath, is404: !!options.is404, provisional: !options.is404,
     context: metrics.context(req, clientIp(req), trustedProxy(req))
   });
 }
@@ -154,7 +163,10 @@ app.get('/', (req, res) => {
 app.get('/product/:id', (req, res) => {
   const site = siteOf(req);
   const view = T.siteProductView(site, req.params.id);
-  if (!view) return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req) }, site), 404);
+  if (!view) {
+    trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url });
+    return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req) }, site), 404);
+  }
   trackPage(req, res, site, '/product/' + view.id);
   res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req) }));
 });
@@ -181,21 +193,23 @@ app.get('/personal-data-publication-consent', (req, res) => {
 app.post('/api/analytics/start', (req, res) => {
   if (rateLimited(req, 'analytics-start', 120, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
   const site = siteOf(req);
+  const publicPath = metricPublicPath(site, req.body.path);
   let id = metrics.visitorId(req);
-  const isNew = !id || !metrics.findVisitor(id);
   if (!id) id = metrics.newVisitorId();
   const secure = originOf(req).startsWith('https://');
   const setCookies = [metrics.cookieHeader(id, secure)];
   if (metrics.trackingDisabled(req)) setCookies.push(metrics.clearOptOutCookieHeader(secure));
   res.setHeader('Set-Cookie', setCookies);
+  if (!publicPath) return res.json({ ok: true });
+  const context = Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client));
+  // Первичный HTML-запрос такого робота уже записан сервером. Его вызов
+  // клиентского endpoint не должен удваивать техническую статистику.
+  if (context.isBot) return res.json({ ok: true });
   const input = {
-    id, siteId: site.id, path: req.body.path, host: req.headers.host,
-    context: Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client))
+    id, siteId: site.id, path: publicPath, host: req.headers.host, referrer: req.body.referrer,
+    context
   };
-  if (isNew) {
-    input.referrer = req.body.referrer;
-    metrics.recordPageView(input);
-  } else metrics.heartbeat(input);
+  metrics.recordPageView(input);
   res.json({ ok: true });
 });
 
@@ -219,6 +233,12 @@ app.post('/api/analytics/withdraw', (req, res) => {
 app.get('/robots.txt', (req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(`User-agent: *\nAllow: /\nSitemap: ${originOf(req)}/sitemap.xml\n`);
+});
+// Браузеры запрашивают favicon автоматически. Это не посещение и не ошибка
+// сканера, поэтому отвечаем без содержимого и не добавляем запрос в метрику.
+app.get('/favicon.ico', (req, res) => {
+  res.writeHead(204, { 'Cache-Control': 'public, max-age=86400' });
+  res.end();
 });
 app.get('/sitemap.xml', (req, res) => {
   const site = siteOf(req);
@@ -595,7 +615,7 @@ app.post('/admin/settings', async (req, res) => {
 });
 
 /* =========================== 404 =========================== */
-app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404'); res.send(R.homePage(T.siteSettings(site), db, { q: '' }, site), 404); };
+app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url }); res.send(R.homePage(T.siteSettings(site), db, { q: '' }, site), 404); };
 
 const httpServer = app.listen(PORT, () => {
   console.log(`\n  Мультимагазин запущен на порту ${PORT}: http://localhost:${PORT}`);
