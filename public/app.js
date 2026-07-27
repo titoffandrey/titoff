@@ -18,6 +18,64 @@
   function miniPlaceholder() {
     return '<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" fill="#eef1f6"/><rect x="13" y="9" width="14" height="22" rx="3" fill="none" stroke="#b8c0cc" stroke-width="2"/></svg>';
   }
+  // Миниатюра позиции: фото товара, если оно есть, иначе прежняя заглушка
+  function itemThumb(i) {
+    return i.img
+      ? '<img src="/uploads/' + escapeHtml(i.img) + '" alt="" loading="lazy" decoding="async">'
+      : miniPlaceholder();
+  }
+
+  // ===== Страница оформления (/checkout) =====
+  // Позиции и форма — на отдельной странице: список остаётся видимым и прокручивается
+  // сам по себе, а не выталкивается формой, как было в выдвижной корзине.
+  function renderCheckoutPage() {
+    var items = document.getElementById('checkout-items');
+    var side = document.getElementById('checkout-side');
+    if (!items || !side) return;
+
+    if (!Cart.items.length) {
+      items.innerHTML = '<div class="checkout-empty"><p>Корзина пуста</p>'
+        + '<a class="btn btn-primary" href="/">Перейти в каталог</a></div>';
+      side.innerHTML = '';
+      return;
+    }
+
+    items.innerHTML = Cart.items.map(function (i) {
+      var k = escapeHtml(itemKey(i));
+      return '<article class="co-item">'
+        + '<div class="co-item-media">' + itemThumb(i) + '</div>'
+        + '<div class="co-item-body">'
+        + '<h3 class="co-item-name">' + escapeHtml(i.name) + '</h3>'
+        + '<div class="co-item-price">' + money(i.price) + '</div>'
+        + '<div class="co-item-controls">'
+        + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button>'
+        + '<span>' + i.qty + '</span>'
+        + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше">+</button></div>'
+        + '<button type="button" class="cart-remove" data-act="rm" data-key="' + k + '">Удалить</button>'
+        + '</div></div>'
+        + '<div class="co-item-sum">' + money(i.price * i.qty) + '</div>'
+        + '</article>';
+    }).join('');
+
+    // форму перерисовываем только один раз, чтобы не стирать введённое при смене количества
+    if (!side.dataset.ready) {
+      side.dataset.ready = '1';
+      side.innerHTML = '<div class="co-summary">'
+        + '<div class="co-total"><span>Итого</span><b id="co-total-sum">' + money(Cart.total()) + '</b></div>'
+        + '<div class="field"><label for="co-name">Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Имя"></div>'
+        + '<div class="field"><label for="co-contact">Контакт для связи *</label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram / телефон / e-mail" required></div>'
+        + '<div class="field"><label for="co-comment">Комментарий</label><textarea id="co-comment" rows="3" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
+        + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
+        + '<span class="btn-checkout-label">Оформить заказ</span>'
+        + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
+        + '<p class="form-msg" id="order-msg" hidden></p>'
+        + '<p class="form-legal-note">Данные используются только для обработки заявки. <a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
+        + '</div>';
+    } else {
+      var t = document.getElementById('co-total-sum'); if (t) t.textContent = money(Cart.total());
+      var b = document.getElementById('co-btn-sum'); if (b) b.textContent = money(Cart.total());
+    }
+  }
 
   // Ключ позиции: один товар в разных вариантах (память/цвет) — это разные строки корзины.
   function itemKey(i) { return JSON.stringify([i.id, i.storage || '', i.color || '']); }
@@ -34,7 +92,9 @@
       price: price,
       qty: Number.isFinite(qty) ? Math.max(1, Math.min(99, qty)) : 1,
       storage: cleanText(item.storage, 80),
-      color: cleanText(item.color, 40)
+      color: cleanText(item.color, 40),
+      // имя файла фото — чтобы в корзине была миниатюра товара, а не заглушка
+      img: /^[\w.\-]{1,120}$/.test(String(item.img || '')) ? String(item.img) : ''
     };
   }
 
@@ -49,10 +109,10 @@
     find: function (key) { return this.items.find(function (i) { return itemKey(i) === key; }); },
     add: function (id, name, price, qty, opts) {
       opts = opts || {};
-      var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '' });
+      var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '', img: opts.img || '' });
       if (!next) return;
       var ex = this.find(itemKey(next));
-      if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; }
+      if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img; }
       else if (this.items.length < MAX_CART_LINES) this.items.push(next);
       else { toast('В корзине слишком много разных товаров'); return; }
       this.save(); this.render();
@@ -90,6 +150,7 @@
       if (lastCartFocus && typeof lastCartFocus.focus === 'function') lastCartFocus.focus();
     },
     render: function () {
+      renderCheckoutPage();                       // страница /checkout, если мы на ней
       var wrap = document.getElementById('cart-items');
       var foot = document.getElementById('cart-foot');
       if (!wrap || !foot) return;
@@ -104,7 +165,7 @@
       wrap.innerHTML = this.items.map(function (i) {
         var k = escapeHtml(itemKey(i));
         return '<div class="cart-item">'
-          + '<div class="cart-item-media">' + miniPlaceholder() + '</div>'
+          + '<div class="cart-item-media">' + itemThumb(i) + '</div>'
           + '<div class="cart-item-info">'
           + '<div class="cart-item-name">' + escapeHtml(i.name) + '</div>'
           + '<div class="cart-item-price">' + money(i.price) + '</div>'
@@ -115,16 +176,9 @@
       }).join('');
       foot.innerHTML =
         '<div class="cart-total"><span>Итого</span><span>' + money(this.total()) + '</span></div>'
-        + '<div class="checkout-fields" id="checkout-fields">'
-        + '<div class="field"><label>Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Имя"></div>'
-        + '<div class="field"><label>Контакт для связи *</label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram / телефон / e-mail"></div>'
-        + '<div class="field"><label>Комментарий</label><textarea id="co-comment" rows="2" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
-        + '<p class="form-legal-note">Данные используются только для обработки заявки. <a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
-        + '</div>'
-        + '<button class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-btn">'
+        + '<a class="btn btn-primary btn-block btn-lg btn-checkout" href="/checkout" id="checkout-btn">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
-        + '<span class="btn-checkout-sum">' + money(this.total()) + '</span></button>'
-        + '<p class="form-msg" id="order-msg" hidden></p>';
+        + '<span class="btn-checkout-sum">' + money(this.total()) + '</span></a>';
     }
   };
   window.Cart = Cart;
@@ -161,13 +215,10 @@
       setBtnState(b, !!Cart.find(itemKey({ id: b.dataset.id, storage: b.dataset.storage || '', color: b.dataset.color || '' })));
     }
   }
-  // Товар уже в корзине → открыть корзину и сразу перейти к оформлению
+  // Товар уже в корзине → отдельная страница оформления
   function goToCheckout() {
-    Cart.open();
-    var fields = document.getElementById('checkout-fields');
-    if (fields) fields.classList.add('show');
-    var btn = document.getElementById('checkout-btn');
-    if (btn) { try { btn.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }
+    if (document.getElementById('checkout-page')) return;   // уже на ней
+    location.href = '/checkout';
   }
 
   var toastTimer;
@@ -313,6 +364,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     Cart.load();
     Cart.updateBadge();
+    if (document.getElementById('checkout-page')) Cart.render();   // страница оформления рисуется сразу
     initCountdowns();
     startAnalytics(true);
     initAnalyticsControls();
@@ -342,7 +394,7 @@
             var box = document.querySelector('[data-qty] .qty-input');
             if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
           }
-          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color });
+          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color, img: btn.dataset.img });
         }
         return;
       }
@@ -356,12 +408,9 @@
         else if (act.dataset.act === 'rm') Cart.remove(key);
         return;
       }
-      // оформление заказа
-      if (e.target.id === 'checkout-btn') {
-        var fields = document.getElementById('checkout-fields');
-        if (fields && !fields.classList.contains('show')) { fields.classList.add('show'); return; }
-        submitOrder(e.target);
-      }
+      // оформление заказа — только на странице /checkout
+      var pay = e.target.closest ? e.target.closest('#checkout-submit') : null;
+      if (pay) { e.preventDefault(); submitOrder(pay); }
     });
 
     // Галерея товара в стиле apple.com: стрелки по бокам + точки-индикатор, без миниатюр.
@@ -643,7 +692,9 @@
     var msg = document.getElementById('order-msg');
     var contact = (document.getElementById('co-contact') || {}).value || '';
     if (!contact.trim()) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Укажите контакт для связи'; } return; }
-    btn.disabled = true; btn.textContent = 'Отправляем...';
+    btn.disabled = true;
+    var btnHtml = btn.innerHTML;
+    btn.textContent = 'Отправляем...';
     var payload = {
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '' }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
@@ -655,10 +706,31 @@
       .then(function (d) {
         if (d.ok) {
           Cart.clear();
+          var number = escapeHtml(d.number || '—');
+          var page = document.getElementById('checkout-page');
+          if (page) {                       // страница оформления: показываем результат на всю ширину
+            var grid = page.querySelector('.checkout-grid');
+            var head = page.querySelector('.checkout-title');
+            if (head) head.textContent = 'Заказ оформлен';
+            if (grid) {
+              grid.className = 'checkout-done';
+              grid.innerHTML = '<section class="order-success" id="order-success" role="status" aria-live="polite" tabindex="-1">'
+                + '<div class="order-success-check" aria-hidden="true">✓</div>'
+                + '<p class="order-success-eyebrow">Заявка получена</p>'
+                + '<h3>Спасибо за заказ!</h3>'
+                + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
+                + '<div class="order-success-number"><span>Номер заказа</span><strong>' + number + '</strong></div>'
+                + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
+                + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
+                + '</section>';
+              var ok = document.getElementById('order-success');
+              if (ok) { try { ok.focus(); } catch (e) {} }
+            }
+            return;
+          }
           var items = document.getElementById('cart-items');
           var foot = document.getElementById('cart-foot');
           var title = document.querySelector('#cart-drawer .cart-head h2');
-          var number = escapeHtml(d.number || '—');
           if (title) title.textContent = 'Заказ оформлен';
           if (items) {
             items.classList.add('cart-items-success');
@@ -675,12 +747,12 @@
           }
           if (foot) foot.innerHTML = '<button class="btn btn-primary btn-block btn-lg" onclick="Cart.close()">Продолжить покупки</button>';
         } else {
-          btn.disabled = false; btn.textContent = 'Оформить заказ';
+          btn.disabled = false; btn.innerHTML = btnHtml;
           if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = d.error || 'Не удалось оформить заказ'; }
         }
       })
       .catch(function () {
-        btn.disabled = false; btn.textContent = 'Оформить заказ';
+        btn.disabled = false; btn.innerHTML = btnHtml;
         if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Ошибка сети'; }
       });
   }

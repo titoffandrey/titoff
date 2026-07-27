@@ -195,6 +195,12 @@ app.get('/product/:id', (req, res) => {
   res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req) }));
 });
 
+app.get('/checkout', (req, res) => {
+  const site = siteOf(req);
+  trackPage(req, res, site, '/checkout');
+  res.send(R.checkoutPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
 app.get('/privacy', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/privacy');
