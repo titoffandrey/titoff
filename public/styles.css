@@ -829,7 +829,15 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .site-header{
   padding-top:env(safe-area-inset-top);background:rgba(255,255,255,.88);border-color:var(--border-soft);
   -webkit-backdrop-filter:saturate(180%) blur(22px);backdrop-filter:saturate(180%) blur(22px);
-  transition:background .24s ease,border-color .24s ease,box-shadow .24s ease
+  transition:background .24s ease,border-color .24s ease,box-shadow .24s ease;
+  /* Сжатие шапки анимирует высоту и ширину поиска. contain держит перекладку
+     внутри шапки, иначе каждый кадр анимации пересчитывает всю страницу и
+     прокрутка идёт рывками. */
+  contain:layout paint
+}
+/* Кому важнее плавность прокрутки, чем анимация: сворачиваем мгновенно. */
+@media(prefers-reduced-motion:reduce){
+  .site-header,.header-row,.logo,.logo-img,.search,.site-nav,.tg-header,.tg-header-txt{transition:none!important}
 }
 .header-row{height:66px;gap:12px;transition:height .28s cubic-bezier(.22,.75,.25,1),min-height .28s,padding .28s,gap .28s}
 .logo{margin-right:auto;font-size:24px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}

@@ -337,6 +337,18 @@
     function setCompact(compact) {
       header.classList.toggle('header-compact', compact);
     }
+    // Сжатие шапки анимирует высоту и ширину поиска — это перекладка страницы на
+    // 280 мс. Если состояние дёргается туда-сюда при каждом движении колеса,
+    // прокрутка ощущается как рывки. Поэтому после переключения берём паузу и
+    // требуем заметного движения, а не 4–6 пикселей.
+    var lockedUntil = 0;
+    function setCompactOnce(compact) {
+      if (header.classList.contains('header-compact') === compact) return;
+      if (Date.now() < lockedUntil) return;
+      lockedUntil = Date.now() + 320;
+      setCompact(compact);
+    }
+
     function update() {
       var y = Math.max(0, window.scrollY || 0);
       var delta = y - lastY;
@@ -345,9 +357,9 @@
       // блокировать сворачивание шапки; развёрнутой оставляем только активную строку поиска.
       var headerFieldFocused = !!(active && header.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
       var headerInUse = headerFieldFocused || document.body.classList.contains('nav-open');
-      if (y < 48 || headerInUse) setCompact(false);
-      else if (delta > 4 && y > 96) setCompact(true);
-      else if (delta < -6) setCompact(false);
+      if (y < 48 || headerInUse) { setCompact(false); lockedUntil = 0; }   // у самого верха — всегда развёрнутая
+      else if (delta > 10 && y > 140) setCompactOnce(true);
+      else if (delta < -24) setCompactOnce(false);
       lastY = y;
       ticking = false;
     }
