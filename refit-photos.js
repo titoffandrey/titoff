@@ -51,7 +51,7 @@ const MAX = 1200;
 
     const tmp = path.join(db.UPLOAD_DIR, '.refit-' + name);
     const args = [file, '-auto-orient', '-strip']
-      .concat(IMG.squareTransformArgs(MAX, { trim: true, fit }))
+      .concat(IMG.squareTransformArgs(MAX, { trim: true, fit, fuzz: box.fuzz }))
       .concat(['-define', 'webp:method=6', '-quality', '82', tmp]);
     try {
       await execFileP(bin, args, { timeout: 20000 });

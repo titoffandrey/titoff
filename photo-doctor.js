@@ -37,14 +37,14 @@ const only = process.argv[2];
       const file = path.join(db.UPLOAD_DIR, f);
       const box = await IMG.contentBox(bin, file);
       const fit = IMG.targetContentSize(box, MAX);
-      if (!box) { console.log(`   ${f}: обрезка не сработала — файл останется как есть`); continue; }
+      if (!box) { console.log(`   ${f}: фон не отделяется ни одним допуском — файл останется как есть`); continue; }
       const longest = Math.max(box.w, box.h);
       const share = Math.round(longest / MAX * 100);
       const verdict = longest >= Math.round(MAX * IMG.CONTENT_RATIO) - 8
         ? 'уже вписан'
         : `будет увеличен до ${fit}px`;
       if (verdict !== 'уже вписан') small++;
-      console.log(`   ${f}: товар ${box.w}×${box.h} (${share}% кадра) → ${verdict}`);
+      console.log(`   ${f}: товар ${box.w}×${box.h} (${share}% кадра, допуск ${box.fuzz}%) → ${verdict}`);
     }
   }
   console.log(`\nвсего фото: ${total} | требуют переобработки: ${small}`);
