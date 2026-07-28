@@ -44,7 +44,7 @@ const MAX = 1200;
     const fit = IMG.targetContentSize(box, MAX);
     const longest = box ? Math.max(box.w, box.h) : 0;
     // товар уже занимает почти весь кадр — трогать нечего
-    if (!box || longest >= Math.round(MAX * 0.88) - 8) { skipped++; continue; }
+    if (!box || longest >= Math.round(MAX * IMG.CONTENT_RATIO) - 8) { skipped++; continue; }
 
     console.log(`${apply ? '✓' : '•'} ${name}: товар ${box.w}×${box.h} → ${fit}px в кадре ${MAX}×${MAX}`);
     if (!apply) { fixed++; continue; }
