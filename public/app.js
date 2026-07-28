@@ -25,6 +25,36 @@
       : miniPlaceholder();
   }
 
+  // Корзина хранит снимок данных на момент добавления: у позиций, положенных
+  // давно, нет фото, а цена могла измениться. Спрашиваем у сервера актуальное —
+  // заодно исчезают товары, которых больше нет в каталоге.
+  function refreshCartFromServer() {
+    if (!Cart.items.length) return;
+    fetch('/api/cart', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color }; }) })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok || !Array.isArray(d.items) || d.items.length !== Cart.items.length) return;
+        var next = [];
+        d.items.forEach(function (fresh, idx) {
+          var item = Cart.items[idx];
+          if (!item || fresh.gone) return;              // товар убрали из каталога
+          if (fresh.name) item.name = fresh.name;
+          if (Number(fresh.price) > 0) item.price = Number(fresh.price);
+          if (fresh.img) item.img = fresh.img;
+          item.available = fresh.available !== false;
+          next.push(item);
+        });
+        var changed = next.length !== Cart.items.length;
+        Cart.items = next;
+        Cart.save(); Cart.render();
+        if (changed) toast('Корзина обновлена: часть товаров больше недоступна');
+      })
+      .catch(function () { /* офлайн — работаем с тем, что сохранено */ });
+  }
+
   // ===== Страница оформления (/checkout) =====
   // Позиции и форма — на отдельной странице: список остаётся видимым и прокручивается
   // сам по себе, а не выталкивается формой, как было в выдвижной корзине.
@@ -33,48 +63,75 @@
     var side = document.getElementById('checkout-side');
     if (!items || !side) return;
 
+    var page = document.getElementById('checkout-page');
+    if (page) page.classList.toggle('is-empty', !Cart.items.length);   // пустая корзина — одна колонка по центру
     if (!Cart.items.length) {
-      items.innerHTML = '<div class="checkout-empty"><p>Корзина пуста</p>'
-        + '<a class="btn btn-primary" href="/">Перейти в каталог</a></div>';
+      items.innerHTML = '<div class="checkout-empty">'
+        + '<div class="checkout-empty-ico" aria-hidden="true">🛒</div>'
+        + '<h2>В корзине пока пусто</h2>'
+        + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
+        + '<a class="btn btn-primary btn-lg" href="/">Перейти в каталог</a></div>';
       side.innerHTML = '';
       return;
     }
 
-    items.innerHTML = Cart.items.map(function (i) {
-      var k = escapeHtml(itemKey(i));
-      return '<article class="co-item">'
-        + '<div class="co-item-media">' + itemThumb(i) + '</div>'
-        + '<div class="co-item-body">'
-        + '<h3 class="co-item-name">' + escapeHtml(i.name) + '</h3>'
-        + '<div class="co-item-price">' + money(i.price) + '</div>'
-        + '<div class="co-item-controls">'
-        + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button>'
-        + '<span>' + i.qty + '</span>'
-        + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше">+</button></div>'
-        + '<button type="button" class="cart-remove" data-act="rm" data-key="' + k + '">Удалить</button>'
-        + '</div></div>'
-        + '<div class="co-item-sum">' + money(i.price * i.qty) + '</div>'
-        + '</article>';
-    }).join('');
+    var count = Cart.count();
+    items.innerHTML = '<div class="co-items-head"><span>' + count + ' ' + plural(count, 'товар', 'товара', 'товаров') + '</span>'
+      + '<a class="co-back" href="/">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a></div>'
+      + Cart.items.map(function (i) {
+        var k = escapeHtml(itemKey(i));
+        var variant = [i.storage, i.color].filter(Boolean).join(' · ');
+        var out = i.available === false;
+        return '<article class="co-item' + (out ? ' co-item-out' : '') + '">'
+          + '<div class="co-item-media">' + itemThumb(i) + '</div>'
+          + '<div class="co-item-body">'
+          + '<h3 class="co-item-name">' + escapeHtml(i.name) + '</h3>'
+          + (variant ? '<div class="co-item-variant">' + escapeHtml(variant) + '</div>' : '')
+          + (out ? '<div class="co-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
+          + '<div class="co-item-unit">' + money(i.price) + ' за штуку</div>'
+          + '</div>'
+          + '<div class="co-item-side">'
+          + '<div class="co-item-sum">' + money(i.price * i.qty) + '</div>'
+          + '<div class="co-item-controls">'
+          + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Уменьшить количество">−</button>'
+          + '<span>' + i.qty + '</span>'
+          + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Увеличить количество">+</button></div>'
+          + '<button type="button" class="co-remove" data-act="rm" data-key="' + k + '" aria-label="Удалить из корзины" title="Удалить">'
+          + '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3h6M4 6h12M6.5 6l.6 10a1.4 1.4 0 0 0 1.4 1.3h3a1.4 1.4 0 0 0 1.4-1.3l.6-10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+          + '</button>'
+          + '</div></div>'
+          + '</article>';
+      }).join('');
 
     // форму перерисовываем только один раз, чтобы не стирать введённое при смене количества
     if (!side.dataset.ready) {
       side.dataset.ready = '1';
       side.innerHTML = '<div class="co-summary">'
+        + '<h2 class="co-summary-title">Ваш заказ</h2>'
+        + '<div class="co-line"><span id="co-count-label">Товары</span><span id="co-goods-sum">' + money(Cart.total()) + '</span></div>'
+        + '<div class="co-line co-line-muted"><span>Доставка</span><span>обсудим при подтверждении</span></div>'
         + '<div class="co-total"><span>Итого</span><b id="co-total-sum">' + money(Cart.total()) + '</b></div>'
-        + '<div class="field"><label for="co-name">Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Имя"></div>'
-        + '<div class="field"><label for="co-contact">Контакт для связи *</label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram / телефон / e-mail" required></div>'
-        + '<div class="field"><label for="co-comment">Комментарий</label><textarea id="co-comment" rows="3" maxlength="1000" placeholder="Город, удобное время связи и т.д."></textarea></div>'
+        + '<div class="field"><label for="co-name">Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Как к вам обращаться"></div>'
+        + '<div class="field"><label for="co-contact">Контакт для связи <span class="req">*</span></label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required></div>'
+        + '<div class="field"><label for="co-comment">Комментарий</label><textarea id="co-comment" rows="3" maxlength="1000" placeholder="Город, удобное время связи"></textarea></div>'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note">Данные используются только для обработки заявки. <a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
+        + '<p class="form-legal-note">Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ. '
+        + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
-    } else {
-      var t = document.getElementById('co-total-sum'); if (t) t.textContent = money(Cart.total());
-      var b = document.getElementById('co-btn-sum'); if (b) b.textContent = money(Cart.total());
     }
+    var sum = money(Cart.total());
+    setText('co-total-sum', sum); setText('co-btn-sum', sum); setText('co-goods-sum', sum);
+    setText('co-count-label', 'Товары (' + count + ')');
+  }
+  function setText(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
+  function plural(n, one, few, many) {
+    var a = Math.abs(n) % 100, b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b > 1 && b < 5) return few;
+    return b === 1 ? one : many;
   }
 
   // Ключ позиции: один товар в разных вариантах (память/цвет) — это разные строки корзины.
@@ -377,6 +434,7 @@
     Cart.load();
     Cart.updateBadge();
     if (document.getElementById('checkout-page')) Cart.render();   // страница оформления рисуется сразу
+    refreshCartFromServer();                                       // подтянуть свежие фото, цены и наличие
     try {                                                          // благодарность после перезагрузки со свежим отзывом
       if (sessionStorage.getItem('review_thanks')) { sessionStorage.removeItem('review_thanks'); toast('Спасибо за отзыв!'); }
     } catch (e) {}
@@ -419,7 +477,8 @@
         var key = act.dataset.key;
         var item = Cart.find(key);
         if (act.dataset.act === 'inc' && item) Cart.setQty(key, item.qty + 1);
-        else if (act.dataset.act === 'dec' && item) Cart.setQty(key, item.qty - 1);
+        // минус на единице убирает позицию — иначе счётчик упирается в 1 и товар не выкинуть
+        else if (act.dataset.act === 'dec' && item) { if (item.qty <= 1) Cart.remove(key); else Cart.setQty(key, item.qty - 1); }
         else if (act.dataset.act === 'rm') Cart.remove(key);
         return;
       }

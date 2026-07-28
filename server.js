@@ -324,6 +324,34 @@ app.post('/api/reviews', async (req, res) => {
   res.json({ ok: true, message: 'Спасибо за отзыв!' });
 });
 
+// Актуальные данные корзины. Корзина хранит только то, что было в момент
+// добавления: у позиций, добавленных давно, нет фото, а цена могла измениться.
+// Здесь сервер отдаёт по каждой позиции нынешние название, цену, фото и наличие.
+app.post('/api/cart', (req, res) => {
+  const site = siteOf(req);
+  const raw = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
+  const items = raw.map(it => {
+    if (!it || typeof it !== 'object') return null;
+    const view = T.siteProductView(site, it.id);
+    if (!view) return { id: String(it.id || ''), gone: true };
+    const storage = String(it.storage || '').trim();
+    const color = String(it.color || '').trim();
+    const st = storage && Array.isArray(view.storages) ? view.storages.find(x => x.label === storage) : null;
+    const cl = color && Array.isArray(view.colors) ? view.colors.find(x => x.name === color) : null;
+    // фото цвета, если оно есть, иначе первое общее
+    const byColor = color && view.imageColors
+      ? (view.images || []).find(src => view.imageColors[src] === color) : null;
+    const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0);
+    const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false);
+    return {
+      id: view.id, name: view.name, storage, color, price,
+      img: byColor || (view.images || [])[0] || '',
+      available: !outOfStock
+    };
+  }).filter(Boolean);
+  res.json({ ok: true, items });
+});
+
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
 app.post('/api/order', async (req, res) => {
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
