@@ -576,11 +576,20 @@ app.post('/owner/products/:id/images/add', async (req, res) => {
   if (!current) { added.forEach(db.deleteUploadIfUnused); return res.json({ ok: false, error: 'not_found' }, 404); }
   const color = String(req.body.color || '').trim();
   const valid = (current.colors || []).some(c => c.name === color);
+  // Фото можно грузить сразу в конкретную вариацию ремешка: «Коллекция|Цвет»
+  const band = String(req.body.band || '').trim();
+  const bandValid = band && (current.bands || []).some(g => (g.options || []).some(o => g.name + '|' + o.name === band));
   const images = (current.images || []).concat(added);
   const imageColors = Object.assign({}, current.imageColors || {});
-  if (color && valid) added.forEach(f => { imageColors[f] = color; });
-  db.updateProduct(current.id, { images, imageColors });
-  res.json({ ok: true, images: added.map(f => ({ src: f, color: (color && valid) ? color : '' })) });
+  const imageBands = Object.assign({}, current.imageBands || {});
+  if (bandValid) added.forEach(f => { imageBands[f] = band; });
+  else if (color && valid) added.forEach(f => { imageColors[f] = color; });
+  db.updateProduct(current.id, { images, imageColors, imageBands });
+  res.json({ ok: true, images: added.map(f => ({
+    src: f,
+    color: (!bandValid && color && valid) ? color : '',
+    band: bandValid ? band : ''
+  })) });
 });
 
 // Изменить порядок фотографий. Принимается только точная перестановка текущего списка:

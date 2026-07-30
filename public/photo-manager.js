@@ -22,10 +22,40 @@
     });
     return out;
   }
-  function optionsHtml(cur) {
-    return '<option value="">— общее —</option>' + colorNames().map(function (n) {
+  // варианты привязки снимка: общий, цвет корпуса или конкретная вариация ремешка
+  function bandOptions() {
+    var out = [];
+    document.querySelectorAll('#band-editor .band-group-box').forEach(function (box) {
+      var group = box.querySelector('.bg-name').value.trim();
+      if (!group) return;
+      box.querySelectorAll('.band-opt-row').forEach(function (row) {
+        var name = row.querySelector('.bo-name').value.trim();
+        if (name) out.push({ key: group + '|' + name, label: group + ' \u00b7 ' + name, hex: row.querySelector('.bo-hex').value });
+      });
+    });
+    return out;
+  }
+  function optionsHtml(cur, curBand) {
+    var html = '<option value="">— общее —</option>' + colorNames().map(function (n) {
       return '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>';
     }).join('');
+    var bands = bandOptions();
+    if (bands.length) {
+      html += '<optgroup label="Ремешки" data-bands="1">' + bands.map(function (b) {
+        return '<option value="band:' + esc(b.key) + '"' + (b.key === curBand ? ' selected' : '') + '>' + esc(b.label) + '</option>';
+      }).join('') + '</optgroup>';
+    }
+    return html;
+  }
+  function bandHex(key) {
+    var found = '#cccccc';
+    bandOptions().forEach(function (b) { if (b.key === key) found = b.hex; });
+    return found;
+  }
+  function bandLabel(key) {
+    var found = key;
+    bandOptions().forEach(function (b) { if (b.key === key) found = b.label; });
+    return found;
   }
 
   function colorHex(name) {
@@ -35,19 +65,23 @@
     });
     return hex;
   }
-  function groupFor(color) {
-    color = color || '';
+  function groupFor(color, band) {
+    color = color || ''; band = band || '';
     var g = null;
     chips.querySelectorAll('.img-group').forEach(function (candidate) {
-      if (!g && candidate.dataset.color === color) g = candidate;
+      if (g) return;
+      if (band) { if (candidate.dataset.band === band) g = candidate; }
+      else if (!candidate.dataset.band && candidate.dataset.color === color) g = candidate;
     });
     if (!g) {
       g = document.createElement('div');
       g.className = 'img-group';
-      g.dataset.color = color;
-      g.innerHTML = '<div class="img-group-head"><span class="swatch' + (color ? '' : ' swatch-any') + '"' +
-        (color ? ' style="background:' + esc(colorHex(color)) + '"' : '') + '></span>' +
-        (color ? esc(color) : 'Общие фото') + '<span class="img-group-count"></span></div><div class="img-chips"></div>';
+      if (band) g.dataset.band = band; else g.dataset.color = color;
+      var swatch = band
+        ? '<span class="swatch" style="background:' + esc(bandHex(band)) + '"></span>'
+        : '<span class="swatch' + (color ? '' : ' swatch-any') + '"' + (color ? ' style="background:' + esc(colorHex(color)) + '"' : '') + '></span>';
+      var title = band ? esc(bandLabel(band)) : (color ? esc(color) : 'Общие фото');
+      g.innerHTML = '<div class="img-group-head">' + swatch + title + '<span class="img-group-count"></span></div><div class="img-chips"></div>';
       chips.appendChild(g);
     }
     g.hidden = false;
@@ -73,7 +107,7 @@
       chip.classList.toggle('is-main', !!src && chip.dataset.src === src);
     });
   }
-  function addChip(src, color) {
+  function addChip(src, color, band) {
     if (chipsWrap) chipsWrap.hidden = false;
     var isFirst = allOrder.length === 0;
     var d = document.createElement('div');
@@ -87,10 +121,10 @@
       '<button type="button" class="img-del" title="Удалить фото" aria-label="Удалить фото">&times;</button></div>' +
       '<div class="img-chip-controls">' +
       '<button type="button" class="img-move img-move-prev" title="Переместить раньше" aria-label="Переместить фото раньше">←</button>' +
-      '<select class="img-color" name="imgcolor:' + esc(src) + '" aria-label="Цвет фотографии">' + optionsHtml(color || '') + '</select>' +
+      '<select class="img-color" name="imgcolor:' + esc(src) + '" aria-label="Привязка фотографии">' + optionsHtml(color || '', band || '') + '</select>' +
       '<button type="button" class="img-move img-move-next" title="Переместить позже" aria-label="Переместить фото позже">→</button>' +
       '</div>';
-    groupFor(color || '').querySelector('.img-chips').appendChild(d);
+    groupFor(color || '', band || '').querySelector('.img-chips').appendChild(d);
     allOrder.push(src);
     refreshGroups();
   }
@@ -133,6 +167,7 @@
       var data = new FormData();
       files.forEach(function (file) { data.append('images', file, file.name); });
       if (input.dataset.color) data.append('color', input.dataset.color);
+      if (input.dataset.band) data.append('band', input.dataset.band);
       setBusy(field, true);
       input.disabled = true;
       setUploadProgress(input, 0, 'Загрузка' + tail + ' · 0%', 'uploading');
@@ -149,7 +184,7 @@
         var json = null;
         try { json = JSON.parse(xhr.responseText); } catch (e) { json = null; }
         if (xhr.status >= 200 && xhr.status < 300 && json && json.ok) {
-          json.images.forEach(function (image) { addChip(image.src, image.color); });
+          json.images.forEach(function (image) { addChip(image.src, image.color, image.band); });
           setUploadProgress(input, 100, position ? 'Готово · ' + position : 'Готово', 'done');
         } else setUploadProgress(input, 0, 'Ошибка загрузки', 'error');
         finish();

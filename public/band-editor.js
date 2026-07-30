@@ -122,6 +122,47 @@
     });
   }
 
+  // Поля загрузки под каждую вариацию: снимок сразу привязывается к ремешку,
+  // а не падает в общую кучу, которую потом надо разбирать селектами.
+  var uploadsBox = document.getElementById('band-uploads');
+  var fileFields = {};
+  function updateUploads(groups) {
+    if (!uploadsBox) return;
+    var grid = uploadsBox.querySelector('.cu-grid');
+    var keys = [];
+    groups.forEach(function (g) { g.options.forEach(function (o) { keys.push({ key: g.name + '|' + o.name, label: g.name + ' \u00b7 ' + o.name, hex: o.hex }); }); });
+    uploadsBox.style.display = keys.length ? '' : 'none';
+    Object.keys(fileFields).forEach(function (k) {
+      if (!keys.some(function (x) { return x.key === k; })) { fileFields[k].field.remove(); delete fileFields[k]; }
+    });
+    keys.forEach(function (item) {
+      var f = fileFields[item.key];
+      if (!f) {
+        var field = document.createElement('div');
+        field.className = 'cu-field photo-upload-field';
+        var lab = document.createElement('div');
+        lab.className = 'cu-label';
+        var uploadBox = document.createElement('label');
+        uploadBox.className = 'photo-upload-box photo-upload-box-compact';
+        var input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+        input.setAttribute('data-auto', '');
+        uploadBox.appendChild(input);
+        uploadBox.insertAdjacentHTML('beforeend',
+          '<span class="photo-upload-icon" aria-hidden="true">＋</span>' +
+          '<span class="photo-upload-text"><b>Выбрать фото</b><span class="photo-upload-selection"></span></span>');
+        var progress = document.createElement('div');
+        progress.className = 'photo-upload-progress'; progress.hidden = true;
+        progress.innerHTML = '<div class="photo-progress-track"><span></span></div><span class="photo-upload-status" aria-live="polite"></span>';
+        field.appendChild(lab); field.appendChild(uploadBox); field.appendChild(progress);
+        f = fileFields[item.key] = { field: field, label: lab, input: input };
+      }
+      f.label.innerHTML = '<span class="swatch" style="background:' + escAttr(item.hex) + '"></span> ' + escHtml(item.label);
+      f.input.dataset.band = item.key;      // к какой вариации привязать загруженные фото
+      grid.appendChild(f.field);
+    });
+  }
+
   function sync() {
     var groups = read();
     raw.value = groups.map(function (g) {
@@ -129,6 +170,7 @@
         + g.options.map(function (o) { return '- ' + o.name + ' | ' + o.hex + ' | ' + o.add + (o.inStock ? '' : ' | нет'); }).join('\n');
     }).join('\n');
     updatePhotoSelects(groups);
+    updateUploads(groups);
   }
 
   // разбор текущего значения textarea
