@@ -1594,3 +1594,11 @@ body.admin{background:#f4f4f6;color:#242426}
 .img-group[data-band] .img-chip[data-case] .img-chip-media::after{content:attr(data-case);z-index:2;position:absolute;left:6px;bottom:6px;
   font-size:10px;line-height:1;padding:3px 6px;border-radius:6px;background:rgba(0,0,0,.62);color:#fff;pointer-events:none}
 .img-group[data-band] .img-chip[data-case]{position:relative}
+/* Переключатель корпуса в блоке загрузки фото ремешков */
+#band-uploads .cu-cases{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:14px}
+#band-uploads .cu-cases-label{font-size:12px;color:var(--muted);margin-right:2px}
+#band-uploads .cu-case-tab{padding:5px 12px;border:1px solid var(--border);border-radius:999px;background:#fff;
+  font-size:12px;font-family:inherit;color:var(--text);cursor:pointer;transition:background .14s,border-color .14s,color .14s}
+#band-uploads .cu-case-tab:hover{border-color:var(--accent)}
+#band-uploads .cu-case-tab.active{background:var(--text);border-color:var(--text);color:#fff}
+.img-group-case{font-weight:400;color:var(--muted);font-size:12px;margin-left:6px}

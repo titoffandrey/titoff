@@ -65,22 +65,27 @@
     });
     return hex;
   }
+  // Группа снимков — это пара «ремешок + корпус»: один ремешок на разных
+  // корпусах выглядит по-разному, и фото у них раздельные.
   function groupFor(color, band) {
     color = color || ''; band = band || '';
     var g = null;
     chips.querySelectorAll('.img-group').forEach(function (candidate) {
       if (g) return;
-      if (band) { if (candidate.dataset.band === band) g = candidate; }
-      else if (!candidate.dataset.band && candidate.dataset.color === color) g = candidate;
+      var cBand = candidate.dataset.band || '';
+      var cCase = candidate.dataset.band ? (candidate.dataset.case || '') : (candidate.dataset.color || '');
+      if (cBand === band && cCase === color) g = candidate;
     });
     if (!g) {
       g = document.createElement('div');
       g.className = 'img-group';
-      if (band) g.dataset.band = band; else g.dataset.color = color;
+      if (band) { g.dataset.band = band; g.dataset.case = color; } else g.dataset.color = color;
       var swatch = band
         ? '<span class="swatch" style="background:' + esc(bandHex(band)) + '"></span>'
         : '<span class="swatch' + (color ? '' : ' swatch-any') + '"' + (color ? ' style="background:' + esc(colorHex(color)) + '"' : '') + '></span>';
-      var title = band ? esc(bandLabel(band)) : (color ? esc(color) : 'Общие фото');
+      var title = band
+        ? esc(bandLabel(band)) + (color ? '<span class="img-group-case">' + esc(color) + '</span>' : '')
+        : (color ? esc(color) : 'Общие фото');
       g.innerHTML = '<div class="img-group-head">' + swatch + title + '<span class="img-group-count"></span></div><div class="img-chips"></div>';
       chips.appendChild(g);
     }

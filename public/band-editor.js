@@ -158,9 +158,30 @@
   // из 46 вариаций (Series 11 титан) растягивал форму на десяток экранов.
   var uploadsBox = document.getElementById('band-uploads');
   var fileFields = {};
+  var activeCase = '';        // корпус, для которого сейчас грузим фото
   function photoCount(key) {
-    var g = document.querySelector('#img-chips .img-group[data-band="' + key.replace(/"/g, '\\"') + '"]');
+    var sel = '#img-chips .img-group[data-band="' + key.replace(/"/g, '\\"') + '"]'
+      + '[data-case="' + activeCase.replace(/"/g, '\\"') + '"]';
+    var g = document.querySelector(sel);
     return g ? g.querySelectorAll('.img-chip').length : 0;
+  }
+  // Переключатель корпуса: у каждого корпуса свой набор фото тех же ремешков
+  function renderCaseTabs(container) {
+    var cases = caseColors();
+    if (!cases.length) { activeCase = ''; return; }
+    if (cases.indexOf(activeCase) < 0) activeCase = cases[0];
+    var box = document.createElement('div');
+    box.className = 'cu-cases';
+    box.innerHTML = '<span class="cu-cases-label">Корпус:</span>' + cases.map(function (n) {
+      return '<button type="button" class="cu-case-tab' + (n === activeCase ? ' active' : '') + '" data-case="' + escAttr(n) + '">' + escHtml(n) + '</button>';
+    }).join('') + '<button type="button" class="cu-case-tab' + (activeCase === '' ? ' active' : '') + '" data-case="">без привязки</button>';
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('.cu-case-tab');
+      if (!b) return;
+      activeCase = b.dataset.case;
+      sync();
+    });
+    container.appendChild(box);
   }
   function updateUploads(groups) {
     if (!uploadsBox) return;
@@ -169,6 +190,7 @@
     uploadsBox.style.display = total ? '' : 'none';
     var seen = {};
     grid.innerHTML = '';
+    renderCaseTabs(grid);
     groups.forEach(function (g) {
       if (!g.options.length) return;
       var head = document.createElement('div');
@@ -199,32 +221,15 @@
           var progress = document.createElement('div');
           progress.className = 'photo-upload-progress'; progress.hidden = true;
           progress.innerHTML = '<div class="photo-progress-track"><span></span></div><span class="photo-upload-status" aria-live="polite"></span>';
-          // выбор корпуса: один ремешок на разных корпусах выглядит по-разному,
-          // поэтому снимок можно сразу отнести к «Натуральному» или «Чёрному»
-          var caseSel = document.createElement('select');
-          caseSel.className = 'cu-case';
-          caseSel.addEventListener('change', function () { input.dataset.color = caseSel.value; });
-          field.appendChild(lab); field.appendChild(caseSel); field.appendChild(uploadBox); field.appendChild(progress);
-          f = fileFields[key] = { field: field, label: lab, input: input, caseSel: caseSel };
+          field.appendChild(lab); field.appendChild(uploadBox); field.appendChild(progress);
+          f = fileFields[key] = { field: field, label: lab, input: input };
         }
         var n = photoCount(key);
         f.label.innerHTML = '<span class="swatch" style="background:' + escAttr(o.hex) + '"></span>'
           + '<span class="cu-name">' + escHtml(o.name) + '</span>'
           + (n ? '<span class="cu-count">' + n + '</span>' : '');
-        f.input.dataset.band = key;      // к какой вариации привязать загруженные фото
-        var cases = caseColors();
-        if (cases.length > 1) {
-          var cur = f.caseSel.value;
-          f.caseSel.hidden = false;
-          f.caseSel.innerHTML = '<option value="">корпус: любой</option>' + cases.map(function (n) {
-            return '<option value="' + escAttr(n) + '"' + (n === cur ? ' selected' : '') + '>' + escHtml(n) + '</option>';
-          }).join('');
-          f.caseSel.value = cases.indexOf(cur) >= 0 ? cur : '';
-          f.input.dataset.color = f.caseSel.value;
-        } else {
-          f.caseSel.hidden = true;
-          f.input.dataset.color = '';
-        }
+        f.input.dataset.band = key;          // вариация ремешка
+        f.input.dataset.color = activeCase;  // и корпус, выбранный переключателем сверху
         row.appendChild(f.field);
       });
     });
