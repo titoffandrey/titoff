@@ -275,7 +275,7 @@
       .then(function (json) {
         chip.classList.remove('is-busy');
         if (json && json.ok) {
-          var targetGroup = groupFor(json.color).querySelector('.img-chips');
+          var targetGroup = groupFor(json.color, json.band).querySelector('.img-chips');
           if (chip.classList.contains('is-main')) targetGroup.insertBefore(chip, targetGroup.firstElementChild);
           else targetGroup.appendChild(chip);
           refreshGroups();

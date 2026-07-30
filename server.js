@@ -623,12 +623,21 @@ app.post('/owner/products/:id/images/color', (req, res) => {
   if (!p) return res.json({ ok: false, error: 'not_found' }, 404);
   const src = String(req.body.src || '');
   if (!src || !(p.images || []).includes(src)) return res.json({ ok: false, error: 'no_image' }, 400);
-  const color = String(req.body.color || '').trim();
+  // Значение селекта: цвет корпуса, «band:Коллекция|Цвет» или пусто (общее фото).
+  // Раньше маршрут знал только про цвета, поэтому выбор ремешка молча снимал привязку.
+  const value = String(req.body.color || '').trim();
   const imageColors = Object.assign({}, p.imageColors || {});
-  if (color && (p.colors || []).some(c => c.name === color)) imageColors[src] = color;
-  else delete imageColors[src];
-  db.updateProduct(p.id, { imageColors });
-  res.json({ ok: true, color: imageColors[src] || '' });
+  const imageBands = Object.assign({}, p.imageBands || {});
+  delete imageColors[src]; delete imageBands[src];
+  if (value.startsWith('band:')) {
+    const key = value.slice(5);
+    const known = (p.bands || []).some(g => (g.options || []).some(o => g.name + '|' + o.name === key));
+    if (known) imageBands[src] = key;
+  } else if (value && (p.colors || []).some(c => c.name === value)) {
+    imageColors[src] = value;
+  }
+  db.updateProduct(p.id, { imageColors, imageBands });
+  res.json({ ok: true, color: imageColors[src] || '', band: imageBands[src] || '' });
 });
 
 // Удалить фото: убирает из товара и стирает файл с диска
@@ -640,8 +649,9 @@ app.post('/owner/products/:id/images/remove', (req, res) => {
   if (!src || !(p.images || []).includes(src)) return res.json({ ok: false, error: 'no_image' }, 400);
   const images = (p.images || []).filter(x => x !== src);
   const imageColors = Object.assign({}, p.imageColors || {});
-  delete imageColors[src];
-  db.updateProduct(p.id, { images, imageColors });
+  const imageBands = Object.assign({}, p.imageBands || {});
+  delete imageColors[src]; delete imageBands[src];   // не оставляем привязку удалённого файла
+  db.updateProduct(p.id, { images, imageColors, imageBands });
   // сам файл удаляем только если он больше нигде не используется
   const used = db.getProducts().some(x => (x.images || []).includes(src));
   if (!used) db.deleteUploadIfUnused(src);
