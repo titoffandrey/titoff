@@ -646,14 +646,22 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 #storage-add:hover{background:#eaf4ff;border-color:var(--accent)}
 
 /* фото по цветам */
-#color-uploads .cu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
-#color-uploads .cu-field{border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:#fff}
-#color-uploads .cu-label{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;margin-bottom:8px}
-#color-uploads .cu-label .swatch{width:16px;height:16px;border-radius:5px;border:1px solid rgba(0,0,0,.15);margin:0}
-#color-uploads .cu-field input[type=file]{font-size:13px;max-width:100%}
-#color-uploads .photo-upload-box-compact{min-height:58px;padding:8px 10px!important;gap:9px}
-#color-uploads .photo-upload-box-compact .photo-upload-icon{width:34px;height:34px;border-radius:10px;font-size:21px}
-#color-uploads .photo-upload-box-compact .photo-upload-text b{font-size:13px}
+/* Плитки загрузки фото: общие для цветов корпуса и вариаций ремешков */
+#color-uploads .cu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+#band-uploads .cu-grid{display:block}
+#band-uploads .cu-section{font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:.02em;
+  margin:14px 0 8px;padding-top:12px;border-top:1px solid var(--border)}
+#band-uploads .cu-section:first-child{margin-top:0;padding-top:0;border-top:none}
+#band-uploads .cu-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+#color-uploads .cu-field,#band-uploads .cu-field{border:1px solid var(--border);border-radius:12px;padding:9px 10px;background:#fff}
+#color-uploads .cu-label,#band-uploads .cu-label{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;margin-bottom:7px}
+#color-uploads .cu-label .swatch,#band-uploads .cu-label .swatch{width:15px;height:15px;border-radius:5px;border:1px solid rgba(0,0,0,.15);margin:0;flex:none}
+#band-uploads .cu-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#band-uploads .cu-count{flex:none;font-size:11px;font-weight:600;color:var(--accent);
+  background:rgba(0,113,227,.1);border-radius:20px;padding:1px 7px}
+#color-uploads .photo-upload-box-compact,#band-uploads .photo-upload-box-compact{min-height:46px;padding:7px 9px!important;gap:8px}
+#color-uploads .photo-upload-box-compact .photo-upload-icon,#band-uploads .photo-upload-box-compact .photo-upload-icon{width:28px;height:28px;border-radius:9px;font-size:18px}
+#color-uploads .photo-upload-box-compact .photo-upload-text b,#band-uploads .photo-upload-box-compact .photo-upload-text b{font-size:12.5px}
 #color-uploads .photo-upload-box-compact .photo-upload-selection{font-size:11.5px;max-width:145px}
 #color-uploads .photo-upload-progress{grid-template-columns:1fr;margin-top:7px;gap:4px}
 #color-uploads .photo-upload-status{text-align:left}
@@ -1554,3 +1562,25 @@ body.admin{background:#f4f4f6;color:#242426}
 .band-editor .band-opt-row .st-price-wrap{flex:none;width:150px}
 .band-opt-row.row-out{background:var(--bg2)}
 .band-opt-row.row-out .bo-name{text-decoration:line-through;color:var(--muted)}
+
+/* Складные блоки загрузки фото: с 46 вариациями развёрнутый список бесполезен */
+.upload-fold{border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--bg2)}
+.upload-fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;font-size:13px;font-weight:600;color:var(--text)}
+.upload-fold>summary::-webkit-details-marker{display:none}
+.upload-fold>summary::after{content:'▾';font-size:12px;color:var(--muted);transition:transform .15s ease}
+.upload-fold[open]>summary::after{transform:rotate(180deg)}
+.upload-fold-note{font-size:11.5px;font-weight:400}
+.upload-fold[open]>summary{margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.upload-fold[open] .upload-fold-note{display:none}
+.upload-fold .cu-grid{max-height:520px;overflow-y:auto}
+
+/* Свёрнутый список цветов внутри коллекции ремешков */
+.band-fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;
+  font-size:12.5px;color:var(--muted);padding:2px 0}
+.band-fold>summary::-webkit-details-marker{display:none}
+.band-fold>summary::before{content:'▸';font-size:11px;transition:transform .15s ease}
+.band-fold[open]>summary::before{transform:rotate(90deg)}
+.band-fold[open]>summary{margin-bottom:10px}
+.band-editor .band-opt-row{padding:6px 9px}
+.band-editor .band-group-box{padding:12px}

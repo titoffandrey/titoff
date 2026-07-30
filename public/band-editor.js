@@ -54,14 +54,19 @@
     group = group || {};
     var box = document.createElement('div');
     box.className = 'band-group-box';
+    // Список цветов свёрнут: у Series 11 коллекций десять, развёрнутый вид
+    // растягивал форму на тысячи пикселей.
     box.innerHTML =
       '<div class="band-group-head">' +
         '<input type="text" class="bg-name" placeholder="Название коллекции, например Trail Loop">' +
         '<input type="text" class="bg-sizes" placeholder="Размеры через запятую: S/M, M/L">' +
         '<button type="button" class="color-del" title="Удалить коллекцию" aria-label="Удалить коллекцию">&times;</button>' +
       '</div>' +
-      '<div class="band-opts"></div>' +
-      '<button type="button" class="btn btn-sm bg-add-opt">+ Цвет ремешка</button>';
+      '<details class="band-fold">' +
+        '<summary><span class="band-fold-count"></span></summary>' +
+        '<div class="band-opts"></div>' +
+        '<button type="button" class="btn btn-sm bg-add-opt">+ Цвет ремешка</button>' +
+      '</details>';
     box.querySelector('.bg-name').value = group.name || '';
     box.querySelector('.bg-sizes').value = (group.sizes || []).join(', ');
     var list = box.querySelector('.band-opts');
@@ -69,6 +74,7 @@
     box.querySelector('.bg-name').addEventListener('input', sync);
     box.querySelector('.bg-sizes').addEventListener('input', sync);
     box.querySelector('.bg-add-opt').addEventListener('click', function () {
+      box.querySelector('.band-fold').open = true;
       var row = makeOption(list, { inStock: true });
       sync();
       row.querySelector('.bo-name').focus();
@@ -76,6 +82,14 @@
     box.querySelector('.band-group-head .color-del').addEventListener('click', function () { box.remove(); sync(); });
     editor.appendChild(box);
     return box;
+  }
+
+  function refreshCounts() {
+    editor.querySelectorAll('.band-group-box').forEach(function (box) {
+      var n = box.querySelectorAll('.band-opt-row').length;
+      var el = box.querySelector('.band-fold-count');
+      if (el) el.textContent = n + ' ' + (n % 10 === 1 && n % 100 !== 11 ? 'цвет' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'цвета' : 'цветов'));
+    });
   }
 
   function read() {
@@ -122,45 +136,63 @@
     });
   }
 
-  // Поля загрузки под каждую вариацию: снимок сразу привязывается к ремешку,
-  // а не падает в общую кучу, которую потом надо разбирать селектами.
+  // Поля загрузки: тайл на вариацию, сгруппированы по коллекциям — иначе список
+  // из 46 вариаций (Series 11 титан) растягивал форму на десяток экранов.
   var uploadsBox = document.getElementById('band-uploads');
   var fileFields = {};
+  function photoCount(key) {
+    var g = document.querySelector('#img-chips .img-group[data-band="' + key.replace(/"/g, '\\"') + '"]');
+    return g ? g.querySelectorAll('.img-chip').length : 0;
+  }
   function updateUploads(groups) {
     if (!uploadsBox) return;
     var grid = uploadsBox.querySelector('.cu-grid');
-    var keys = [];
-    groups.forEach(function (g) { g.options.forEach(function (o) { keys.push({ key: g.name + '|' + o.name, label: g.name + ' \u00b7 ' + o.name, hex: o.hex }); }); });
-    uploadsBox.style.display = keys.length ? '' : 'none';
-    Object.keys(fileFields).forEach(function (k) {
-      if (!keys.some(function (x) { return x.key === k; })) { fileFields[k].field.remove(); delete fileFields[k]; }
+    var total = groups.reduce(function (a, g) { return a + g.options.length; }, 0);
+    uploadsBox.style.display = total ? '' : 'none';
+    var seen = {};
+    grid.innerHTML = '';
+    groups.forEach(function (g) {
+      if (!g.options.length) return;
+      var head = document.createElement('div');
+      head.className = 'cu-section';
+      head.textContent = g.name;
+      grid.appendChild(head);
+      var row = document.createElement('div');
+      row.className = 'cu-row';
+      grid.appendChild(row);
+      g.options.forEach(function (o) {
+        var key = g.name + '|' + o.name;
+        seen[key] = true;
+        var f = fileFields[key];
+        if (!f) {
+          var field = document.createElement('div');
+          field.className = 'cu-field photo-upload-field';
+          var lab = document.createElement('div');
+          lab.className = 'cu-label';
+          var uploadBox = document.createElement('label');
+          uploadBox.className = 'photo-upload-box photo-upload-box-compact';
+          var input = document.createElement('input');
+          input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+          input.setAttribute('data-auto', '');
+          uploadBox.appendChild(input);
+          uploadBox.insertAdjacentHTML('beforeend',
+            '<span class="photo-upload-icon" aria-hidden="true">＋</span>' +
+            '<span class="photo-upload-text"><b>Фото</b><span class="photo-upload-selection"></span></span>');
+          var progress = document.createElement('div');
+          progress.className = 'photo-upload-progress'; progress.hidden = true;
+          progress.innerHTML = '<div class="photo-progress-track"><span></span></div><span class="photo-upload-status" aria-live="polite"></span>';
+          field.appendChild(lab); field.appendChild(uploadBox); field.appendChild(progress);
+          f = fileFields[key] = { field: field, label: lab, input: input };
+        }
+        var n = photoCount(key);
+        f.label.innerHTML = '<span class="swatch" style="background:' + escAttr(o.hex) + '"></span>'
+          + '<span class="cu-name">' + escHtml(o.name) + '</span>'
+          + (n ? '<span class="cu-count">' + n + '</span>' : '');
+        f.input.dataset.band = key;      // к какой вариации привязать загруженные фото
+        row.appendChild(f.field);
+      });
     });
-    keys.forEach(function (item) {
-      var f = fileFields[item.key];
-      if (!f) {
-        var field = document.createElement('div');
-        field.className = 'cu-field photo-upload-field';
-        var lab = document.createElement('div');
-        lab.className = 'cu-label';
-        var uploadBox = document.createElement('label');
-        uploadBox.className = 'photo-upload-box photo-upload-box-compact';
-        var input = document.createElement('input');
-        input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
-        input.setAttribute('data-auto', '');
-        uploadBox.appendChild(input);
-        uploadBox.insertAdjacentHTML('beforeend',
-          '<span class="photo-upload-icon" aria-hidden="true">＋</span>' +
-          '<span class="photo-upload-text"><b>Выбрать фото</b><span class="photo-upload-selection"></span></span>');
-        var progress = document.createElement('div');
-        progress.className = 'photo-upload-progress'; progress.hidden = true;
-        progress.innerHTML = '<div class="photo-progress-track"><span></span></div><span class="photo-upload-status" aria-live="polite"></span>';
-        field.appendChild(lab); field.appendChild(uploadBox); field.appendChild(progress);
-        f = fileFields[item.key] = { field: field, label: lab, input: input };
-      }
-      f.label.innerHTML = '<span class="swatch" style="background:' + escAttr(item.hex) + '"></span> ' + escHtml(item.label);
-      f.input.dataset.band = item.key;      // к какой вариации привязать загруженные фото
-      grid.appendChild(f.field);
-    });
+    Object.keys(fileFields).forEach(function (k) { if (!seen[k]) delete fileFields[k]; });
   }
 
   function sync() {
@@ -171,6 +203,7 @@
     }).join('\n');
     updatePhotoSelects(groups);
     updateUploads(groups);
+    refreshCounts();
   }
 
   // разбор текущего значения textarea
