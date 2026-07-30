@@ -94,82 +94,135 @@ const HOMEPOD_MINI = [
 ];
 
 /* -------- ремешки часов --------
-   Названия коллекций и цветов — как на apple.com/shop/watch/bands.
-   add — доплата к цене часов, ₽ (ориентир рынка РФ). */
+   Коллекции, цвета и размеры сверены с данными выбора на apple.com/shop/buy-watch
+   (Ultra 3 и Series 11). add — доплата к цене часов, ₽ (ориентир рынка РФ). */
+const SOLO_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => ({ label: String(n) }));
+const SML = [{ label: 'S' }, { label: 'M' }, { label: 'L' }];
+const SPORT_SIZES = [{ label: 'S/M' }, { label: 'M/L' }];
+const ONE_SIZE = [{ label: 'Один размер' }];
+
+const NIKE_COLORS = [
+  { name: 'Midnight Black', hex: '#1c1c1e' },
+  { name: 'Alpenglow Pink', hex: '#e88ba0' },
+  { name: 'Blue Ribbon', hex: '#2b5fd0' },
+  { name: 'Veiled Grey', hex: '#9a9a9e' },
+  { name: 'Volt Splash', hex: '#d7f04a' }
+];
+const withAdd = (list, add) => list.map(o => Object.assign({ add }, o));
+
 const BANDS = {
   ultra: [
-    { name: 'Trail Loop', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+    { name: 'Trail Loop', sizes: SPORT_SIZES, options: [
       { name: 'Black/Charcoal', hex: '#3a3a3c', add: 0 },
+      { name: 'Blue/Bright Blue', hex: '#2f5fa8', add: 0 },
       { name: 'Green/Neon', hex: '#5b7a3a', add: 0 }
     ] },
-    { name: 'Alpine Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Black', hex: '#26262a', add: 4000 }
+    { name: 'Alpine Loop', sizes: SML, options: [
+      { name: 'Black', hex: '#26262a', add: 0 },
+      { name: 'Light Blue', hex: '#9dc0dc', add: 0 },
+      { name: 'Terra Cotta', hex: '#b4552d', add: 0 }
     ] },
-    { name: 'Ocean Band', sizes: [{ label: 'Один размер' }], options: [
-      { name: 'Black', hex: '#1c1c1e', add: 3000 },
-      { name: 'Anchor Blue', hex: '#2c4260', add: 3000 },
-      { name: 'Neon Green', hex: '#7ed321', add: 3000 }
+    { name: 'Ocean Band', sizes: ONE_SIZE, options: [
+      { name: 'Black', hex: '#1c1c1e', add: 0 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
+      { name: 'Neon Green', hex: '#7ed321', add: 0 }
     ] },
-    { name: 'Titanium Milanese Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+    { name: 'Titanium Milanese Loop', sizes: SML, options: [
       { name: 'Natural', hex: '#cfc9c0', add: 25000 },
       { name: 'Black', hex: '#2b2b2e', add: 25000 }
     ] }
   ],
   series: [
-    { name: 'Sport Band', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+    { name: 'Sport Band', sizes: SPORT_SIZES, options: [
       { name: 'Black', hex: '#1c1c1e', add: 0 },
       { name: 'Starlight', hex: '#e8e0d0', add: 0 },
       { name: 'Stone Gray', hex: '#8b8a86', add: 0 },
       { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
       { name: 'Light Blush', hex: '#f0d9d5', add: 0 },
-      { name: 'Clementine', hex: '#e8622a', add: 0 }
+      { name: 'Soft Pink', hex: '#eab7c0', add: 0 },
+      { name: 'Clementine', hex: '#e8622a', add: 0 },
+      { name: 'Bright Guava', hex: '#e8677d', add: 0 }
     ] },
-    { name: 'Sport Loop', sizes: [{ label: 'Один размер' }], options: [
+    { name: 'Sport Loop', sizes: ONE_SIZE, options: [
       { name: 'Dark Gray', hex: '#4a4a4d', add: 0 },
       { name: 'Forest', hex: '#37503f', add: 0 },
       { name: 'Blue Mist', hex: '#a8c3d9', add: 0 },
       { name: 'Cantaloupe', hex: '#f0a05a', add: 0 },
-      { name: 'Bright Guava', hex: '#e8677d', add: 0 }
+      { name: 'Bright Guava', hex: '#e8677d', add: 0 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 0 }
     ] },
-    { name: 'Solo Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Black', hex: '#232326', add: 4000 },
+    { name: 'Solo Loop', sizes: SOLO_SIZES, options: [
+      { name: 'Black', hex: '#232326', add: 0 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
+      { name: 'Green Gray', hex: '#7d8b78', add: 0 },
+      { name: 'Light Blush', hex: '#f0d9d5', add: 0 },
+      { name: 'Neon Yellow', hex: '#e4f04a', add: 0 }
+    ] },
+    { name: 'Braided Solo Loop', sizes: SOLO_SIZES, options: [
+      { name: 'Midnight', hex: '#2e3641', add: 4000 },
       { name: 'Anchor Blue', hex: '#2c4260', add: 4000 },
       { name: 'Green Gray', hex: '#7d8b78', add: 4000 },
-      { name: 'Neon Yellow', hex: '#e4f04a', add: 4000 }
+      { name: 'Neon Yellow', hex: '#e4f04a', add: 4000 },
+      { name: 'Turmeric', hex: '#d99a2b', add: 4000 }
     ] },
-    { name: 'Milanese Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+    { name: 'Nike Sport Band', sizes: SPORT_SIZES, options: withAdd(NIKE_COLORS, 0) },
+    { name: 'Nike Sport Loop', sizes: ONE_SIZE, options: withAdd(NIKE_COLORS, 0) },
+    { name: 'Milanese Loop', sizes: SML, options: [
       { name: 'Natural', hex: '#d6d6d8', add: 7000 },
-      { name: 'Black', hex: '#3a3a3d', add: 7000 }
+      { name: 'Gold', hex: '#d4b483', add: 7000 },
+      { name: 'Slate', hex: '#5a5a5f', add: 7000 }
+    ] }
+  ],
+  // у титановых Series 11 к тем же ремешкам добавляются браслеты и кожаные
+  seriesTitan: [
+    { name: 'Link Bracelet', sizes: ONE_SIZE, options: [
+      { name: 'Natural', hex: '#d6d6d8', add: 30000 },
+      { name: 'Gold', hex: '#d4b483', add: 30000 },
+      { name: 'Slate', hex: '#5a5a5f', add: 30000 }
+    ] },
+    { name: 'Magnetic Link', sizes: SPORT_SIZES, options: [
+      { name: 'Caramel', hex: '#a9764a', add: 9000 },
+      { name: 'Sage Gray', hex: '#8e9384', add: 9000 },
+      { name: 'Navy', hex: '#2b3550', add: 9000 }
+    ] },
+    { name: 'Modern Buckle', sizes: SML, options: [
+      { name: 'Caramel', hex: '#a9764a', add: 12000 },
+      { name: 'Sage Gray', hex: '#8e9384', add: 12000 },
+      { name: 'Midnight Purple', hex: '#4a3a54', add: 12000 }
     ] }
   ],
   se: [
-    { name: 'Sport Band', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+    { name: 'Sport Band', sizes: SPORT_SIZES, options: [
       { name: 'Black', hex: '#1c1c1e', add: 0 },
       { name: 'Starlight', hex: '#e8e0d0', add: 0 },
       { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
-      { name: 'Light Blush', hex: '#f0d9d5', add: 0 }
-    ] },
-    { name: 'Sport Loop', sizes: [{ label: 'Один размер' }], options: [
-      { name: 'Dark Gray', hex: '#4a4a4d', add: 0 },
-      { name: 'Blue Mist', hex: '#a8c3d9', add: 0 },
+      { name: 'Light Blush', hex: '#f0d9d5', add: 0 },
       { name: 'Bright Guava', hex: '#e8677d', add: 0 }
     ] },
-    { name: 'Solo Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Black', hex: '#232326', add: 2000 },
-      { name: 'Anchor Blue', hex: '#2c4260', add: 2000 },
-      { name: 'Neon Yellow', hex: '#e4f04a', add: 2000 }
-    ] }
+    { name: 'Sport Loop', sizes: ONE_SIZE, options: [
+      { name: 'Dark Gray', hex: '#4a4a4d', add: 0 },
+      { name: 'Blue Mist', hex: '#a8c3d9', add: 0 },
+      { name: 'Cantaloupe', hex: '#f0a05a', add: 0 },
+      { name: 'Bright Guava', hex: '#e8677d', add: 0 }
+    ] },
+    { name: 'Solo Loop', sizes: SOLO_SIZES, options: [
+      { name: 'Black', hex: '#232326', add: 0 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
+      { name: 'Neon Yellow', hex: '#e4f04a', add: 0 }
+    ] },
+    { name: 'Nike Sport Band', sizes: SPORT_SIZES, options: withAdd(NIKE_COLORS, 0) },
+    { name: 'Nike Sport Loop', sizes: ONE_SIZE, options: withAdd(NIKE_COLORS, 0) }
   ],
   hermes: [
-    { name: 'Hermès Torsade', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+    { name: 'Hermès Torsade', sizes: SML, options: [
       { name: 'Noir', hex: '#1f1f21', add: 0 },
       { name: 'Gris Perle', hex: '#b7b2a8', add: 0 }
     ] },
-    { name: 'Hermès Kilim', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+    { name: 'Hermès Kilim', sizes: SML, options: [
       { name: 'Bleu Saphir', hex: '#27406b', add: 18000 },
       { name: 'Orange', hex: '#e2661f', add: 18000 }
     ] },
-    { name: 'Hermès Grand H', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+    { name: 'Hermès Grand H', sizes: SML, options: [
       { name: 'Noir', hex: '#1f1f21', add: 26000 },
       { name: 'Gold', hex: '#b98b4e', add: 26000 }
     ] }
@@ -439,7 +492,7 @@ const products = [
     description: 'Series 11 в полированном титановом корпусе с сапфировым стеклом. Все функции здоровья флагманских часов и премиальные материалы в трёх оттенках.',
     specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, ЭКГ, кислород в крови, температура\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
     colors: W_TITAN, storages: ST.watch42,
-    bands: BANDS.series,
+    bands: BANDS.series.concat(BANDS.seriesTitan),
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.5 * DAY
   },
