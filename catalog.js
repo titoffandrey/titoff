@@ -77,7 +77,7 @@ const W_ALU = [
   { name: 'Серый космос', hex: '#6f7073' },
   C.silver,
   { name: 'Розовое золото', hex: '#e5c0b4' },
-  { name: 'Чёрный агат', hex: '#1c1c1e' }
+  { name: 'Глянцевый чёрный', hex: '#1c1c1e' }
 ];
 const W_TITAN = [
   { name: 'Натуральный титан', hex: '#cfc9c0' },
@@ -93,82 +93,85 @@ const HOMEPOD_MINI = [
   C.midnight
 ];
 
-/* -------- ремешки часов (add — доплата к цене часов, ₽; цены — ориентир рынка РФ) --------
-   Коллекция задаёт размеры, вариация — свой цвет, доплату и наличие. */
+/* -------- ремешки часов --------
+   Названия коллекций и цветов — как на apple.com/shop/watch/bands.
+   add — доплата к цене часов, ₽ (ориентир рынка РФ). */
 const BANDS = {
   ultra: [
     { name: 'Trail Loop', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
-      { name: 'Синий/чёрный', hex: '#2b4a7d', add: 0 },
-      { name: 'Чёрный/серый', hex: '#3a3a3c', add: 0 },
-      { name: 'Оранжевый/бежевый', hex: '#c8622a', add: 0 }
+      { name: 'Black/Charcoal', hex: '#3a3a3c', add: 0 },
+      { name: 'Green/Neon', hex: '#5b7a3a', add: 0 }
     ] },
     { name: 'Alpine Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Индиго', hex: '#39406b', add: 4000 },
-      { name: 'Тёмно-оливковый', hex: '#4d5340', add: 4000 },
-      { name: 'Натуральный', hex: '#c8b89a', add: 4000 }
+      { name: 'Black', hex: '#26262a', add: 4000 }
     ] },
     { name: 'Ocean Band', sizes: [{ label: 'Один размер' }], options: [
-      { name: 'Чёрный', hex: '#1c1c1e', add: 3000 },
-      { name: 'Синий', hex: '#2f5d94', add: 3000 },
-      { name: 'Оранжевый', hex: '#e26b2a', add: 3000 }
+      { name: 'Black', hex: '#1c1c1e', add: 3000 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 3000 },
+      { name: 'Neon Green', hex: '#7ed321', add: 3000 }
     ] },
-    { name: 'Титановый миланский', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Натуральный титан', hex: '#cfc9c0', add: 25000 },
-      { name: 'Чёрный титан', hex: '#2b2b2e', add: 25000 }
+    { name: 'Titanium Milanese Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Natural', hex: '#cfc9c0', add: 25000 },
+      { name: 'Black', hex: '#2b2b2e', add: 25000 }
     ] }
   ],
   series: [
-    { name: 'Спортивный ремешок', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
-      { name: 'Чёрный', hex: '#1c1c1e', add: 0 },
-      { name: 'Звёздный свет', hex: '#e8e0d0', add: 0 },
-      { name: 'Тёмно-синий', hex: '#2f3d55', add: 0 }
+    { name: 'Sport Band', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+      { name: 'Black', hex: '#1c1c1e', add: 0 },
+      { name: 'Starlight', hex: '#e8e0d0', add: 0 },
+      { name: 'Stone Gray', hex: '#8b8a86', add: 0 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
+      { name: 'Light Blush', hex: '#f0d9d5', add: 0 },
+      { name: 'Clementine', hex: '#e8622a', add: 0 }
     ] },
-    { name: 'Спортивный браслет', sizes: [{ label: 'Один размер' }], options: [
-      { name: 'Чёрный', hex: '#2a2a2c', add: 0 },
-      { name: 'Синий шторм', hex: '#4a6b8a', add: 0 },
-      { name: 'Розовый', hex: '#e6b3bd', add: 0 }
+    { name: 'Sport Loop', sizes: [{ label: 'Один размер' }], options: [
+      { name: 'Dark Gray', hex: '#4a4a4d', add: 0 },
+      { name: 'Forest', hex: '#37503f', add: 0 },
+      { name: 'Blue Mist', hex: '#a8c3d9', add: 0 },
+      { name: 'Cantaloupe', hex: '#f0a05a', add: 0 },
+      { name: 'Bright Guava', hex: '#e8677d', add: 0 }
     ] },
-    { name: 'Плетёный монобраслет', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Чёрный', hex: '#232326', add: 4000 },
-      { name: 'Тёмно-зелёный', hex: '#37503f', add: 4000 },
-      { name: 'Синий', hex: '#3c5a86', add: 4000 }
+    { name: 'Solo Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Black', hex: '#232326', add: 4000 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 4000 },
+      { name: 'Green Gray', hex: '#7d8b78', add: 4000 },
+      { name: 'Neon Yellow', hex: '#e4f04a', add: 4000 }
     ] },
-    { name: 'Миланский сетчатый', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Серебристый', hex: '#d6d6d8', add: 7000 },
-      { name: 'Графитовый', hex: '#4a4a4d', add: 7000 },
-      { name: 'Золотой', hex: '#d4b483', add: 7000 }
+    { name: 'Milanese Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Natural', hex: '#d6d6d8', add: 7000 },
+      { name: 'Black', hex: '#3a3a3d', add: 7000 }
     ] }
   ],
   se: [
-    { name: 'Спортивный ремешок', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
-      { name: 'Чёрный', hex: '#1c1c1e', add: 0 },
-      { name: 'Звёздный свет', hex: '#e8e0d0', add: 0 },
-      { name: 'Синий', hex: '#3a5a8c', add: 0 }
+    { name: 'Sport Band', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+      { name: 'Black', hex: '#1c1c1e', add: 0 },
+      { name: 'Starlight', hex: '#e8e0d0', add: 0 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
+      { name: 'Light Blush', hex: '#f0d9d5', add: 0 }
     ] },
-    { name: 'Спортивный браслет', sizes: [{ label: 'Один размер' }], options: [
-      { name: 'Чёрный', hex: '#2a2a2c', add: 0 },
-      { name: 'Синий', hex: '#4a6b8a', add: 0 },
-      { name: 'Розовый', hex: '#e6b3bd', add: 0 }
+    { name: 'Sport Loop', sizes: [{ label: 'Один размер' }], options: [
+      { name: 'Dark Gray', hex: '#4a4a4d', add: 0 },
+      { name: 'Blue Mist', hex: '#a8c3d9', add: 0 },
+      { name: 'Bright Guava', hex: '#e8677d', add: 0 }
     ] },
-    { name: 'Монобраслет', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Чёрный', hex: '#232326', add: 2000 },
-      { name: 'Синий', hex: '#3c5a86', add: 2000 },
-      { name: 'Оранжевый', hex: '#e07a3c', add: 2000 }
+    { name: 'Solo Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Black', hex: '#232326', add: 2000 },
+      { name: 'Anchor Blue', hex: '#2c4260', add: 2000 },
+      { name: 'Neon Yellow', hex: '#e4f04a', add: 2000 }
     ] }
   ],
   hermes: [
     { name: 'Hermès Torsade', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Ноир', hex: '#1f1f21', add: 0 },
-      { name: 'Гри Перл', hex: '#b7b2a8', add: 0 },
-      { name: 'Оранж', hex: '#e2661f', add: 0 }
+      { name: 'Noir', hex: '#1f1f21', add: 0 },
+      { name: 'Gris Perle', hex: '#b7b2a8', add: 0 }
     ] },
     { name: 'Hermès Kilim', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Блё Сапфир', hex: '#27406b', add: 18000 },
-      { name: 'Ружь Ай', hex: '#8d2230', add: 18000 }
+      { name: 'Bleu Saphir', hex: '#27406b', add: 18000 },
+      { name: 'Orange', hex: '#e2661f', add: 18000 }
     ] },
     { name: 'Hermès Grand H', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
-      { name: 'Ноир', hex: '#1f1f21', add: 26000 },
-      { name: 'Голд', hex: '#b98b4e', add: 26000 }
+      { name: 'Noir', hex: '#1f1f21', add: 26000 },
+      { name: 'Gold', hex: '#b98b4e', add: 26000 }
     ] }
   ]
 };
