@@ -126,37 +126,38 @@
     if (selection) selection.textContent = text || '';
   }
 
-  function upload(input, files) {
+  function upload(input, files, position, isLast) {
     return new Promise(function (resolve) {
+      var tail = position ? ' · ' + position : '';
       var field = input.closest('.photo-upload-field') || input.parentNode;
       var data = new FormData();
       files.forEach(function (file) { data.append('images', file, file.name); });
       if (input.dataset.color) data.append('color', input.dataset.color);
       setBusy(field, true);
       input.disabled = true;
-      setUploadProgress(input, 0, 'Загрузка · 0%', 'uploading');
+      setUploadProgress(input, 0, 'Загрузка' + tail + ' · 0%', 'uploading');
 
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/owner/products/' + encodeURIComponent(pid) + '/images/add');
       xhr.upload.addEventListener('progress', function (e) {
         if (!e.lengthComputable) return;
         var value = Math.round(e.loaded / e.total * 100);
-        setUploadProgress(input, value, 'Загрузка · ' + value + '%', 'uploading');
+        setUploadProgress(input, value, 'Загрузка' + tail + ' · ' + value + '%', 'uploading');
       });
-      xhr.upload.addEventListener('load', function () { setUploadProgress(input, 100, 'Обработка фото…', 'processing'); });
+      xhr.upload.addEventListener('load', function () { setUploadProgress(input, 100, 'Обработка фото' + tail + '…', 'processing'); });
       xhr.addEventListener('load', function () {
         var json = null;
         try { json = JSON.parse(xhr.responseText); } catch (e) { json = null; }
         if (xhr.status >= 200 && xhr.status < 300 && json && json.ok) {
           json.images.forEach(function (image) { addChip(image.src, image.color); });
-          setUploadProgress(input, 100, 'Готово', 'done');
+          setUploadProgress(input, 100, position ? 'Готово · ' + position : 'Готово', 'done');
         } else setUploadProgress(input, 0, 'Ошибка загрузки', 'error');
         finish();
       });
       xhr.addEventListener('error', function () { setUploadProgress(input, 0, 'Нет связи с сервером', 'error'); finish(); });
       function finish() {
         input.disabled = false;
-        input.value = '';
+        if (isLast) input.value = '';        // очищаем поле только после всей пачки
         selectionText(input, '');
         setBusy(field, false);
         resolve();
@@ -179,7 +180,13 @@
     }
     selectionText(input, files.length + ' фото выбрано');
     setUploadProgress(input, 0, skipped ? 'В очереди · пропущено: ' + skipped : 'В очереди', 'queued');
-    uploadQueue = uploadQueue.then(function () { return upload(input, files); });
+    // Отправляем по одному файлу за запрос: сервер обрабатывает фото ImageMagick,
+    // и на пачке из десятка снимков один общий запрос висел бы минуты без признаков жизни.
+    files.forEach(function (file, i) {
+      uploadQueue = uploadQueue.then(function () {
+        return upload(input, [file], files.length > 1 ? (i + 1) + ' из ' + files.length : '', i === files.length - 1);
+      });
+    });
   });
 
   document.addEventListener('click', function (e) {
