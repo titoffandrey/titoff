@@ -606,6 +606,7 @@
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0 };
+      var onCaseColorChange = null;   // задаётся блоком ремешков, если он есть
       // Стартуем с варианта, отмеченного активным на сервере: первый доступный,
       // а не просто первый в списке (первый цвет может быть распродан).
       var fc = document.querySelector('#colors .swatch.active') || document.querySelector('#colors .swatch');
@@ -653,6 +654,29 @@
           vstate.bandSizeAdd = Number(btn.dataset.add) || 0;
           applyVariant();
         };
+        // Часть вариаций идёт только со своим корпусом (титановый миланский у Apple
+        // подбирается в цвет часов) — прячем неподходящие при смене цвета корпуса.
+        var applyCaseColor = function () {
+          bandsEl.querySelectorAll('.band-colors .swatch').forEach(function (sw) {
+            var only = sw.dataset.forColor || '';
+            sw.hidden = !!only && only !== vstate.color;
+          });
+          bandsEl.querySelectorAll('.band-tab').forEach(function (tab) {
+            var row = bandsEl.querySelector('.band-colors[data-group="' + tab.dataset.group + '"]');
+            var any = row && row.querySelector('.swatch:not([hidden])');
+            tab.hidden = !any;                       // вся коллекция недоступна для этого корпуса
+          });
+          var active = bandsEl.querySelector('.band-colors .swatch.active');
+          if (active && active.hidden) {             // выбранный вариант больше не подходит
+            var row = active.closest('.band-colors');
+            var next = row.querySelector('.swatch:not([hidden]):not([disabled])') || row.querySelector('.swatch:not([hidden])');
+            if (next) pickColor(next);
+            else {
+              var tab = bandsEl.querySelector('.band-tab:not([hidden])');
+              if (tab) showGroup(tab.dataset.group);
+            }
+          }
+        };
         var showGroup = function (idx) {
           bandsEl.querySelectorAll('.band-tab').forEach(function (t) {
             var on = t.dataset.group === String(idx);
@@ -678,6 +702,8 @@
         // стартовое состояние — то, что сервер отметил активным
         pickColor(bandsEl.querySelector('.band-colors .swatch.active'));
         pickSize(bandsEl.querySelector('.band-sizes .storage-opt.active'));
+        applyCaseColor();
+        onCaseColorChange = applyCaseColor;
       }
       var colorsEl = document.getElementById('colors');
       if (colorsEl) colorsEl.addEventListener('click', function (e) {
@@ -686,6 +712,7 @@
         sw.classList.add('active'); sw.setAttribute('aria-pressed', 'true'); vstate.color = sw.dataset.color;
         var sc = document.getElementById('sel-color'); if (sc) sc.textContent = sw.dataset.color;
         if (gallerySetColor) gallerySetColor(sw.dataset.color);
+        if (onCaseColorChange) onCaseColorChange();   // ремешки «в цвет корпуса»
         applyVariant();
       });
       if (vstate.color && gallerySetColor) gallerySetColor(vstate.color);

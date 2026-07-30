@@ -1584,3 +1584,6 @@ body.admin{background:#f4f4f6;color:#242426}
 .band-fold[open]>summary{margin-bottom:10px}
 .band-editor .band-opt-row{padding:6px 9px}
 .band-editor .band-group-box{padding:12px}
+.band-tab[hidden],.swatch[hidden]{display:none}
+.band-editor .band-opt-row .bo-for{flex:none;width:190px;font-size:12px;padding:6px 8px;border:1px solid var(--border);
+  border-radius:9px;background:var(--bg2);color:var(--muted)}

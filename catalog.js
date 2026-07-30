@@ -127,9 +127,10 @@ const BANDS = {
       { name: 'Anchor Blue', hex: '#2c4260', add: 0 },
       { name: 'Neon Green', hex: '#7ed321', add: 0 }
     ] },
+    // у Apple титановый миланский подбирается в цвет корпуса
     { name: 'Titanium Milanese Loop', sizes: SML, options: [
-      { name: 'Natural', hex: '#cfc9c0', add: 25000 },
-      { name: 'Black', hex: '#2b2b2e', add: 25000 }
+      { name: 'Natural', hex: '#cfc9c0', add: 25000, forColor: 'Натуральный титан' },
+      { name: 'Black', hex: '#2b2b2e', add: 25000, forColor: 'Чёрный титан' }
     ] }
   ],
   series: [
@@ -168,17 +169,17 @@ const BANDS = {
     { name: 'Nike Sport Band', sizes: SPORT_SIZES, options: withAdd(NIKE_COLORS, 0) },
     { name: 'Nike Sport Loop', sizes: ONE_SIZE, options: withAdd(NIKE_COLORS, 0) },
     { name: 'Milanese Loop', sizes: SML, options: [
-      { name: 'Natural', hex: '#d6d6d8', add: 7000 },
-      { name: 'Gold', hex: '#d4b483', add: 7000 },
-      { name: 'Slate', hex: '#5a5a5f', add: 7000 }
+      { name: 'Natural', hex: '#d6d6d8', add: 7000, forColor: 'Натуральный титан' },
+      { name: 'Gold', hex: '#d4b483', add: 7000, forColor: 'Золотой титан' },
+      { name: 'Slate', hex: '#5a5a5f', add: 7000, forColor: 'Сланцевый титан' }
     ] }
   ],
   // у титановых Series 11 к тем же ремешкам добавляются браслеты и кожаные
   seriesTitan: [
     { name: 'Link Bracelet', sizes: ONE_SIZE, options: [
-      { name: 'Natural', hex: '#d6d6d8', add: 30000 },
-      { name: 'Gold', hex: '#d4b483', add: 30000 },
-      { name: 'Slate', hex: '#5a5a5f', add: 30000 }
+      { name: 'Natural', hex: '#d6d6d8', add: 30000, forColor: 'Натуральный титан' },
+      { name: 'Gold', hex: '#d4b483', add: 30000, forColor: 'Золотой титан' },
+      { name: 'Slate', hex: '#5a5a5f', add: 30000, forColor: 'Сланцевый титан' }
     ] },
     { name: 'Magnetic Link', sizes: SPORT_SIZES, options: [
       { name: 'Caramel', hex: '#a9764a', add: 9000 },

@@ -73,13 +73,23 @@ function parseBands(txt) {
         options: []
       });
     } else if (l.startsWith('-') && groups.length) {
-      const [name, hex, add, stock] = l.slice(1).split('|');
+      const parts = l.slice(1).split('|');
+      const [name, hex, add] = parts;
       const n = Number(add);
+      // Хвостовые поля: «нет» — распродано, «@Цвет корпуса» — вариация доступна
+      // только с этим корпусом (у Apple титановый миланский идёт в цвет часов).
+      let inStock = true, forColor = '';
+      for (const raw of parts.slice(3)) {
+        const v = String(raw || '').trim();
+        if (!v) continue;
+        if (v.startsWith('@')) forColor = v.slice(1).trim().slice(0, 40);
+        else if (!parseStock(v)) inStock = false;
+      }
       groups[groups.length - 1].options.push({
         name: (name || '').trim().slice(0, 60),
         hex: safeHex(hex),
         add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0,
-        inStock: parseStock(stock)
+        inStock, forColor
       });
     }
   }
@@ -397,7 +407,8 @@ app.post('/api/cart', (req, res) => {
     const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0)
       + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0);
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
-      || (band && band.option.inStock === false);
+      || (band && band.option.inStock === false)
+      || (band && band.option.forColor && band.option.forColor !== color);
     return {
       id: view.id, name: view.name, storage, color, price,
       band: band ? bandStr : '', bandSize: band ? bandSize : '',
@@ -439,6 +450,8 @@ app.post('/api/order', async (req, res) => {
     const band = findBand(view, it.band);
     if (band) {
       if (band.option.inStock === false) continue;
+      // вариация «в цвет корпуса» продаётся только со своим корпусом
+      if (band.option.forColor && band.option.forColor !== color) continue;
       price += Number(band.option.add) || 0;
       name += ', ' + band.group.name + ' \u00b7 ' + band.option.name;
       const sz = (band.group.sizes || []).find(x => x.label === String(it.bandSize || '').trim());

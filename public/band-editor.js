@@ -14,6 +14,21 @@
   var baseInput = document.querySelector('input[name="price"]');
 
   function base() { return Number(baseInput && baseInput.value) || 0; }
+  // Вариация может продаваться только со своим корпусом — как титановый миланский у Apple
+  function caseColors() {
+    var out = [];
+    document.querySelectorAll('#color-editor .color-name').forEach(function (i) {
+      var v = i.value.trim(); if (v) out.push(v);
+    });
+    return out;
+  }
+  function fillForSelect(sel, current) {
+    if (!sel) return;
+    sel.innerHTML = '<option value="">для любого корпуса</option>' + caseColors().map(function (n) {
+      return '<option value="' + escAttr(n) + '"' + (n === current ? ' selected' : '') + '>только ' + escHtml(n) + '</option>';
+    }).join('');
+    sel.value = current || '';
+  }
   function norm(hex) {
     hex = (hex || '').trim();
     if (/^#?[0-9a-fA-F]{3}$/.test(hex)) { hex = hex.replace('#', ''); hex = '#' + hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2]; }
@@ -33,9 +48,11 @@
       '<input type="color" class="bo-hex" value="' + norm(opt.hex) + '" aria-label="Оттенок ремешка">' +
       '<input type="text" class="bo-name" placeholder="Название цвета">' +
       '<div class="st-price-wrap"><input type="text" class="bo-price" inputmode="numeric" placeholder="Цена с ремешком"><span class="st-cur">₽</span></div>' +
+      '<select class="bo-for" title="Для какого корпуса доступна вариация"></select>' +
       '<label class="stock-toggle" title="Снимите галочку, если вариант распродан"><input type="checkbox" class="bo-stock"><span>в наличии</span></label>' +
       '<button type="button" class="color-del" title="Удалить вариацию" aria-label="Удалить вариацию">&times;</button>';
     row.querySelector('.bo-name').value = opt.name || '';
+    fillForSelect(row.querySelector('.bo-for'), opt.forColor || '');
     row.querySelector('.bo-price').value = opt.add != null ? String(base() + Number(opt.add || 0)) : '';
     var stock = row.querySelector('.bo-stock');
     stock.checked = opt.inStock !== false;
@@ -105,7 +122,8 @@
         var priceStr = row.querySelector('.bo-price').value.replace(/\s+/g, '');
         var price = Number(priceStr);
         var add = (priceStr === '' || isNaN(price)) ? 0 : Math.max(0, Math.round(price - base()));
-        options.push({ name: oName, hex: norm(row.querySelector('.bo-hex').value), add: add, inStock: row.querySelector('.bo-stock').checked });
+        options.push({ name: oName, hex: norm(row.querySelector('.bo-hex').value), add: add,
+          inStock: row.querySelector('.bo-stock').checked, forColor: row.querySelector('.bo-for').value });
       });
       if (options.length) out.push({ name: name, sizes: sizes, options: options });
     });
@@ -219,10 +237,12 @@
       } else if (l.charAt(0) === '-' && current) {
         var p = l.slice(1).split('|');
         var box = editor.lastElementChild;
+        var tail = p.slice(3).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
         makeOption(box.querySelector('.band-opts'), {
           name: (p[0] || '').trim(), hex: (p[1] || '').trim(),
           add: parseInt(p[2], 10) || 0,
-          inStock: !/^(нет|no|0|out)$/i.test((p[3] || '').trim())
+          inStock: !tail.some(function (x) { return /^(нет|no|0|out)$/i.test(x); }),
+          forColor: (tail.filter(function (x) { return x.charAt(0) === '@'; })[0] || '').slice(1)
         });
       }
     });
