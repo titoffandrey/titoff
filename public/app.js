@@ -556,10 +556,14 @@
       // затем общие. Если под выбор фото нет — показываем всё, что есть.
       var pickedColor = '', pickedBand = '';
       function applyFilter() {
-        var byBand = pickedBand ? all.filter(function (s) { return s.band === pickedBand; }) : [];
+        // точное совпадение «этот ремешок на этом корпусе» — самое верное фото
+        var exact = (pickedBand && pickedColor)
+          ? all.filter(function (s) { return s.band === pickedBand && s.color === pickedColor; }) : [];
+        // фото ремешка без указания корпуса
+        var byBand = pickedBand ? all.filter(function (s) { return s.band === pickedBand && !s.color; }) : [];
         var byColor = pickedColor ? all.filter(function (s) { return s.color === pickedColor && !s.band; }) : [];
         var common = all.filter(function (s) { return !s.color && !s.band; });
-        var list = byBand.concat(byColor, common);
+        var list = exact.concat(byBand, byColor, common);
         visible = list.length ? list : all.slice();
         idx = 0;
         renderDots(); updateArrows(); renderSlide();

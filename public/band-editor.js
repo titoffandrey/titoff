@@ -199,14 +199,32 @@
           var progress = document.createElement('div');
           progress.className = 'photo-upload-progress'; progress.hidden = true;
           progress.innerHTML = '<div class="photo-progress-track"><span></span></div><span class="photo-upload-status" aria-live="polite"></span>';
-          field.appendChild(lab); field.appendChild(uploadBox); field.appendChild(progress);
-          f = fileFields[key] = { field: field, label: lab, input: input };
+          // выбор корпуса: один ремешок на разных корпусах выглядит по-разному,
+          // поэтому снимок можно сразу отнести к «Натуральному» или «Чёрному»
+          var caseSel = document.createElement('select');
+          caseSel.className = 'cu-case';
+          caseSel.addEventListener('change', function () { input.dataset.color = caseSel.value; });
+          field.appendChild(lab); field.appendChild(caseSel); field.appendChild(uploadBox); field.appendChild(progress);
+          f = fileFields[key] = { field: field, label: lab, input: input, caseSel: caseSel };
         }
         var n = photoCount(key);
         f.label.innerHTML = '<span class="swatch" style="background:' + escAttr(o.hex) + '"></span>'
           + '<span class="cu-name">' + escHtml(o.name) + '</span>'
           + (n ? '<span class="cu-count">' + n + '</span>' : '');
         f.input.dataset.band = key;      // к какой вариации привязать загруженные фото
+        var cases = caseColors();
+        if (cases.length > 1) {
+          var cur = f.caseSel.value;
+          f.caseSel.hidden = false;
+          f.caseSel.innerHTML = '<option value="">корпус: любой</option>' + cases.map(function (n) {
+            return '<option value="' + escAttr(n) + '"' + (n === cur ? ' selected' : '') + '>' + escHtml(n) + '</option>';
+          }).join('');
+          f.caseSel.value = cases.indexOf(cur) >= 0 ? cur : '';
+          f.input.dataset.color = f.caseSel.value;
+        } else {
+          f.caseSel.hidden = true;
+          f.input.dataset.color = '';
+        }
         row.appendChild(f.field);
       });
     });

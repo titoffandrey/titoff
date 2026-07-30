@@ -595,12 +595,14 @@ app.post('/owner/products/:id/images/add', async (req, res) => {
   const images = (current.images || []).concat(added);
   const imageColors = Object.assign({}, current.imageColors || {});
   const imageBands = Object.assign({}, current.imageBands || {});
+  // Снимок может относиться и к ремешку, и к цвету корпуса сразу: один ремешок
+  // на натуральных и на чёрных часах выглядит по-разному.
   if (bandValid) added.forEach(f => { imageBands[f] = band; });
-  else if (color && valid) added.forEach(f => { imageColors[f] = color; });
+  if (color && valid) added.forEach(f => { imageColors[f] = color; });
   db.updateProduct(current.id, { images, imageColors, imageBands });
   res.json({ ok: true, images: added.map(f => ({
     src: f,
-    color: (!bandValid && color && valid) ? color : '',
+    color: (color && valid) ? color : '',
     band: bandValid ? band : ''
   })) });
 });
