@@ -93,6 +93,86 @@ const HOMEPOD_MINI = [
   C.midnight
 ];
 
+/* -------- ремешки часов (add — доплата к цене часов, ₽; цены — ориентир рынка РФ) --------
+   Коллекция задаёт размеры, вариация — свой цвет, доплату и наличие. */
+const BANDS = {
+  ultra: [
+    { name: 'Trail Loop', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+      { name: 'Синий/чёрный', hex: '#2b4a7d', add: 0 },
+      { name: 'Чёрный/серый', hex: '#3a3a3c', add: 0 },
+      { name: 'Оранжевый/бежевый', hex: '#c8622a', add: 0 }
+    ] },
+    { name: 'Alpine Loop', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Индиго', hex: '#39406b', add: 4000 },
+      { name: 'Тёмно-оливковый', hex: '#4d5340', add: 4000 },
+      { name: 'Натуральный', hex: '#c8b89a', add: 4000 }
+    ] },
+    { name: 'Ocean Band', sizes: [{ label: 'Один размер' }], options: [
+      { name: 'Чёрный', hex: '#1c1c1e', add: 3000 },
+      { name: 'Синий', hex: '#2f5d94', add: 3000 },
+      { name: 'Оранжевый', hex: '#e26b2a', add: 3000 }
+    ] },
+    { name: 'Титановый миланский', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Натуральный титан', hex: '#cfc9c0', add: 25000 },
+      { name: 'Чёрный титан', hex: '#2b2b2e', add: 25000 }
+    ] }
+  ],
+  series: [
+    { name: 'Спортивный ремешок', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+      { name: 'Чёрный', hex: '#1c1c1e', add: 0 },
+      { name: 'Звёздный свет', hex: '#e8e0d0', add: 0 },
+      { name: 'Тёмно-синий', hex: '#2f3d55', add: 0 }
+    ] },
+    { name: 'Спортивный браслет', sizes: [{ label: 'Один размер' }], options: [
+      { name: 'Чёрный', hex: '#2a2a2c', add: 0 },
+      { name: 'Синий шторм', hex: '#4a6b8a', add: 0 },
+      { name: 'Розовый', hex: '#e6b3bd', add: 0 }
+    ] },
+    { name: 'Плетёный монобраслет', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Чёрный', hex: '#232326', add: 4000 },
+      { name: 'Тёмно-зелёный', hex: '#37503f', add: 4000 },
+      { name: 'Синий', hex: '#3c5a86', add: 4000 }
+    ] },
+    { name: 'Миланский сетчатый', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Серебристый', hex: '#d6d6d8', add: 7000 },
+      { name: 'Графитовый', hex: '#4a4a4d', add: 7000 },
+      { name: 'Золотой', hex: '#d4b483', add: 7000 }
+    ] }
+  ],
+  se: [
+    { name: 'Спортивный ремешок', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [
+      { name: 'Чёрный', hex: '#1c1c1e', add: 0 },
+      { name: 'Звёздный свет', hex: '#e8e0d0', add: 0 },
+      { name: 'Синий', hex: '#3a5a8c', add: 0 }
+    ] },
+    { name: 'Спортивный браслет', sizes: [{ label: 'Один размер' }], options: [
+      { name: 'Чёрный', hex: '#2a2a2c', add: 0 },
+      { name: 'Синий', hex: '#4a6b8a', add: 0 },
+      { name: 'Розовый', hex: '#e6b3bd', add: 0 }
+    ] },
+    { name: 'Монобраслет', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Чёрный', hex: '#232326', add: 2000 },
+      { name: 'Синий', hex: '#3c5a86', add: 2000 },
+      { name: 'Оранжевый', hex: '#e07a3c', add: 2000 }
+    ] }
+  ],
+  hermes: [
+    { name: 'Hermès Torsade', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Ноир', hex: '#1f1f21', add: 0 },
+      { name: 'Гри Перл', hex: '#b7b2a8', add: 0 },
+      { name: 'Оранж', hex: '#e2661f', add: 0 }
+    ] },
+    { name: 'Hermès Kilim', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Блё Сапфир', hex: '#27406b', add: 18000 },
+      { name: 'Ружь Ай', hex: '#8d2230', add: 18000 }
+    ] },
+    { name: 'Hermès Grand H', sizes: [{ label: 'S' }, { label: 'M' }, { label: 'L' }], options: [
+      { name: 'Ноир', hex: '#1f1f21', add: 26000 },
+      { name: 'Голд', hex: '#b98b4e', add: 26000 }
+    ] }
+  ]
+};
+
 /* -------- типовые наборы памяти (add — доплата к базовой цене, ₽) -------- */
 const ST = {
   ph256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }],
@@ -345,6 +425,7 @@ const products = [
     description: 'Лучший способ следить за здоровьем: уведомления о признаках гипертонии, оценка качества сна, ЭКГ и кислород в крови. Экран в 2 раза устойчивее к царапинам, до 24 часов работы и связь 5G.',
     specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
     colors: W_ALU, storages: ST.watch42,
+    bands: BANDS.series,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.4 * DAY
   },
@@ -355,6 +436,7 @@ const products = [
     description: 'Series 11 в полированном титановом корпусе с сапфировым стеклом. Все функции здоровья флагманских часов и премиальные материалы в трёх оттенках.',
     specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, ЭКГ, кислород в крови, температура\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
     colors: W_TITAN, storages: ST.watch42,
+    bands: BANDS.series,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.5 * DAY
   },
@@ -366,6 +448,7 @@ const products = [
     specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит\nЧип: S11 SiP\nАвтономность: до 42 ч (72 ч в экономном режиме)\nНавигация: двухчастотный GPS\nСвязь: 5G, спутниковые сообщения\nБезопасность: Emergency SOS, сирена 86 дБ\nДатчики: Vitals — пульс, ЭКГ, кислород, температура, глубиномер\nЗащита: WR100, погружения до 40 м, MIL-STD 810H\nСон: оценка сна и отслеживание фаз\nКнопки: Действие, двойное нажатие',
     colors: [{ name: 'Натуральный титан', hex: '#cfc9c0' }, { name: 'Чёрный титан', hex: '#2b2b2e' }],
     storages: [],
+    bands: BANDS.ultra,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.6 * DAY
   },
@@ -376,6 +459,7 @@ const products = [
     description: 'Все главные возможности Apple Watch за меньшие деньги: датчик температуры, уведомления об апноэ во время сна, определение аварии и до 18 часов работы.',
     specs: 'Корпус: алюминий 40 или 44 мм\nЭкран: Always-On Retina\nЧип: S10 SiP\nАвтономность: до 18 ч\nНавигация: GPS\nЗащита: WR50\nДатчики: пульс, температура, акселерометр\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Crash Detection\nСвязь: LTE (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, USB-C',
     colors: [C.midnight, C.starlight], storages: ST.watch40,
+    bands: BANDS.se,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.7 * DAY
   },
@@ -386,6 +470,7 @@ const products = [
     description: 'Совместная модель Apple и Hermès: титановый корпус, кожаные ремешки ручной работы и эксклюзивные циферблаты, недоступные в других версиях.',
     specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, ЭКГ, кислород в крови\nЗдоровье: уведомления о гипертонии\nБезопасность: Emergency SOS, Fall Detection\nСвязь: 5G, Wi-Fi\nРемешки: эксклюзивные ремешки и циферблаты Hermès',
     colors: [{ name: 'Титан Hermès', hex: '#cfc9c0' }], storages: ST.watch42,
+    bands: BANDS.hermes,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.8 * DAY
   },

@@ -32,7 +32,7 @@
     if (!Cart.items.length) return;
     fetch('/api/cart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color }; }) })
+      body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize }; }) })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
@@ -80,7 +80,7 @@
       + '<a class="co-back" href="/">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a></div>'
       + Cart.items.map(function (i) {
         var k = escapeHtml(itemKey(i));
-        var variant = [i.storage, i.color].filter(Boolean).join(' · ');
+        var variant = [i.storage, i.color, i.band, i.bandSize].filter(Boolean).join(' · ');
         var out = i.available === false;
         return '<article class="co-item' + (out ? ' co-item-out' : '') + '">'
           + '<div class="co-item-media">' + itemThumb(i) + '</div>'
@@ -135,7 +135,7 @@
   }
 
   // Ключ позиции: один товар в разных вариантах (память/цвет) — это разные строки корзины.
-  function itemKey(i) { return JSON.stringify([i.id, i.storage || '', i.color || '']); }
+  function itemKey(i) { return JSON.stringify([i.id, i.storage || '', i.color || '', i.band || '', i.bandSize || '']); }
   function cleanText(value, max) { return String(value == null ? '' : value).slice(0, max); }
   function cleanItem(item) {
     if (!item || typeof item !== 'object') return null;
@@ -150,6 +150,8 @@
       qty: Number.isFinite(qty) ? Math.max(1, Math.min(99, qty)) : 1,
       storage: cleanText(item.storage, 80),
       color: cleanText(item.color, 40),
+      band: cleanText(item.band, 120),          // «Коллекция · Цвет»
+      bandSize: cleanText(item.bandSize, 30),
       // имя файла фото — чтобы в корзине была миниатюра товара, а не заглушка
       img: /^[\w.\-]{1,120}$/.test(String(item.img || '')) ? String(item.img) : ''
     };
@@ -166,7 +168,8 @@
     find: function (key) { return this.items.find(function (i) { return itemKey(i) === key; }); },
     add: function (id, name, price, qty, opts) {
       opts = opts || {};
-      var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '', img: opts.img || '' });
+      var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '',
+        band: opts.band || '', bandSize: opts.bandSize || '', img: opts.img || '' });
       if (!next) return;
       var ex = this.find(itemKey(next));
       if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img; }
@@ -269,7 +272,8 @@
     for (var i = 0; i < btns.length; i++) {
       var b = btns[i];
       if (b.disabled) continue;
-      setBtnState(b, !!Cart.find(itemKey({ id: b.dataset.id, storage: b.dataset.storage || '', color: b.dataset.color || '' })));
+      setBtnState(b, !!Cart.find(itemKey({ id: b.dataset.id, storage: b.dataset.storage || '', color: b.dataset.color || '',
+        band: b.dataset.band || '', bandSize: b.dataset.bandSize || '' })));
     }
   }
   // Товар уже в корзине → отдельная страница оформления
@@ -457,7 +461,8 @@
         e.preventDefault(); e.stopPropagation();
         if (btn.disabled) return;
         var id = btn.dataset.id;
-        var variantKey = itemKey({ id: id, storage: btn.dataset.storage || '', color: btn.dataset.color || '' });
+        var variantKey = itemKey({ id: id, storage: btn.dataset.storage || '', color: btn.dataset.color || '',
+          band: btn.dataset.band || '', bandSize: btn.dataset.bandSize || '' });
         if (Cart.find(variantKey)) {
           // товар уже в корзине — ведём к оформлению (удалить можно внутри корзины)
           goToCheckout();
@@ -467,7 +472,8 @@
             var box = document.querySelector('[data-qty] .qty-input');
             if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
           }
-          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color, img: btn.dataset.img });
+          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color,
+            band: btn.dataset.band, bandSize: btn.dataset.bandSize, img: btn.dataset.img });
         }
         return;
       }
@@ -489,7 +495,7 @@
 
     // Галерея товара в стиле apple.com: стрелки по бокам + точки-индикатор, без миниатюр.
     // При выборе цвета показываются фото этого цвета + общие (сначала цветовые).
-    var gallerySetColor = null;
+    var gallerySetColor = null, gallerySetBand = null;
     (function () {
       var gal = document.getElementById('gallery');
       if (!gal || !gal.dataset.imgs) return;
@@ -546,17 +552,25 @@
         }, { passive: true });
       }
 
-      gallerySetColor = function (color) {
-        var hasColorPhotos = all.some(function (s) { return s.color; });
-        if (!hasColorPhotos) return;
-        var matched = all.filter(function (s) { return s.color === color; });
-        if (matched.length) {
-          visible = matched.concat(all.filter(function (s) { return !s.color; }));
-        } else {
-          visible = all.slice(); // для цвета фото нет — показываем всё
-        }
+      // Что показывать: сначала фото выбранного ремешка, затем фото цвета корпуса,
+      // затем общие. Если под выбор фото нет — показываем всё, что есть.
+      var pickedColor = '', pickedBand = '';
+      function applyFilter() {
+        var byBand = pickedBand ? all.filter(function (s) { return s.band === pickedBand; }) : [];
+        var byColor = pickedColor ? all.filter(function (s) { return s.color === pickedColor && !s.band; }) : [];
+        var common = all.filter(function (s) { return !s.color && !s.band; });
+        var list = byBand.concat(byColor, common);
+        visible = list.length ? list : all.slice();
         idx = 0;
         renderDots(); updateArrows(); renderSlide();
+      }
+      gallerySetColor = function (color) {
+        if (!all.some(function (s) { return s.color; })) return;
+        pickedColor = color; applyFilter();
+      };
+      gallerySetBand = function (key) {
+        if (!all.some(function (s) { return s.band; })) return;
+        pickedBand = key; applyFilter();
       };
 
       renderDots(); updateArrows(); renderSlide();
@@ -591,7 +605,7 @@
     if (addBtn && (document.getElementById('colors') || document.getElementById('storages'))) {
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
       var baseName = addBtn.dataset.baseName || '';
-      var vstate = { color: '', storageLabel: '', storageAdd: 0 };
+      var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0 };
       // Стартуем с варианта, отмеченного активным на сервере: первый доступный,
       // а не просто первый в списке (первый цвет может быть распродан).
       var fc = document.querySelector('#colors .swatch.active') || document.querySelector('#colors .swatch');
@@ -599,13 +613,71 @@
       var fs = document.querySelector('#storages .storage-opt.active') || document.querySelector('#storages .storage-opt');
       if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
       function applyVariant() {
-        var total = basePrice + vstate.storageAdd;
+        var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd;
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
         addBtn.dataset.price = total;
-        addBtn.dataset.name = baseName + (vstate.storageLabel ? ' ' + vstate.storageLabel : '') + (vstate.color ? ', ' + vstate.color : '');
+        addBtn.dataset.name = baseName + (vstate.storageLabel ? ' ' + vstate.storageLabel : '') + (vstate.color ? ', ' + vstate.color : '')
+          + (vstate.band ? ', ' + vstate.band : '') + (vstate.bandSize ? ' ' + vstate.bandSize : '');
         addBtn.dataset.storage = vstate.storageLabel;
         addBtn.dataset.color = vstate.color;
+        addBtn.dataset.band = vstate.band;
+        addBtn.dataset.bandSize = vstate.bandSize;
         syncCartButtons(); // подпись кнопки зависит от выбранного варианта
+      }
+
+      // ===== Ремешки часов: коллекция → цвет → размер =====
+      // Разметка всех коллекций уже на странице, переключение только показывает нужную.
+      var bandsEl = document.getElementById('bands');
+      if (bandsEl) {
+        var bandLabel = document.getElementById('sel-band');
+        var groupName = function (idx) {
+          var tab = bandsEl.querySelector('.band-tab[data-group="' + idx + '"]');
+          var row = bandsEl.querySelector('.band-colors[data-group="' + idx + '"] .swatch');
+          return tab ? tab.textContent : (row ? row.dataset.band : '');
+        };
+        var pickColor = function (sw) {
+          if (!sw || sw.disabled) return;
+          bandsEl.querySelectorAll('.band-colors .swatch').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
+          sw.classList.add('active'); sw.setAttribute('aria-pressed', 'true');
+          vstate.band = sw.dataset.band + ' · ' + sw.dataset.option;
+          vstate.bandAdd = Number(sw.dataset.add) || 0;
+          if (bandLabel) bandLabel.textContent = vstate.band;
+          if (gallerySetBand) gallerySetBand(sw.dataset.band + '|' + sw.dataset.option);
+          applyVariant();
+        };
+        var pickSize = function (btn) {
+          if (!btn) return;
+          bandsEl.querySelectorAll('.band-sizes .storage-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
+          btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true');
+          vstate.bandSize = btn.dataset.size;
+          vstate.bandSizeAdd = Number(btn.dataset.add) || 0;
+          applyVariant();
+        };
+        var showGroup = function (idx) {
+          bandsEl.querySelectorAll('.band-tab').forEach(function (t) {
+            var on = t.dataset.group === String(idx);
+            t.classList.toggle('active', on); t.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          bandsEl.querySelectorAll('.band-colors,.band-sizes').forEach(function (row) {
+            row.hidden = row.dataset.group !== String(idx);
+          });
+          // в новой коллекции выбираем первый доступный цвет и первый размер
+          var row = bandsEl.querySelector('.band-colors[data-group="' + idx + '"]');
+          pickColor(row && (row.querySelector('.swatch:not([disabled])') || row.querySelector('.swatch')));
+          var sizes = bandsEl.querySelector('.band-sizes[data-group="' + idx + '"]');
+          pickSize(sizes && sizes.querySelector('.storage-opt'));
+        };
+        bandsEl.addEventListener('click', function (e) {
+          var tab = e.target.closest('.band-tab');
+          if (tab) { showGroup(tab.dataset.group); return; }
+          var sw = e.target.closest('.band-colors .swatch');
+          if (sw) { pickColor(sw); return; }
+          var size = e.target.closest('.band-sizes .storage-opt');
+          if (size) pickSize(size);
+        });
+        // стартовое состояние — то, что сервер отметил активным
+        pickColor(bandsEl.querySelector('.band-colors .swatch.active'));
+        pickSize(bandsEl.querySelector('.band-sizes .storage-opt.active'));
       }
       var colorsEl = document.getElementById('colors');
       if (colorsEl) colorsEl.addEventListener('click', function (e) {
@@ -773,7 +845,7 @@
     var btnHtml = btn.innerHTML;
     btn.textContent = 'Отправляем...';
     var payload = {
-      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '' }; }),
+      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '' }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
       contact: contact,
       comment: (document.getElementById('co-comment') || {}).value || ''

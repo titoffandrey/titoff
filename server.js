@@ -53,6 +53,41 @@ const uniqBy = (list, key) => { const seen = new Set(); return list.filter(x => 
 const parseColors = (txt) => uniqBy(String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name), c => c.name);
 const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label), s => s.label);
 
+// Ремешки часов: коллекция задаёт размеры, внутри — цветовые вариации со своей
+// доплатой и наличием. Формат текстового поля формы:
+//   # Trail Loop | S/M, M/L
+//   - Синий/чёрный | #2b4a7d | 3000
+//   - Чёрный/серый | #3a3a3c | 3000 | нет
+// «#» начинает коллекцию, «-» — вариацию. Третье поле вариации — доплата к цене
+// часов, четвёртое — «нет» для распроданных.
+function parseBands(txt) {
+  const groups = [];
+  for (const line of String(txt || '').split('\n')) {
+    const l = line.trim();
+    if (!l) continue;
+    if (l.startsWith('#')) {
+      const [name, sizes] = l.slice(1).split('|');
+      groups.push({
+        name: (name || '').trim().slice(0, 60),
+        sizes: uniqBy(String(sizes || '').split(',').map(s => ({ label: s.trim().slice(0, 30) })).filter(s => s.label), s => s.label),
+        options: []
+      });
+    } else if (l.startsWith('-') && groups.length) {
+      const [name, hex, add, stock] = l.slice(1).split('|');
+      const n = Number(add);
+      groups[groups.length - 1].options.push({
+        name: (name || '').trim().slice(0, 60),
+        hex: safeHex(hex),
+        add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0,
+        inStock: parseStock(stock)
+      });
+    }
+  }
+  return uniqBy(groups.filter(g => g.name), g => g.name)
+    .map(g => Object.assign(g, { options: uniqBy(g.options.filter(o => o.name), o => o.name) }))
+    .filter(g => g.options.length);
+}
+
 // Проверка формы товара. Возвращает список ошибок: пустой — можно сохранять.
 // Без неё пустая форма молча создавала товар «Без названия» с ценой 0.
 function validateProduct(body) {
@@ -324,6 +359,18 @@ app.post('/api/reviews', async (req, res) => {
   res.json({ ok: true, message: 'Спасибо за отзыв!' });
 });
 
+// Найти выбранный ремешок по строке «Коллекция · Цвет» из корзины.
+function findBand(view, bandStr) {
+  const want = String(bandStr || '').trim();
+  if (!want) return null;
+  for (const g of view.bands || []) {
+    for (const o of g.options || []) {
+      if (g.name + ' \u00b7 ' + o.name === want) return { group: g, option: o };
+    }
+  }
+  return null;
+}
+
 // Актуальные данные корзины. Корзина хранит только то, что было в момент
 // добавления: у позиций, добавленных давно, нет фото, а цена могла измениться.
 // Здесь сервер отдаёт по каждой позиции нынешние название, цену, фото и наличие.
@@ -338,14 +385,23 @@ app.post('/api/cart', (req, res) => {
     const color = String(it.color || '').trim();
     const st = storage && Array.isArray(view.storages) ? view.storages.find(x => x.label === storage) : null;
     const cl = color && Array.isArray(view.colors) ? view.colors.find(x => x.name === color) : null;
-    // фото цвета, если оно есть, иначе первое общее
+    const bandStr = String(it.band || '').trim();
+    const bandSize = String(it.bandSize || '').trim();
+    const band = findBand(view, bandStr);
+    const sz = band && bandSize ? (band.group.sizes || []).find(x => x.label === bandSize) : null;
+    // фото: сначала снимок выбранного ремешка, затем цвета корпуса, затем первое общее
+    const byBand = band && view.imageBands
+      ? (view.images || []).find(src => view.imageBands[src] === band.group.name + '|' + band.option.name) : null;
     const byColor = color && view.imageColors
       ? (view.images || []).find(src => view.imageColors[src] === color) : null;
-    const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0);
-    const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false);
+    const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0)
+      + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0);
+    const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
+      || (band && band.option.inStock === false);
     return {
       id: view.id, name: view.name, storage, color, price,
-      img: byColor || (view.images || [])[0] || '',
+      band: band ? bandStr : '', bandSize: band ? bandSize : '',
+      img: byBand || byColor || (view.images || [])[0] || '',
       available: !outOfStock
     };
   }).filter(Boolean);
@@ -378,6 +434,15 @@ app.post('/api/order', async (req, res) => {
       const c = view.colors.find(x => x.name === color);
       if (c && c.inStock === false) continue;
       if (c) name += ', ' + color;
+    }
+    // Ремешок часов: доплата за вариацию и за размер, наличие тоже перепроверяем
+    const band = findBand(view, it.band);
+    if (band) {
+      if (band.option.inStock === false) continue;
+      price += Number(band.option.add) || 0;
+      name += ', ' + band.group.name + ' \u00b7 ' + band.option.name;
+      const sz = (band.group.sizes || []).find(x => x.label === String(it.bandSize || '').trim());
+      if (sz) { price += Number(sz.add) || 0; name += ' ' + sz.label; }
     }
     if (!Number.isFinite(price) || price < 0) continue;
     items.push({ id: view.id, name, price, qty });
@@ -449,6 +514,7 @@ app.post('/owner/products', async (req, res) => {
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
+    bands: parseBands(req.body.bands),
     images: await optimizeUploads(req.filesFor('images'), 1200, { square: true })
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Товар создан'));
@@ -463,11 +529,20 @@ app.post('/owner/products/:id', async (req, res) => {
   let images = (p.images || []).filter(src => !remove.includes(src));
   const colors = parseColors(req.body.colors);
   const colorNames = colors.map(c => c.name);
-  // Привязка фото к цветам: селекты «imgcolor:<файл>» у оставшихся фото
-  const imageColors = {};
+  const bands = parseBands(req.body.bands);
+  // ключи вариаций ремешков вида «Коллекция|Цвет»
+  const bandKeys = new Set();
+  for (const g of bands) for (const o of g.options) bandKeys.add(g.name + '|' + o.name);
+  // Привязка фото: селект «imgcolor:<файл>» отдаёт либо цвет корпуса,
+  // либо «band:Коллекция|Цвет» — тогда снимок принадлежит вариации ремешка.
+  const imageColors = {}, imageBands = {};
   for (const src of images) {
-    const c = req.body['imgcolor:' + src];
-    if (c && colorNames.includes(c)) imageColors[src] = c;
+    const value = req.body['imgcolor:' + src];
+    if (!value) continue;
+    if (String(value).startsWith('band:')) {
+      const key = String(value).slice(5);
+      if (bandKeys.has(key)) imageBands[src] = key;
+    } else if (colorNames.includes(value)) imageColors[src] = value;
   }
   // Новые общие фото
   images = images.concat(await optimizeUploads(req.filesFor('images'), 1200, { square: true }));
@@ -480,7 +555,7 @@ app.post('/owner/products/:id', async (req, res) => {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
-    colors, storages: parseStorages(req.body.storages), images, imageColors
+    colors, storages: parseStorages(req.body.storages), bands, images, imageColors, imageBands
   });
   remove.forEach(db.deleteUploadIfUnused);
   res.redirect('/owner/products?flash=' + encodeURIComponent('Сохранено'));
