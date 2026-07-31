@@ -27,7 +27,10 @@ function request(url, options) {
   req.url = url;
   req.method = options.method || 'GET';
   req.headers = options.headers || {};
-  req.socket = { remoteAddress: '127.0.0.1', encrypted: false };
+  req.socket = {
+    remoteAddress: options.remoteAddress || '127.0.0.1',
+    encrypted: !!options.encrypted
+  };
   return req;
 }
 
@@ -176,6 +179,22 @@ test('POST из другого origin отклоняется до обработ
   }), allowed);
   assert.equal(allowed.statusCode, 200);
   assert.equal(calls, 1);
+});
+
+test('доверенный HTTPS-прокси не вызывает ложную блокировку POST', async () => {
+  const app = new App({ secret: 'test', trustProxy: true });
+  app.post('/login', (req, res) => res.json({ ok: true }));
+
+  const res = response();
+  await app.handle(request('/login', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: {
+      host: 'shop.test', origin: 'https://shop.test',
+      'x-forwarded-proto': 'https', 'content-type': 'application/json'
+    }
+  }), res);
+
+  assert.equal(res.statusCode, 200);
 });
 
 test('multipart-файл остаётся в памяти до решения маршрута', async t => {

@@ -22,7 +22,11 @@ db.ensureSeeded();
 const metrics = new Analytics({ dataDir: db.DATA_DIR, geoEnabled: process.env.GEOIP_ENABLED !== '0' });
 
 const PORT = process.env.PORT || 3000;
-const app = new App({ secret: db.getSettings().sessionSecret || 'fallback-secret', uploadDir: db.UPLOAD_DIR });
+const app = new App({
+  secret: db.getSettings().sessionSecret || 'fallback-secret',
+  uploadDir: db.UPLOAD_DIR,
+  trustProxy: process.env.TRUST_PROXY === '1'
+});
 
 app.static('/static', path.join(__dirname, 'public'));
 app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'] });
