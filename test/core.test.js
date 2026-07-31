@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { Readable } = require('stream');
 
 const auth = require('../lib/auth');
@@ -62,6 +63,19 @@ test('пароли проверяются синхронно и асинхрон
   assert.equal(await auth.verifyPasswordAsync('секрет', stored), true);
   assert.equal(await auth.verifyPasswordAsync('неверно', stored), false);
   assert.equal(await auth.verifyPasswordAsync('секрет', 'сломанный-хеш'), false);
+});
+
+test('утилита безопасно сбрасывает пароль владельца во внешнем хранилище', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-password-reset-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const script = path.join(__dirname, '..', 'scripts', 'reset-owner-password.js');
+  execFileSync(process.execPath, [script], {
+    input: 'новый-надёжный-пароль', encoding: 'utf8',
+    env: Object.assign({}, process.env, { STORE_DATA_DIR: dir, OWNER_USERNAME: 'new-owner' })
+  });
+  const stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+  assert.equal(stored.ownerUsername, 'new-owner');
+  assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.ownerPasswordHash), true);
 });
 
 test('скидка применяется только при корректной активной цене', () => {
