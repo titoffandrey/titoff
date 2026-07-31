@@ -181,6 +181,47 @@ test('POST из другого origin отклоняется до обработ
   assert.equal(calls, 1);
 });
 
+test('privacy-браузер может отправить формы входа со скрытым Origin', async () => {
+  const app = new App({ secret: 'test', forceHttps: true });
+  app.post('/owner/login', (req, res) => res.json({ ok: true }));
+
+  const res = response();
+  await app.handle(request('/owner/login', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: { host: 'shop.test', origin: 'null', 'content-type': 'application/json' }
+  }), res);
+
+  assert.equal(res.statusCode, 200);
+});
+
+test('скрытый Origin внутри панели требует подписанную авторизованную сессию', async () => {
+  const app = new App({ secret: 'test', forceHttps: true });
+  app.get('/authorize', (req, res) => { req.session.owner = 'signed-owner-stamp'; res.json({ ok: true }); });
+  app.post('/private-change', (req, res) => res.json({ ok: true }));
+
+  const authRes = response();
+  await app.handle(request('/authorize'), authRes);
+  const sessionCookie = [authRes.headers['set-cookie']].flat()
+    .find(value => String(value).startsWith('sess=')).split(';')[0];
+
+  const allowed = response();
+  await app.handle(request('/private-change', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: { host: 'shop.test', origin: 'null', cookie: sessionCookie, 'content-type': 'application/json' }
+  }), allowed);
+  assert.equal(allowed.statusCode, 200);
+
+  const blocked = response();
+  await app.handle(request('/private-change', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: {
+      host: 'shop.test', origin: 'https://evil.test', cookie: sessionCookie,
+      'sec-fetch-site': 'cross-site', 'content-type': 'application/json'
+    }
+  }), blocked);
+  assert.equal(blocked.statusCode, 403);
+});
+
 test('доверенный HTTPS-прокси не вызывает ложную блокировку POST', async () => {
   const app = new App({ secret: 'test', trustProxy: true });
   app.post('/login', (req, res) => res.json({ ok: true }));
