@@ -2,6 +2,7 @@
 // Точка входа. Мультитенант: один процесс — много доменов. Без внешних зависимостей.
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const db = require('./lib/db');
 const auth = require('./lib/auth');
@@ -27,6 +28,8 @@ app.static('/static', path.join(__dirname, 'public'));
 app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'] });
 
 const settings = () => db.getSettings();
+const PRICE_MAX = 1e12;
+const PASSWORD_MIN = 10;
 // Multipart держит проверенные изображения в памяти. На диск они попадают только
 // здесь — после проверки маршрута и прав доступа.
 function persistUploads(files) {
@@ -48,12 +51,19 @@ const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return is
 // поэтому старые данные без третьего поля читаются как раньше.
 const safeHex = (v, fallback) => { const h = String(v || '').trim(); return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(h) ? h : (fallback || '#cccccc'); };
 const short = (v, max) => String(v == null ? '' : v).slice(0, max);
+function passwordError(value, required) {
+  const password = String(value == null ? '' : value).trim();
+  if (!password) return required ? `Задайте пароль длиной не менее ${PASSWORD_MIN} символов` : '';
+  if (password.length < PASSWORD_MIN) return `Пароль должен содержать не менее ${PASSWORD_MIN} символов`;
+  if (password.length > 500) return 'Пароль слишком длинный';
+  return '';
+}
 const parseStock = (v) => !/^(нет|no|0|out)$/i.test(String(v == null ? '' : v).trim());
 // Повторы схлопываем: два одинаковых цвета дают два одинаковых кружка на витрине,
 // а в корзине это вообще один и тот же вариант.
 const uniqBy = (list, key) => { const seen = new Set(); return list.filter(x => { const k = key(x).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
-const parseColors = (txt) => uniqBy(String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name), c => c.name);
-const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label), s => s.label);
+const parseColors = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100).map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name), c => c.name);
+const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100).map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label), s => s.label);
 
 // Ремешки часов: коллекция задаёт размеры, внутри — цветовые вариации со своей
 // доплатой и наличием. Формат текстового поля формы:
@@ -68,13 +78,15 @@ function parseBands(txt) {
     const l = line.trim();
     if (!l) continue;
     if (l.startsWith('#')) {
+      if (groups.length >= 40) continue;
       const [name, sizes] = l.slice(1).split('|');
       groups.push({
         name: (name || '').trim().slice(0, 60),
-        sizes: uniqBy(String(sizes || '').split(',').map(s => ({ label: s.trim().slice(0, 30) })).filter(s => s.label), s => s.label),
+        sizes: uniqBy(String(sizes || '').split(',').slice(0, 50).map(s => ({ label: s.trim().slice(0, 30) })).filter(s => s.label), s => s.label),
         options: []
       });
     } else if (l.startsWith('-') && groups.length) {
+      if (groups[groups.length - 1].options.length >= 100) continue;
       const parts = l.slice(1).split('|');
       const [name, hex, add] = parts;
       const n = Number(add);
@@ -90,7 +102,7 @@ function parseBands(txt) {
       groups[groups.length - 1].options.push({
         name: (name || '').trim().slice(0, 60),
         hex: safeHex(hex),
-        add: Number.isFinite(n) && n >= 0 && n <= 1e12 ? Math.round(n) : 0,
+        add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0,
         inStock, forColor
       });
     }
@@ -107,16 +119,16 @@ function validateProduct(body) {
   const price = Number(body.price);
   if (!String(body.name || '').trim()) errors.push({ field: 'name', text: 'Укажите название товара' });
   if (!String(body.category || '').trim()) errors.push({ field: 'category', text: 'Укажите категорию' });
-  if (!Number.isFinite(price) || price <= 0) errors.push({ field: 'price', text: 'Базовая цена должна быть больше нуля' });
+  if (!Number.isFinite(price) || price <= 0 || price > PRICE_MAX) errors.push({ field: 'price', text: 'Базовая цена должна быть числом больше нуля' });
   // Сравнение с NaN всегда ложно, поэтому «abc» в старой цене проходило проверку
   // и потом молча превращалось в пустое поле. Число проверяем явно.
   const oldPrice = String(body.oldPrice || '').trim();
-  if (oldPrice && !Number.isFinite(Number(oldPrice))) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть числом' });
+  if (oldPrice && (!Number.isFinite(Number(oldPrice)) || Number(oldPrice) > PRICE_MAX)) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть корректным числом' });
   else if (oldPrice && Number(oldPrice) <= price) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть выше базовой — иначе зачёркивать нечего' });
   if (body.hotDeal !== undefined) {
     const deal = String(body.hotDealPrice || '').trim();
     if (!deal) errors.push({ field: 'hotDealPrice', text: 'Для горящей скидки нужна цена по акции' });
-    else if (!(Number(deal) > 0) || Number(deal) >= price) errors.push({ field: 'hotDealPrice', text: 'Цена по акции должна быть меньше базовой' });
+    else if (!Number.isFinite(Number(deal)) || !(Number(deal) > 0) || Number(deal) >= price || Number(deal) > PRICE_MAX) errors.push({ field: 'hotDealPrice', text: 'Цена по акции должна быть меньше базовой' });
   }
   return errors;
 }
@@ -130,7 +142,13 @@ function requestHost(req) {
 function siteOf(req) {
   const localHost = ['localhost', '127.0.0.1', '::1'].includes(db.normHost(requestHost(req)));
   const localPreview = localHost && isLoopback(req.socket && req.socket.remoteAddress);
-  const siteQuery = (localPreview || process.env.ALLOW_SITE_QUERY === '1') ? req.query.site : null;
+  let siteQuery = (localPreview || process.env.ALLOW_SITE_QUERY === '1') ? req.query.site : null;
+  // Локальный ?site= запоминаем в подписанной сессии: ссылки и API-запросы без
+  // query-параметра продолжают работать с тем же демо-магазином.
+  if (localPreview) {
+    if (siteQuery && db.getSite(siteQuery)) req.session.previewSite = siteQuery;
+    else if (!siteQuery && req.session && db.getSite(req.session.previewSite)) siteQuery = req.session.previewSite;
+  }
   return T.resolveSite(req.headers.host, siteQuery);
 }
 // Абсолютный адрес сайта (для canonical, Open Graph, sitemap).
@@ -171,6 +189,21 @@ function siteFields(body, current) {
 
 function consentAccepted(value) {
   return value === true || ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
+}
+
+// Маркер зависит от текущего логина и хеша пароля, но не раскрывает их в cookie.
+// После смены реквизитов все старые сессии перестают проходить guard автоматически.
+function authStamp(kind, username, passwordHash) {
+  return crypto.createHmac('sha256', settings().sessionSecret)
+    .update([kind, username || '', passwordHash || ''].join('\0')).digest('base64url').slice(0, 24);
+}
+function ownerAuthorized(req) {
+  const s = settings();
+  return !!(req.session && req.session.owner === authStamp('owner', s.ownerUsername, s.ownerPasswordHash));
+}
+function siteAuthorized(req, site) {
+  return !!(req.session && req.session.siteAdmin === site.id
+    && req.session.siteAdminAuth === authStamp('site', site.adminUsername, site.adminPasswordHash));
 }
 
 // Защита входов от перебора паролей: временные счётчики попыток хранятся в памяти.
@@ -283,11 +316,16 @@ app.post('/api/analytics/start', (req, res) => {
   if (rateLimited(req, 'analytics-start', 120, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
   const site = siteOf(req);
   const publicPath = metricPublicPath(site, req.body.path);
+  const optedOut = metrics.trackingDisabled(req);
+  const explicitEnable = consentAccepted(req.body.enableTracking);
+  // Cookie отказа — серверная гарантия, а не только подсказка клиентскому JS.
+  // Повторное включение допускается лишь после явного нажатия на странице политики.
+  if (optedOut && !explicitEnable) return res.json({ ok: true, tracking: false });
   let id = metrics.visitorId(req);
   if (!id) id = metrics.newVisitorId();
   const secure = originOf(req).startsWith('https://');
   const setCookies = [metrics.cookieHeader(id, secure)];
-  if (metrics.trackingDisabled(req)) setCookies.push(metrics.clearOptOutCookieHeader(secure));
+  if (optedOut && explicitEnable) setCookies.push(metrics.clearOptOutCookieHeader(secure));
   res.setHeader('Set-Cookie', setCookies);
   if (!publicPath) return res.json({ ok: true });
   const context = Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client));
@@ -303,6 +341,10 @@ app.post('/api/analytics/start', (req, res) => {
 });
 
 app.post('/api/analytics/ping', (req, res) => {
+  if (rateLimited(req, 'analytics-ping', 180, 10 * 60 * 1000)) {
+    res.writeHead(429, { 'Cache-Control': 'private, no-store' });
+    return res.end();
+  }
   const site = siteOf(req);
   const id = metrics.visitorId(req);
   if (id) metrics.heartbeat({ id, siteId: site.id, path: req.body.path, context: metrics.context(req, clientIp(req), trustedProxy(req)) });
@@ -356,9 +398,9 @@ app.post('/api/reviews', async (req, res) => {
   if (!String(req.body.author || '').trim()) return res.json({ ok: false, error: 'Укажите имя' }, 400);
   // Именно Number.isInteger: без него пропущенная оценка давала NaN, а сравнения
   // NaN < 1 и NaN > 5 оба ложны — отзыв проходил проверку и молча получал 5 звёзд.
-  const rating = parseInt(req.body.rating, 10);
+  const rating = Number(req.body.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
-  const clamp5 = v => { const n = parseInt(v, 10); return n >= 1 && n <= 5 ? n : null; };
+  const clamp5 = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; };
   const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
     ? { delivery: clamp5(req.body.aspect_delivery), service: clamp5(req.body.aspect_service), price: clamp5(req.body.aspect_price) }
     : null;
@@ -386,6 +428,7 @@ app.post('/api/reviews', async (req, res) => {
 // добавления: у позиций, добавленных давно, нет фото, а цена могла измениться.
 // Здесь сервер отдаёт по каждой позиции нынешние название, цену, фото и наличие.
 app.post('/api/cart', (req, res) => {
+  if (rateLimited(req, 'cart', 180, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
   const site = siteOf(req);
   const raw = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = raw.map(it => {
@@ -451,7 +494,8 @@ app.post('/api/order', async (req, res) => {
     // Выбранного варианта больше нет в каталоге — заявку по базовой цене
     // вместо него не оформляем.
     if (variantMissing(view, it)) continue;
-    const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
+    const rawQty = Number(it.qty);
+    const qty = Number.isInteger(rawQty) ? Math.max(1, Math.min(99, rawQty)) : 1;
     let price = D.effectivePrice(view);
     let name = view.name;
     // Наличие варианта проверяем на сервере: корзина живёт в localStorage и могла
@@ -488,11 +532,16 @@ app.post('/api/order', async (req, res) => {
   const contact = String(req.body.contact || '').trim();
   if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
 
-  // Определение выполняется на сервере. Для уже встречавшегося IP используется
-  // 30-дневный кэш; внешняя геобаза вызывается только один раз для нового IP.
-  const client = await metrics.describeRequest(req, clientIp(req), trustedProxy(req));
   const visitorId = metrics.visitorId(req) || null;
   const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
+  const requestIp = clientIp(req);
+  const proxyTrusted = trustedProxy(req);
+  // Базовые данные устройства доступны без сети. Уже известный город берём из
+  // карточки посетителя, а новый IP обогащаем после ответа покупателю.
+  const client = metrics.context(req, requestIp, proxyTrusted);
+  if (metricVisitor && metricVisitor.siteId === site.id) {
+    for (const key of ['city', 'region', 'country', 'isp']) if (metricVisitor[key]) client[key] = metricVisitor[key];
+  }
 
   const order = db.createOrder({
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
@@ -505,30 +554,45 @@ app.post('/api/order', async (req, res) => {
   });
   metrics.markOrder(visitorId, order);
   const ss = T.siteSettings(site);
-  const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
-  const msg = `🛒 <b>Новый заказ ${order.number}</b>\n🏬 ${tgEsc(site.storeName)}\n`
-    + `👤 Имя: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
-    + (order.address ? `📍 Адрес: ${tgEsc(order.address)}\n` : '')
-    + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
-    + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
-    + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
-    + (order.comment ? `💬 ${tgEsc(order.comment)}\n` : '')
-    + `\n${lines}\n\n<b>Итого: ${R.money(total, ss)}</b>`;
-  const tg = await sendTelegram(ss, msg);
-  res.json({ ok: true, number: order.number, total, telegram: tg.ok ? 'sent' : (tg.skipped ? 'not_configured' : 'failed') });
+  const notify = saved => {
+    const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
+    const msg = `🛒 <b>Новый заказ ${saved.number}</b>\n🏬 ${tgEsc(site.storeName)}\n`
+      + `👤 Имя: ${tgEsc(saved.customerName) || '—'}\n📞 Контакт: ${tgEsc(saved.contact)}\n`
+      + (saved.address ? `📍 Адрес: ${tgEsc(saved.address)}\n` : '')
+      + `🌍 Город: ${tgEsc([saved.clientCity, saved.clientRegion, saved.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
+      + `💻 Устройство: ${tgEsc([saved.clientModel || saved.clientDevice, saved.clientOs, saved.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
+      + `🌐 IP: ${tgEsc(saved.clientIp) || 'не определён'}\n`
+      + (saved.comment ? `💬 ${tgEsc(saved.comment)}\n` : '')
+      + `\n${lines}\n\n<b>Итого: ${R.money(total, ss)}</b>`;
+    sendTelegram(ss, msg).catch(() => {});
+  };
+  // Медленные геобаза и Telegram больше не держат покупателя на «Отправляем».
+  // Заказ уже записан; технические поля безопасно обогащаются в фоне.
+  metrics.describeRequest(req, requestIp, proxyTrusted).then(enriched => {
+    const saved = db.updateOrderClient(order.id, {
+      clientIp: enriched.ip, clientCity: enriched.city, clientRegion: enriched.region,
+      clientCountry: enriched.country, clientIsp: enriched.isp, clientDevice: enriched.device,
+      clientModel: enriched.model, clientOs: enriched.os, clientBrowser: enriched.browser,
+      clientSource: (metricVisitor && metricVisitor.source) || enriched.source
+    });
+    notify(saved || order);
+  }).catch(() => notify(order));
+  res.json({ ok: true, number: order.number, total, telegram: 'queued' });
 });
 
 /* =========================== ПАНЕЛЬ ВЛАДЕЛЬЦА (/owner) =========================== */
 
-function guardOwner(req, res) { if (req.session && req.session.owner) return true; res.redirect('/owner/login'); return false; }
+function guardOwner(req, res) { if (ownerAuthorized(req)) return true; res.redirect('/owner/login'); return false; }
 
-app.get('/owner/login', (req, res) => { if (req.session && req.session.owner) return res.redirect('/owner'); res.send(O.loginPage(null)); });
+app.get('/owner/login', (req, res) => { if (ownerAuthorized(req)) return res.redirect('/owner'); res.send(O.loginPage(null)); });
 app.post('/owner/login', async (req, res) => {
   if (loginBlocked(req)) return res.send(O.loginPage(TOO_MANY), 429);
   const s = settings();
-  const ok = req.body.username === s.ownerUsername && await auth.verifyPasswordAsync(req.body.password, s.ownerPasswordHash);
+  // Scrypt выполняется и при неверном логине: время ответа не выдаёт имя учётной записи.
+  const passwordOk = await auth.verifyPasswordAsync(req.body.password, s.ownerPasswordHash);
+  const ok = req.body.username === s.ownerUsername && passwordOk;
   if (!ok) { loginFail(req); return res.send(O.loginPage('Неверный логин или пароль'), 401); }
-  loginOk(req); req.session.owner = true; res.redirect('/owner');
+  loginOk(req); req.session.owner = authStamp('owner', s.ownerUsername, s.ownerPasswordHash); res.redirect('/owner');
 });
 app.post('/owner/logout', (req, res) => { req.session = null; res.redirect('/owner/login'); });
 
@@ -601,7 +665,7 @@ app.post('/owner/products/:id', async (req, res) => {
 app.post('/owner/products/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteProduct(req.params.id); res.redirect('/owner/products?flash=' + encodeURIComponent('Товар удалён')); });
 
 /* --- Фото товара без перезагрузки страницы (мгновенная загрузка и удаление) --- */
-function guardApi(req, res) { if (req.session && req.session.owner) return true; res.json({ ok: false, error: 'auth' }, 401); return false; }
+function guardApi(req, res) { if (ownerAuthorized(req)) return true; res.json({ ok: false, error: 'auth' }, 401); return false; }
 
 // Загрузить фото сразу: сохраняет в товар и возвращает готовые файлы
 app.post('/owner/products/:id/images/add', async (req, res) => {
@@ -706,7 +770,7 @@ app.post('/owner/reviews/new', async (req, res) => {
   if (!guardOwner(req, res)) return;
   const p = db.getProduct(req.body.productId); if (!p) return res.redirect('/owner/reviews');
   let createdAt = Date.now(); if (req.body.date) { const t = Date.parse(req.body.date); if (!isNaN(t)) createdAt = t; }
-  const c5 = v => { const n = parseInt(v, 10); return n >= 1 && n <= 5 ? n : null; };
+  const c5 = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; };
   const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
     ? { delivery: c5(req.body.aspect_delivery), service: c5(req.body.aspect_service), price: c5(req.body.aspect_price) } : null;
   db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'approved', createdAt });
@@ -720,6 +784,8 @@ app.get('/owner/sites', (req, res) => { if (!guardOwner(req, res)) return; res.s
 app.get('/owner/sites/new', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.siteForm(db, null)); });
 app.post('/owner/sites', async (req, res) => {
   if (!guardOwner(req, res)) return;
+  const error = passwordError(req.body.adminPassword, true);
+  if (error) return res.send(O.siteForm(db, null, { error, draft: req.body }), 400);
   const logo = await optimizeUploads(req.filesFor('logo'), 480);
   db.createSite(Object.assign(siteFields(req.body), {
     hosts: req.body.hosts,
@@ -732,6 +798,8 @@ app.post('/owner/sites/:id', async (req, res) => {
   if (!guardOwner(req, res)) return;
   const current = db.getSite(req.params.id);
   if (!current) return res.redirect('/owner/sites');
+  const error = passwordError(req.body.adminPassword, false);
+  if (error) return res.send(O.siteForm(db, current, { error, draft: req.body }), 400);
   const logo = await resolveLogo(req, current);
   db.updateSite(req.params.id, Object.assign(siteFields(req.body, current), { hosts: req.body.hosts, logoImage: logo.value }));
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
@@ -747,6 +815,8 @@ app.post('/owner/orders/:id/delete', (req, res) => { if (!guardOwner(req, res)) 
 app.get('/owner/settings', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.settingsPage(settings(), db, req.query.flash)); });
 app.post('/owner/settings', (req, res) => {
   if (!guardOwner(req, res)) return;
+  const error = passwordError(req.body.ownerPassword, false);
+  if (error) return res.send(O.settingsPage(settings(), db, error, 'err'), 400);
   const patch = { ownerUsername: String(req.body.ownerUsername || '').trim().slice(0, 100) || settings().ownerUsername || 'owner' };
   if (req.body.ownerPassword && req.body.ownerPassword.trim()) patch.ownerPasswordHash = auth.hashPassword(req.body.ownerPassword.trim());
   // Ключ «Подсказок» dadata.ru — один на все домены. Пустое поле стирает ключ.
@@ -759,21 +829,25 @@ app.post('/owner/settings', (req, res) => {
 
 function guardSite(req, res) {
   const site = siteOf(req);
-  if (req.session && req.session.siteAdmin === site.id) return site;
+  if (siteAuthorized(req, site)) return site;
   res.redirect('/admin/login'); return null;
 }
 
 app.get('/admin/login', (req, res) => {
   const site = siteOf(req);
-  if (req.session && req.session.siteAdmin === site.id) return res.redirect('/admin');
+  if (siteAuthorized(req, site)) return res.redirect('/admin');
   res.send(S.loginPage(site, null));
 });
 app.post('/admin/login', async (req, res) => {
   const site = siteOf(req);
   if (loginBlocked(req)) return res.send(S.loginPage(site, TOO_MANY), 429);
-  const ok = req.body.username === site.adminUsername && await auth.verifyPasswordAsync(req.body.password, site.adminPasswordHash);
+  const passwordOk = await auth.verifyPasswordAsync(req.body.password, site.adminPasswordHash);
+  const ok = req.body.username === site.adminUsername && passwordOk;
   if (!ok) { loginFail(req); return res.send(S.loginPage(site, 'Неверный логин или пароль'), 401); }
-  loginOk(req); req.session.siteAdmin = site.id; res.redirect('/admin');
+  loginOk(req);
+  req.session.siteAdmin = site.id;
+  req.session.siteAdminAuth = authStamp('site', site.adminUsername, site.adminPasswordHash);
+  res.redirect('/admin');
 });
 app.post('/admin/logout', (req, res) => { req.session = null; res.redirect('/admin/login'); });
 
@@ -825,6 +899,8 @@ app.post('/admin/orders/:id/delete', (req, res) => {
 app.get('/admin/settings', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.settingsPage(db, site, req.query.flash)); });
 app.post('/admin/settings', async (req, res) => {
   const site = guardSite(req, res); if (!site) return;
+  const error = passwordError(req.body.adminPassword, false);
+  if (error) return res.send(S.settingsPage(db, site, error, 'err'), 400);
   const logo = await resolveLogo(req, site);
   db.updateSite(site.id, Object.assign(siteFields(req.body, site), { logoImage: logo.value }));
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
@@ -835,10 +911,22 @@ app.post('/admin/settings', async (req, res) => {
 app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url }); res.send(R.homePage(T.siteSettings(site), db, { q: '', noindex: true }, site), 404); };
 
 const httpServer = app.listen(PORT, () => {
+  const weak = [];
+  const globalSettings = settings();
+  if (auth.verifyPassword('owner', globalSettings.ownerPasswordHash)) weak.push('/owner (owner / owner)');
+  if (auth.verifyPassword('admin', globalSettings.adminPasswordHash)) weak.push('/admin базового магазина (admin / admin)');
+  for (const site of db.getSites()) {
+    if (auth.verifyPassword('admin', site.adminPasswordHash)) weak.push(`/admin магазина «${site.storeName}» (admin / admin)`);
+  }
   console.log(`\n  Мультимагазин запущен на порту ${PORT}: http://localhost:${PORT}`);
   console.log(`  Витрина:        http://localhost:${PORT}   (демо-домены см. ?site=…)`);
-  console.log(`  Админка сайта:  http://localhost:${PORT}/admin    (по домену; демо-логин admin / admin)`);
-  console.log(`  Панель владельца: http://localhost:${PORT}/owner  (демо-логин owner / owner)\n`);
+  console.log(`  Админка сайта:  http://localhost:${PORT}/admin    (по домену)`);
+  console.log(`  Панель владельца: http://localhost:${PORT}/owner`);
+  if (weak.length) {
+    console.warn(`\n  ВНИМАНИЕ: обнаружены демонстрационные пароли:\n  - ${weak.join('\n  - ')}`);
+    console.warn('  Смените их до публикации сайта или задайте OWNER_PASSWORD/ADMIN_PASSWORD при первом запуске.');
+  }
+  console.log('');
 });
 
 let shuttingDown = false;

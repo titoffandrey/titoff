@@ -132,6 +132,13 @@
     var sum = money(Cart.total());
     setText('co-total-sum', sum); setText('co-btn-sum', sum); setText('co-goods-sum', sum);
     setText('co-count-label', 'Товары (' + count + ')');
+    var submit = document.getElementById('checkout-submit');
+    if (submit) {
+      var canOrder = Cart.availableCount() > 0;
+      submit.disabled = !canOrder;
+      var label = submit.querySelector('.btn-checkout-label');
+      if (label) label.textContent = canOrder ? 'Оформить заказ' : 'Нет доступных товаров';
+    }
   }
   // ===== Подсказки адреса (dadata.ru через наш /api/address-suggest) =====
   // Подсказки — помощь, а не условие: если ключ не настроен, запрос не удался или
@@ -241,6 +248,7 @@
       color: cleanText(item.color, 40),
       band: cleanText(item.band, 120),          // «Коллекция · Цвет»
       bandSize: cleanText(item.bandSize, 30),
+      available: item.available !== false,
       // имя файла фото — чтобы в корзине была миниатюра товара, а не заглушка
       img: /^[\w.\-]{1,120}$/.test(String(item.img || '')) ? String(item.img) : ''
     };
@@ -276,7 +284,10 @@
     remove: function (key) { this.items = this.items.filter(function (i) { return itemKey(i) !== key; }); this.save(); this.render(); },
     clear: function () { this.items = []; this.save(); this.render(); },
     count: function () { return this.items.reduce(function (a, i) { return a + Number(i.qty); }, 0); },
-    total: function () { return this.items.reduce(function (a, i) { return a + Number(i.price) * Number(i.qty); }, 0); },
+    // Сервер исключает распроданные позиции из заявки. Сумма в интерфейсе должна
+    // совпадать с ним, а не обещать покупателю более высокий итог.
+    total: function () { return this.items.reduce(function (a, i) { return a + (i.available === false ? 0 : Number(i.price) * Number(i.qty)); }, 0); },
+    availableCount: function () { return this.items.reduce(function (a, i) { return a + (i.available === false ? 0 : Number(i.qty)); }, 0); },
     has: function (id) { return this.items.some(function (i) { return i.id === id; }); },
     updateBadge: function () {
       var b = document.getElementById('cart-badge');
@@ -289,6 +300,8 @@
       document.body.classList.add('cart-open');
       var drawer = document.getElementById('cart-drawer');
       if (drawer) drawer.setAttribute('aria-hidden', 'false');
+      var trigger = document.querySelector('.cart-btn');
+      if (trigger) trigger.setAttribute('aria-expanded', 'true');
       var close = drawer && drawer.querySelector('.cart-head .icon-btn');
       if (close) close.focus();
     },
@@ -296,6 +309,8 @@
       document.body.classList.remove('cart-open');
       var drawer = document.getElementById('cart-drawer');
       if (drawer) drawer.setAttribute('aria-hidden', 'true');
+      var trigger = document.querySelector('.cart-btn');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
       if (lastCartFocus && typeof lastCartFocus.focus === 'function') lastCartFocus.focus();
     },
     render: function () {
@@ -317,11 +332,13 @@
         // товара, и без неё двое часов с разными ремешками выглядели в корзине
         // как две одинаковые строки «Apple Watch Ultra 3».
         var variant = [i.storage, i.color, i.band, i.bandSize].filter(Boolean).join(' · ');
-        return '<div class="cart-item">'
+        var out = i.available === false;
+        return '<div class="cart-item' + (out ? ' cart-item-out' : '') + '">'
           + '<div class="cart-item-media">' + itemThumb(i) + '</div>'
           + '<div class="cart-item-info">'
           + '<div class="cart-item-name">' + escapeHtml(i.name) + '</div>'
           + (variant ? '<div class="cart-item-variant">' + escapeHtml(variant) + '</div>' : '')
+          + (out ? '<div class="cart-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
           + '<div class="cart-item-price">' + money(i.price) + '</div>'
           + '<div class="cart-item-controls">'
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button><span>' + i.qty + '</span><button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше">+</button></div>'
@@ -330,9 +347,10 @@
       }).join('');
       foot.innerHTML =
         '<div class="cart-total"><span>Итого</span><span>' + money(this.total()) + '</span></div>'
-        + '<a class="btn btn-primary btn-block btn-lg btn-checkout" href="/checkout" id="checkout-btn">'
+        + (this.availableCount() ? '<a class="btn btn-primary btn-block btn-lg btn-checkout" href="/checkout" id="checkout-btn">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
-        + '<span class="btn-checkout-sum">' + money(this.total()) + '</span></a>';
+        + '<span class="btn-checkout-sum">' + money(this.total()) + '</span></a>'
+        : '<button class="btn btn-primary btn-block btn-lg" type="button" disabled>Нет доступных товаров</button>');
     }
   };
   window.Cart = Cart;
@@ -412,8 +430,9 @@
     setInterval(tick, 1000);
   }
 
-  function analyticsPayload(includeDetails) {
+  function analyticsPayload(includeDetails, enableTracking) {
     var payload = { path: location.pathname };
+    if (enableTracking) payload.enableTracking = '1';
     if (includeDetails) {
       var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
       var params = new URLSearchParams(location.search);
@@ -450,12 +469,14 @@
     try { return localStorage.getItem(ANALYTICS_DISABLED_KEY) === '1'; } catch (e) { return false; }
   }
 
-  function startAnalytics(includeReferrer) {
+  function startAnalytics(includeReferrer, enableTracking) {
     if (analyticsDisabled()) return;
     fetch('/api/analytics/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: analyticsPayload(includeReferrer), keepalive: true
-    }).then(function (r) { if (r.ok) startAnalyticsHeartbeat(); }).catch(function () {});
+      body: analyticsPayload(includeReferrer, enableTracking), keepalive: true
+    }).then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.ok && d.tracking !== false) startAnalyticsHeartbeat(); })
+      .catch(function () {});
   }
 
   function initAnalyticsControls() {
@@ -467,7 +488,7 @@
         try { localStorage.removeItem(ANALYTICS_DISABLED_KEY); } catch (e) {}
         disable.disabled = true;
         disable.textContent = 'Метрика включена';
-        startAnalytics(true);
+        startAnalytics(true, true);
       });
       return;
     }
@@ -543,9 +564,32 @@
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
+      if (e.key === 'Escape' && document.body.classList.contains('nav-open')) {
+        document.body.classList.remove('nav-open');
+        var menu = document.querySelector('.menu-toggle');
+        if (menu) { menu.setAttribute('aria-expanded', 'false'); menu.focus(); }
+      }
+      // Фокус не выходит за пределы модальной корзины по Tab/Shift+Tab.
+      if (e.key === 'Tab' && document.body.classList.contains('cart-open')) {
+        var drawer = document.getElementById('cart-drawer');
+        var focusable = drawer && drawer.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])');
+        if (!focusable || !focusable.length) return;
+        var first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+    var menuToggle = document.querySelector('.menu-toggle');
+    if (menuToggle) menuToggle.addEventListener('click', function () {
+      var open = !document.body.classList.contains('nav-open');
+      document.body.classList.toggle('nav-open', open);
+      menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
     document.querySelectorAll('.nav-cat').forEach(function (link) {
-      link.addEventListener('click', function () { document.body.classList.remove('nav-open'); });
+      link.addEventListener('click', function () {
+        document.body.classList.remove('nav-open');
+        if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
+      });
     });
 
     // Кнопки "в корзину"
@@ -674,7 +718,10 @@
       gallerySetColor = function (color) { pickedColor = color; applyFilter(); };
       gallerySetBand = function (key) { pickedBand = key; applyFilter(); };
 
-      renderDots(); updateArrows(); renderSlide();
+      // Главное фото уже отрендерено сервером для выбранного варианта. Не заменяем
+      // его сначала общим первым кадром: это запускало лишнюю загрузку и могло дать
+      // короткую вспышку чужого корпуса до инициализации вариантов ниже.
+      renderDots(); updateArrows();
     })();
 
     // Количество на странице товара
@@ -767,7 +814,7 @@
           });
           bandsEl.querySelectorAll('.band-tab').forEach(function (tab) {
             var row = bandsEl.querySelector('.band-colors[data-group="' + tab.dataset.group + '"]');
-            var any = row && row.querySelector('.swatch:not([hidden])');
+            var any = row && row.querySelector('.swatch:not([hidden]):not([disabled])');
             tab.hidden = !any;                       // вся коллекция недоступна для этого корпуса
           });
           var active = bandsEl.querySelector('.band-colors .swatch.active');

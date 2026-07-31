@@ -2,7 +2,8 @@
 /*
  * Сброс каталога к демо-набору из seed-data.js.
  * По умолчанию перезаписывает ТОЛЬКО товары, отзывы и заказы. Настройки и логин админа сохраняются.
- * Флаг --all дополнительно сбрасывает настройки (название, Telegram, пароль -> admin/admin).
+ * Флаг --all дополнительно сбрасывает общие настройки и реквизиты владельца.
+ * Пароли магазинов из sites.json не меняются.
  *
  *   node seed.js        — сбросить каталог/отзывы/заказы
  *   node seed.js --all  — сбросить всё, включая настройки
@@ -10,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.STORE_DATA_DIR ? path.resolve(process.env.STORE_DATA_DIR) : path.join(__dirname, 'data');
 const all = process.argv.includes('--all');
 const targets = ['products', 'reviews', 'orders'].concat(all ? ['settings'] : []);
 
@@ -20,4 +21,4 @@ for (const name of targets) {
 }
 
 require('./lib/db').ensureSeeded();
-console.log('Готово. Каталог сброшен к демо-набору' + (all ? ', настройки сброшены (admin/admin).' : ' (настройки сохранены).'));
+console.log('Готово. Каталог сброшен к демо-набору' + (all ? ', общие настройки и доступ владельца сброшены; пароли магазинов сохранены.' : ' (настройки сохранены).'));

@@ -1078,6 +1078,8 @@ body.review-consent-open{overflow:hidden}
 .cart-item-media{width:64px;height:64px;border-radius:13px}
 .cart-item-name{font-size:14px}
 .cart-item-variant{margin-top:3px;color:var(--muted);font-size:12px;line-height:1.35}
+.cart-item-out{opacity:.68}
+.cart-item-warn{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:7px;background:#fef3f2;color:#b42318;font-size:11.5px;line-height:1.35}
 .cart-item-controls{margin-top:10px}
 .cart-foot{padding:18px 20px calc(18px + env(safe-area-inset-bottom));border-color:var(--border-soft);background:#fff}
 .cart-total{font-size:20px}

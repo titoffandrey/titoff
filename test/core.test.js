@@ -39,6 +39,7 @@ function response() {
     statusCode: null,
     body: Buffer.alloc(0),
     setHeader(name, value) { headers[name.toLowerCase()] = value; },
+    getHeader(name) { return headers[name.toLowerCase()]; },
     writeHead(code, extra) {
       this.statusCode = code; this.headersSent = true;
       for (const [name, value] of Object.entries(extra || {})) headers[name.toLowerCase()] = value;
@@ -128,6 +129,55 @@ test('битый URL и cookie не завершают обработчик', as
   assert.deepEqual(JSON.parse(badCookie.body), { ok: true });
 });
 
+test('маршруты экранируют точки, HEAD не отправляет тело, а cookies не перетираются', async () => {
+  const app = new App({ secret: 'test' });
+  app.get('/robots.txt', (req, res) => res.send('ok'));
+  app.get('/large', (req, res) => res.send('x'.repeat(2000)));
+  app.get('/cookies', (req, res) => {
+    res.setHeader('Set-Cookie', 'first=1; Path=/');
+    req.session.checked = true;
+    res.json({ ok: true });
+  });
+
+  const similar = response();
+  await app.handle(request('/robotsXtxt'), similar);
+  assert.equal(similar.statusCode, 404);
+
+  const head = response();
+  await app.handle(request('/large', { method: 'HEAD', headers: { 'accept-encoding': 'br, gzip' } }), head);
+  assert.equal(head.statusCode, 200);
+  assert.equal(head.body.length, 0);
+  assert.equal(head.headers['content-encoding'], undefined);
+
+  const cookies = response();
+  await app.handle(request('/cookies'), cookies);
+  assert.equal(Array.isArray(cookies.headers['set-cookie']), true);
+  assert.equal(cookies.headers['set-cookie'].length, 2);
+  assert.match(cookies.headers['set-cookie'][1], /^sess=/);
+});
+
+test('POST из другого origin отклоняется до обработчика', async () => {
+  const app = new App({ secret: 'test' });
+  let calls = 0;
+  app.post('/change', (req, res) => { calls++; res.json({ ok: true }); });
+
+  const blocked = response();
+  await app.handle(request('/change', {
+    method: 'POST', body: Buffer.from('{}'),
+    headers: { host: 'shop.test', origin: 'https://evil.test', 'content-type': 'application/json' }
+  }), blocked);
+  assert.equal(blocked.statusCode, 403);
+  assert.equal(calls, 0);
+
+  const allowed = response();
+  await app.handle(request('/change', {
+    method: 'POST', body: Buffer.from('{}'),
+    headers: { host: 'shop.test', origin: 'http://shop.test', 'content-type': 'application/json' }
+  }), allowed);
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(calls, 1);
+});
+
 test('multipart-файл остаётся в памяти до решения маршрута', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-upload-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -164,6 +214,10 @@ test('каталог загрузок не раздаёт HTML и SVG', async t 
     await app.handle(request('/uploads/' + name), res);
     assert.equal(res.statusCode, 404);
   }
+  const missing = response();
+  await app.handle(request('/uploads/missing.webp'), missing);
+  assert.equal(missing.statusCode, 404);
+  assert.equal(missing.body.toString(), 'Не найдено');
 });
 
 test('рендер экранирует категорию, валюту и CSS-цвет', () => {
@@ -403,20 +457,65 @@ test('корзина не подменяет исчезнувший вариан
   const view = {
     storages: [{ label: '256 ГБ' }, { label: '512 ГБ' }],
     colors: [{ name: 'Космический чёрный' }],
-    bands: [{ name: 'Ocean Band', options: [{ name: 'Anchor Blue' }] }]
+    bands: [{ name: 'Ocean Band', sizes: [{ label: 'S/M' }, { label: 'M/L' }], options: [{ name: 'Anchor Blue' }] }]
   };
   // существующие варианты проходят
-  assert.equal(variants.variantMissing(view, { storage: '512 ГБ', color: 'Космический чёрный' }), false);
-  assert.equal(variants.variantMissing(view, { band: 'Ocean Band · Anchor Blue' }), false);
-  // пустые поля — не ошибка: так выглядят позиции, добавленные до появления ремешков
-  assert.equal(variants.variantMissing(view, {}), false);
-  assert.equal(variants.variantMissing(view, { storage: '', color: '', band: '' }), false);
+  const valid = { storage: '512 ГБ', color: 'Космический чёрный', band: 'Ocean Band · Anchor Blue', bandSize: 'M/L' };
+  assert.equal(variants.variantMissing(view, valid), false);
+  // старая позиция без обязательного выбора не должна уйти по базовой цене
+  assert.equal(variants.variantMissing(view, {}), true);
+  assert.equal(variants.variantMissing(view, { storage: '', color: '', band: '' }), true);
   // а вот названный, но исчезнувший вариант продавать нельзя
-  assert.equal(variants.variantMissing(view, { storage: '9 ТБ' }), true);
-  assert.equal(variants.variantMissing(view, { color: 'Космос' }), true);
-  assert.equal(variants.variantMissing(view, { band: 'Ocean Band · Purple' }), true);
+  assert.equal(variants.variantMissing(view, Object.assign({}, valid, { storage: '9 ТБ' })), true);
+  assert.equal(variants.variantMissing(view, Object.assign({}, valid, { color: 'Космос' })), true);
+  assert.equal(variants.variantMissing(view, Object.assign({}, valid, { band: 'Ocean Band · Purple' })), true);
+  assert.equal(variants.variantMissing(view, Object.assign({}, valid, { bandSize: 'XL' })), true);
+  assert.equal(variants.variantMissing(view, valid), false);
+  assert.equal(variants.variantMissing({ colors: [], storages: [], bands: [] }, {}), false);
   assert.equal(variants.findBand(view, 'Ocean Band · Anchor Blue').option.name, 'Anchor Blue');
   assert.equal(variants.findBand(view, 'Ocean Band · Purple'), null);
+});
+
+test('наличие учитывает совместимость ремешка, а карточка требует выбрать вариант', () => {
+  const watch = {
+    id: 'watch', name: 'Часы', category: 'Watch', price: 100, inStock: true, images: [], storages: [],
+    colors: [{ name: 'Натуральный', hex: '#ddd', inStock: false }, { name: 'Чёрный', hex: '#111' }],
+    bands: [{ name: 'Milanese', sizes: [], options: [{ name: 'Natural', hex: '#ddd', forColor: 'Натуральный' }] }]
+  };
+  assert.equal(render.sellable(watch), false);
+  assert.equal(render.colorAvailable(watch, watch.colors[1]), false);
+  watch.bands[0].options.push({ name: 'Black', hex: '#111', forColor: 'Чёрный' });
+  assert.equal(render.sellable(watch), true);
+  assert.equal(render.colorAvailable(watch, watch.colors[1]), true);
+
+  const fakeDb = {
+    getProducts: () => [watch], categories: () => ['Watch'],
+    ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+  assert.match(html, /href="\/product\/watch">Выбрать вариант<\/a>/);
+  assert.doesNotMatch(html, /class="btn btn-primary btn-block add-to-cart"\s+data-id="watch"/);
+});
+
+test('счётчик отзывов склоняется по-русски', () => {
+  const db = {
+    reviewsForProduct: () => [{ id: 'r1', author: 'Тест', rating: 5, text: '', status: 'approved', createdAt: Date.now() }],
+    ratingFor: () => ({ avg: 5, count: 1 }), categories: () => []
+  };
+  const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
+  assert.match(html, /1 отзыв/);
+  assert.doesNotMatch(html, /1 отзывов/);
+});
+
+test('подписи полей админки связаны с элементами форм', () => {
+  const login = ownerViews.loginPage(null);
+  assert.match(login, /<label for="owner-login">Логин<\/label><input id="owner-login"/);
+  const page = ownerViews.settingsPage({ ownerUsername: 'owner' }, { pendingReviewCount: () => 0 });
+  assert.match(page, /<label for="owner-field-1">Логин<\/label><input[^>]*id="owner-field-1"/);
+  assert.match(page, /<label for="owner-field-2">Новый пароль/);
+  const siteLogin = siteViews.loginPage({ storeName: 'Тест', accentColor: '#0071e3' }, null);
+  assert.match(siteLogin, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
 });
 
 test('HEAD обслуживается обработчиком GET, а не уходит в 404', async () => {
