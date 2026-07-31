@@ -120,7 +120,7 @@
     d.dataset.src = src;
     d.draggable = true;
     d.innerHTML =
-      '<div class="img-chip-media"><img src="/uploads/' + esc(src) + '" alt="">' +
+      '<div class="img-chip-media"' + (color ? ' data-case="' + esc(color) + '"' : '') + '><img src="/uploads/' + esc(src) + '" alt="">' +
       '<span class="img-main-badge">Главное</span>' +
       '<button type="button" class="img-main" title="Сделать главным фото" aria-label="Сделать главным фото">★</button>' +
       '<button type="button" class="img-del" title="Удалить фото" aria-label="Удалить фото">&times;</button></div>' +
@@ -291,7 +291,11 @@
       .then(function (json) {
         chip.classList.remove('is-busy');
         if (json && json.ok) {
-          if (json.color) chip.dataset.case = json.color; else delete chip.dataset.case;
+          // Подпись корпуса читается через attr() у самого .img-chip-media,
+          // поэтому атрибут держим на обоих элементах: чип ищут скрипты, медиа — CSS.
+          var media = chip.querySelector('.img-chip-media');
+          if (json.color) { chip.dataset.case = json.color; if (media) media.dataset.case = json.color; }
+          else { delete chip.dataset.case; if (media) delete media.dataset.case; }
           var targetGroup = groupFor(json.color, json.band).querySelector('.img-chips');
           if (chip.classList.contains('is-main')) targetGroup.insertBefore(chip, targetGroup.firstElementChild);
           else targetGroup.appendChild(chip);

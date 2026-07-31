@@ -12,6 +12,9 @@ const deals = require('../lib/deals');
 const dbCore = require('../lib/db');
 const render = require('../lib/render');
 const ownerViews = require('../lib/owner-views');
+const siteViews = require('../lib/site-views');
+const analyticsView = require('../lib/analytics-view');
+const variants = require('../lib/variants');
 const images = require('../lib/images');
 const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
@@ -71,15 +74,24 @@ test('тип изображения определяется по содержи
 });
 
 test('товарное фото щадяще очищается от полей и получает единый фон', () => {
-  const args = images.squareTransformArgs(1200);
-  assert.deepEqual(args, [
+  // Обрезка идёт двумя проходами: снимок обычно на белом, а кадр докрашивается
+  // серым #f5f5f7 — за один -trim снимается только серая рамка.
+  const size = Math.round(1200 * images.CONTENT_RATIO);
+  assert.deepEqual(images.squareTransformArgs(1200), [
     '-fuzz', '2%', '-trim', '+repage',
-    '-resize', '1056x1056>',
+    '-fuzz', '2%', '-trim', '+repage',
+    '-resize', `${size}x${size}>`,
     '-background', '#f5f5f7', '-gravity', 'center',
     '-extent', '1200x1200', '-alpha', 'remove', '-alpha', 'off'
   ]);
   assert.equal(images.PRODUCT_BG, '#f5f5f7');
   assert.equal(images.squareTransformArgs(1200, { trim: false }).includes('-trim'), false);
+  // Допуск подбирается под фон: тем же fuzz, каким измерили товар, его и режем.
+  assert.equal(images.squareTransformArgs(1200, { fuzz: 8 }).includes('8%'), true);
+  // Мелкий товар разрешено увеличить, но не более чем в MAX_UPSCALE раз.
+  assert.equal(images.targetContentSize({ w: 900, h: 700 }, 1200), size);
+  assert.equal(images.targetContentSize({ w: 100, h: 80 }, 1200), Math.round(100 * images.MAX_UPSCALE));
+  assert.equal(images.targetContentSize(null, 1200), null);
 });
 
 test('карточки используют единый фон фото и естественный интервал до отзывов', () => {
@@ -385,4 +397,98 @@ test('каталог не содержит дублей и некорректн�
     for (const storage of (product.storages || [])) assert.ok(storage.label && Number.isFinite(Number(storage.add)));
     ids.add(product.id); names.add(product.name);
   }
+});
+
+test('корзина не подменяет исчезнувший вариант базовой сборкой', () => {
+  const view = {
+    storages: [{ label: '256 ГБ' }, { label: '512 ГБ' }],
+    colors: [{ name: 'Космический чёрный' }],
+    bands: [{ name: 'Ocean Band', options: [{ name: 'Anchor Blue' }] }]
+  };
+  // существующие варианты проходят
+  assert.equal(variants.variantMissing(view, { storage: '512 ГБ', color: 'Космический чёрный' }), false);
+  assert.equal(variants.variantMissing(view, { band: 'Ocean Band · Anchor Blue' }), false);
+  // пустые поля — не ошибка: так выглядят позиции, добавленные до появления ремешков
+  assert.equal(variants.variantMissing(view, {}), false);
+  assert.equal(variants.variantMissing(view, { storage: '', color: '', band: '' }), false);
+  // а вот названный, но исчезнувший вариант продавать нельзя
+  assert.equal(variants.variantMissing(view, { storage: '9 ТБ' }), true);
+  assert.equal(variants.variantMissing(view, { color: 'Космос' }), true);
+  assert.equal(variants.variantMissing(view, { band: 'Ocean Band · Purple' }), true);
+  assert.equal(variants.findBand(view, 'Ocean Band · Anchor Blue').option.name, 'Anchor Blue');
+  assert.equal(variants.findBand(view, 'Ocean Band · Purple'), null);
+});
+
+test('HEAD обслуживается обработчиком GET, а не уходит в 404', async () => {
+  const app = new App({ secret: 'test' });
+  app.get('/', (req, res) => res.send('<html></html>'));
+
+  const head = response();
+  await app.handle(request('/', { method: 'HEAD' }), head);
+  assert.equal(head.statusCode, 200);
+
+  const get = response();
+  await app.handle(request('/'), get);
+  assert.equal(get.statusCode, 200);
+});
+
+test('поле формы с именем из прототипа остаётся строкой', async () => {
+  const app = new App({ secret: 'test' });
+  let seen = null;
+  app.post('/echo', (req, res) => { seen = req.body; res.json({ ok: true }); });
+  await app.handle(request('/echo', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: Buffer.from('constructor=a&toString=b&name=обычное')
+  }), response());
+  assert.equal(seen.constructor, 'a');
+  assert.equal(seen.toString, 'b');
+  assert.equal(seen.name, 'обычное');
+});
+
+test('оформление, поиск и 404 закрыты от индексации, каталог — открыт', () => {
+  const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽' };
+  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  assert.match(render.checkoutPage(settings, {}), /<meta name="robots" content="noindex,follow">/);
+  assert.match(render.homePage(settings, fakeDb, { q: 'iphone' }), /content="noindex,follow"/);
+  assert.match(render.homePage(settings, fakeDb, { q: '', noindex: true }), /content="noindex,follow"/);
+  assert.match(render.homePage(settings, fakeDb, {}), /content="index,follow">/);
+  assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /content="index,follow">/);
+});
+
+test('админка сайта отдаёт закрытое правило :root', () => {
+  const site = { id: 's', storeName: 'Магазин', accentColor: '#123456', hosts: [] };
+  for (const html of [siteViews.loginPage(site, null), siteViews.dashboard(fakeSiteDb(), site)]) {
+    const style = html.match(/<style>([^<]*)<\/style>/);
+    assert.ok(style, 'нет блока стилей');
+    assert.equal(style[1], ':root{--accent:#123456}');
+  }
+});
+
+function fakeSiteDb() {
+  return {
+    ordersForSite: () => [], getProducts: () => [], getReviews: () => [],
+    getSites: () => [], ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 0
+  };
+}
+
+test('корзина различает варианты одного товара, а метрика знает оформление', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // выдвижная корзина показывает подпись варианта: /api/cart возвращает базовое имя
+  assert.match(js, /cart-item-variant/);
+  assert.match(css, /\.cart-item-variant\{/);
+  // блок вариантов запускается и когда у товара только ремешки
+  assert.match(js, /getElementById\('bands'\)\)\) \{/);
+  assert.equal(analyticsView.pageLabel('/checkout', {}), 'Оформление заказа');
+  assert.equal(analyticsView.pageLabel('/', {}), 'Главная');
+});
+
+test('подпись корпуса на фото ремешка читается с того же элемента', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // attr() берёт атрибут элемента, к которому прикреплён ::after
+  assert.match(css, /\.img-chip-media\[data-case\]::after\{content:attr\(data-case\)/);
+  const product = { id: 'p1', images: ['a.webp'], imageColors: { 'a.webp': 'Чёрный титан' }, colors: [{ name: 'Чёрный титан', hex: '#111111' }], bands: [], storages: [] };
+  const html = ownerViews.productForm({ categories: () => [], pendingReviewCount: () => 0 }, product);
+  assert.match(html, /<div class="img-chip-media" data-case="Чёрный титан">/);
 });

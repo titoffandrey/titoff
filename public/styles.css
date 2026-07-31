@@ -1077,6 +1077,7 @@ body.review-consent-open{overflow:hidden}
 .cart-item{padding:16px 0;border-color:var(--border-soft)}
 .cart-item-media{width:64px;height:64px;border-radius:13px}
 .cart-item-name{font-size:14px}
+.cart-item-variant{margin-top:3px;color:var(--muted);font-size:12px;line-height:1.35}
 .cart-item-controls{margin-top:10px}
 .cart-foot{padding:18px 20px calc(18px + env(safe-area-inset-bottom));border-color:var(--border-soft);background:#fff}
 .cart-total{font-size:20px}
@@ -1603,10 +1604,12 @@ body.admin{background:#f4f4f6;color:#242426}
 #band-uploads .cu-case{width:100%;margin-bottom:7px;font-size:11.5px;padding:5px 7px;border:1px solid var(--border);
   border-radius:8px;background:var(--bg2);color:var(--muted)}
 #band-uploads .cu-case[hidden]{display:none}
-/* у фото внутри группы ремешка подписан корпус, если он указан */
-.img-group[data-band] .img-chip[data-case] .img-chip-media::after{content:attr(data-case);z-index:2;position:absolute;left:6px;bottom:6px;
+/* У фото внутри группы ремешка подписан корпус, если он указан.
+   attr() читает атрибут того элемента, к которому прикреплён ::after, — поэтому
+   селектор идёт по .img-chip-media[data-case], а не по родительскому чипу:
+   иначе подпись выходила пустой плашкой без текста. */
+.img-group[data-band] .img-chip-media[data-case]::after{content:attr(data-case);z-index:2;position:absolute;left:6px;bottom:6px;
   font-size:10px;line-height:1;padding:3px 6px;border-radius:6px;background:rgba(0,0,0,.62);color:#fff;pointer-events:none}
-.img-group[data-band] .img-chip[data-case]{position:relative}
 /* Переключатель корпуса в блоке загрузки фото ремешков */
 #band-uploads .cu-cases{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:14px}
 #band-uploads .cu-cases-label{font-size:12px;color:var(--muted);margin-right:2px}

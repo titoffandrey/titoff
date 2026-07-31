@@ -313,10 +313,15 @@
       }
       wrap.innerHTML = this.items.map(function (i) {
         var k = escapeHtml(itemKey(i));
+        // Подпись варианта обязательна: /api/cart возвращает базовое название
+        // товара, и без неё двое часов с разными ремешками выглядели в корзине
+        // как две одинаковые строки «Apple Watch Ultra 3».
+        var variant = [i.storage, i.color, i.band, i.bandSize].filter(Boolean).join(' · ');
         return '<div class="cart-item">'
           + '<div class="cart-item-media">' + itemThumb(i) + '</div>'
           + '<div class="cart-item-info">'
           + '<div class="cart-item-name">' + escapeHtml(i.name) + '</div>'
+          + (variant ? '<div class="cart-item-variant">' + escapeHtml(variant) + '</div>' : '')
           + '<div class="cart-item-price">' + money(i.price) + '</div>'
           + '<div class="cart-item-controls">'
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button><span>' + i.qty + '</span><button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше">+</button></div>'
@@ -697,8 +702,11 @@
     });
 
     // Выбор варианта (цвет + память) на странице товара
+    // #bands в условии обязателен: у часов, у которых заданы только ремешки (без
+    // цветов корпуса и конфигураций), блок иначе не запускался — переключатель
+    // рисовался, но цену не менял и в корзину ремешок не попадал.
     var addBtn = document.querySelector('.add-to-cart[data-qty-source]');
-    if (addBtn && (document.getElementById('colors') || document.getElementById('storages'))) {
+    if (addBtn && (document.getElementById('colors') || document.getElementById('storages') || document.getElementById('bands'))) {
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0 };

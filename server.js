@@ -7,6 +7,7 @@ const db = require('./lib/db');
 const auth = require('./lib/auth');
 const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
+const { findBand, variantMissing } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/deals');
 const T = require('./lib/tenancy');
@@ -107,8 +108,11 @@ function validateProduct(body) {
   if (!String(body.name || '').trim()) errors.push({ field: 'name', text: 'Укажите название товара' });
   if (!String(body.category || '').trim()) errors.push({ field: 'category', text: 'Укажите категорию' });
   if (!Number.isFinite(price) || price <= 0) errors.push({ field: 'price', text: 'Базовая цена должна быть больше нуля' });
+  // Сравнение с NaN всегда ложно, поэтому «abc» в старой цене проходило проверку
+  // и потом молча превращалось в пустое поле. Число проверяем явно.
   const oldPrice = String(body.oldPrice || '').trim();
-  if (oldPrice && Number(oldPrice) <= price) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть выше базовой — иначе зачёркивать нечего' });
+  if (oldPrice && !Number.isFinite(Number(oldPrice))) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть числом' });
+  else if (oldPrice && Number(oldPrice) <= price) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть выше базовой — иначе зачёркивать нечего' });
   if (body.hotDeal !== undefined) {
     const deal = String(body.hotDealPrice || '').trim();
     if (!deal) errors.push({ field: 'hotDealPrice', text: 'Для горящей скидки нужна цена по акции' });
@@ -181,7 +185,11 @@ function clientIp(req) {
 function metricPublicPath(site, rawPath) {
   let pathname;
   try { pathname = decodeURIComponent(String(rawPath || '').split('?')[0]); } catch (e) { return ''; }
-  if (['/', '/privacy', '/personal-data-consent', '/personal-data-publication-consent'].includes(pathname)) return pathname;
+  // Список должен совпадать со страницами, которые считает trackPage. Без
+  // /checkout сервер записывал его посещение как «предварительное», клиент такой
+  // адрес не подтверждал, и живой посетитель, зашедший сразу на оформление,
+  // через две минуты уезжал в «неподтверждённые автоматические запросы».
+  if (['/', '/checkout', '/privacy', '/personal-data-consent', '/personal-data-publication-consent'].includes(pathname)) return pathname;
   const match = pathname.match(/^\/product\/([^/]+)$/);
   return match && T.siteProductView(site, match[1]) ? '/product/' + match[1] : '';
 }
@@ -235,7 +243,7 @@ app.get('/product/:id', (req, res) => {
   const view = T.siteProductView(site, req.params.id);
   if (!view) {
     trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url });
-    return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req) }, site), 404);
+    return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req), noindex: true }, site), 404);
   }
   trackPage(req, res, site, '/product/' + view.id);
   // Отзывы этого посетителя, ещё не прошедшие модерацию: их видит только он сам
@@ -313,7 +321,9 @@ app.post('/api/analytics/withdraw', (req, res) => {
 // robots.txt и sitemap.xml — по домену
 app.get('/robots.txt', (req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end(`User-agent: *\nAllow: /\nSitemap: ${originOf(req)}/sitemap.xml\n`);
+  // Панели и оформление заказа в индексе не нужны: это личные страницы и формы,
+  // а их адреса иначе попадали в выдачу через страницы входа.
+  res.end(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /owner\nDisallow: /checkout\nDisallow: /api/\nSitemap: ${originOf(req)}/sitemap.xml\n`);
 });
 // Браузеры запрашивают favicon автоматически. Это не посещение и не ошибка
 // сканера, поэтому отвечаем без содержимого и не добавляем запрос в метрику.
@@ -344,8 +354,10 @@ app.post('/api/reviews', async (req, res) => {
   if (!consentAccepted(req.body.privacyAccepted)) return res.json({ ok: false, error: 'Подтвердите согласие на обработку персональных данных' }, 400);
   if (!consentAccepted(req.body.publicationAccepted)) return res.json({ ok: false, error: 'Подтвердите согласие на публикацию отзыва' }, 400);
   if (!String(req.body.author || '').trim()) return res.json({ ok: false, error: 'Укажите имя' }, 400);
+  // Именно Number.isInteger: без него пропущенная оценка давала NaN, а сравнения
+  // NaN < 1 и NaN > 5 оба ложны — отзыв проходил проверку и молча получал 5 звёзд.
   const rating = parseInt(req.body.rating, 10);
-  if (rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
   const clamp5 = v => { const n = parseInt(v, 10); return n >= 1 && n <= 5 ? n : null; };
   const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
     ? { delivery: clamp5(req.body.aspect_delivery), service: clamp5(req.body.aspect_service), price: clamp5(req.body.aspect_price) }
@@ -369,18 +381,6 @@ app.post('/api/reviews', async (req, res) => {
   }
   res.json({ ok: true, message: 'Спасибо за отзыв!' });
 });
-
-// Найти выбранный ремешок по строке «Коллекция · Цвет» из корзины.
-function findBand(view, bandStr) {
-  const want = String(bandStr || '').trim();
-  if (!want) return null;
-  for (const g of view.bands || []) {
-    for (const o of g.options || []) {
-      if (g.name + ' \u00b7 ' + o.name === want) return { group: g, option: o };
-    }
-  }
-  return null;
-}
 
 // Актуальные данные корзины. Корзина хранит только то, что было в момент
 // добавления: у позиций, добавленных давно, нет фото, а цена могла измениться.
@@ -413,7 +413,8 @@ app.post('/api/cart', (req, res) => {
       + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0);
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
       || (band && band.option.inStock === false)
-      || (band && band.option.forColor && band.option.forColor !== color);
+      || (band && band.option.forColor && band.option.forColor !== color)
+      || variantMissing(view, it);
     return {
       id: view.id, name: view.name, storage, color, price,
       band: band ? bandStr : '', bandSize: band ? bandSize : '',
@@ -447,6 +448,9 @@ app.post('/api/order', async (req, res) => {
     if (!it || typeof it !== 'object') continue;
     const view = T.siteProductView(site, it.id);
     if (!view || !view.inStock) continue;
+    // Выбранного варианта больше нет в каталоге — заявку по базовой цене
+    // вместо него не оформляем.
+    if (variantMissing(view, it)) continue;
     const qty = Math.max(1, Math.min(99, parseInt(it.qty, 10) || 1));
     let price = D.effectivePrice(view);
     let name = view.name;
@@ -828,7 +832,7 @@ app.post('/admin/settings', async (req, res) => {
 });
 
 /* =========================== 404 =========================== */
-app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url }); res.send(R.homePage(T.siteSettings(site), db, { q: '' }, site), 404); };
+app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url }); res.send(R.homePage(T.siteSettings(site), db, { q: '', noindex: true }, site), 404); };
 
 const httpServer = app.listen(PORT, () => {
   console.log(`\n  Мультимагазин запущен на порту ${PORT}: http://localhost:${PORT}`);
