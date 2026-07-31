@@ -1513,6 +1513,19 @@ body.admin{background:#f4f4f6;color:#242426}
 .co-summary .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
 .checkout-done{background:#fff;border:1px solid var(--border);border-radius:22px;padding:14px}
 
+/* Подсказки адреса: список привязан к самому полю, а не ко всему блоку —
+   иначе он уезжал бы вниз на высоту подписи под полем. */
+.suggest-box{position:relative}
+.field-note{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.4}
+.suggest-list{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 6px);max-height:264px;overflow-y:auto;
+  background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.14);padding:5px}
+.suggest-item{display:block;width:100%;text-align:left;border:0;background:none;font:inherit;color:var(--text);
+  padding:9px 11px;border-radius:10px;cursor:pointer;line-height:1.35}
+.suggest-item:hover{background:rgba(0,0,0,.05)}
+.suggest-item.active{background:rgba(0,0,0,.08)}
+.suggest-value{display:block;font-size:14px}
+.suggest-hint{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+
 @media(max-width:900px){
   .checkout-page{padding-block:22px 40px}
   .checkout-grid{grid-template-columns:1fr;gap:18px}

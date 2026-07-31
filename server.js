@@ -6,6 +6,7 @@ const fs = require('fs');
 const db = require('./lib/db');
 const auth = require('./lib/auth');
 const { sendTelegram } = require('./lib/telegram');
+const { suggestAddress } = require('./lib/dadata');
 const R = require('./lib/render');
 const D = require('./lib/deals');
 const T = require('./lib/tenancy');
@@ -423,6 +424,19 @@ app.post('/api/cart', (req, res) => {
   res.json({ ok: true, items });
 });
 
+// Подсказки адреса для поля на оформлении заказа. Ключ dadata.ru лежит в
+// настройках владельца и на витрину не попадает — браузер спрашивает нас,
+// а в DaData ходит сервер. Не настроен ключ — поле просто без подсказок.
+app.post('/api/address-suggest', async (req, res) => {
+  if (rateLimited(req, 'suggest', 90, 60 * 1000)) return res.json({ ok: false, items: [] }, 429);
+  const q = String(req.body && req.body.q || '').trim().slice(0, 300);
+  if (q.length < 3) return res.json({ ok: true, items: [] });
+  const r = await suggestAddress(db.getSettings().dadataToken, q, 7);
+  // configured отделяет «ключа нет» от временной ошибки: в первом случае витрине
+  // незачем спрашивать снова, во втором следующий запрос может пройти.
+  res.json({ ok: r.ok, configured: r.reason !== 'not_configured', items: r.items });
+});
+
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
 app.post('/api/order', async (req, res) => {
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
@@ -478,7 +492,8 @@ app.post('/api/order', async (req, res) => {
 
   const order = db.createOrder({
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
-    items, total, customerName: req.body.customerName, contact, comment: req.body.comment,
+    items, total, customerName: req.body.customerName, contact,
+    address: String(req.body.address || '').trim(), comment: req.body.comment,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
     clientCountry: client.country, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
@@ -489,6 +504,7 @@ app.post('/api/order', async (req, res) => {
   const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
   const msg = `🛒 <b>Новый заказ ${order.number}</b>\n🏬 ${tgEsc(site.storeName)}\n`
     + `👤 Имя: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
+    + (order.address ? `📍 Адрес: ${tgEsc(order.address)}\n` : '')
     + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
     + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
     + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
@@ -729,6 +745,8 @@ app.post('/owner/settings', (req, res) => {
   if (!guardOwner(req, res)) return;
   const patch = { ownerUsername: String(req.body.ownerUsername || '').trim().slice(0, 100) || settings().ownerUsername || 'owner' };
   if (req.body.ownerPassword && req.body.ownerPassword.trim()) patch.ownerPasswordHash = auth.hashPassword(req.body.ownerPassword.trim());
+  // Ключ «Подсказок» dadata.ru — один на все домены. Пустое поле стирает ключ.
+  if (req.body.dadataToken !== undefined) patch.dadataToken = String(req.body.dadataToken).trim().slice(0, 200);
   db.saveSettings(patch);
   res.redirect('/owner/settings?flash=' + encodeURIComponent('Сохранено'));
 });

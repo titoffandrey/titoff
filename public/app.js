@@ -113,7 +113,13 @@
         + '<div class="co-total"><span>Итого</span><b id="co-total-sum">' + money(Cart.total()) + '</b></div>'
         + '<div class="field"><label for="co-name">Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Как к вам обращаться"></div>'
         + '<div class="field"><label for="co-contact">Контакт для связи <span class="req">*</span></label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required></div>'
-        + '<div class="field"><label for="co-comment">Комментарий</label><textarea id="co-comment" rows="3" maxlength="1000" placeholder="Город, удобное время связи"></textarea></div>'
+        + '<div class="field"><label for="co-address">Адрес доставки</label>'
+        + '<div class="suggest-box">'
+        + '<input type="text" id="co-address" maxlength="400" placeholder="Начните вводить — подскажем" autocomplete="off"'
+        + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list">'
+        + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
+        + '</div>'
+        + '<p class="field-note">Необязательно — можно уточнить при подтверждении заказа.</p></div>'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
@@ -121,11 +127,94 @@
         + '<p class="form-legal-note">Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ. '
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
+      initAddressSuggest();
     }
     var sum = money(Cart.total());
     setText('co-total-sum', sum); setText('co-btn-sum', sum); setText('co-goods-sum', sum);
     setText('co-count-label', 'Товары (' + count + ')');
   }
+  // ===== Подсказки адреса (dadata.ru через наш /api/address-suggest) =====
+  // Подсказки — помощь, а не условие: если ключ не настроен, запрос не удался или
+  // покупатель печатает быстрее ответа, поле остаётся обычным текстовым вводом.
+  function initAddressSuggest() {
+    var input = document.getElementById('co-address');
+    var list = document.getElementById('co-address-list');
+    if (!input || !list) return;
+    var items = [], active = -1, timer = null, seq = 0, lastQuery = null, off = false;
+
+    function close() {
+      list.hidden = true; list.innerHTML = ''; items = []; active = -1;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
+    function paint() {
+      list.innerHTML = items.map(function (s, i) {
+        return '<button type="button" class="suggest-item' + (i === active ? ' active' : '') + '" role="option"'
+          + ' id="co-address-opt-' + i + '" aria-selected="' + (i === active ? 'true' : 'false') + '" data-i="' + i + '">'
+          + '<span class="suggest-value">' + escapeHtml(s.value) + '</span>'
+          + (s.hint ? '<span class="suggest-hint">' + escapeHtml(s.hint) + '</span>' : '')
+          + '</button>';
+      }).join('');
+      list.hidden = !items.length;
+      input.setAttribute('aria-expanded', items.length ? 'true' : 'false');
+      if (active > -1) input.setAttribute('aria-activedescendant', 'co-address-opt-' + active);
+      else input.removeAttribute('aria-activedescendant');
+    }
+    function move(step) {
+      if (!items.length) return;
+      active = (active + step + items.length) % items.length;
+      paint();
+      var el = list.querySelector('.suggest-item.active');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }
+    function choose(i) {
+      var s = items[i];
+      if (!s) return;
+      input.value = s.value;
+      lastQuery = s.value;      // выбранное значение заново не переспрашиваем
+      close();
+      input.focus();
+    }
+    function ask(q) {
+      var my = ++seq;
+      fetch('/api/address-suggest', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: q })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (my !== seq || document.activeElement !== input) return;   // ответ устарел
+          if (!d || d.configured === false) { off = true; close(); return; }  // ключ не настроен — больше не дёргаем
+          if (!d.ok) { close(); return; }                                     // временная ошибка: попробуем в следующий раз
+          items = (d.items || []).slice(0, 7); active = -1; paint();
+        })
+        .catch(function () { if (my === seq) close(); });
+    }
+
+    input.addEventListener('input', function () {
+      var q = input.value.trim();
+      lastQuery = null;
+      clearTimeout(timer);
+      if (off || q.length < 3) { close(); return; }
+      // 220 мс тишины: у DaData запросы платные по счётчику, дёргать на каждую букву незачем
+      timer = setTimeout(function () { if (q !== lastQuery) { lastQuery = q; ask(q); } }, 220);
+    });
+    input.addEventListener('keydown', function (e) {
+      if (list.hidden) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+      else if (e.key === 'Enter') { if (active > -1) { e.preventDefault(); choose(active); } }
+      else if (e.key === 'Escape') { close(); }
+    });
+    // mousedown, а не click: click приходит уже после blur, и список успевает закрыться
+    list.addEventListener('mousedown', function (e) {
+      var b = e.target.closest('.suggest-item');
+      if (!b) return;
+      e.preventDefault();
+      choose(Number(b.dataset.i));
+    });
+    input.addEventListener('blur', function () { setTimeout(close, 120); });
+  }
+
   function setText(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
   function plural(n, one, few, many) {
     var a = Math.abs(n) % 100, b = a % 10;
@@ -885,7 +974,7 @@
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '' }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
       contact: contact,
-      comment: (document.getElementById('co-comment') || {}).value || ''
+      address: (document.getElementById('co-address') || {}).value || ''
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })
