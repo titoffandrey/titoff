@@ -130,27 +130,21 @@
     return out;
   }
 
-  // Списки фото в форме должны знать про вариации ремешков — чтобы снимок можно
-  // было привязать к конкретному ремешку, а не только к цвету корпуса.
+  // У каждой карточки фото свой список ремешков — отдельный от списка корпусов,
+  // потому что снимок несёт обе привязки сразу.
   function updatePhotoSelects(groups) {
-    document.querySelectorAll('select.img-color').forEach(function (sel) {
-      var band = sel.querySelector('optgroup[data-bands]');
-      if (!band) {
-        band = document.createElement('optgroup');
-        band.label = 'Ремешки';
-        band.setAttribute('data-bands', '1');
-        sel.appendChild(band);
-      }
+    document.querySelectorAll('select.img-band').forEach(function (sel) {
       var cur = sel.value;
-      band.innerHTML = '';
+      var html = '<option value="">— без ремешка —</option>';
       groups.forEach(function (g) {
         g.options.forEach(function (o) {
-          var value = 'band:' + g.name + '|' + o.name;
-          band.insertAdjacentHTML('beforeend',
-            '<option value="' + escAttr(value) + '"' + (value === cur ? ' selected' : '') + '>' + escHtml(g.name + ' · ' + o.name) + '</option>');
+          var value = g.name + '|' + o.name;
+          html += '<option value="' + escAttr(value) + '"' + (value === cur ? ' selected' : '') + '>' + escHtml(g.name + ' · ' + o.name) + '</option>';
         });
       });
-      if (cur) sel.value = cur;
+      sel.innerHTML = html;
+      var known = Array.prototype.some.call(sel.options, function (o) { return o.value === cur; });
+      sel.value = known ? cur : '';
     });
   }
 
@@ -159,11 +153,14 @@
   var uploadsBox = document.getElementById('band-uploads');
   var fileFields = {};
   var activeCase = '';        // корпус, для которого сейчас грузим фото
+  // Сколько снимков у пары «ремешок + выбранный корпус». Группы ищем перебором:
+  // в названии коллекции может оказаться кавычка, и селектор по атрибуту сломается.
   function photoCount(key) {
-    var sel = '#img-chips .img-group[data-band="' + key.replace(/"/g, '\\"') + '"]'
-      + '[data-case="' + activeCase.replace(/"/g, '\\"') + '"]';
-    var g = document.querySelector(sel);
-    return g ? g.querySelectorAll('.img-chip').length : 0;
+    var n = 0;
+    document.querySelectorAll('#img-chips .img-group').forEach(function (g) {
+      if ((g.dataset.band || '') === key && (g.dataset.case || '') === activeCase) n += g.querySelectorAll('.img-chip').length;
+    });
+    return n;
   }
   // Переключатель корпуса: у каждого корпуса свой набор фото тех же ремешков
   function renderCaseTabs(container) {
@@ -238,13 +235,23 @@
 
   function sync() {
     var groups = read();
+    // Хвостовые поля строки: «нет» — распродано, «@Корпус» — вариация только для
+    // этого корпуса. Без @ привязка «в цвет корпуса» стиралась при каждом сохранении.
     raw.value = groups.map(function (g) {
       return '# ' + g.name + ' | ' + g.sizes.join(', ') + '\n'
-        + g.options.map(function (o) { return '- ' + o.name + ' | ' + o.hex + ' | ' + o.add + (o.inStock ? '' : ' | нет'); }).join('\n');
+        + g.options.map(function (o) {
+          return '- ' + o.name + ' | ' + o.hex + ' | ' + o.add
+            + (o.inStock ? '' : ' | нет') + (o.forColor ? ' | @' + o.forColor : '');
+        }).join('\n');
     }).join('\n');
+    refreshForSelects();
     updatePhotoSelects(groups);
     updateUploads(groups);
     refreshCounts();
+  }
+  // Список корпусов в «только для…» пересобираем: цвета могли переименовать или добавить
+  function refreshForSelects() {
+    document.querySelectorAll('#band-editor .bo-for').forEach(function (sel) { fillForSelect(sel, sel.value); });
   }
 
   // разбор текущего значения textarea
@@ -278,5 +285,12 @@
   });
   // смена базовой цены — пересчитать доплаты (введённые полные цены сохраняются)
   if (baseInput) baseInput.addEventListener('input', sync);
+  // Цвета корпуса задаются в соседнем редакторе: их правка меняет и переключатель
+  // корпуса над плитками загрузки, и список «только для этого корпуса».
+  var colorEditor = document.getElementById('color-editor');
+  if (colorEditor) colorEditor.addEventListener('input', sync);
+  // Загрузка и удаление фото идут без перезагрузки страницы — счётчики у плиток
+  // обновляет photo-manager через этот хук.
+  window.bandUploadsRefresh = function () { updateUploads(read()); };
   sync();
 })();

@@ -552,30 +552,33 @@
         }, { passive: true });
       }
 
-      // Что показывать: сначала фото выбранного ремешка, затем фото цвета корпуса,
-      // затем общие. Если под выбор фото нет — показываем всё, что есть.
+      // Показываем ОДИН набор — самый точный из непустых, а не всё сразу:
+      //   1) этот ремешок на этом корпусе,
+      //   2) этот ремешок без указания корпуса,
+      //   3) этот корпус без ремешка,
+      //   4) общие фото.
+      // Складывать наборы нельзя: у Ultra 3 на натуральном и на чёрном титане свои
+      // снимки тех же ремешков, и при склейке покупатель видел вперемешку оба корпуса.
       var pickedColor = '', pickedBand = '';
       function applyFilter() {
-        // точное совпадение «этот ремешок на этом корпусе» — самое верное фото
         var exact = (pickedBand && pickedColor)
           ? all.filter(function (s) { return s.band === pickedBand && s.color === pickedColor; }) : [];
-        // фото ремешка без указания корпуса
         var byBand = pickedBand ? all.filter(function (s) { return s.band === pickedBand && !s.color; }) : [];
         var byColor = pickedColor ? all.filter(function (s) { return s.color === pickedColor && !s.band; }) : [];
         var common = all.filter(function (s) { return !s.color && !s.band; });
-        var list = exact.concat(byBand, byColor, common);
+        var list = exact.length ? exact
+          : byBand.length ? byBand
+          : byColor.length ? byColor
+          : common;
         visible = list.length ? list : all.slice();
         idx = 0;
         renderDots(); updateArrows(); renderSlide();
+        // в корзину кладём снимок выбранного варианта, а не первое фото товара
+        var add = document.querySelector('.add-to-cart[data-qty-source]');
+        if (add && visible[0]) add.dataset.img = visible[0].src.replace(/^\/uploads\//, '');
       }
-      gallerySetColor = function (color) {
-        if (!all.some(function (s) { return s.color; })) return;
-        pickedColor = color; applyFilter();
-      };
-      gallerySetBand = function (key) {
-        if (!all.some(function (s) { return s.band; })) return;
-        pickedBand = key; applyFilter();
-      };
+      gallerySetColor = function (color) { pickedColor = color; applyFilter(); };
+      gallerySetBand = function (key) { pickedBand = key; applyFilter(); };
 
       renderDots(); updateArrows(); renderSlide();
     })();
@@ -689,9 +692,12 @@
           bandsEl.querySelectorAll('.band-colors,.band-sizes').forEach(function (row) {
             row.hidden = row.dataset.group !== String(idx);
           });
-          // в новой коллекции выбираем первый доступный цвет и первый размер
+          // В новой коллекции выбираем первый доступный цвет, подходящий корпусу:
+          // скрытые «в цвет корпуса» вариации пропускаем, иначе на чёрных часах
+          // выбирался миланский Natural — заказ с таким набором сервер не примет.
           var row = bandsEl.querySelector('.band-colors[data-group="' + idx + '"]');
-          pickColor(row && (row.querySelector('.swatch:not([disabled])') || row.querySelector('.swatch')));
+          pickColor(row && (row.querySelector('.swatch:not([hidden]):not([disabled])')
+            || row.querySelector('.swatch:not([hidden])') || row.querySelector('.swatch')));
           var sizes = bandsEl.querySelector('.band-sizes[data-group="' + idx + '"]');
           pickSize(sizes && sizes.querySelector('.storage-opt'));
         };

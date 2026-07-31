@@ -35,17 +35,17 @@
     });
     return out;
   }
-  function optionsHtml(cur, curBand) {
-    var html = '<option value="">— общее —</option>' + colorNames().map(function (n) {
+  // Два независимых списка: корпус и ремешок. Снимок может нести обе привязки —
+  // «Alpine Loop на чёрном титане» это ремешок И корпус, а не одно из двух.
+  function colorOptionsHtml(cur) {
+    return '<option value="">— общее —</option>' + colorNames().map(function (n) {
       return '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(n) + '</option>';
     }).join('');
-    var bands = bandOptions();
-    if (bands.length) {
-      html += '<optgroup label="Ремешки" data-bands="1">' + bands.map(function (b) {
-        return '<option value="band:' + esc(b.key) + '"' + (b.key === curBand ? ' selected' : '') + '>' + esc(b.label) + '</option>';
-      }).join('') + '</optgroup>';
-    }
-    return html;
+  }
+  function bandOptionsHtml(cur) {
+    return '<option value="">— без ремешка —</option>' + bandOptions().map(function (b) {
+      return '<option value="' + esc(b.key) + '"' + (b.key === cur ? ' selected' : '') + '>' + esc(b.label) + '</option>';
+    }).join('');
   }
   function bandHex(key) {
     var found = '#cccccc';
@@ -126,13 +126,20 @@
       '<button type="button" class="img-del" title="Удалить фото" aria-label="Удалить фото">&times;</button></div>' +
       '<div class="img-chip-controls">' +
       '<button type="button" class="img-move img-move-prev" title="Переместить раньше" aria-label="Переместить фото раньше">←</button>' +
-      '<select class="img-color" name="imgcolor:' + esc(src) + '" aria-label="Привязка фотографии">' + optionsHtml(color || '', band || '') + '</select>' +
+      '<select class="img-color" name="imgcolor:' + esc(src) + '" aria-label="Цвет корпуса на фото">' + colorOptionsHtml(color || '') + '</select>' +
+      (bandOptions().length
+        ? '<select class="img-band" name="imgband:' + esc(src) + '" aria-label="Ремешок на фото">' + bandOptionsHtml(band || '') + '</select>'
+        : '') +
       '<button type="button" class="img-move img-move-next" title="Переместить позже" aria-label="Переместить фото позже">→</button>' +
       '</div>';
+    if (color) d.dataset.case = color;
     groupFor(color || '', band || '').querySelector('.img-chips').appendChild(d);
     allOrder.push(src);
     refreshGroups();
+    refreshBandCounts();
   }
+  // счётчики «сколько фото у этой пары ремешок+корпус» живут в редакторе ремешков
+  function refreshBandCounts() { if (window.bandUploadsRefresh) window.bandUploadsRefresh(); }
   function post(url, data) {
     return fetch('/owner/products/' + encodeURIComponent(pid) + url, {
       method: 'POST', credentials: 'same-origin',
@@ -244,6 +251,7 @@
           chip.remove();
           if (wasMain) markMain(allOrder[0]);
           refreshGroups();
+          refreshBandCounts();
         } else { chip.classList.remove('is-busy'); alert('Не удалось удалить фото'); }
       })
       .catch(function () { chip.classList.remove('is-busy'); alert('Не удалось удалить фото: нет связи с сервером'); });
@@ -270,21 +278,26 @@
     }).catch(function () { chip.classList.remove('is-main'); if (previous) previous.classList.add('is-main'); });
   });
 
+  // Меняем только тот селект, который тронули: второй сервер оставит как был.
   chips.addEventListener('change', function (e) {
     var select = e.target;
-    if (!select.matches || !select.matches('.img-color')) return;
+    if (!select.matches || !select.matches('.img-color, .img-band')) return;
     var chip = select.closest('.img-chip');
-    var color = select.value;
+    var data = { src: chip.dataset.src };
+    if (select.classList.contains('img-band')) data.band = select.value;
+    else data.color = select.value;
     chip.classList.add('is-busy');
-    post('/images/color', { src: chip.dataset.src, color: color })
+    post('/images/color', data)
       .then(function (json) {
         chip.classList.remove('is-busy');
         if (json && json.ok) {
+          if (json.color) chip.dataset.case = json.color; else delete chip.dataset.case;
           var targetGroup = groupFor(json.color, json.band).querySelector('.img-chips');
           if (chip.classList.contains('is-main')) targetGroup.insertBefore(chip, targetGroup.firstElementChild);
           else targetGroup.appendChild(chip);
           refreshGroups();
-        } else alert('Не удалось изменить цвет фото');
+          refreshBandCounts();
+        } else alert('Не удалось изменить привязку фото');
       })
       .catch(function () { chip.classList.remove('is-busy'); });
   });

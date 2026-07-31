@@ -399,11 +399,15 @@ app.post('/api/cart', (req, res) => {
     const bandSize = String(it.bandSize || '').trim();
     const band = findBand(view, bandStr);
     const sz = band && bandSize ? (band.group.sizes || []).find(x => x.label === bandSize) : null;
-    // фото: сначала снимок выбранного ремешка, затем цвета корпуса, затем первое общее
-    const byBand = band && view.imageBands
-      ? (view.images || []).find(src => view.imageBands[src] === band.group.name + '|' + band.option.name) : null;
-    const byColor = color && view.imageColors
-      ? (view.images || []).find(src => view.imageColors[src] === color) : null;
+    // фото: снимок этого ремешка на этом корпусе → просто этого ремешка →
+    // цвета корпуса → первое общее. Тот же порядок, что в галерее товара.
+    const ibs = view.imageBands || {}, ics = view.imageColors || {};
+    const bandKey = band ? band.group.name + '|' + band.option.name : '';
+    const byBand = bandKey
+      ? ((view.images || []).find(src => ibs[src] === bandKey && ics[src] === color)
+        || (view.images || []).find(src => ibs[src] === bandKey && !ics[src])) : null;
+    const byColor = color
+      ? (view.images || []).find(src => ics[src] === color && !ibs[src]) : null;
     const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0)
       + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0);
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
@@ -546,16 +550,17 @@ app.post('/owner/products/:id', async (req, res) => {
   // ключи вариаций ремешков вида «Коллекция|Цвет»
   const bandKeys = new Set();
   for (const g of bands) for (const o of g.options) bandKeys.add(g.name + '|' + o.name);
-  // Привязка фото: селект «imgcolor:<файл>» отдаёт либо цвет корпуса,
-  // либо «band:Коллекция|Цвет» — тогда снимок принадлежит вариации ремешка.
+  // Привязка фото: два независимых селекта — «imgcolor:<файл>» (цвет корпуса) и
+  // «imgband:<файл>» (вариация ремешка «Коллекция|Цвет»). Они не исключают друг
+  // друга: снимок «Alpine Loop на чёрном титане» несёт обе привязки сразу.
+  // Раньше селект был один, и сохранение формы стирало корпус у фото ремешка —
+  // после этого один и тот же снимок показывался под всеми цветами корпуса.
   const imageColors = {}, imageBands = {};
   for (const src of images) {
-    const value = req.body['imgcolor:' + src];
-    if (!value) continue;
-    if (String(value).startsWith('band:')) {
-      const key = String(value).slice(5);
-      if (bandKeys.has(key)) imageBands[src] = key;
-    } else if (colorNames.includes(value)) imageColors[src] = value;
+    const color = req.body['imgcolor:' + src];
+    if (color && colorNames.includes(color)) imageColors[src] = color;
+    const band = req.body['imgband:' + src];
+    if (band && bandKeys.has(String(band))) imageBands[src] = String(band);
   }
   // Новые общие фото
   images = images.concat(await optimizeUploads(req.filesFor('images'), 1200, { square: true }));
@@ -631,25 +636,26 @@ app.post('/owner/products/:id/images/main', (req, res) => {
   res.json({ ok: true, main: src });
 });
 
-// Привязать фото к цвету (или снять привязку) — сразу, без сохранения формы
+// Привязать фото к цвету корпуса и/или к ремешку (или снять привязку) — сразу,
+// без сохранения формы. Привязки независимы: приходит только то поле, которое
+// меняли, второе остаётся как было — иначе смена ремешка сбрасывала корпус.
 app.post('/owner/products/:id/images/color', (req, res) => {
   if (!guardApi(req, res)) return;
   const p = db.getProduct(req.params.id);
   if (!p) return res.json({ ok: false, error: 'not_found' }, 404);
   const src = String(req.body.src || '');
   if (!src || !(p.images || []).includes(src)) return res.json({ ok: false, error: 'no_image' }, 400);
-  // Значение селекта: цвет корпуса, «band:Коллекция|Цвет» или пусто (общее фото).
-  // Раньше маршрут знал только про цвета, поэтому выбор ремешка молча снимал привязку.
-  const value = String(req.body.color || '').trim();
   const imageColors = Object.assign({}, p.imageColors || {});
   const imageBands = Object.assign({}, p.imageBands || {});
-  delete imageColors[src]; delete imageBands[src];
-  if (value.startsWith('band:')) {
-    const key = value.slice(5);
-    const known = (p.bands || []).some(g => (g.options || []).some(o => g.name + '|' + o.name === key));
-    if (known) imageBands[src] = key;
-  } else if (value && (p.colors || []).some(c => c.name === value)) {
-    imageColors[src] = value;
+  if (req.body.color !== undefined) {
+    const color = String(req.body.color || '').trim();
+    delete imageColors[src];
+    if (color && (p.colors || []).some(c => c.name === color)) imageColors[src] = color;
+  }
+  if (req.body.band !== undefined) {
+    const key = String(req.body.band || '').trim();
+    delete imageBands[src];
+    if (key && (p.bands || []).some(g => (g.options || []).some(o => g.name + '|' + o.name === key))) imageBands[src] = key;
   }
   db.updateProduct(p.id, { imageColors, imageBands });
   res.json({ ok: true, color: imageColors[src] || '', band: imageBands[src] || '' });
