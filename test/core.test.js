@@ -197,6 +197,36 @@ test('доверенный HTTPS-прокси не вызывает ложную
   assert.equal(res.statusCode, 200);
 });
 
+test('same-origin браузера работает за прокси без служебных заголовков', async () => {
+  const app = new App({ secret: 'test' });
+  app.post('/login', (req, res) => res.json({ ok: true }));
+
+  const res = response();
+  await app.handle(request('/login', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: {
+      host: '127.0.0.1:3000', origin: 'https://shop.test',
+      'sec-fetch-site': 'same-origin', 'content-type': 'application/json'
+    }
+  }), res);
+
+  assert.equal(res.statusCode, 200);
+});
+
+test('принудительный HTTPS ставит Secure на сессионную cookie', async () => {
+  const app = new App({ secret: 'test', forceHttps: true });
+  app.post('/session', (req, res) => { req.session.user = 'owner'; res.json({ ok: true }); });
+
+  const res = response();
+  await app.handle(request('/session', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: { host: 'shop.test', origin: 'https://shop.test', 'content-type': 'application/json' }
+  }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.match(String(res.headers['set-cookie']), /; Secure;/);
+});
+
 test('multipart-файл остаётся в памяти до решения маршрута', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-upload-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

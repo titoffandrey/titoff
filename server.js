@@ -25,7 +25,8 @@ const PORT = process.env.PORT || 3000;
 const app = new App({
   secret: db.getSettings().sessionSecret || 'fallback-secret',
   uploadDir: db.UPLOAD_DIR,
-  trustProxy: process.env.TRUST_PROXY === '1'
+  trustProxy: process.env.TRUST_PROXY === '1',
+  forceHttps: process.env.FORCE_HTTPS === '1'
 });
 
 app.static('/static', path.join(__dirname, 'public'));
@@ -140,7 +141,8 @@ function tgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').rep
 function isLoopback(address) { return /^(?:127(?:\.\d+){3}|::1|::ffff:127(?:\.\d+){3})$/.test(String(address || '')); }
 function trustedProxy(req) { return process.env.TRUST_PROXY === '1' || isLoopback(req.socket && req.socket.remoteAddress); }
 function requestHost(req) {
-  const raw = String(req.headers.host || '').split(',')[0].trim();
+  const forwardedHost = trustedProxy(req) ? String(req.headers['x-forwarded-host'] || '').split(',')[0].trim() : '';
+  const raw = String(forwardedHost || req.headers.host || '').split(',')[0].trim();
   return /^(?:[a-z0-9.-]+(?::\d{1,5})?|\[[0-9a-f:.]+\](?::\d{1,5})?)$/i.test(raw) ? raw : 'localhost';
 }
 function siteOf(req) {
@@ -153,12 +155,12 @@ function siteOf(req) {
     if (siteQuery && db.getSite(siteQuery)) req.session.previewSite = siteQuery;
     else if (!siteQuery && req.session && db.getSite(req.session.previewSite)) siteQuery = req.session.previewSite;
   }
-  return T.resolveSite(req.headers.host, siteQuery);
+  return T.resolveSite(requestHost(req), siteQuery);
 }
 // Абсолютный адрес сайта (для canonical, Open Graph, sitemap).
 function originOf(req) {
   const forwardedProto = trustedProxy(req) ? String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() : '';
-  const proto = forwardedProto === 'https' || !!(req.socket && req.socket.encrypted) ? 'https' : 'http';
+  const proto = process.env.FORCE_HTTPS === '1' || forwardedProto === 'https' || !!(req.socket && req.socket.encrypted) ? 'https' : 'http';
   const host = requestHost(req);
   return proto + '://' + host;
 }
