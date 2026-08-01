@@ -35,6 +35,7 @@ app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.
 const settings = () => db.getSettings();
 const PRICE_MAX = 1e12;
 const PASSWORD_MIN = 10;
+const PRODUCT_IMAGE_MAX = 100;
 // Multipart держит проверенные изображения в памяти. На диск они попадают только
 // здесь — после проверки маршрута и прав доступа.
 function persistUploads(files) {
@@ -622,7 +623,7 @@ app.post('/owner/products', async (req, res) => {
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
     bands: parseBands(req.body.bands),
-    images: await optimizeUploads(req.filesFor('images'), 1200, { square: true })
+    images: await optimizeUploads(req.filesFor('images').slice(0, PRODUCT_IMAGE_MAX), 1200, { square: true })
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Товар создан'));
 });
@@ -653,11 +654,16 @@ app.post('/owner/products/:id', async (req, res) => {
     if (band && bandKeys.has(String(band))) imageBands[src] = String(band);
   }
   // Новые общие фото
-  images = images.concat(await optimizeUploads(req.filesFor('images'), 1200, { square: true }));
+  let imageSlots = Math.max(0, PRODUCT_IMAGE_MAX - images.length);
+  const generalAdded = await optimizeUploads(req.filesFor('images').slice(0, imageSlots), 1200, { square: true });
+  images = images.concat(generalAdded);
+  imageSlots -= generalAdded.length;
   // Новые фото под конкретный цвет (поля imagesColor_<индекс цвета>)
   for (let ci = 0; ci < colors.length; ci++) {
-    const added = await optimizeUploads(req.filesFor('imagesColor_' + ci), 1200, { square: true });
+    if (imageSlots <= 0) break;
+    const added = await optimizeUploads(req.filesFor('imagesColor_' + ci).slice(0, imageSlots), 1200, { square: true });
     for (const f of added) { images.push(f); imageColors[f] = colors[ci].name; }
+    imageSlots -= added.length;
   }
   db.updateProduct(p.id, {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
@@ -678,10 +684,18 @@ app.post('/owner/products/:id/images/add', async (req, res) => {
   if (!guardApi(req, res)) return;
   const p = db.getProduct(req.params.id);
   if (!p) return res.json({ ok: false, error: 'not_found' }, 404);
-  const added = await optimizeUploads(req.filesFor('images'), 1200, { square: true });
+  const available = Math.max(0, PRODUCT_IMAGE_MAX - (p.images || []).length);
+  if (!available) return res.json({ ok: false, error: 'image_limit', limit: PRODUCT_IMAGE_MAX }, 409);
+  let added = await optimizeUploads(req.filesFor('images').slice(0, available), 1200, { square: true });
   if (!added.length) return res.json({ ok: false, error: 'no_files' }, 400);
   const current = db.getProduct(req.params.id);
   if (!current) { added.forEach(db.deleteUploadIfUnused); return res.json({ ok: false, error: 'not_found' }, 404); }
+  const currentRoom = Math.max(0, PRODUCT_IMAGE_MAX - (current.images || []).length);
+  if (added.length > currentRoom) {
+    added.slice(currentRoom).forEach(db.deleteUploadIfUnused);
+    added = added.slice(0, currentRoom);
+  }
+  if (!added.length) return res.json({ ok: false, error: 'image_limit', limit: PRODUCT_IMAGE_MAX }, 409);
   const color = String(req.body.color || '').trim();
   const valid = (current.colors || []).some(c => c.name === color);
   // Фото можно грузить сразу в конкретную вариацию ремешка: «Коллекция|Цвет»

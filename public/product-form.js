@@ -60,10 +60,27 @@
   renderPreview();
 
   var MAX_FILE = 6 * 1024 * 1024;
+  var MAX_FILES = 30;
+  var MAX_TOTAL_BYTES = 28 * 1024 * 1024;
   var states = [];
+  var activeXhr = null;
+  var activeState = null;
 
   function fieldFor(input) { return input.closest('.photo-upload-field'); }
   function progressFor(field) { return field && field.querySelector('.photo-upload-progress'); }
+  function cancelFor(field) {
+    var progress = progressFor(field);
+    if (!progress) return null;
+    var button = progress.querySelector('[data-upload-cancel]');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button'; button.className = 'photo-upload-cancel';
+      button.dataset.uploadCancel = ''; button.textContent = 'Остановить';
+      button.hidden = true;
+      progress.appendChild(button);
+    }
+    return button;
+  }
   function setProgress(field, percent, message, state) {
     var progress = progressFor(field);
     if (!progress) return;
@@ -71,6 +88,7 @@
     progress.classList.toggle('is-processing', state === 'processing');
     progress.classList.toggle('is-done', state === 'done');
     progress.classList.toggle('is-error', state === 'error');
+    progress.classList.toggle('is-cancelled', state === 'cancelled');
     var bar = progress.querySelector('.photo-progress-track span');
     if (bar) {
       if (state === 'processing') bar.style.width = '';
@@ -78,6 +96,8 @@
     }
     var status = progress.querySelector('.photo-upload-status');
     if (status) status.textContent = message || '';
+    var cancel = cancelFor(field);
+    if (cancel) cancel.hidden = ['queued', 'uploading', 'processing'].indexOf(state) === -1;
   }
 
   function fileSummary(files) {
@@ -119,9 +139,28 @@
     input.addEventListener('change', function () {
       var selected = Array.prototype.slice.call(input.files || []);
       var tooLarge = selected.filter(function (file) { return file.size > MAX_FILE; }).length;
-      state.files = selected.filter(function (file) { return file.size <= MAX_FILE; });
+      var accepted = selected.filter(function (file) { return file.size <= MAX_FILE; });
+      var otherCount = states.reduce(function (sum, entry) { return sum + (entry === state ? 0 : entry.files.length); }, 0);
+      var otherBytes = states.reduce(function (sum, entry) {
+        if (entry === state) return sum;
+        return sum + entry.files.reduce(function (total, file) { return total + (file.size || 0); }, 0);
+      }, 0);
+      var acceptedBytes = accepted.reduce(function (sum, file) { return sum + (file.size || 0); }, 0);
+      if (selected.length > MAX_FILES || otherCount + accepted.length > MAX_FILES) {
+        state.files = []; render(state);
+        setProgress(field, 0, 'Можно выбрать не более ' + MAX_FILES + ' фото', 'error');
+        return;
+      }
+      if (otherBytes + acceptedBytes > MAX_TOTAL_BYTES) {
+        state.files = []; render(state);
+        setProgress(field, 0, 'Общий размер фото должен быть меньше 28 МБ', 'error');
+        return;
+      }
+      state.files = accepted;
       render(state);
-      if (tooLarge) setProgress(field, 0, 'Пропущено файлов: ' + tooLarge + ' (больше 6 МБ)', 'error');
+      if (state.files.length) {
+        setProgress(field, 0, tooLarge ? 'В очереди · пропущено: ' + tooLarge : 'В очереди', 'queued');
+      } else if (tooLarge) setProgress(field, 0, 'Файл больше 6 МБ', 'error');
       else {
         var progress = progressFor(field);
         if (progress) progress.hidden = true;
@@ -140,6 +179,36 @@
       }
       render(state);
     });
+    cancelFor(field);
+  });
+
+  function clearState(state) {
+    state.files = [];
+    render(state);
+  }
+
+  function resetSubmit(cancelled) {
+    form.classList.remove('is-submitting');
+    var submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = false;
+    var stopped = activeState;
+    activeXhr = null; activeState = null;
+    if (cancelled) {
+      states.forEach(clearState);
+      if (stopped) setProgress(stopped.field, 100, 'Загрузка остановлена', 'cancelled');
+    }
+  }
+
+  form.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-upload-cancel]');
+    if (!button) return;
+    event.preventDefault();
+    if (activeXhr) return activeXhr.abort();
+    var field = button.closest('.photo-upload-field');
+    var state = states.find(function (entry) { return entry.field === field; });
+    if (!state) return;
+    clearState(state);
+    setProgress(field, 100, 'Выбор очищен', 'cancelled');
   });
 
   function formData() {
@@ -162,6 +231,7 @@
     setProgress(state.field, 0, 'Загрузка · 0%', 'uploading');
 
     var xhr = new XMLHttpRequest();
+    activeXhr = xhr; activeState = state;
     xhr.open((form.method || 'POST').toUpperCase(), form.action);
     xhr.upload.addEventListener('progress', function (e) {
       if (!e.lengthComputable) return;
@@ -171,19 +241,19 @@
     xhr.upload.addEventListener('load', function () { setProgress(state.field, 100, 'Обработка фото…', 'processing'); });
     xhr.addEventListener('load', function () {
       if (xhr.status >= 200 && xhr.status < 400) {
+        activeXhr = null; activeState = null;
         setProgress(state.field, 100, 'Готово', 'done');
         window.location.href = xhr.responseURL || '/owner/products';
         return;
       }
-      form.classList.remove('is-submitting');
-      if (submit) submit.disabled = false;
+      resetSubmit(false);
       setProgress(state.field, 0, 'Ошибка загрузки', 'error');
     });
     xhr.addEventListener('error', function () {
-      form.classList.remove('is-submitting');
-      if (submit) submit.disabled = false;
+      resetSubmit(false);
       setProgress(state.field, 0, 'Нет связи с сервером', 'error');
     });
+    xhr.addEventListener('abort', function () { resetSubmit(true); });
     xhr.send(formData());
   });
 })();

@@ -540,8 +540,24 @@ test('форма товара широкая, без текстовых подс
   assert.match(html, /class="specs-input"/);
   assert.match(html, /class="a-form-grid product-options-grid"/);
   assert.match(html, /class="photo-upload-progress"/);
+  assert.match(html, /data-upload-cancel/);
   assert.match(html, /\/static\/product-form\.js/);
   assert.doesNotMatch(html, /Кружок слева|Файлы загружаются сразу|Слева метка/);
+});
+
+test('массовую загрузку фото можно остановить, а случайная огромная пачка блокируется', () => {
+  const formJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'product-form.js'), 'utf8');
+  const managerJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'photo-manager.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(formJs, /var MAX_FILES = 30/);
+  assert.match(formJs, /activeXhr\.abort\(\)/);
+  assert.match(managerJs, /var MAX_FILES = 30/);
+  assert.match(managerJs, /uploadGeneration\+\+/);
+  assert.match(managerJs, /activeUpload\.abort\(\)/);
+  assert.match(css, /\.photo-upload-cancel\{/);
+  assert.match(server, /const PRODUCT_IMAGE_MAX = 100/);
+  assert.match(server, /error: 'image_limit'/);
 });
 
 test('каталог не содержит дублей и некорректных вариантов', () => {

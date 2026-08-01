@@ -339,14 +339,18 @@ body.admin{background:var(--bg2)}
 .photo-upload-text b{font-size:14px}
 .photo-upload-selection{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
 .photo-upload-selection:empty{display:none}
-.photo-upload-progress{display:grid;grid-template-columns:minmax(100px,1fr) auto;align-items:center;gap:10px;margin-top:9px}
+.photo-upload-progress{display:grid;grid-template-columns:minmax(100px,1fr) auto auto;align-items:center;gap:10px;margin-top:9px}
 .photo-upload-progress[hidden]{display:none!important}
 .photo-progress-track{height:7px;border-radius:99px;background:#e7eef6;overflow:hidden}
 .photo-progress-track span{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--accent),#68aef5);transition:width .15s}
 .photo-upload-progress.is-processing .photo-progress-track span{width:38%;animation:photo-processing 1.1s ease-in-out infinite alternate}
 .photo-upload-progress.is-done .photo-progress-track span{width:100%;background:#28a745}
 .photo-upload-progress.is-error .photo-progress-track span{width:100%;background:#d70015}
+.photo-upload-progress.is-cancelled .photo-progress-track span{width:100%;background:#8e8e93}
 .photo-upload-status{font-size:12.5px;color:var(--muted);min-width:96px;text-align:right}
+.photo-upload-cancel{padding:5px 9px;border:1px solid #d70015;border-radius:8px;background:#fff;color:#d70015;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.photo-upload-cancel:hover{background:#fff1f2}
+.photo-upload-cancel[hidden]{display:none!important}
 @keyframes photo-processing{to{width:88%}}
 .photo-queue{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .photo-queue:empty{display:none}
@@ -355,7 +359,7 @@ body.admin{background:var(--bg2)}
 .photo-queue-actions{display:flex;justify-content:center;gap:3px;margin-top:4px}
 .photo-queue-actions button{width:25px;height:23px;padding:0;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;color:var(--text)}
 .photo-queue-actions button:hover{border-color:var(--accent);color:var(--accent)}
-.product-form.is-submitting{pointer-events:none}
+.product-form.is-submitting .photo-upload-box,.product-form.is-submitting .photo-queue{pointer-events:none;opacity:.65}
 .product-form.is-submitting .a-form-actions,.product-form.is-submitting .form-actions-bar{opacity:.6}
 
 /* ===== Форма товара: секции, ошибки, цена ===== */
@@ -414,7 +418,9 @@ body.admin{background:var(--bg2)}
 .img-group-head .swatch{width:16px;height:16px;border-radius:5px;margin:0;border:1px solid rgba(0,0,0,.15)}
 .swatch-any{background:linear-gradient(135deg,#e9e9ee 45%,#d4d4dc 55%)}
 .img-group-count{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted)}
-.field.is-busy{opacity:.6;pointer-events:none}
+.field.is-busy{opacity:.72}
+.field.is-busy .photo-upload-box{pointer-events:none}
+.field.is-busy .photo-upload-cancel{pointer-events:auto}
 @media(hover:none){.img-del{opacity:1;transform:scale(1)}}
 
 /* Логин */

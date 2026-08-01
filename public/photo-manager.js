@@ -7,7 +7,11 @@
   var chips = document.getElementById('img-chips');
   var chipsWrap = document.getElementById('img-chips-wrap');
   var MAX_FILE = 6 * 1024 * 1024;
+  var MAX_FILES = 30;
+  var MAX_PRODUCT_IMAGES = 100;
   var uploadQueue = Promise.resolve();
+  var uploadGeneration = 0;
+  var activeUpload = null;
   var orderBusy = false;
   var dragged = null;
   var allOrder = [];
@@ -150,6 +154,18 @@
   function setBusy(el, on) {
     if (el) el.classList.toggle('is-busy', !!on);
   }
+  function cancelFor(field) {
+    var progress = field && field.querySelector('.photo-upload-progress');
+    if (!progress) return null;
+    var button = progress.querySelector('[data-upload-cancel]');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button'; button.className = 'photo-upload-cancel';
+      button.dataset.uploadCancel = ''; button.textContent = 'Остановить'; button.hidden = true;
+      progress.appendChild(button);
+    }
+    return button;
+  }
   function setUploadProgress(input, percent, message, state) {
     var field = input.closest('.photo-upload-field') || input.parentNode;
     var progress = field && field.querySelector('.photo-upload-progress');
@@ -158,6 +174,7 @@
     progress.classList.toggle('is-processing', state === 'processing');
     progress.classList.toggle('is-done', state === 'done');
     progress.classList.toggle('is-error', state === 'error');
+    progress.classList.toggle('is-cancelled', state === 'cancelled');
     var bar = progress.querySelector('.photo-progress-track span');
     if (bar) {
       if (state === 'processing') bar.style.width = '';
@@ -165,6 +182,8 @@
     }
     var status = progress.querySelector('.photo-upload-status');
     if (status) status.textContent = message || '';
+    var cancel = cancelFor(field);
+    if (cancel) cancel.hidden = ['queued', 'uploading', 'processing'].indexOf(state) === -1;
   }
   function selectionText(input, text) {
     var field = input.closest('.photo-upload-field');
@@ -172,8 +191,9 @@
     if (selection) selection.textContent = text || '';
   }
 
-  function upload(input, files, position, isLast) {
+  function upload(input, files, position, isLast, generation) {
     return new Promise(function (resolve) {
+      if (generation !== uploadGeneration) return resolve();
       var tail = position ? ' · ' + position : '';
       var field = input.closest('.photo-upload-field') || input.parentNode;
       var data = new FormData();
@@ -185,28 +205,46 @@
       setUploadProgress(input, 0, 'Загрузка' + tail + ' · 0%', 'uploading');
 
       var xhr = new XMLHttpRequest();
+      activeUpload = xhr;
       xhr.open('POST', '/owner/products/' + encodeURIComponent(pid) + '/images/add');
       xhr.upload.addEventListener('progress', function (e) {
+        if (generation !== uploadGeneration) return;
         if (!e.lengthComputable) return;
         var value = Math.round(e.loaded / e.total * 100);
         setUploadProgress(input, value, 'Загрузка' + tail + ' · ' + value + '%', 'uploading');
       });
-      xhr.upload.addEventListener('load', function () { setUploadProgress(input, 100, 'Обработка фото' + tail + '…', 'processing'); });
+      xhr.upload.addEventListener('load', function () {
+        if (generation === uploadGeneration) setUploadProgress(input, 100, 'Обработка фото' + tail + '…', 'processing');
+      });
       xhr.addEventListener('load', function () {
+        if (generation !== uploadGeneration) return finish(true);
         var json = null;
         try { json = JSON.parse(xhr.responseText); } catch (e) { json = null; }
         if (xhr.status >= 200 && xhr.status < 300 && json && json.ok) {
           json.images.forEach(function (image) { addChip(image.src, image.color, image.band); });
           setUploadProgress(input, 100, position ? 'Готово · ' + position : 'Готово', 'done');
+        } else if (json && json.error === 'image_limit') {
+          setUploadProgress(input, 0, 'Достигнут лимит: ' + MAX_PRODUCT_IMAGES + ' фото товара', 'error');
         } else setUploadProgress(input, 0, 'Ошибка загрузки', 'error');
-        finish();
+        finish(false);
       });
-      xhr.addEventListener('error', function () { setUploadProgress(input, 0, 'Нет связи с сервером', 'error'); finish(); });
-      function finish() {
-        input.disabled = false;
-        if (isLast) input.value = '';        // очищаем поле только после всей пачки
-        selectionText(input, '');
-        setBusy(field, false);
+      xhr.addEventListener('error', function () {
+        if (generation === uploadGeneration) setUploadProgress(input, 0, 'Нет связи с сервером', 'error');
+        finish(false);
+      });
+      xhr.addEventListener('abort', function () { finish(true); });
+      var finished = false;
+      function finish(cancelled) {
+        if (finished) return;
+        finished = true;
+        if (activeUpload === xhr) activeUpload = null;
+        if (isLast || cancelled) {
+          input.disabled = false;
+          input.value = '';
+          delete input.dataset.uploadPending;
+          selectionText(input, '');
+          setBusy(field, false);
+        }
         resolve();
       }
       xhr.send(data);
@@ -218,6 +256,18 @@
     if (!input.matches || !input.matches('input[type=file][data-auto]')) return;
     var selected = Array.prototype.slice.call(input.files || []);
     if (!selected.length) return;
+    var available = Math.max(0, MAX_PRODUCT_IMAGES - allOrder.length);
+    var allowedNow = Math.min(MAX_FILES, available);
+    if (!allowedNow) {
+      setUploadProgress(input, 0, 'Достигнут лимит: ' + MAX_PRODUCT_IMAGES + ' фото товара', 'error');
+      input.value = '';
+      return;
+    }
+    if (selected.length > allowedNow) {
+      setUploadProgress(input, 0, 'Можно выбрать не более ' + allowedNow + ' фото', 'error');
+      input.value = '';
+      return;
+    }
     var files = selected.filter(function (file) { return file.size <= MAX_FILE; });
     var skipped = selected.length - files.length;
     if (!files.length) {
@@ -227,12 +277,31 @@
     }
     selectionText(input, files.length + ' фото выбрано');
     setUploadProgress(input, 0, skipped ? 'В очереди · пропущено: ' + skipped : 'В очереди', 'queued');
+    input.disabled = true;
+    input.dataset.uploadPending = '1';
+    setBusy(input.closest('.photo-upload-field'), true);
+    var generation = uploadGeneration;
     // Отправляем по одному файлу за запрос: сервер обрабатывает фото ImageMagick,
     // и на пачке из десятка снимков один общий запрос висел бы минуты без признаков жизни.
     files.forEach(function (file, i) {
       uploadQueue = uploadQueue.then(function () {
-        return upload(input, [file], files.length > 1 ? (i + 1) + ' из ' + files.length : '', i === files.length - 1);
+        return upload(input, [file], files.length > 1 ? (i + 1) + ' из ' + files.length : '', i === files.length - 1, generation);
       });
+    });
+  });
+
+  box.addEventListener('click', function (e) {
+    var button = e.target.closest ? e.target.closest('[data-upload-cancel]') : null;
+    if (!button) return;
+    e.preventDefault();
+    uploadGeneration++;
+    uploadQueue = Promise.resolve();
+    if (activeUpload) activeUpload.abort();
+    box.querySelectorAll('input[type=file][data-upload-pending]').forEach(function (input) {
+      input.disabled = false; input.value = ''; delete input.dataset.uploadPending;
+      selectionText(input, '');
+      setBusy(input.closest('.photo-upload-field'), false);
+      setUploadProgress(input, 100, 'Остановлено · загруженные фото сохранены', 'cancelled');
     });
   });
 
