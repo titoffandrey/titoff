@@ -43,7 +43,9 @@
           if (!item || fresh.gone) return;              // товар убрали из каталога
           if (fresh.name) item.name = fresh.name;
           if (Number(fresh.price) > 0) item.price = Number(fresh.price);
-          if (fresh.img) item.img = fresh.img;
+          // Пустая строка тоже является обновлением: если фото удалили в панели,
+          // старая миниатюра не должна оставаться в localStorage и давать 404.
+          item.img = fresh.img || '';
           item.available = fresh.available !== false;
           next.push(item);
         });
@@ -738,7 +740,12 @@
     // Ввод рейтинга (звёзды): общая оценка + аспекты (доставка/сервис/цена)
     document.querySelectorAll('.rate-input').forEach(function (rate) {
       var hidden = rate.parentNode.querySelector('input[type="hidden"]');
-      function paint(v) { rate.querySelectorAll('.rate-star').forEach(function (s) { s.classList.toggle('on', Number(s.dataset.v) <= v); }); }
+      function paint(v) {
+        rate.querySelectorAll('.rate-star').forEach(function (s) {
+          s.classList.toggle('on', Number(s.dataset.v) <= v);
+          s.setAttribute('aria-checked', Number(s.dataset.v) === v ? 'true' : 'false');
+        });
+      }
       paint(Number(hidden ? hidden.value : 5) || 5);
       rate.addEventListener('click', function (e) {
         var s = e.target.closest('.rate-star'); if (!s) return;
@@ -768,8 +775,9 @@
         var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd;
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
         addBtn.dataset.price = total;
-        addBtn.dataset.name = baseName + (vstate.storageLabel ? ' ' + vstate.storageLabel : '') + (vstate.color ? ', ' + vstate.color : '')
-          + (vstate.band ? ', ' + vstate.band : '') + (vstate.bandSize ? ' ' + vstate.bandSize : '');
+        // Название храним базовым, а вариант — в отдельных полях ниже. Иначе до
+        // первого ответа /api/cart оформление показывало память/цвет дважды.
+        addBtn.dataset.name = baseName;
         addBtn.dataset.storage = vstate.storageLabel;
         addBtn.dataset.color = vstate.color;
         addBtn.dataset.band = vstate.band;

@@ -15,7 +15,7 @@ const T = require('./lib/tenancy');
 const O = require('./lib/owner-views');
 const S = require('./lib/site-views');
 const IMG = require('./lib/images');
-const { Analytics, clientDetails } = require('./lib/analytics');
+const { Analytics, clientDetails, normalizeIp } = require('./lib/analytics');
 const { App } = require('./lib/server-lib');
 
 db.ensureSeeded();
@@ -194,6 +194,17 @@ function siteFields(body, current) {
   };
 }
 
+function siteError(body, current) {
+  if (!String(body.storeName || '').trim()) return 'Укажите название магазина';
+  const multiplier = Number(body.priceMultiplier);
+  if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 1000) {
+    return 'Множитель цен должен быть числом больше нуля и не больше 1000';
+  }
+  const conflicts = db.findHostConflicts(body.hosts, current && current.id);
+  if (conflicts.length) return 'Домен уже используется другим магазином: ' + conflicts.join(', ');
+  return '';
+}
+
 function consentAccepted(value) {
   return value === true || ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
 }
@@ -220,7 +231,11 @@ function clientIp(req) {
   const cloudflare = canTrust ? String(req.headers['cf-connecting-ip'] || '').trim() : '';
   const forwarded = canTrust ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
   const real = canTrust ? String(req.headers['x-real-ip'] || '').trim() : '';
-  return cloudflare || forwarded || real || (req.socket && req.socket.remoteAddress) || '?';
+  for (const candidate of [cloudflare, forwarded, real, req.socket && req.socket.remoteAddress]) {
+    const ip = normalizeIp(candidate);
+    if (ip) return ip;
+  }
+  return '?';
 }
 function metricPublicPath(site, rawPath) {
   let pathname;
@@ -236,15 +251,23 @@ function metricPublicPath(site, rawPath) {
 function trackPage(req, res, site, pathname, options) {
   if (metrics.trackingDisabled(req)) return;
   options = options || {};
+  const context = metrics.context(req, clientIp(req), trustedProxy(req));
+  // HEAD используют мониторинги и краулеры, но у такого запроса не будет JS-
+  // подтверждения. Сразу относим его к техническим и не оставляем бессмысленную cookie.
+  if (req.method === 'HEAD') {
+    context.isBot = true;
+    context.botName = context.botName || 'HEAD-запрос';
+  }
+  const technical = !!(options.is404 || context.isBot);
   let id = metrics.visitorId(req);
   if (!id) {
     id = metrics.newVisitorId();
-    res.setHeader('Set-Cookie', metrics.cookieHeader(id, originOf(req).startsWith('https://')));
+    if (!technical) res.setHeader('Set-Cookie', metrics.cookieHeader(id, originOf(req).startsWith('https://')));
   }
   metrics.recordPageView({
     id, siteId: site.id, path: pathname, host: req.headers.host,
     requestedPath: options.requestedPath, is404: !!options.is404, provisional: !options.is404,
-    context: metrics.context(req, clientIp(req), trustedProxy(req))
+    context
   });
 }
 function loginBlocked(req) { const r = loginAttempts.get(clientIp(req)); return !!(r && r.until > Date.now()); }
@@ -283,7 +306,9 @@ app.get('/product/:id', (req, res) => {
   const view = T.siteProductView(site, req.params.id);
   if (!view) {
     trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url });
-    return res.send(R.homePage(T.siteSettings(site), db, { q: '', origin: originOf(req), noindex: true }, site), 404);
+    return res.send(R.notFoundPage(T.siteSettings(site), {
+      origin: originOf(req), categories: T.siteCategories(site)
+    }), 404);
   }
   trackPage(req, res, site, '/product/' + view.id);
   // Отзывы этого посетителя, ещё не прошедшие модерацию: их видит только он сам
@@ -328,17 +353,17 @@ app.post('/api/analytics/start', (req, res) => {
   // Cookie отказа — серверная гарантия, а не только подсказка клиентскому JS.
   // Повторное включение допускается лишь после явного нажатия на странице политики.
   if (optedOut && !explicitEnable) return res.json({ ok: true, tracking: false });
+  if (!publicPath) return res.json({ ok: true });
+  const context = Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client));
+  // Первичный HTML-запрос такого робота уже записан сервером. Его вызов
+  // клиентского endpoint не должен ни удваивать статистику, ни ставить cookie.
+  if (context.isBot) return res.json({ ok: true });
   let id = metrics.visitorId(req);
   if (!id) id = metrics.newVisitorId();
   const secure = originOf(req).startsWith('https://');
   const setCookies = [metrics.cookieHeader(id, secure)];
   if (optedOut && explicitEnable) setCookies.push(metrics.clearOptOutCookieHeader(secure));
   res.setHeader('Set-Cookie', setCookies);
-  if (!publicPath) return res.json({ ok: true });
-  const context = Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client));
-  // Первичный HTML-запрос такого робота уже записан сервером. Его вызов
-  // клиентского endpoint не должен удваивать техническую статистику.
-  if (context.isBot) return res.json({ ok: true });
   const input = {
     id, siteId: site.id, path: publicPath, host: req.headers.host, referrer: req.body.referrer,
     context
@@ -389,7 +414,10 @@ app.get('/sitemap.xml', (req, res) => {
     '<url><loc>' + R.esc(origin) + '/personal-data-consent</loc></url>',
     '<url><loc>' + R.esc(origin) + '/personal-data-publication-consent</loc></url>'
   ];
-  for (const v of T.siteProductViews(site)) urls.push('<url><loc>' + R.esc(origin) + '/product/' + v.id + '</loc></url>');
+  for (const category of T.siteCategories(site)) {
+    urls.push('<url><loc>' + R.esc(origin) + '/?category=' + encodeURIComponent(category) + '</loc><changefreq>weekly</changefreq></url>');
+  }
+  for (const v of T.siteProductViews(site)) urls.push('<url><loc>' + R.esc(origin) + '/product/' + R.esc(v.id) + '</loc></url>');
   res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls.join('') + '</urlset>');
 });
@@ -804,7 +832,7 @@ app.get('/owner/sites', (req, res) => { if (!guardOwner(req, res)) return; res.s
 app.get('/owner/sites/new', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.siteForm(db, null)); });
 app.post('/owner/sites', async (req, res) => {
   if (!guardOwner(req, res)) return;
-  const error = passwordError(req.body.adminPassword, true);
+  const error = siteError(req.body, null) || passwordError(req.body.adminPassword, true);
   if (error) return res.send(O.siteForm(db, null, { error, draft: req.body }), 400);
   const logo = await optimizeUploads(req.filesFor('logo'), 480);
   db.createSite(Object.assign(siteFields(req.body), {
@@ -818,14 +846,21 @@ app.post('/owner/sites/:id', async (req, res) => {
   if (!guardOwner(req, res)) return;
   const current = db.getSite(req.params.id);
   if (!current) return res.redirect('/owner/sites');
-  const error = passwordError(req.body.adminPassword, false);
+  const error = siteError(req.body, current) || passwordError(req.body.adminPassword, false);
   if (error) return res.send(O.siteForm(db, current, { error, draft: req.body }), 400);
   const logo = await resolveLogo(req, current);
   db.updateSite(req.params.id, Object.assign(siteFields(req.body, current), { hosts: req.body.hosts, logoImage: logo.value }));
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
   res.redirect('/owner/sites?flash=' + encodeURIComponent('Сохранено'));
 });
-app.post('/owner/sites/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteSite(req.params.id); res.redirect('/owner/sites?flash=' + encodeURIComponent('Домен удалён')); });
+app.post('/owner/sites/:id/delete', (req, res) => {
+  if (!guardOwner(req, res)) return;
+  if (db.getSites().length <= 1) {
+    return res.redirect('/owner/sites?flash=' + encodeURIComponent('Нельзя удалить последний домен — сначала создайте новый'));
+  }
+  db.deleteSite(req.params.id);
+  res.redirect('/owner/sites?flash=' + encodeURIComponent('Домен удалён'));
+});
 
 // Заказы (все) + настройки владельца
 app.get('/owner/orders', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.ordersList(db, req.query.flash)); });
@@ -919,7 +954,7 @@ app.post('/admin/orders/:id/delete', (req, res) => {
 app.get('/admin/settings', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.settingsPage(db, site, req.query.flash)); });
 app.post('/admin/settings', async (req, res) => {
   const site = guardSite(req, res); if (!site) return;
-  const error = passwordError(req.body.adminPassword, false);
+  const error = siteError(req.body, site) || passwordError(req.body.adminPassword, false);
   if (error) return res.send(S.settingsPage(db, site, error, 'err'), 400);
   const logo = await resolveLogo(req, site);
   db.updateSite(site.id, Object.assign(siteFields(req.body, site), { logoImage: logo.value }));
@@ -928,7 +963,13 @@ app.post('/admin/settings', async (req, res) => {
 });
 
 /* =========================== 404 =========================== */
-app.notFound = (req, res) => { const site = siteOf(req); trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url }); res.send(R.homePage(T.siteSettings(site), db, { q: '', noindex: true }, site), 404); };
+app.notFound = (req, res) => {
+  const site = siteOf(req);
+  trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url });
+  res.send(R.notFoundPage(T.siteSettings(site), {
+    origin: originOf(req), categories: T.siteCategories(site)
+  }), 404);
+};
 
 const httpServer = app.listen(PORT, () => {
   const weak = [];

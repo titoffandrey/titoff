@@ -16,6 +16,7 @@ const ownerViews = require('../lib/owner-views');
 const siteViews = require('../lib/site-views');
 const analyticsView = require('../lib/analytics-view');
 const variants = require('../lib/variants');
+const tenancy = require('../lib/tenancy');
 const images = require('../lib/images');
 const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
@@ -130,6 +131,12 @@ test('хосты нормализуются вместе с IPv4, IPv6 и пор
   assert.equal(dbCore.normHost('www.Example.com:443'), 'example.com');
   assert.equal(dbCore.normHost('[::1]:3000'), '::1');
   assert.equal(dbCore.normHost('::1'), '::1');
+  const sites = [
+    { id: 'one', hosts: ['www.Example.com', 'shop.test'] },
+    { id: 'two', hosts: ['other.test'] }
+  ];
+  assert.deepEqual(dbCore.findHostConflicts('example.com, new.test', null, sites), ['example.com']);
+  assert.deepEqual(dbCore.findHostConflicts('example.com', 'one', sites), []);
 });
 
 test('битый URL и cookie не завершают обработчик', async () => {
@@ -206,6 +213,24 @@ test('privacy-браузер может отправить формы входа
   }), res);
 
   assert.equal(res.statusCode, 200);
+});
+
+test('явный cross-site Origin не проходит даже на форме входа', async () => {
+  const app = new App({ secret: 'test', forceHttps: true });
+  let calls = 0;
+  app.post('/owner/login', (req, res) => { calls++; res.json({ ok: true }); });
+
+  const res = response();
+  await app.handle(request('/owner/login', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: {
+      host: 'shop.test', origin: 'https://evil.test', 'sec-fetch-site': 'cross-site',
+      'content-type': 'application/json'
+    }
+  }), res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(calls, 0);
 });
 
 test('скрытый Origin внутри панели требует подписанную авторизованную сессию', async () => {
@@ -324,6 +349,45 @@ test('каталог загрузок не раздаёт HTML и SVG', async t 
   assert.equal(missing.body.toString(), 'Не найдено');
 });
 
+test('статика корректно разделяет identity и сжатые ответы, включая 304', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-static-cache-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'large.css'), '.card{color:#123456}\n'.repeat(100));
+  const app = new App({ secret: 'test' });
+  app.static('/static', dir);
+
+  const identity = response();
+  await app.handle(request('/static/large.css', { headers: { 'accept-encoding': 'identity' } }), identity);
+  assert.equal(identity.statusCode, 200);
+  assert.equal(identity.headers.vary, 'Accept-Encoding');
+  assert.equal(identity.headers['content-encoding'], undefined);
+
+  const cached = response();
+  await app.handle(request('/static/large.css', {
+    headers: { 'accept-encoding': 'br', 'if-none-match': identity.headers.etag }
+  }), cached);
+  assert.equal(cached.statusCode, 304);
+  assert.equal(cached.headers.vary, 'Accept-Encoding');
+  assert.equal(cached.headers['content-encoding'], 'br');
+});
+
+test('Content-Type разбирается без учёта регистра, а query не наследует prototype', async () => {
+  const app = new App({ secret: 'test' });
+  app.post('/json', (req, res) => res.json(req.body));
+  app.get('/query', (req, res) => res.json(req.query));
+
+  const json = response();
+  await app.handle(request('/json', {
+    method: 'POST', body: Buffer.from('{"ok":true}'),
+    headers: { 'content-type': 'Application/JSON; Charset=UTF-8' }
+  }), json);
+  assert.deepEqual(JSON.parse(json.body), { ok: true });
+
+  const query = response();
+  await app.handle(request('/query?constructor=a&toString=b'), query);
+  assert.deepEqual(JSON.parse(query.body), { constructor: 'a', toString: 'b' });
+});
+
 test('рендер экранирует категорию, валюту и CSS-цвет', () => {
   const db = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const payload = '</script><script>globalThis.pwned=1</script>';
@@ -414,6 +478,18 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(report.pages.some(x => x.label === '/404'), false);
   assert.equal(report.daily.length, 7);
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
+});
+
+test('метрика безопасно считает специальные ключи объектов', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-keys-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  analytics.recordPageView({
+    id: 'e'.repeat(32), siteId: 'shop', path: '/',
+    context: { device: 'Компьютер', browser: 'Тест', os: 'Тест', utmCampaign: '__proto__' }
+  });
+  const report = analytics.snapshot({ siteId: 'shop', days: 1 });
+  assert.deepEqual(report.campaigns, [{ label: '__proto__', value: 1 }]);
 });
 
 test('раздел метрики защищён панелью и показывает понятные показатели', () => {
@@ -596,6 +672,13 @@ test('корзина не подменяет исчезнувший вариан
   assert.equal(variants.findBand(view, 'Ocean Band · Purple'), null);
 });
 
+test('нулевая или некорректная ручная цена не превращает товар в бесплатный', () => {
+  const product = { id: 'p', price: 1000 };
+  assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 0 } } }), 2000);
+  assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 'abc' } } }), 2000);
+  assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 1500 } } }), 1500);
+});
+
 test('наличие учитывает совместимость ремешка, а карточка требует выбрать вариант', () => {
   const watch = {
     id: 'watch', name: 'Часы', category: 'Watch', price: 100, inStock: true, images: [], storages: [],
@@ -626,6 +709,9 @@ test('счётчик отзывов склоняется по-русски', () 
   const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
   assert.match(html, /1 отзыв/);
   assert.doesNotMatch(html, /1 отзывов/);
+  assert.match(html, /class="qty-input" aria-label="Количество"/);
+  assert.match(html, /role="radiogroup" aria-label="Общая оценка"/);
+  assert.match(html, /role="radio" aria-label="5 из 5" aria-checked="true"/);
 });
 
 test('подписи полей админки связаны с элементами форм', () => {
@@ -672,7 +758,23 @@ test('оформление, поиск и 404 закрыты от индекса
   assert.match(render.homePage(settings, fakeDb, { q: 'iphone' }), /content="noindex,follow"/);
   assert.match(render.homePage(settings, fakeDb, { q: '', noindex: true }), /content="noindex,follow"/);
   assert.match(render.homePage(settings, fakeDb, {}), /content="index,follow">/);
-  assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /content="index,follow">/);
+  assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /content="noindex,follow">/);
+
+  const categoryDb = {
+    getProducts: () => [{ id: 'mac', name: 'Mac', category: 'Mac', price: 100, inStock: true }],
+    categories: () => ['Mac'], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  const category = render.homePage(settings, categoryDb, { category: 'Mac', origin: 'https://shop.test' });
+  assert.match(category, /content="index,follow"/);
+  assert.match(category, /rel="canonical" href="https:\/\/shop\.test\/\?category=Mac"/);
+  const invalidCategory = render.homePage(settings, categoryDb, { category: 'Unknown', origin: 'https://shop.test' });
+  assert.match(invalidCategory, /content="noindex,follow"/);
+
+  const notFound = render.notFoundPage(settings, { origin: 'https://shop.test', categories: ['Mac'] });
+  assert.match(notFound, /Ошибка 404/);
+  assert.match(notFound, /content="noindex,follow"/);
+  assert.doesNotMatch(notFound, /rel="canonical"/);
+  assert.doesNotMatch(notFound, /class="card/);
 });
 
 test('админка сайта отдаёт закрытое правило :root', () => {
@@ -697,6 +799,8 @@ test('корзина различает варианты одного товар
   // выдвижная корзина показывает подпись варианта: /api/cart возвращает базовое имя
   assert.match(js, /cart-item-variant/);
   assert.match(css, /\.cart-item-variant\{/);
+  assert.match(js, /item\.img = fresh\.img \|\| ''/);
+  assert.match(js, /addBtn\.dataset\.name = baseName;/);
   // блок вариантов запускается и когда у товара только ремешки
   assert.match(js, /getElementById\('bands'\)\)\) \{/);
   assert.equal(analyticsView.pageLabel('/checkout', {}), 'Оформление заказа');
