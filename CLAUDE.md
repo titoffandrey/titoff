@@ -36,6 +36,7 @@ ssh istore-onion
 - пользователь — `titoff`;
 - проект — `/home/titoff/istore`;
 - PM2-процесс — `istore`;
+- **данные — `/var/lib/apple-store`, а не `data/` внутри проекта**: процесс запущен с `STORE_DATA_DIR`. Каталог `istore/data` там тоже есть, но он не используется, и правка в нём на витрину не влияет. Любую команду, которая пишет в хранилище, запускай с этой переменной: `STORE_DATA_DIR=/var/lib/apple-store node scripts/demo-reviews.js --apply`. Резервные копии — `/var/lib/apple-store/backups`;
 - `sudo -n` доступен для необходимых системных проверок;
 - Tor onion-служба обслуживается `tor@default`.
 
