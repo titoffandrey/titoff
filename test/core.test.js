@@ -775,14 +775,18 @@ test('срез отзывов сортирует и режет одинаков�
   const list = [
     { id: 'a', rating: 5, text: 'коротко', createdAt: 10 },
     { id: 'b', rating: 5, text: 'подробный отзыв', createdAt: 20 },
-    { id: 'c', rating: 2, text: 'плохо', createdAt: 30 }
+    { id: 'c', rating: 2, text: 'плохо', createdAt: 30 },
+    { id: 'd', rating: 2, text: 'тоже плохо', createdAt: 5 }
   ];
-  const helpful = render.reviewsSlice(list, 'helpful', 1);
-  assert.deepEqual(helpful.items.map(r => r.id), ['b', 'a', 'c']);
-  const fresh = render.reviewsSlice(list, 'new', 1);
-  assert.deepEqual(fresh.items.map(r => r.id), ['c', 'b', 'a']);
-  assert.equal(fresh.sort, 'new');
-  assert.equal(render.reviewsSlice(list, 'мусор', 0).sort, 'helpful');
+  assert.deepEqual(render.reviewsSlice(list, 'new', 1).items.map(r => r.id), ['c', 'b', 'a', 'd']);
+  // Внутри одной оценки — сначала свежие, иначе жалобы трёхлетней давности
+  // открывают ленту вперёд сегодняшних.
+  assert.deepEqual(render.reviewsSlice(list, 'low', 1).items.map(r => r.id), ['c', 'd', 'b', 'a']);
+  assert.deepEqual(render.reviewsSlice(list, 'high', 1).items.map(r => r.id), ['b', 'a', 'c', 'd']);
+  // По умолчанию и на любой мусор в адресе — новые.
+  assert.equal(render.reviewsSlice(list, 'мусор', 0).sort, 'new');
+  assert.equal(render.reviewsSlice(list, 'helpful', 1).sort, 'new');
+  assert.equal(render.reviewsSlice(list, undefined, 1).sort, 'new');
   assert.equal(render.reviewsSlice([], 'new', 5).page, 1);
   assert.equal(render.reviewsSlice([], 'new', 5).from, 0);
 });

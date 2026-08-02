@@ -901,7 +901,7 @@
       function revState() {
         return {
           sort: (revPager && revPager.dataset.sort)
-            || ((document.querySelector('.sort-btn.active') || {}).dataset || {}).sort || 'helpful',
+            || ((document.querySelector('.sort-btn.active') || {}).dataset || {}).sort || 'new',
           page: Number(revPager && revPager.dataset.page) || 1
         };
       }
@@ -978,7 +978,7 @@
         if (!s || !s.rpage) {
           // Состояние без наших полей — это первый вход на страницу товара.
           var params = new URLSearchParams(location.search);
-          s = { rsort: params.get('rsort') || 'helpful', rpage: Number(params.get('rpage')) || 1 };
+          s = { rsort: params.get('rsort') || 'new', rpage: Number(params.get('rpage')) || 1 };
         }
         var now = revState();
         if (s.rsort === now.sort && s.rpage === now.page) return;

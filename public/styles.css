@@ -1350,6 +1350,8 @@ body.admin{background:#f4f4f6;color:#242426}
   .rating-bars{min-width:180px}
   .reviews-toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .reviews-toolbar>*{flex:none}
+  /* Без подписи три режима помещаются в строку и не требуют прокрутки */
+  .sort-label{display:none}
   /* На узком экране ряд сокращается до стрелок, краёв и ближайших соседей.
      Кнопки уже, но по-прежнему высотой в палец, и ряд остаётся в одну строку. */
   .rev-far{display:none}
