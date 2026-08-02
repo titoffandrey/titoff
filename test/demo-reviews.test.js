@@ -11,6 +11,7 @@ const {
   DEMO_SOURCE,
   RELEASE_DATES,
   REVIEW_COUNTS,
+  REGIONAL_NAMES,
   generateDemoReviews,
   isDemoReview
 } = require('../lib/demo-reviews');
@@ -18,24 +19,39 @@ const {
 const NOW = Date.parse('2026-08-02T12:00:00+03:00');
 const reviews = generateDemoReviews(products, { now: NOW });
 
-test('для каждого товара создается заданное число явно помеченных демо-отзывов', () => {
+test('у каждого товара своё число отзывов, а метка демо не видна посетителю', () => {
   const counts = new Map();
   for (const review of reviews) counts.set(review.productId, (counts.get(review.productId) || 0) + 1);
 
-  assert.equal(reviews.length, 7110);
+  assert.equal(reviews.length, 6998);
   assert.equal(Object.keys(REVIEW_COUNTS).length, products.length);
+  // Одинаковые счётчики у соседних товаров сразу выдают сгенерированный набор.
+  assert.equal(new Set(Object.values(REVIEW_COUNTS)).size, products.length);
   for (const product of products) {
     assert.ok(REVIEW_COUNTS[product.id] >= 50 && REVIEW_COUNTS[product.id] <= 300);
     assert.equal(counts.get(product.id), REVIEW_COUNTS[product.id], product.id);
   }
 
   for (const review of reviews) {
-    assert.match(review.author, / \(демо\)$/);
+    // Пометки в тексте и имени нет: демо-отзыв отличают только служебные поля.
+    assert.doesNotMatch(review.author, /демо/i);
+    assert.doesNotMatch(review.text, /демо/i);
     assert.equal(review.demo, true);
     assert.equal(review.source, DEMO_SOURCE);
     assert.equal(review.status, 'approved');
     assert.equal(isDemoReview(review), true);
   }
+});
+
+test('имена по умолчанию русские, но не только', () => {
+  const regional = new Set(REGIONAL_NAMES);
+  const nameOf = review => review.author.split(' ')[0];
+  const share = reviews.filter(review => regional.has(nameOf(review))).length / reviews.length;
+  assert.ok(share > 0.05, `нерусских имён слишком мало: ${share}`);
+  assert.ok(share < 0.2, `русские имена перестали быть подавляющим большинством: ${share}`);
+  // В наборе должны встречаться имена разных народов, а не одно и то же.
+  const used = new Set(reviews.map(nameOf).filter(name => regional.has(name)));
+  assert.ok(used.size > REGIONAL_NAMES.length * 0.8);
 });
 
 test('даты отзывов покрывают период от релиза до текущего дня', () => {
@@ -50,15 +66,43 @@ test('даты отзывов покрывают период от релиза 
 });
 
 test('тексты разнообразны, ориентированы на сервис и не используют длинный дефис', () => {
+  // Развёрнутые отзывы не повторяются, а короткие «Все супер» совпадают и у
+  // настоящих покупателей — требовать от них уникальности бессмысленно.
+  const long = reviews.filter(review => review.text.length > 60);
   const unique = new Set(reviews.map(review => review.text));
   const aboutService = reviews.filter(review =>
     /(менеджер|сотрудник|магазин|заказ|достав|курьер|выдач|упаков|чате|привез)/i.test(review.text));
   const aboutGift = reviews.filter(review => /(подар|дню рождения|всей семье)/i.test(review.text));
 
-  assert.ok(unique.size / reviews.length > 0.98);
-  assert.ok(aboutService.length / reviews.length > 0.85);
+  assert.equal(new Set(long.map(review => review.text)).size, long.length);
+  assert.ok(unique.size / reviews.length > 0.85);
+  assert.ok(aboutService.length / reviews.length > 0.8);
   assert.ok(aboutGift.length / reviews.length > 0.2);
   assert.equal(reviews.some(review => /[—–]/.test(review.text)), false);
+});
+
+test('лента выглядит живой: короткие отзывы, эмодзи и опечатки', () => {
+  const short = reviews.filter(review => review.text.length <= 45);
+  const emoji = reviews.filter(review => /\p{Extended_Pictographic}/u.test(review.text));
+  const veryShort = reviews.filter(review => review.text.length <= 12);
+
+  assert.ok(short.length / reviews.length > 0.15, `коротких мало: ${short.length / reviews.length}`);
+  assert.ok(short.length / reviews.length < 0.35);
+  assert.ok(emoji.length / reviews.length > 0.1, `эмодзи мало: ${emoji.length / reviews.length}`);
+  assert.ok(emoji.length / reviews.length < 0.3, 'эмодзи не должны быть в большинстве отзывов');
+  assert.ok(veryShort.length > 0, 'нет отзывов в одно-два слова');
+  // Опечатки: хотя бы у каждого десятого отзыва встречается искажённое слово.
+  const typos = reviews.filter(review => /(вообщем|нравиться|бысто|доствка|пришол|спсибо|минеджер|седня)/i.test(review.text));
+  assert.ok(typos.length / reviews.length > 0.02, `опечаток мало: ${typos.length / reviews.length}`);
+  // Троек не касаются восторженные эмодзи.
+  assert.equal(reviews.some(review => review.rating === 3 && /[👍🔥❤😍👏💪]/u.test(review.text)), false);
+});
+
+test('подарок супругу или партнёру подобран по полу автора', () => {
+  const wrong = reviews.filter(review =>
+    (review.demoPersona.gender === 'female' && /подар\S* (жене|девушке)/i.test(review.text))
+    || (review.demoPersona.gender === 'male' && /подар\S* (мужу|парню)/i.test(review.text)));
+  assert.deepEqual(wrong.map(review => review.text), []);
 });
 
 test('есть разные возрасты, оба пола и умеренно негативные оценки', () => {
