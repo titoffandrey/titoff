@@ -8,6 +8,8 @@
     "start": "node server.js",
     "test": "node --test test/*.test.js",
     "reset:owner": "node scripts/reset-owner-password.js",
+    "reviews:demo": "node scripts/demo-reviews.js --apply",
+    "reviews:demo:remove": "node scripts/demo-reviews.js --remove",
     "seed": "node seed.js",
     "seed:all": "node seed.js --all"
   },
