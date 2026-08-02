@@ -316,7 +316,11 @@ app.get('/product/:id', (req, res) => {
   const ownReviews = mine.length
     ? db.getReviews().filter(rv => rv.productId === view.id && rv.status !== 'approved' && mine.includes(rv.id))
     : [];
-  res.send(R.productPage(T.siteSettings(site), db, view, site, { origin: originOf(req), ownReviews }));
+  res.send(R.productPage(T.siteSettings(site), db, view, site, {
+    origin: originOf(req), ownReviews,
+    // Без JS «Показать ещё» — обычная ссылка на следующую страницу отзывов.
+    reviewSort: req.query.rsort, reviewPage: req.query.rpage
+  }));
 });
 
 app.get('/checkout', (req, res) => {
@@ -420,6 +424,21 @@ app.get('/sitemap.xml', (req, res) => {
   for (const v of T.siteProductViews(site)) urls.push('<url><loc>' + R.esc(origin) + '/product/' + R.esc(v.id) + '</loc></url>');
   res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });
   res.end('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls.join('') + '</urlset>');
+});
+
+// Догрузка отзывов на странице товара: разметка карточки живёт в render.js,
+// поэтому сервер отдаёт готовый HTML порции — витрине остаётся его вставить.
+app.get('/api/reviews', (req, res) => {
+  if (rateLimited(req, 'reviews-page', 120, 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  const site = siteOf(req);
+  const view = T.siteProductView(site, req.query.productId);
+  if (!view) return res.json({ ok: false, error: 'Товар не найден' }, 404);
+  const published = site ? T.siteReviews(site, view.id) : db.reviewsForProduct(view.id, true);
+  const slice = R.reviewsSlice(published, req.query.sort, req.query.page);
+  res.json({
+    ok: true, html: slice.html, sort: slice.sort, page: slice.page, pages: slice.pages,
+    total: slice.total, shown: slice.to, next: Math.min(R.REVIEWS_PER_PAGE, slice.total - slice.to)
+  });
 });
 
 // Отзыв посетителя -> общий каталог, на модерацию к владельцу

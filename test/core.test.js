@@ -714,6 +714,53 @@ test('счётчик отзывов склоняется по-русски', () 
   assert.match(html, /role="radio" aria-label="5 из 5" aria-checked="true"/);
 });
 
+test('отзывы отдаются порциями, а свой неодобренный закреплён сверху', () => {
+  const per = render.REVIEWS_PER_PAGE;
+  const many = Array.from({ length: per * 3 + 2 }, (_, i) => ({
+    id: 'r' + i, author: 'Автор ' + i, rating: (i % 5) + 1, text: 'x'.repeat(i + 1),
+    status: 'approved', createdAt: 1000 + i
+  }));
+  const db = { reviewsForProduct: () => many, ratingFor: () => ({ avg: 4, count: many.length }), categories: () => [] };
+  const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
+  const count = html => (html.match(/class="review"/g) || []).length;
+
+  const first = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
+  assert.equal(count(first), per, 'на странице только первая порция');
+  assert.match(first, /reviews-more" href="[^"]*rpage=2#reviews"/);
+  assert.match(first, /Отзывы 1–8 из 26/);
+  // Без JS сортировка и страница приходят из адреса, а не из состояния браузера.
+  const third = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { reviewSort: 'new', reviewPage: 3 });
+  assert.equal(count(third), per);
+  assert.match(third, /reviews-prev" href="[^"]*rpage=2#reviews"/);
+  assert.match(third, /class="sort-btn active"[^>]*data-sort="new"/);
+  // Номер страницы приходит из запроса, поэтому мусор и выход за край не должны падать.
+  const beyond = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { reviewSort: 'нет', reviewPage: '999' });
+  assert.equal(count(beyond), 2);
+  assert.doesNotMatch(beyond, /reviews-more/);
+
+  const own = { id: 'own', author: 'Я', rating: 1, text: 'мой', status: 'pending', createdAt: 5 };
+  const mine = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { ownReviews: [own] });
+  const ownAt = mine.indexOf('reviews-own');
+  assert.ok(ownAt > -1 && ownAt < mine.indexOf('id="reviews-list"'), 'свой отзыв выше общего списка');
+  assert.equal(count(mine), per + 1);
+});
+
+test('срез отзывов сортирует и режет одинаково для страницы и для догрузки', () => {
+  const list = [
+    { id: 'a', rating: 5, text: 'коротко', createdAt: 10 },
+    { id: 'b', rating: 5, text: 'подробный отзыв', createdAt: 20 },
+    { id: 'c', rating: 2, text: 'плохо', createdAt: 30 }
+  ];
+  const helpful = render.reviewsSlice(list, 'helpful', 1);
+  assert.deepEqual(helpful.items.map(r => r.id), ['b', 'a', 'c']);
+  const fresh = render.reviewsSlice(list, 'new', 1);
+  assert.deepEqual(fresh.items.map(r => r.id), ['c', 'b', 'a']);
+  assert.equal(fresh.sort, 'new');
+  assert.equal(render.reviewsSlice(list, 'мусор', 0).sort, 'helpful');
+  assert.equal(render.reviewsSlice([], 'new', 5).page, 1);
+  assert.equal(render.reviewsSlice([], 'new', 5).from, 0);
+});
+
 test('подписи полей админки связаны с элементами форм', () => {
   const login = ownerViews.loginPage(null);
   assert.match(login, /<label for="owner-login">Логин<\/label><input id="owner-login"/);

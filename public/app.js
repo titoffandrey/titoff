@@ -888,22 +888,78 @@
       applyVariant();
     }
 
-    // Сортировка отзывов
+    // Сортировка и догрузка отзывов. Сортирует и режет на страницы сервер: на
+    // странице лежит только первая порция, поэтому сортировать в браузере нечего.
+    // Кнопки — настоящие ссылки на ?rsort/?rpage: если запрос не удался, просто
+    // переходим по ссылке, и посетитель получает ту же выдачу обычной страницей.
     var revList = document.getElementById('reviews-list');
-    var toolbar = document.querySelector('.reviews-toolbar');
-    if (revList && toolbar) {
-      toolbar.addEventListener('click', function (e) {
-        var b = e.target.closest('.sort-btn'); if (!b) return;
-        toolbar.querySelectorAll('.sort-btn').forEach(function (x) { x.classList.remove('active'); });
-        b.classList.add('active');
-        var mode = b.dataset.sort;
-        var arts = Array.prototype.slice.call(revList.querySelectorAll('.review'));
-        arts.sort(function (a, z) {
-          if (mode === 'new') return Number(z.dataset.ts) - Number(a.dataset.ts);
-          var d = Number(z.dataset.rating) - Number(a.dataset.rating); if (d) return d;
-          return Number(z.dataset.len) - Number(a.dataset.len);
-        });
-        arts.forEach(function (a) { revList.appendChild(a); });
+    var revToolbar = document.querySelector('.reviews-toolbar');
+    var revPager = document.getElementById('reviews-pager');
+    if (revList && revList.dataset.product && (revToolbar || revPager)) {
+      var revBusy = false;
+      var revSort = (revPager && revPager.dataset.sort)
+        || ((document.querySelector('.sort-btn.active') || {}).dataset || {}).sort || 'helpful';
+
+      function revPagerUpdate(d) {
+        revList.removeAttribute('aria-busy');
+        if (!revPager) return;
+        revSort = d.sort;
+        revPager.dataset.sort = d.sort;
+        revPager.dataset.page = d.page;
+        var prev = revPager.querySelector('.reviews-prev');
+        if (prev) prev.remove(); // список растёт вниз — «предыдущие» нужны только без JS
+        // Считаем по факту, а не по номеру страницы: догрузка могла начаться
+        // не с первой (посетитель пришёл по ссылке вида ?rpage=3).
+        var shown = document.getElementById('reviews-shown');
+        if (shown) shown.textContent = 'Показано ' + revList.querySelectorAll('.review').length + ' из ' + d.total;
+        var more = revPager.querySelector('.reviews-more');
+        if (!more) return;
+        if (d.page >= d.pages) { revPager.classList.add('reviews-pager-end'); more.remove(); return; }
+        more.removeAttribute('aria-busy');
+        more.textContent = 'Показать ещё ' + d.next;
+        more.href = revList.dataset.href + '?rsort=' + d.sort + '&rpage=' + (d.page + 1) + '#reviews';
+      }
+
+      function revLoad(sort, page, replace, fallback) {
+        if (revBusy) return;
+        revBusy = true;
+        var more = revPager && revPager.querySelector('.reviews-more');
+        var moreText = more ? more.textContent : '';
+        if (more && !replace) { more.textContent = 'Загружаем…'; more.setAttribute('aria-busy', 'true'); }
+        revList.setAttribute('aria-busy', 'true');
+        fetch('/api/reviews?productId=' + encodeURIComponent(revList.dataset.product)
+          + '&sort=' + encodeURIComponent(sort) + '&page=' + encodeURIComponent(page))
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d || !d.ok) throw new Error('reviews');
+            revBusy = false;
+            if (replace) revList.innerHTML = d.html;
+            else revList.insertAdjacentHTML('beforeend', d.html);
+            revPagerUpdate(d);
+          })
+          .catch(function () {
+            revBusy = false;
+            revList.removeAttribute('aria-busy');
+            if (more) { more.textContent = moreText; more.removeAttribute('aria-busy'); }
+            if (fallback) location.href = fallback;
+          });
+      }
+
+      if (revToolbar) revToolbar.addEventListener('click', function (e) {
+        var b = e.target.closest('.sort-btn'); if (!b || !b.dataset.sort) return;
+        e.preventDefault();
+        if (b.classList.contains('active') || revBusy) return;
+        revToolbar.querySelectorAll('.sort-btn').forEach(function (x) { x.classList.remove('active'); x.removeAttribute('aria-current'); });
+        b.classList.add('active'); b.setAttribute('aria-current', 'true');
+        // Сортировка остаётся в адресе — после перезагрузки страница откроется такой же.
+        try { history.replaceState(null, '', revList.dataset.href + '?rsort=' + b.dataset.sort); } catch (err) {}
+        revLoad(b.dataset.sort, 1, true, b.href);
+      });
+
+      if (revPager) revPager.addEventListener('click', function (e) {
+        var a = e.target.closest('.reviews-more'); if (!a) return;
+        e.preventDefault();
+        revLoad(revSort, Number(revPager.dataset.page || 1) + 1, false, a.href);
       });
     }
 
