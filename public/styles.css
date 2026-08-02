@@ -695,9 +695,23 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .sort-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
 /* Свои отзывы на модерации закреплены сверху и не участвуют в постраничной выдаче */
 .reviews-own{margin-bottom:14px}
-.reviews-pager{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:26px}
-.reviews-more[aria-busy="true"]{opacity:.6;pointer-events:none}
-.reviews-shown{margin-left:auto}
+.reviews-pager{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:26px}
+.reviews-pager[aria-busy="true"]{opacity:.55;pointer-events:none}
+.rev-pages{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center}
+.rev-page{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
+  min-width:38px;height:38px;padding:0 10px;border:1px solid var(--border-soft);border-radius:12px;
+  background:#fff;color:var(--text);font-size:14px;font-variant-numeric:tabular-nums;text-decoration:none;
+  transition:background .15s ease,border-color .15s ease,color .15s ease}
+.rev-page:hover{background:var(--bg2);border-color:var(--border)}
+.rev-page:active{transform:scale(.96)}
+.rev-cur{background:var(--text);border-color:var(--text);color:#fff;font-weight:600}
+.rev-cur:hover{background:var(--text);border-color:var(--text)}
+.rev-arrow{padding:0 8px}
+.rev-arrow svg{width:17px;height:17px}
+/* Крайние стрелки не убираем: без них ряд прыгает на первой и последней странице */
+.rev-off{opacity:.28;pointer-events:none}
+.rev-gap{padding:0 2px;color:var(--muted);font-size:14px;user-select:none}
+.reviews-shown{font-variant-numeric:tabular-nums}
 .review-aspects{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .asp-chip{font-size:12px;color:var(--muted);background:var(--bg2);border-radius:8px;padding:3px 8px}
 .aspect-inputs{display:flex;flex-direction:column;gap:8px;margin:8px 0 14px}
@@ -1336,9 +1350,13 @@ body.admin{background:#f4f4f6;color:#242426}
   .rating-bars{min-width:180px}
   .reviews-toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   .reviews-toolbar>*{flex:none}
-  .reviews-pager{gap:10px}
-  .reviews-pager .btn{flex:1 1 auto;min-height:44px}
-  .reviews-shown{width:100%;margin-left:0;text-align:center}
+  /* На узком экране ряд сокращается до стрелок, краёв и ближайших соседей.
+     Кнопки уже, но по-прежнему высотой в палец, и ряд остаётся в одну строку. */
+  .rev-far{display:none}
+  .rev-pages{gap:4px;flex-wrap:nowrap}
+  .rev-page{min-width:34px;height:40px;padding:0 6px}
+  .rev-arrow{padding:0 6px}
+  .rev-gap{padding:0}
 
   .footer-grid{grid-template-columns:1fr;gap:24px}
   .footer-contacts{display:block}

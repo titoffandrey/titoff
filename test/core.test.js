@@ -714,7 +714,7 @@ test('счётчик отзывов склоняется по-русски', () 
   assert.match(html, /role="radio" aria-label="5 из 5" aria-checked="true"/);
 });
 
-test('отзывы отдаются порциями, а свой неодобренный закреплён сверху', () => {
+test('отзывы листаются страницами, а свой неодобренный закреплён сверху', () => {
   const per = render.REVIEWS_PER_PAGE;
   const many = Array.from({ length: per * 3 + 2 }, (_, i) => ({
     id: 'r' + i, author: 'Автор ' + i, rating: (i % 5) + 1, text: 'x'.repeat(i + 1),
@@ -725,24 +725,50 @@ test('отзывы отдаются порциями, а свой неодобр
   const count = html => (html.match(/class="review"/g) || []).length;
 
   const first = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
-  assert.equal(count(first), per, 'на странице только первая порция');
-  assert.match(first, /reviews-more" href="[^"]*rpage=2#reviews"/);
+  assert.equal(count(first), per, 'на странице только одна порция');
+  assert.match(first, /rev-page" href="[^"]*rpage=2#reviews" data-page="2"/);
   assert.match(first, /Отзывы 1–8 из 26/);
+  // На первой странице стрелка «назад» не ссылка, но остаётся на месте.
+  assert.match(first, /rev-page rev-arrow rev-off/);
+  assert.match(first, /<span class="rev-page rev-cur" aria-current="page">1<\/span>/);
   // Без JS сортировка и страница приходят из адреса, а не из состояния браузера.
   const third = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { reviewSort: 'new', reviewPage: 3 });
   assert.equal(count(third), per);
-  assert.match(third, /reviews-prev" href="[^"]*rpage=2#reviews"/);
+  assert.match(third, /rev-page rev-arrow" href="[^"]*rpage=2#reviews" rel="prev"/);
+  assert.match(third, /rev-page rev-arrow" href="[^"]*rpage=4#reviews" rel="next"/);
   assert.match(third, /class="sort-btn active"[^>]*data-sort="new"/);
   // Номер страницы приходит из запроса, поэтому мусор и выход за край не должны падать.
   const beyond = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { reviewSort: 'нет', reviewPage: '999' });
   assert.equal(count(beyond), 2);
-  assert.doesNotMatch(beyond, /reviews-more/);
+  assert.match(beyond, /<span class="rev-page rev-cur" aria-current="page">4<\/span>/);
+  assert.doesNotMatch(beyond, /rpage=5/);
 
   const own = { id: 'own', author: 'Я', rating: 1, text: 'мой', status: 'pending', createdAt: 5 };
   const mine = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { ownReviews: [own] });
   const ownAt = mine.indexOf('reviews-own');
   assert.ok(ownAt > -1 && ownAt < mine.indexOf('id="reviews-list"'), 'свой отзыв выше общего списка');
   assert.equal(count(mine), per + 1);
+});
+
+test('листалка держит ряд коротким и не теряет края', () => {
+  const pagerFor = (page, total) => render.reviewsPager(
+    render.reviewsSlice(Array.from({ length: total }, (_, i) => ({ id: 'r' + i, rating: 5, text: '', createdAt: i })), 'new', page),
+    '/product/p'
+  );
+  const numbers = html => (html.match(/>(\d+)<\/(?:a|span)>/g) || []).map(x => Number(x.replace(/\D/g, '')));
+
+  // 300 отзывов это 38 страниц: в ряду только края, соседи и многоточия.
+  assert.deepEqual(numbers(pagerFor(20, 300)), [1, 18, 19, 20, 21, 22, 38]);
+  assert.equal((pagerFor(20, 300).match(/rev-gap/g) || []).length, 2);
+  // У краёв многоточие только с одной стороны, а ряд не становится длиннее.
+  assert.deepEqual(numbers(pagerFor(1, 300)), [1, 2, 3, 38]);
+  assert.deepEqual(numbers(pagerFor(38, 300)), [1, 36, 37, 38]);
+  assert.equal((pagerFor(1, 300).match(/rev-gap/g) || []).length, 1);
+  // Соседние страницы идут подряд, поэтому многоточия не нужно вовсе.
+  assert.deepEqual(numbers(pagerFor(3, 40)), [1, 2, 3, 4, 5]);
+  assert.equal(pagerFor(3, 40).includes('rev-gap'), false);
+  // Одна страница листалку не рисует.
+  assert.equal(pagerFor(1, 5), '');
 });
 
 test('срез отзывов сортирует и режет одинаково для страницы и для догрузки', () => {

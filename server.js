@@ -436,8 +436,8 @@ app.get('/api/reviews', (req, res) => {
   const published = site ? T.siteReviews(site, view.id) : db.reviewsForProduct(view.id, true);
   const slice = R.reviewsSlice(published, req.query.sort, req.query.page);
   res.json({
-    ok: true, html: slice.html, sort: slice.sort, page: slice.page, pages: slice.pages,
-    total: slice.total, shown: slice.to, next: Math.min(R.REVIEWS_PER_PAGE, slice.total - slice.to)
+    ok: true, html: slice.html, pager: R.reviewsPager(slice, '/product/' + encodeURIComponent(view.id)),
+    sort: slice.sort, page: slice.page, pages: slice.pages, total: slice.total
   });
 });
 

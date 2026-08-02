@@ -888,60 +888,75 @@
       applyVariant();
     }
 
-    // Сортировка и догрузка отзывов. Сортирует и режет на страницы сервер: на
-    // странице лежит только первая порция, поэтому сортировать в браузере нечего.
-    // Кнопки — настоящие ссылки на ?rsort/?rpage: если запрос не удался, просто
-    // переходим по ссылке, и посетитель получает ту же выдачу обычной страницей.
+    // Отзывы листаются страницами: сервер и сортирует, и режет, а витрина только
+    // подменяет список с листалкой. Номера страниц и «Отзывы 9–16 из 300» приходят
+    // готовой разметкой, чтобы одна и та же логика не считалась ещё раз в браузере.
+    // Ссылки настоящие (?rsort/?rpage): если запрос не удался, переходим по ним.
     var revList = document.getElementById('reviews-list');
     var revToolbar = document.querySelector('.reviews-toolbar');
     var revPager = document.getElementById('reviews-pager');
     if (revList && revList.dataset.product && (revToolbar || revPager)) {
       var revBusy = false;
-      var revSort = (revPager && revPager.dataset.sort)
-        || ((document.querySelector('.sort-btn.active') || {}).dataset || {}).sort || 'helpful';
 
-      function revPagerUpdate(d) {
-        revList.removeAttribute('aria-busy');
-        if (!revPager) return;
-        revSort = d.sort;
-        revPager.dataset.sort = d.sort;
-        revPager.dataset.page = d.page;
-        var prev = revPager.querySelector('.reviews-prev');
-        if (prev) prev.remove(); // список растёт вниз — «предыдущие» нужны только без JS
-        // Считаем по факту, а не по номеру страницы: догрузка могла начаться
-        // не с первой (посетитель пришёл по ссылке вида ?rpage=3).
-        var shown = document.getElementById('reviews-shown');
-        if (shown) shown.textContent = 'Показано ' + revList.querySelectorAll('.review').length + ' из ' + d.total;
-        var more = revPager.querySelector('.reviews-more');
-        if (!more) return;
-        if (d.page >= d.pages) { revPager.classList.add('reviews-pager-end'); more.remove(); return; }
-        more.removeAttribute('aria-busy');
-        more.textContent = 'Показать ещё ' + d.next;
-        more.href = revList.dataset.href + '?rsort=' + d.sort + '&rpage=' + (d.page + 1) + '#reviews';
+      function revState() {
+        return {
+          sort: (revPager && revPager.dataset.sort)
+            || ((document.querySelector('.sort-btn.active') || {}).dataset || {}).sort || 'helpful',
+          page: Number(revPager && revPager.dataset.page) || 1
+        };
       }
 
-      function revLoad(sort, page, replace, fallback) {
+      function revUrl(sort, page) {
+        return revList.dataset.href + '?rsort=' + sort + (page > 1 ? '&rpage=' + page : '');
+      }
+
+      // После смены страницы показываем её с начала списка, иначе посетитель
+      // остаётся на середине предыдущей и не понимает, что именно обновилось.
+      function revScrollToTop() {
+        var head = document.getElementById('reviews');
+        if (!head) return;
+        var top = head.getBoundingClientRect().top + window.pageYOffset - 12;
+        if (window.pageYOffset > top) window.scrollTo({ top: top, behavior: 'smooth' });
+      }
+
+      function revLoad(sort, page, opts) {
+        opts = opts || {};
         if (revBusy) return;
         revBusy = true;
-        var more = revPager && revPager.querySelector('.reviews-more');
-        var moreText = more ? more.textContent : '';
-        if (more && !replace) { more.textContent = 'Загружаем…'; more.setAttribute('aria-busy', 'true'); }
         revList.setAttribute('aria-busy', 'true');
+        if (revPager) revPager.setAttribute('aria-busy', 'true');
         fetch('/api/reviews?productId=' + encodeURIComponent(revList.dataset.product)
           + '&sort=' + encodeURIComponent(sort) + '&page=' + encodeURIComponent(page))
           .then(function (r) { return r.json(); })
           .then(function (d) {
             if (!d || !d.ok) throw new Error('reviews');
             revBusy = false;
-            if (replace) revList.innerHTML = d.html;
-            else revList.insertAdjacentHTML('beforeend', d.html);
-            revPagerUpdate(d);
+            revList.innerHTML = d.html;
+            revList.removeAttribute('aria-busy');
+            if (revPager) {
+              revPager.innerHTML = d.pager;
+              revPager.dataset.sort = d.sort;
+              revPager.dataset.page = d.page;
+              revPager.removeAttribute('aria-busy');
+            }
+            revToolbar && revToolbar.querySelectorAll('.sort-btn').forEach(function (x) {
+              var on = x.dataset.sort === d.sort;
+              x.classList.toggle('active', on);
+              if (on) x.setAttribute('aria-current', 'true'); else x.removeAttribute('aria-current');
+            });
+            // Адрес отражает страницу, поэтому «назад» возвращает к прошлой,
+            // а ссылку на конкретную страницу отзывов можно отправить другому.
+            try {
+              if (opts.push) history.pushState({ rsort: d.sort, rpage: d.page }, '', revUrl(d.sort, d.page));
+              else history.replaceState({ rsort: d.sort, rpage: d.page }, '', revUrl(d.sort, d.page));
+            } catch (err) {}
+            if (opts.scroll) revScrollToTop();
           })
           .catch(function () {
             revBusy = false;
             revList.removeAttribute('aria-busy');
-            if (more) { more.textContent = moreText; more.removeAttribute('aria-busy'); }
-            if (fallback) location.href = fallback;
+            if (revPager) revPager.removeAttribute('aria-busy');
+            if (opts.fallback) location.href = opts.fallback;
           });
       }
 
@@ -949,17 +964,25 @@
         var b = e.target.closest('.sort-btn'); if (!b || !b.dataset.sort) return;
         e.preventDefault();
         if (b.classList.contains('active') || revBusy) return;
-        revToolbar.querySelectorAll('.sort-btn').forEach(function (x) { x.classList.remove('active'); x.removeAttribute('aria-current'); });
-        b.classList.add('active'); b.setAttribute('aria-current', 'true');
-        // Сортировка остаётся в адресе — после перезагрузки страница откроется такой же.
-        try { history.replaceState(null, '', revList.dataset.href + '?rsort=' + b.dataset.sort); } catch (err) {}
-        revLoad(b.dataset.sort, 1, true, b.href);
+        revLoad(b.dataset.sort, 1, { push: true, scroll: true, fallback: b.href });
       });
 
       if (revPager) revPager.addEventListener('click', function (e) {
-        var a = e.target.closest('.reviews-more'); if (!a) return;
+        var a = e.target.closest('a.rev-page'); if (!a || !a.dataset.page) return;
         e.preventDefault();
-        revLoad(revSort, Number(revPager.dataset.page || 1) + 1, false, a.href);
+        revLoad(revState().sort, Number(a.dataset.page), { push: true, scroll: true, fallback: a.href });
+      });
+
+      window.addEventListener('popstate', function (e) {
+        var s = e.state;
+        if (!s || !s.rpage) {
+          // Состояние без наших полей — это первый вход на страницу товара.
+          var params = new URLSearchParams(location.search);
+          s = { rsort: params.get('rsort') || 'helpful', rpage: Number(params.get('rpage')) || 1 };
+        }
+        var now = revState();
+        if (s.rsort === now.sort && s.rpage === now.page) return;
+        revLoad(s.rsort, s.rpage, { scroll: true });
       });
     }
 
