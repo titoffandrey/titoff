@@ -112,12 +112,28 @@ test('лента выглядит живой: короткие отзывы, э�
   assert.ok(short.length / reviews.length < 0.35);
   assert.ok(emoji.length / reviews.length > 0.1, `эмодзи мало: ${emoji.length / reviews.length}`);
   assert.ok(emoji.length / reviews.length < 0.3, 'эмодзи не должны быть в большинстве отзывов');
-  assert.ok(veryShort.length > 0, 'нет отзывов в одно-два слова');
+  // Отзывы в одно-два слова — заметная часть ленты, а не единичный случай.
+  assert.ok(veryShort.length / reviews.length > 0.05, `совсем коротких мало: ${veryShort.length / reviews.length}`);
+  assert.ok(reviews.some(review => /^(все четко|получил|получила|топ|все ок)(?=$|[^А-Яа-яЁё])/i.test(review.text)));
+  // Эмодзи в коротких ставят охотнее: там они и заменяют недописанное.
+  const tiny = reviews.filter(review => review.text.length <= 25);
+  const tinyEmoji = tiny.filter(review => /\p{Extended_Pictographic}/u.test(review.text));
+  assert.ok(tinyEmoji.length / tiny.length > emoji.length / reviews.length, 'в коротких эмодзи должно быть не реже');
   // Опечатки: хотя бы у каждого десятого отзыва встречается искажённое слово.
   const typos = reviews.filter(review => /(вообщем|нравиться|бысто|доствка|пришол|спсибо|минеджер|седня)/i.test(review.text));
   assert.ok(typos.length / reviews.length > 0.02, `опечаток мало: ${typos.length / reviews.length}`);
   // Троек не касаются восторженные эмодзи.
   assert.equal(reviews.some(review => review.rating === 3 && /[👍🔥❤😍👏💪]/u.test(review.text)), false);
+});
+
+test('цена — главный довод: про неё пишут во многих отзывах', () => {
+  const aboutPrice = reviews.filter(review =>
+    /(цен|дешевл|деньгам|оптов|ценник|стоил|выгодн|экономи)/i.test(review.text));
+  assert.ok(aboutPrice.length / reviews.length > 0.35, `про цену мало: ${aboutPrice.length / reviews.length}`);
+  // Сравнение идёт с «другими магазинами», конкретные сети не называются:
+  // иначе демо-набор превращается в рекламу против чужого бренда.
+  assert.equal(reviews.some(review => /(м\.?видео|днс|эльдорадо|ozon|озон|wildberries|вайлдберриз|яндекс маркет|re:?store)/i.test(review.text)), false);
+  assert.ok(reviews.some(review => /оптов/i.test(review.text)), 'нет упоминания оптовых цен');
 });
 
 test('подарок супругу или партнёру подобран по полу автора', () => {
