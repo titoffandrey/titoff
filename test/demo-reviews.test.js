@@ -12,6 +12,8 @@ const {
   RELEASE_DATES,
   REVIEW_COUNTS,
   REGIONAL_NAMES,
+  NICKNAMES,
+  LATIN_NAMES,
   SHORT_NAMES,
   generateDemoReviews,
   isDemoReview
@@ -48,7 +50,12 @@ test('подписываются именем, а не паспортом: бе�
   const authors = reviews.map(review => review.author);
   // Ни инициалов, ни фамилий: в подписи ровно одно слово.
   assert.equal(authors.some(name => /[.\s]/.test(name)), false);
+  // Короткая форма считается короткой и в латинице: «Саша» часть покупателей
+  // подписывает как «Sasha», это та же короткая подпись, а не полное имя.
   const shortForms = new Set(Object.values(SHORT_NAMES));
+  for (const [name, latin] of Object.entries(LATIN_NAMES)) {
+    if (shortForms.has(name)) for (const variant of latin) shortForms.add(variant);
+  }
   const short = authors.filter(name => shortForms.has(name));
   assert.ok(short.length / authors.length > 0.4, `коротких имён мало: ${short.length / authors.length}`);
   // Полные формы тоже встречаются, иначе подписи выглядят одинаково детскими.
@@ -132,7 +139,11 @@ test('цена — главный довод: про неё пишут во мн
   assert.ok(aboutPrice.length / reviews.length > 0.35, `про цену мало: ${aboutPrice.length / reviews.length}`);
   // Сравнение идёт с «другими магазинами», конкретные сети не называются:
   // иначе демо-набор превращается в рекламу против чужого бренда.
-  assert.equal(reviews.some(review => /(м\.?видео|днс|эльдорадо|ozon|озон|wildberries|вайлдберриз|яндекс маркет|re:?store)/i.test(review.text)), false);
+  // Границы слова обязательны и здесь: без них «озон» находился внутри
+  // «позонили» — это опечатка генератора в слове «позвонили», а не бренд.
+  // \b с кириллицей не работает, поэтому границы выписаны вручную.
+  const brands = /(^|[^а-яёa-z])(м\.?видео|днс|эльдорадо|ozon|озон|wildberries|вайлдберриз|яндекс маркет|re:?store)(?=$|[^а-яёa-z])/i;
+  assert.equal(reviews.some(review => brands.test(review.text)), false);
   assert.ok(reviews.some(review => /оптов/i.test(review.text)), 'нет упоминания оптовых цен');
 });
 
@@ -164,6 +175,63 @@ test('формы прошедшего времени совпадают с по�
 
   assert.equal(reviews.some(review => review.demoPersona.gender === 'female' && maleForms.test(review.text)), false);
   assert.equal(reviews.some(review => review.demoPersona.gender === 'male' && femaleForms.test(review.text)), false);
+});
+
+test('на одной странице отзывов нет двух одинаковых фраз', () => {
+  // Именно это выдавало генератор: в ленте попадались соседние отзывы с
+  // дословно совпадающей жалобой. Проверяем так, как видит покупатель, —
+  // порциями по столько отзывов, сколько показывает страница товара.
+  const PER_PAGE = 8;
+  const offenders = [];
+  for (const product of products) {
+    const list = reviews.filter(review => review.productId === product.id)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    for (let start = 0; start < list.length; start += PER_PAGE) {
+      const seen = new Set();
+      for (const review of list.slice(start, start + PER_PAGE)) {
+        for (const sentence of review.text.split('. ')) {
+          const key = sentence.trim().toLowerCase();
+          if (key.length < 25) continue;   // «Все супер» повторяется и у живых людей
+          if (seen.has(key)) offenders.push(`${product.id}: ${key}`);
+          seen.add(key);
+        }
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('развёрнутые отзывы одного товара не повторяются целиком', () => {
+  for (const product of products) {
+    const long = reviews
+      .filter(review => review.productId === product.id && review.text.length > 60)
+      .map(review => review.text);
+    assert.equal(new Set(long).size, long.length, `повторы у ${product.id}`);
+  }
+});
+
+test('подписываются по-разному: имя, латиница и ник', () => {
+  const authors = reviews.map(review => review.author);
+  // Латиница: часть покупателей не переключала раскладку.
+  const latin = authors.filter(name => /^[A-Za-z]/.test(name));
+  const latinShare = latin.length / authors.length;
+  assert.ok(latinShare > 0.03, `латиницы слишком мало: ${latinShare}`);
+  assert.ok(latinShare < 0.25, `латиница вытеснила кириллицу: ${latinShare}`);
+  assert.ok(latin.some(name => name === 'Dmitry' || name === 'Alex' || name === 'Anna'));
+  // Ники вместо имени.
+  const nicks = new Set(NICKNAMES);
+  const nickShare = authors.filter(name => nicks.has(name)).length / authors.length;
+  assert.ok(nickShare > 0.03, `ников слишком мало: ${nickShare}`);
+  assert.ok(nickShare < 0.2, `ников слишком много: ${nickShare}`);
+  // Подпись по-прежнему одно слово: ни инициалов, ни пробелов.
+  assert.equal(authors.some(name => /[.\s]/.test(name)), false);
+  // Ник с указанием пола не должен достаться персоне другого пола.
+  const femaleOnly = new Set(['tanya77', 'lena_spb', 'olga_v', 'katyusha', 'Мурочка']);
+  const maleOnly = new Set(['dimon', 'vovan', 'Батя', 'nikitos', 'zheka']);
+  for (const review of reviews) {
+    if (femaleOnly.has(review.author)) assert.equal(review.demoPersona.gender, 'female', review.author);
+    if (maleOnly.has(review.author)) assert.equal(review.demoPersona.gender, 'male', review.author);
+  }
 });
 
 test('команда обновления сохраняет реальные отзывы и добавленные к демо фото', t => {
