@@ -1370,11 +1370,29 @@ body.admin{background:#f4f4f6;color:#242426}
   .rev-arrow{padding:0 6px}
   .rev-gap{padding:0}
 
-  .footer-grid{grid-template-columns:1fr;gap:24px}
-  .footer-contacts{display:block}
-  .foot-contact{margin-top:14px}
-  .footer-bottom{grid-column:auto;display:grid;gap:10px}
-  .footer-links{justify-content:flex-start;display:grid;gap:8px}
+  /* Подвал на телефоне: одна колонка и всё по центру. В две колонки тут уже не
+     встать, а колонка по левому краю на узком экране читается как сбитая
+     вёрстка — логотип, подпись, контакт и ссылки висят на разной длине строки.
+     По центру блок собирается вокруг одной оси и выглядит цельным. */
+  .site-footer{text-align:center;padding-top:36px}
+  .footer-grid{grid-template-columns:1fr;gap:20px;justify-items:center}
+  .foot-brand{font-size:22px}
+  /* balance делит строки поровну — иначе во второй строке остаётся одно
+     слово, и по центру этот «хвост» особенно заметен. Браузеры без
+     поддержки просто игнорируют свойство и переносят как раньше. */
+  .foot-note{max-width:32ch;margin:8px auto 0;text-wrap:balance}
+  .footer-contacts{display:grid;justify-items:center;gap:10px;width:100%}
+  .foot-contact{margin:0}
+  /* Телеграм — основной способ связи с телефона, поэтому не строчная ссылка,
+     а «таблетка»: заметная цель для пальца и ровный центр блока. */
+  .foot-tg .tg-link{padding:11px 20px;border-radius:980px;background:#fff;
+    border:1px solid var(--border-soft);font-size:16px;min-height:44px;box-sizing:border-box}
+  .foot-tg .tg-link .tg-ico{width:19px;height:19px}
+  .footer-bottom{grid-column:auto;display:grid;justify-items:center;gap:12px;width:100%;padding-top:18px}
+  .footer-meta{justify-items:center;gap:6px}
+  .foot-legal{line-height:1.5;text-wrap:balance}
+  /* Ссылки в ряд, если помещаются, и в столбик по центру, если нет. */
+  .footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:10px 18px}
 
   .legal-page{padding-inline:16px}
   .legal-hero{padding:34px 0 24px}
