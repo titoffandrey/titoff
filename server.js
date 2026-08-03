@@ -22,6 +22,13 @@ db.ensureSeeded();
 const metrics = new Analytics({ dataDir: db.DATA_DIR, geoEnabled: process.env.GEOIP_ENABLED !== '0' });
 
 const PORT = process.env.PORT || 3000;
+// Слушаем только петлю. Процесс всегда стоит за обратным прокси (Caddy/nginx),
+// и открытый наружу порт сводил на нет всю защиту входов: при TRUST_PROXY=1
+// приложение верит X-Forwarded-For, поэтому любой, кто достучался до порта
+// напрямую, подставлял новый «IP» на каждую попытку пароля и обходил счётчик
+// попыток, а через X-Forwarded-Host выбирал себе любой магазин.
+// HOST=0.0.0.0 оставляет прежнее поведение, если прокси стоит на другой машине.
+const HOST = process.env.HOST || '127.0.0.1';
 const app = new App({
   secret: db.getSettings().sessionSecret || 'fallback-secret',
   uploadDir: db.UPLOAD_DIR,
@@ -831,7 +838,7 @@ app.post('/owner/products/:id/images/remove', (req, res) => {
 });
 
 // Отзывы (мастер, модерация)
-app.get('/owner/reviews', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.reviewsList(db, req.query.status, req.query.flash)); });
+app.get('/owner/reviews', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.reviewsList(db, req.query.status, req.query.flash, req.query.page)); });
 app.get('/owner/reviews/new', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.addReviewForm(db, req.query.productId, null)); });
 app.post('/owner/reviews/new', async (req, res) => {
   if (!guardOwner(req, res)) return;
@@ -945,12 +952,20 @@ app.post('/admin/catalog', (req, res) => {
 });
 
 // Видимость отзывов на сайте
-app.get('/admin/reviews', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.reviewsPage(db, site, req.query.flash)); });
+app.get('/admin/reviews', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.reviewsPage(db, site, req.query.flash, req.query.page)); });
 app.post('/admin/reviews', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
-  const hidden = db.getReviews().filter(r => r.status === 'approved' && req.body['show_' + r.id] === undefined).map(r => r.id);
-  db.setSiteHiddenReviews(site.id, hidden);
-  res.redirect('/admin/reviews?flash=' + encodeURIComponent('Видимость отзывов сохранена'));
+  // Форма показывает одну страницу отзывов, поэтому и применяется к ней одной:
+  // видимость меняется только у пришедших id. Раньше сохранение считало скрытым
+  // всё, у чего нет галочки, — со страницами это спрятало бы весь остальной список.
+  const pageIds = String(req.body.pageIds || '').split(',').map(s => s.trim()).filter(Boolean);
+  const hidden = new Set(site.hiddenReviews || []);
+  for (const id of pageIds) {
+    if (req.body['show_' + id] === undefined) hidden.add(id); else hidden.delete(id);
+  }
+  db.setSiteHiddenReviews(site.id, [...hidden]);
+  const page = Math.max(1, Math.floor(Number(req.body.page)) || 1);
+  res.redirect('/admin/reviews?page=' + page + '&flash=' + encodeURIComponent('Видимость отзывов сохранена'));
 });
 
 // Заказы сайта
@@ -990,7 +1005,7 @@ app.notFound = (req, res) => {
   }), 404);
 };
 
-const httpServer = app.listen(PORT, () => {
+const httpServer = app.listen(PORT, HOST, () => {
   const weak = [];
   const globalSettings = settings();
   if (auth.verifyPassword('owner', globalSettings.ownerPasswordHash)) weak.push('/owner (owner / owner)');

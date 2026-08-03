@@ -57,6 +57,21 @@ function response() {
   };
 }
 
+// Отдельный экземпляр lib/db поверх своего каталога данных: путь читается один раз
+// при загрузке модуля, поэтому кэш require сбрасывается вокруг подмены переменной.
+// Основной dbCore из шапки файла при этом остаётся прежним.
+function freshDb(dir) {
+  const key = require.resolve('../lib/db');
+  const previous = process.env.STORE_DATA_DIR;
+  process.env.STORE_DATA_DIR = dir;
+  delete require.cache[key];
+  const fresh = require('../lib/db');
+  delete require.cache[key];
+  if (previous === undefined) delete process.env.STORE_DATA_DIR;
+  else process.env.STORE_DATA_DIR = previous;
+  return fresh;
+}
+
 test('пароли проверяются синхронно и асинхронно', async () => {
   const stored = auth.hashPassword('секрет');
   assert.equal(auth.verifyPassword('секрет', stored), true);
@@ -748,6 +763,82 @@ test('отзывы листаются страницами, а свой неод
   const ownAt = mine.indexOf('reviews-own');
   assert.ok(ownAt > -1 && ownAt < mine.indexOf('id="reviews-list"'), 'свой отзыв выше общего списка');
   assert.equal(count(mine), per + 1);
+});
+
+test('списки отзывов в панелях листаются, а не выгружаются целиком', () => {
+  // На боевых данных 7000 отзывов: единый список весил 4,5 МБ и держал
+  // единственный поток 16 секунд — витрина не отвечала никому всё это время.
+  const per = render.ADMIN_PER_PAGE;
+  const many = Array.from({ length: per * 3 + 7 }, (_, i) => ({
+    id: 'r' + i, productId: 'p', author: 'Автор ' + i, rating: 5, text: 'текст',
+    status: 'approved', createdAt: 1000 + i, photos: []
+  }));
+  const db = {
+    getReviews: () => many, getProducts: () => [{ id: 'p', name: 'Товар' }],
+    pendingReviewCount: () => 0, getSites: () => []
+  };
+  const site = { id: 's', storeName: 'Магазин', hiddenReviews: [], accentColor: '#000' };
+  const rows = html => (html.match(/class="review-cell"/g) || []).length;
+
+  const ownerFirst = ownerViews.reviewsList(db, null, null, 1);
+  assert.equal(rows(ownerFirst), per, 'владелец видит одну страницу');
+  assert.match(ownerFirst, /href="\/owner\/reviews\?status=all&amp;page=2"/);
+  const ownerLast = ownerViews.reviewsList(db, null, null, 4);
+  assert.equal(rows(ownerLast), 7, 'на последней странице остаток');
+
+  const adminFirst = siteViews.reviewsPage(db, site, null, 1);
+  assert.equal(rows(adminFirst), per, 'админка сайта тоже листает');
+  assert.match(adminFirst, /href="\/admin\/reviews\?page=2"/);
+  // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
+  assert.equal(rows(siteViews.reviewsPage(db, site, null, '999')), 7);
+  assert.equal(rows(siteViews.reviewsPage(db, site, null, 'абв')), per);
+
+  // Сохранение видимости применяется к отзывам страницы, поэтому их id уходят в форму.
+  const ids = (adminFirst.match(/name="pageIds" value="([^"]*)"/) || [])[1].split(',');
+  assert.equal(ids.length, per);
+  assert.equal(ids[0], 'r0');
+});
+
+test('сохранение видимости не трогает отзывы с других страниц', () => {
+  // Форма несёт только свою страницу. Старое «скрыть всё, у чего нет галочки»
+  // со страницами спрятало бы весь остальной список одним нажатием «Сохранить».
+  const applyVisibility = (hiddenBefore, pageIds, body) => {
+    const hidden = new Set(hiddenBefore);
+    for (const id of pageIds) {
+      if (body['show_' + id] === undefined) hidden.add(id); else hidden.delete(id);
+    }
+    return [...hidden];
+  };
+  // На странице r1..r3: r2 сняли с публикации, r1 и r3 оставили видимыми.
+  const result = applyVisibility(['r9', 'r2'], ['r1', 'r2', 'r3'], { show_r1: 'on', show_r3: 'on' });
+  assert.ok(result.includes('r9'), 'скрытый отзыв с другой страницы остался скрытым');
+  assert.ok(result.includes('r2'), 'снятая галочка скрывает отзыв');
+  assert.ok(!result.includes('r1') && !result.includes('r3'), 'отмеченные остаются видимыми');
+});
+
+test('индекс отзывов даёт те же оценки, что прямой пересчёт', () => {
+  // Индекс кэшируется по версии файла: рейтинг обязан совпасть с честным проходом.
+  const reviews = [
+    { id: 'a', productId: 'p1', rating: 5, status: 'approved', createdAt: 30 },
+    { id: 'b', productId: 'p1', rating: 2, status: 'approved', createdAt: 10 },
+    { id: 'c', productId: 'p1', rating: 1, status: 'pending', createdAt: 20 },
+    { id: 'd', productId: 'p2', rating: 4, status: 'approved', createdAt: 5 }
+  ];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reviews-index-'));
+  fs.writeFileSync(path.join(dir, 'reviews.json'), JSON.stringify(reviews));
+  const fresh = freshDb(dir);
+
+  const p1 = fresh.reviewsForProduct('p1', true);
+  assert.deepEqual(p1.map(r => r.id), ['a', 'b'], 'только одобренные, сначала свежие');
+  assert.deepEqual(fresh.reviewsForProduct('p1', false).map(r => r.id), ['a', 'c', 'b']);
+  assert.deepEqual(fresh.ratingFor('p1'), { avg: 3.5, count: 2 });
+  assert.deepEqual(fresh.ratingFor('p2'), { avg: 4, count: 1 });
+  assert.deepEqual(fresh.ratingFor('нет-такого'), { avg: 0, count: 0 });
+  // Сайт, скрывший отзыв, вычитает его из готовой суммы, а не пересчитывает всё.
+  const totals = fresh.approvedTotals();
+  assert.deepEqual(totals.get('p1'), { sum: 7, count: 2 });
+  assert.deepEqual(fresh.averageRating(7 - 2, 1), { avg: 5, count: 1 });
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('листалка держит ряд коротким и не теряет края', () => {
