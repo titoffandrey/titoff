@@ -26,8 +26,14 @@ test('у каждого товара своё число отзывов, а ме
   const counts = new Map();
   for (const review of reviews) counts.set(review.productId, (counts.get(review.productId) || 0) + 1);
 
-  assert.equal(reviews.length, 6998);
+  assert.equal(reviews.length, 6529);
   assert.equal(Object.keys(REVIEW_COUNTS).length, products.length);
+  // Записи для товаров, которых в каталоге больше нет, тоже ошибка: после
+  // слияния карточек их легко забыть, а таблицы должны совпадать с каталогом.
+  const catalogIds = new Set(products.map(p => p.id));
+  for (const id of Object.keys(REVIEW_COUNTS)) assert.ok(catalogIds.has(id), `лишний товар в REVIEW_COUNTS: ${id}`);
+  for (const id of Object.keys(RELEASE_DATES)) assert.ok(catalogIds.has(id), `лишний товар в RELEASE_DATES: ${id}`);
+  assert.equal(Object.keys(RELEASE_DATES).length, products.length);
   // Одинаковые счётчики у соседних товаров сразу выдают сгенерированный набор.
   assert.equal(new Set(Object.values(REVIEW_COUNTS)).size, products.length);
   for (const product of products) {

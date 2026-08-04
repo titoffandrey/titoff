@@ -809,6 +809,29 @@ test('порядок товаров меняется только точной �
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('слияние карточек переносит отзывы покупателей, а не теряет их', () => {
+  const reviews = [
+    { id: 'real-1', productId: 'anc', author: 'Ирина', rating: 5, status: 'approved', createdAt: 3 },
+    { id: 'demo-anc-1', productId: 'anc', author: 'Демо', rating: 5, status: 'approved', createdAt: 2, demo: true },
+    { id: 'real-2', productId: 'base', author: 'Сергей', rating: 4, status: 'pending', createdAt: 1 }
+  ];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-reviews-'));
+  fs.writeFileSync(path.join(dir, 'reviews.json'), JSON.stringify(reviews));
+  const fresh = freshDb(dir);
+
+  // Демо-отзывы переносить незачем: набор пересобирается целиком, а вот отзыв
+  // покупателя восстановить неоткуда.
+  assert.equal(fresh.moveReviews('anc', 'base', r => !r.demo), 1);
+  const after = fresh.getReviews();
+  assert.equal(after.find(r => r.id === 'real-1').productId, 'base');
+  assert.equal(after.find(r => r.id === 'demo-anc-1').productId, 'anc', 'демо осталось на месте');
+  assert.equal(after.find(r => r.id === 'real-2').status, 'pending', 'статус чужого отзыва не тронут');
+  assert.equal(fresh.moveReviews('anc', 'base', r => !r.demo), 0, 'повтор ничего не меняет');
+  assert.equal(fresh.moveReviews('base', 'base'), 0, 'перенос в самого себя запрещён');
+  assert.equal(fresh.moveReviews('', 'base'), 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('главная показывает товары в порядке каталога, а список владельца им управляет', () => {
   const products = [
     { id: 'p1', name: 'Первый', category: 'A', price: 10, inStock: true, images: [] },
