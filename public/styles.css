@@ -960,14 +960,20 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Первый экран */
 .store-hero{position:relative;overflow:hidden;background:#f4f4f6;border-bottom:1px solid var(--border-soft)}
 .store-hero::after{content:"";position:absolute;right:-100px;top:-240px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.9),rgba(255,255,255,0) 68%);pointer-events:none}
-.store-hero-inner{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:space-between;gap:48px;padding-top:54px;padding-bottom:52px}
+.store-hero-inner{position:relative;z-index:1;padding-top:54px;padding-bottom:46px}
 .store-hero-copy{max-width:690px}
 .section-kicker{display:block;margin-bottom:10px;color:var(--accent);font-size:12px;font-weight:750;letter-spacing:.11em;text-transform:uppercase}
 .store-hero h1{max-width:680px;margin:0;font-family:var(--brand-font);font-size:clamp(38px,5vw,64px);line-height:1.02;letter-spacing:-.055em}
 .store-hero p{max-width:620px;margin:18px 0 0;color:var(--muted);font-size:clamp(16px,2vw,20px);line-height:1.5}
-.store-benefits{display:grid;gap:11px;min-width:200px;padding-bottom:5px;color:#48484a;font-size:13px;font-weight:600}
-.store-benefits span{display:flex;align-items:center;gap:9px}
-.store-benefits span::before{content:"✓";display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#fff;color:var(--success);box-shadow:0 2px 10px rgba(17,17,26,.06);font-size:12px;font-weight:800}
+/* Строка с яблоком: глиф размером с букву. Выравнивание по верху, а не по центру:
+   на узком экране строка переносится, и по центру яблоко встало бы в разрыв строк */
+.store-hero-tag{display:flex;align-items:flex-start;gap:12px}
+.apple-mark{flex:none;width:1.02em;height:1.02em;margin-top:.22em;fill:var(--text)}
+/* Преимущества — ряд под текстом, по колонке на пункт */
+.store-benefits{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px 24px;margin:36px 0 0;padding:26px 0 0;border-top:1px solid rgba(17,17,26,.08);list-style:none;color:var(--text);font-size:15px;font-weight:600;letter-spacing:-.012em}
+.store-benefits li{display:flex;align-items:center;gap:13px}
+.benefit-ico{flex:none;display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:#fff;box-shadow:0 2px 10px rgba(17,17,26,.06)}
+.benefit-ico svg{width:22px;height:22px}
 
 /* Секции и каталог */
 .section{padding:54px 0}
@@ -1339,10 +1345,11 @@ body.admin{background:#f4f4f6;color:#242426}
   .store-hero-inner{display:block;padding-top:34px;padding-bottom:34px}
   .store-hero h1{max-width:540px;font-size:clamp(34px,10vw,48px)}
   .store-hero p{margin-top:14px;font-size:16px}
-  .store-benefits{display:flex;gap:8px;margin-top:24px;padding-bottom:0;overflow-x:auto;scrollbar-width:none}
-  .store-benefits::-webkit-scrollbar{display:none}
-  .store-benefits span{flex:none;padding:9px 12px;border-radius:12px;background:rgba(255,255,255,.72);font-size:12px}
-  .store-benefits span::before{width:18px;height:18px;background:transparent;box-shadow:none}
+  .store-hero-tag{gap:9px}
+  .store-benefits{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:26px;padding-top:20px;font-size:12.5px}
+  .store-benefits li{flex-direction:column;align-items:flex-start;gap:9px}
+  .benefit-ico{width:36px;height:36px;border-radius:12px}
+  .benefit-ico svg{width:19px;height:19px}
 
   .section{padding:34px 0}
   .section-head{margin-bottom:16px}
@@ -1521,7 +1528,7 @@ body.admin{background:#f4f4f6;color:#242426}
   .nav-inner{padding-inline:13px}
   .store-hero-inner{padding:29px 13px 30px}
   .store-hero h1{font-size:36px}
-  .store-benefits{margin-right:-13px}
+  .store-benefits{gap:8px;font-size:12px}
   .section-head{align-items:flex-end}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}
