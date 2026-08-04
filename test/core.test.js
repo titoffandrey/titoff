@@ -785,6 +785,69 @@ test('страница товара показывает доп. характе�
   assert.equal(render.sellable(product), false);
 });
 
+test('порядок товаров меняется только точной перестановкой', () => {
+  const products = [
+    { id: 'p1', name: 'Первый', category: 'A', price: 10, images: [] },
+    { id: 'p2', name: 'Второй', category: 'A', price: 20, images: [] },
+    { id: 'p3', name: 'Третий', category: 'B', price: 30, images: [] }
+  ];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'product-order-'));
+  fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify(products));
+  const fresh = freshDb(dir);
+
+  assert.deepEqual(fresh.reorderProducts(['p3', 'p1', 'p2']).map(p => p.id), ['p3', 'p1', 'p2']);
+  assert.deepEqual(fresh.getProducts().map(p => p.id), ['p3', 'p1', 'p2'], 'порядок сохранён на диск');
+  // Через этот путь нельзя ни потерять товар, ни добавить чужой: иначе один
+  // запрос с урезанным списком стирал бы каталог мимо /delete.
+  assert.equal(fresh.reorderProducts(['p3', 'p1']), null);
+  assert.equal(fresh.reorderProducts(['p3', 'p1', 'p2', 'p9']), null);
+  assert.equal(fresh.reorderProducts(['p3', 'p1', 'чужой']), null);
+  assert.equal(fresh.reorderProducts(['p3', 'p1', 'p1']), null);
+  assert.equal(fresh.reorderProducts([]), null);
+  assert.equal(fresh.reorderProducts('всё'), null);
+  assert.deepEqual(fresh.getProducts().map(p => p.id), ['p3', 'p1', 'p2'], 'отказ ничего не меняет');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('главная показывает товары в порядке каталога, а список владельца им управляет', () => {
+  const products = [
+    { id: 'p1', name: 'Первый', category: 'A', price: 10, inStock: true, images: [] },
+    { id: 'p2', name: 'Второй', category: 'A', price: 20, inStock: true, images: [] }
+  ];
+  const db = {
+    getProducts: () => products, categories: () => ['A'],
+    ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 0
+  };
+  const home = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, db, {});
+  const order = [...home.matchAll(/href="\/product\/(p\d)"/g)].map(m => m[1]);
+  assert.deepEqual([...new Set(order)], ['p1', 'p2'], 'карточки идут в порядке каталога');
+  products.reverse();
+  const flipped = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, db, {});
+  assert.deepEqual([...new Set([...flipped.matchAll(/href="\/product\/(p\d)"/g)].map(m => m[1]))], ['p2', 'p1']);
+
+  // В панели порядок правится перетаскиванием строки и стрелками, а крайние
+  // стрелки погашены — иначе владелец жмёт кнопку, которая ничего не делает.
+  const list = ownerViews.productsList(db);
+  assert.match(list, /<tbody id="product-order" data-order="\[&quot;p2&quot;,&quot;p1&quot;\]"/);
+  assert.match(list, /<tr data-id="p2" draggable="true">/);
+  assert.match(list, /class="a-move a-move-up" aria-label="Переместить «Второй» выше" disabled/);
+  assert.match(list, /class="a-move a-move-down" aria-label="Переместить «Первый» ниже" disabled/);
+  assert.match(list, /product-order\.js/);
+  // Скрипт шлёт весь список целиком — сервер принимает только перестановку
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'product-order.js'), 'utf8');
+  assert.match(js, /'\/owner\/products\/order'/);
+  assert.match(js, /restore\(previous\)/);
+
+  // Побеждает первый совпавший маршрут, а «/owner/products/:id» подходит и под
+  // «/owner/products/order». Если регистрацию переставить, запрос порядка уйдёт
+  // в сохранение товара — поэтому очередь закреплена здесь.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const orderRoute = server.indexOf(`app.post('/owner/products/order'`);
+  const saveRoute = server.indexOf(`app.post('/owner/products/:id'`);
+  assert.ok(orderRoute > -1 && saveRoute > -1, 'маршруты на месте');
+  assert.ok(orderRoute < saveRoute, 'порядок товаров регистрируется раньше сохранения товара');
+});
+
 test('нулевая или некорректная ручная цена не превращает товар в бесплатный', () => {
   const product = { id: 'p', price: 1000 };
   assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 0 } } }), 2000);

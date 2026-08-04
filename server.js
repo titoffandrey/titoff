@@ -742,6 +742,16 @@ app.post('/owner/products', async (req, res) => {
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Товар создан'));
 });
+// Порядок товаров в каталоге = порядок карточек на главной. Регистрируется
+// РАНЬШЕ «/owner/products/:id»: побеждает первый совпавший маршрут, и товар с
+// id «order» иначе перехватил бы этот адрес (а точнее наоборот — сохранение
+// товара приняло бы наш запрос за форму и обнулило бы карточку).
+app.post('/owner/products/order', (req, res) => {
+  if (!guardApi(req, res)) return;
+  const next = db.reorderProducts(Array.isArray(req.body.ids) ? req.body.ids.slice(0, 5000) : []);
+  if (!next) return res.json({ ok: false, error: 'invalid_order' }, 400);
+  res.json({ ok: true, ids: next.map(p => p.id) });
+});
 app.get('/owner/products/:id/edit', (req, res) => { if (!guardOwner(req, res)) return; const p = db.getProduct(req.params.id); if (!p) return res.redirect('/owner/products'); res.send(O.productForm(db, p)); });
 app.post('/owner/products/:id', async (req, res) => {
   if (!guardOwner(req, res)) return;

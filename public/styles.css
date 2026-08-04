@@ -266,6 +266,28 @@ body.admin{background:var(--bg2)}
 .a-table td{padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .a-thumb{width:56px}
 .a-thumb img,.a-thumb svg{width:48px;height:48px;object-fit:contain;border-radius:8px;background:var(--bg2)}
+
+/* Порядок товаров в каталоге: ручка перетаскивания, номер позиции и стрелки.
+   Ячейка остаётся обычной (не flex) по той же причине, что и .a-actions ниже —
+   иначе td не растягивается на высоту строки и разделитель уползает вверх. */
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.a-order{width:104px;white-space:nowrap;line-height:0}
+.a-order > *{display:inline-flex;vertical-align:middle;align-items:center}
+.a-grip{color:#c0c0c6;cursor:grab;padding:2px}
+.a-grip svg{width:16px;height:16px}
+.a-table-sortable tr:hover .a-grip{color:var(--muted)}
+.a-grip-inline{line-height:0;vertical-align:-3px;cursor:default}
+.a-order-num{min-width:22px;justify-content:center;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;line-height:1.2}
+.a-order-btns{flex-direction:column;gap:2px;margin-left:2px}
+.a-move{width:24px;height:17px;padding:0;border:1px solid var(--border);border-radius:6px;background:#fff;
+  color:var(--muted);font-size:11px;line-height:1;cursor:pointer;font-family:inherit}
+.a-move:hover:not(:disabled){border-color:#c7c7cc;background:#f2f2f4;color:var(--text)}
+.a-move:disabled{opacity:.35;cursor:default}
+.a-table-sortable tr.is-dragging{opacity:.4}
+.a-table-sortable tr[data-id]{cursor:default}
+/* пока идёт сохранение — строки не хватаются повторно, иначе два запроса
+   разъезжаются и список расходится с сохранённым порядком */
+#product-order.is-busy tr[data-id]{pointer-events:none;opacity:.75}
 /* важно: НЕ делаем ячейку flex — иначе td перестаёт растягиваться на высоту строки
    и линия-разделитель уходит вверх. Кнопки — инлайн, ровно по центру строки. */
 .a-actions{white-space:nowrap;line-height:0}
