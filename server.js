@@ -58,6 +58,13 @@ function persistUploads(files) {
   return names;
 }
 const asArray = (v) => v == null ? [] : (Array.isArray(v) ? v : [v]);
+// Вернуться на ту же страницу списка после действия над строкой. Номер приходит
+// скрытым полем формы, поэтому приводится к целому здесь; первая страница —
+// адрес без параметра, чтобы ссылки не обрастали мусором.
+const pageQuery = (value) => {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 1 ? '?page=' + Math.min(n, 1e6) : '';
+};
 const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return isNaN(t) ? null : t; };
 // Варианты из формы: цвета «Название|#hex|наличие» и память «Метка|доплата|наличие».
 // Третье поле необязательное: «нет» — вариант распродан. Пустое = в наличии,
@@ -320,8 +327,10 @@ app.get('/product/:id', (req, res) => {
   trackPage(req, res, site, '/product/' + view.id);
   // Отзывы этого посетителя, ещё не прошедшие модерацию: их видит только он сам
   const mine = Array.isArray(req.session && req.session.myReviews) ? req.session.myReviews : [];
+  // Ищем по индексу товара, а не по всему файлу: на боевых данных это 300 записей
+  // вместо 7000 на каждое открытие страницы любым, кто когда-то оставил отзыв.
   const ownReviews = mine.length
-    ? db.getReviews().filter(rv => rv.productId === view.id && rv.status !== 'approved' && mine.includes(rv.id))
+    ? db.reviewsForProduct(view.id, false).filter(rv => rv.status !== 'approved' && mine.includes(rv.id))
     : [];
   res.send(R.productPage(T.siteSettings(site), db, view, site, {
     origin: originOf(req), ownReviews,
@@ -889,9 +898,9 @@ app.post('/owner/sites/:id/delete', (req, res) => {
 });
 
 // Заказы (все) + настройки владельца
-app.get('/owner/orders', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.ordersList(db, req.query.flash)); });
-app.post('/owner/orders/:id/status', (req, res) => { if (!guardOwner(req, res)) return; db.setOrderStatus(req.params.id, req.body.status); res.redirect('/owner/orders'); });
-app.post('/owner/orders/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteOrder(req.params.id); res.redirect('/owner/orders'); });
+app.get('/owner/orders', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.ordersList(db, req.query.flash, req.query.page)); });
+app.post('/owner/orders/:id/status', (req, res) => { if (!guardOwner(req, res)) return; db.setOrderStatus(req.params.id, req.body.status); res.redirect('/owner/orders' + pageQuery(req.body.page)); });
+app.post('/owner/orders/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteOrder(req.params.id); res.redirect('/owner/orders' + pageQuery(req.body.page)); });
 
 app.get('/owner/settings', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.settingsPage(settings(), db, req.query.flash)); });
 app.post('/owner/settings', (req, res) => {
@@ -969,19 +978,19 @@ app.post('/admin/reviews', (req, res) => {
 });
 
 // Заказы сайта
-app.get('/admin/orders', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.ordersList(db, site, req.query.flash)); });
+app.get('/admin/orders', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.ordersList(db, site, req.query.flash, req.query.page)); });
 app.get('/admin/analytics', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.analyticsPage(db, site, metrics.snapshot({ siteId: site.id, days: req.query.days }))); });
 app.post('/admin/orders/:id/status', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
   const o = db.getOrders().find(x => x.id === req.params.id);
   if (o && o.siteId === site.id) db.setOrderStatus(req.params.id, req.body.status);
-  res.redirect('/admin/orders');
+  res.redirect('/admin/orders' + pageQuery(req.body.page));
 });
 app.post('/admin/orders/:id/delete', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
   const o = db.getOrders().find(x => x.id === req.params.id);
   if (o && o.siteId === site.id) db.deleteOrder(req.params.id);
-  res.redirect('/admin/orders');
+  res.redirect('/admin/orders' + pageQuery(req.body.page));
 });
 
 // Настройки сайта

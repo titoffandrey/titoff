@@ -983,3 +983,134 @@ test('подпись корпуса на фото ремешка читаетс�
   const html = ownerViews.productForm({ categories: () => [], pendingReviewCount: () => 0 }, product);
   assert.match(html, /<div class="img-chip-media" data-case="Чёрный титан">/);
 });
+
+test('списки заказов в панелях листаются, а не выгружаются целиком', () => {
+  // Та же ловушка, что была у отзывов: заказы не удаляются сами, список растёт
+  // без предела. На 3000 заявок страница весила 2,8 МБ и держала единственный
+  // поток около 100 мс — всё это время витрина не отвечала никому.
+  const per = render.ADMIN_PER_PAGE;
+  const many = Array.from({ length: per * 3 + 7 }, (_, i) => ({
+    id: 'o' + i, number: 'ORD-' + String(i).padStart(4, '0'), siteId: 's', siteName: 'Магазин',
+    items: [{ id: 'p', name: 'Товар', price: 100, qty: 1 }], total: 100,
+    customerName: 'Клиент ' + i, contact: '@u' + i, status: 'new', createdAt: 2000 - i
+  }));
+  const db = {
+    getOrders: () => many, ordersForSite: () => many, getSites: () => [],
+    getProducts: () => [], pendingReviewCount: () => 0
+  };
+  const site = { id: 's', storeName: 'Магазин', accentColor: '#000', currency: '₽', hosts: [] };
+  const rows = html => (html.match(/<tr id="order-/g) || []).length;
+
+  const ownerFirst = ownerViews.ordersList(db, null, 1);
+  assert.equal(rows(ownerFirst), per, 'владелец видит одну страницу');
+  assert.match(ownerFirst, /href="\/owner\/orders\?page=2"/);
+  assert.equal(rows(ownerViews.ordersList(db, null, 4)), 7, 'на последней странице остаток');
+
+  const adminFirst = siteViews.ordersList(db, site, null, 1);
+  assert.equal(rows(adminFirst), per, 'админка сайта тоже листает');
+  assert.match(adminFirst, /href="\/admin\/orders\?page=2"/);
+
+  // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
+  assert.equal(rows(siteViews.ordersList(db, site, null, '999')), 7);
+  assert.equal(rows(siteViews.ordersList(db, site, null, 'абв')), per);
+  assert.equal(rows(siteViews.ordersList(db, site, null, -5)), per);
+
+  // Порядок файла сохраняется: свежие заявки остаются на первой странице.
+  assert.ok(ownerFirst.indexOf('ORD-0000') > -1, 'самый свежий заказ на первой странице');
+  assert.equal(ownerFirst.indexOf('ORD-0150'), -1, 'заказы других страниц сюда не попадают');
+
+  // Действие над строкой возвращает на ту же страницу, а не в начало списка.
+  const page3 = ownerViews.ordersList(db, null, 3);
+  assert.match(page3, /<input type="hidden" name="page" value="3">/);
+});
+
+test('оценка товара считается только когда её спрашивают', () => {
+  // /api/cart и /api/order строят до 100 представлений на запрос и рейтинг не
+  // показывают вовсе: раньше на каждое впустую пробегался список отзывов товара.
+  let ratingReads = 0;
+  const reviews = Array.from({ length: 50 }, (_, i) => ({
+    id: 'r' + i, productId: 'p', rating: 4, status: 'approved', createdAt: i
+  }));
+  const product = { id: 'p', name: 'Товар', price: 100, category: 'К', colors: [], storages: [], bands: [] };
+  const site = { id: 's', storeName: 'М', priceMultiplier: 1, overrides: {}, hiddenReviews: ['r0'] };
+  const spy = new Proxy(dbCore, {
+    get(target, key) {
+      if (key === 'getProducts') return () => [product];
+      if (key === 'getProduct') return id => (id === 'p' ? product : null);
+      if (key === 'reviewsForProduct') { ratingReads++; return () => reviews; }
+      return target[key];
+    }
+  });
+  const isolated = requireWithDb(spy);
+  const view = isolated.siteProductView(site, 'p');
+  assert.equal(ratingReads, 0, 'построение представления не трогает отзывы');
+  assert.equal(view.price, 100);
+  // но значение по-прежнему верное, когда его действительно читают
+  assert.deepEqual(view._rating, { avg: 4, count: 49 });
+  assert.ok(ratingReads > 0, 'при обращении оценка всё-таки считается');
+  assert.deepEqual(view._rating, { avg: 4, count: 49 }, 'повторное чтение отдаёт то же самое');
+});
+
+// tenancy держит ссылку на lib/db, поэтому подменяем её через кэш require.
+function requireWithDb(fakeDb) {
+  const dbKey = require.resolve('../lib/db');
+  const tenancyKey = require.resolve('../lib/tenancy');
+  const realDb = require.cache[dbKey];
+  require.cache[dbKey] = { id: dbKey, filename: dbKey, loaded: true, exports: fakeDb };
+  delete require.cache[tenancyKey];
+  const fresh = require('../lib/tenancy');
+  delete require.cache[tenancyKey];
+  if (realDb) require.cache[dbKey] = realDb; else delete require.cache[dbKey];
+  return fresh;
+}
+
+test('карточки посетителей метрики ищутся по индексу и он не расходится с массивом', () => {
+  // findVisitor звали на каждый просмотр, heartbeat и заявку. Перебор массива
+  // на потолке в 10 000 карточек — лишние доли миллисекунды в каждом запросе.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'metrics-index-'));
+  try {
+    const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 1e9 });
+    const ids = Array.from({ length: 5 }, (_, i) => String(i).repeat(32));
+    for (const id of ids) {
+      metrics.recordPageView({ id, siteId: 's', path: '/', host: 'x.ru', context: { device: 'Компьютер' } });
+    }
+    assert.equal(metrics.byId.size, metrics.data.visitors.length);
+    assert.equal(metrics.findVisitor(ids[2]).id, ids[2]);
+    assert.equal(metrics.findVisitor('нет такого'), null);
+
+    metrics.removeVisitor(ids[2]);
+    assert.equal(metrics.findVisitor(ids[2]), null, 'удалённый посетитель не находится');
+    assert.equal(metrics.byId.size, metrics.data.visitors.length, 'индекс не разошёлся после удаления');
+
+    // Уборка по сроку хранения выкидывает карточки — индекс обязан это пережить.
+    metrics.data.visitors[0].lastSeen = Date.now() - 400 * 24 * 60 * 60 * 1000;
+    metrics.cleanup();
+    assert.equal(metrics.byId.size, metrics.data.visitors.length, 'индекс пересобран после уборки');
+    for (const v of metrics.data.visitors) assert.equal(metrics.findVisitor(v.id), v);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('осознанный sparkles отличается от промаха подбора иконки', () => {
+  // sparkles — не только фолбэк: у Apple это глиф «Built for AI» на buy-mac.
+  // Без отдельной проверки диагностика каталога считала эти строки ошибкой.
+  const icons = require('../lib/spec-icons');
+  assert.equal(icons.pickIcon('Готов к ИИ', 'Apple Intelligence в macOS 26'), 'sparkles');
+  assert.equal(icons.hasIcon('Готов к ИИ', 'Apple Intelligence в macOS 26'), true, 'это правило, а не промах');
+  assert.equal(icons.hasIcon('Абракадабра', 'ничего похожего в правилах нет'), false);
+  assert.equal(icons.pickIcon('Абракадабра', 'ничего похожего в правилах нет'), 'sparkles', 'рисуем всё равно sparkles');
+
+  // На текущем каталоге промахов быть не должно — это и есть смысл проверки.
+  const misses = [];
+  for (const p of catalog.products) {
+    for (const line of String(p.specs || '').split('\n')) {
+      if (!line.trim()) continue;
+      const i = line.indexOf(':');
+      const key = i > -1 ? line.slice(0, i).trim() : '';
+      const value = i > -1 ? line.slice(i + 1).trim() : line;
+      if (!icons.hasIcon(key, value)) misses.push(p.name + ' | ' + line);
+    }
+  }
+  assert.deepEqual(misses, [], 'у каждой характеристики каталога есть своё правило');
+});
