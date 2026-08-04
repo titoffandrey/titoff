@@ -32,7 +32,7 @@
     if (!Cart.items.length) return;
     fetch('/api/cart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize }; }) })
+      body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize, options: i.options }; }) })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
@@ -82,7 +82,7 @@
       + '<a class="co-back" href="/">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a></div>'
       + Cart.items.map(function (i) {
         var k = escapeHtml(itemKey(i));
-        var variant = [i.storage, i.color, i.band, i.bandSize].filter(Boolean).join(' · ');
+        var variant = [i.storage, i.color, i.band, i.bandSize].concat(optionValues(i)).filter(Boolean).join(' · ');
         var out = i.available === false;
         return '<article class="co-item' + (out ? ' co-item-out' : '') + '">'
           + '<div class="co-item-media">' + itemThumb(i) + '</div>'
@@ -233,7 +233,27 @@
   }
 
   // Ключ позиции: один товар в разных вариантах (память/цвет) — это разные строки корзины.
-  function itemKey(i) { return JSON.stringify([i.id, i.storage || '', i.color || '', i.band || '', i.bandSize || '']); }
+  // Доп. характеристики входят в ключ так же: iPad с нанотекстурой и без — разные позиции.
+  function optionsKey(list) {
+    return (list || []).map(function (o) { return [o.name, o.value]; });
+  }
+  function itemKey(i) { return JSON.stringify([i.id, i.storage || '', i.color || '', i.band || '', i.bandSize || '', optionsKey(i.options)]); }
+  // Значения доп. характеристик строкой — для подписи позиции в корзине.
+  function optionValues(i) { return (i.options || []).map(function (o) { return o.value; }); }
+  // Список из data-атрибута кнопки: пришёл он из нашей же разметки, но данные
+  // всё равно чистим — кнопку мог подменить кто угодно.
+  function parseOptions(raw) {
+    if (!raw) return [];
+    try { return cleanOptions(JSON.parse(raw)); } catch (e) { return []; }
+  }
+  function cleanOptions(list) {
+    if (!Array.isArray(list)) return [];
+    return list.slice(0, 20).map(function (o) {
+      if (!o || typeof o !== 'object') return null;
+      var name = cleanText(o.name, 60).trim(), value = cleanText(o.value, 80).trim();
+      return name && value ? { name: name, value: value } : null;
+    }).filter(Boolean);
+  }
   function cleanText(value, max) { return String(value == null ? '' : value).slice(0, max); }
   function cleanItem(item) {
     if (!item || typeof item !== 'object') return null;
@@ -250,6 +270,7 @@
       color: cleanText(item.color, 40),
       band: cleanText(item.band, 120),          // «Коллекция · Цвет»
       bandSize: cleanText(item.bandSize, 30),
+      options: cleanOptions(item.options),      // [{name, value}] — покрытие, связь и т. п.
       available: item.available !== false,
       // имя файла фото — чтобы в корзине была миниатюра товара, а не заглушка
       img: /^[\w.\-]{1,120}$/.test(String(item.img || '')) ? String(item.img) : ''
@@ -268,7 +289,7 @@
     add: function (id, name, price, qty, opts) {
       opts = opts || {};
       var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '',
-        band: opts.band || '', bandSize: opts.bandSize || '', img: opts.img || '' });
+        band: opts.band || '', bandSize: opts.bandSize || '', options: opts.options || [], img: opts.img || '' });
       if (!next) return;
       var ex = this.find(itemKey(next));
       if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img; }
@@ -333,7 +354,7 @@
         // Подпись варианта обязательна: /api/cart возвращает базовое название
         // товара, и без неё двое часов с разными ремешками выглядели в корзине
         // как две одинаковые строки «Apple Watch Ultra 3».
-        var variant = [i.storage, i.color, i.band, i.bandSize].filter(Boolean).join(' · ');
+        var variant = [i.storage, i.color, i.band, i.bandSize].concat(optionValues(i)).filter(Boolean).join(' · ');
         var out = i.available === false;
         return '<div class="cart-item' + (out ? ' cart-item-out' : '') + '">'
           + '<div class="cart-item-media">' + itemThumb(i) + '</div>'
@@ -387,7 +408,7 @@
       var b = btns[i];
       if (b.disabled) continue;
       setBtnState(b, !!Cart.find(itemKey({ id: b.dataset.id, storage: b.dataset.storage || '', color: b.dataset.color || '',
-        band: b.dataset.band || '', bandSize: b.dataset.bandSize || '' })));
+        band: b.dataset.band || '', bandSize: b.dataset.bandSize || '', options: parseOptions(b.dataset.options) })));
     }
   }
   // Товар уже в корзине → отдельная страница оформления
@@ -601,8 +622,9 @@
         e.preventDefault(); e.stopPropagation();
         if (btn.disabled) return;
         var id = btn.dataset.id;
+        var picked = parseOptions(btn.dataset.options);
         var variantKey = itemKey({ id: id, storage: btn.dataset.storage || '', color: btn.dataset.color || '',
-          band: btn.dataset.band || '', bandSize: btn.dataset.bandSize || '' });
+          band: btn.dataset.band || '', bandSize: btn.dataset.bandSize || '', options: picked });
         if (Cart.find(variantKey)) {
           // товар уже в корзине — ведём к оформлению (удалить можно внутри корзины)
           goToCheckout();
@@ -613,7 +635,7 @@
             if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
           }
           Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color,
-            band: btn.dataset.band, bandSize: btn.dataset.bandSize, img: btn.dataset.img });
+            band: btn.dataset.band, bandSize: btn.dataset.bandSize, options: picked, img: btn.dataset.img });
         }
         return;
       }
@@ -760,11 +782,14 @@
     // цветов корпуса и конфигураций), блок иначе не запускался — переключатель
     // рисовался, но цену не менял и в корзину ремешок не попадал.
     var addBtn = document.querySelector('.add-to-cart[data-qty-source]');
-    if (addBtn && (document.getElementById('colors') || document.getElementById('storages') || document.getElementById('bands'))) {
+    if (addBtn && (document.getElementById('colors') || document.getElementById('storages')
+      || document.getElementById('bands') || document.getElementById('options'))) {
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
       var baseName = addBtn.dataset.baseName || '';
-      var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0 };
+      var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0,
+        options: [], optionsAdd: 0 };
       var onCaseColorChange = null;   // задаётся блоком ремешков, если он есть
+      var onStorageChange = null;     // задаётся блоком доп. характеристик, если он есть
       // Стартуем с варианта, отмеченного активным на сервере: первый доступный,
       // а не просто первый в списке (первый цвет может быть распродан).
       var fc = document.querySelector('#colors .swatch.active') || document.querySelector('#colors .swatch');
@@ -772,7 +797,7 @@
       var fs = document.querySelector('#storages .storage-opt.active') || document.querySelector('#storages .storage-opt');
       if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
       function applyVariant() {
-        var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd;
+        var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd + vstate.optionsAdd;
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
         addBtn.dataset.price = total;
         // Название храним базовым, а вариант — в отдельных полях ниже. Иначе до
@@ -782,7 +807,55 @@
         addBtn.dataset.color = vstate.color;
         addBtn.dataset.band = vstate.band;
         addBtn.dataset.bandSize = vstate.bandSize;
+        addBtn.dataset.options = JSON.stringify(vstate.options);
         syncCartButtons(); // подпись кнопки зависит от выбранного варианта
+      }
+
+      // ===== Доп. характеристики: покрытие дисплея, связь, комплект =====
+      // Каждая группа — свой ряд кнопок со своей доплатой; в цену идёт сумма.
+      var optionsEl = document.getElementById('options');
+      if (optionsEl) {
+        var readOptions = function () {
+          var list = [], add = 0;
+          optionsEl.querySelectorAll('.option-group').forEach(function (g) {
+            var on = g.querySelector('.option-opt.active');
+            if (!on) return;
+            list.push({ name: g.dataset.group, value: on.dataset.label });
+            add += Number(on.dataset.add) || 0;
+          });
+          vstate.options = list; vstate.optionsAdd = add;
+        };
+        var pickOption = function (btn) {
+          if (!btn || btn.disabled) return;
+          var group = btn.closest('.option-group');
+          if (!group) return;
+          group.querySelectorAll('.option-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
+          btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true');
+          readOptions(); applyVariant();
+        };
+        // Часть значений идёт не со всеми конфигурациями (нанотекстурное стекло —
+        // только от 1 ТБ), поэтому при смене памяти ряд перебирается заново.
+        var applyStorageToOptions = function () {
+          optionsEl.querySelectorAll('.option-group').forEach(function (g) {
+            var fallback = null;
+            g.querySelectorAll('.option-opt').forEach(function (b) {
+              var only = (b.dataset.forStorage || '').split('|').filter(Boolean);
+              b.hidden = only.length > 0 && only.indexOf(vstate.storageLabel) === -1;
+              if (!b.hidden && !b.disabled && !fallback) fallback = b;
+            });
+            var active = g.querySelector('.option-opt.active');
+            if (!active || active.hidden || active.disabled) {
+              pickOption(fallback || g.querySelector('.option-opt:not([hidden])'));
+            }
+          });
+          readOptions();
+        };
+        optionsEl.addEventListener('click', function (e) {
+          var b = e.target.closest('.option-opt');
+          if (b) pickOption(b);
+        });
+        readOptions();
+        onStorageChange = applyStorageToOptions;
       }
 
       // ===== Ремешки часов: коллекция → цвет → размер =====
@@ -883,6 +956,7 @@
         var so = e.target.closest('.storage-opt'); if (!so) return;
         storagesEl.querySelectorAll('.storage-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
         so.classList.add('active'); so.setAttribute('aria-pressed', 'true'); vstate.storageLabel = so.dataset.label; vstate.storageAdd = Number(so.dataset.add) || 0;
+        if (onStorageChange) onStorageChange();   // значения «только от 1 ТБ»
         applyVariant();
       });
       applyVariant();
@@ -1113,7 +1187,7 @@
     var btnHtml = btn.innerHTML;
     btn.textContent = 'Отправляем...';
     var payload = {
-      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '' }; }),
+      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '', options: i.options || [] }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
       contact: contact,
       address: (document.getElementById('co-address') || {}).value || ''

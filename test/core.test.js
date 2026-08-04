@@ -660,6 +660,25 @@ test('каталог не содержит дублей и некорректн�
     assert.ok(Number.isFinite(Number(product.price)) && Number(product.price) >= 0, `цена: ${product.name}`);
     for (const color of (product.colors || [])) assert.match(color.hex, /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i);
     for (const storage of (product.storages || [])) assert.ok(storage.label && Number.isFinite(Number(storage.add)));
+    // Доп. характеристики: у группы должны быть значения, а ограничение
+    // «только для конфигураций» — ссылаться на существующие. Опечатка в метке
+    // прячет значение навсегда и молча, поэтому проверяем её здесь.
+    const labels = new Set((product.storages || []).map(s => s.label));
+    for (const group of (product.options || [])) {
+      assert.ok(group.name, `группа без названия: ${product.name}`);
+      assert.ok((group.values || []).length, `группа без значений: ${product.name} / ${group.name}`);
+      for (const value of group.values) {
+        assert.ok(value.label, `значение без подписи: ${product.name} / ${group.name}`);
+        assert.ok(Number.isFinite(Number(value.add)) && Number(value.add) >= 0, `доплата: ${product.name} / ${value.label}`);
+        for (const only of (value.forStorage || [])) {
+          assert.ok(labels.has(only), `нет конфигурации «${only}»: ${product.name} / ${value.label}`);
+        }
+      }
+      // хотя бы одно значение доступно с базовой конфигурацией, иначе группа пуста на старте
+      const first = (product.storages || [])[0];
+      assert.ok(group.values.some(v => !(v.forStorage || []).length || v.forStorage.includes(first && first.label)),
+        `нечего выбрать на старте: ${product.name} / ${group.name}`);
+    }
     ids.add(product.id); names.add(product.name);
   }
 });
@@ -685,6 +704,85 @@ test('корзина не подменяет исчезнувший вариан
   assert.equal(variants.variantMissing({ colors: [], storages: [], bands: [] }, {}), false);
   assert.equal(variants.findBand(view, 'Ocean Band · Anchor Blue').option.name, 'Anchor Blue');
   assert.equal(variants.findBand(view, 'Ocean Band · Purple'), null);
+});
+
+test('доп. характеристики обязательны к выбору и меняют цену', () => {
+  const view = {
+    storages: [{ label: '256 ГБ' }, { label: '2 ТБ' }],
+    colors: [], bands: [],
+    options: [
+      { name: 'Покрытие дисплея', values: [
+        { label: 'Стандартное стекло', add: 0 },
+        { label: 'Нанотекстурное стекло', add: 15000, forStorage: ['2 ТБ'] }
+      ] },
+      { name: 'Связь', values: [{ label: 'Wi-Fi', add: 0 }, { label: 'Wi-Fi + Cellular', add: 20000 }] }
+    ]
+  };
+  const item = (glass, link, storage) => ({
+    storage: storage || '2 ТБ',
+    options: [{ name: 'Покрытие дисплея', value: glass }, { name: 'Связь', value: link }]
+  });
+  const full = item('Нанотекстурное стекло', 'Wi-Fi + Cellular');
+  assert.equal(variants.variantMissing(view, full), false);
+  assert.equal(variants.optionsAdd(variants.findOptions(view, full)), 35000);
+  assert.equal(variants.optionsAdd(variants.findOptions(view, item('Стандартное стекло', 'Wi-Fi'))), 0);
+  // старая позиция без выбора не должна уйти по базовой цене
+  assert.equal(variants.variantMissing(view, { storage: '2 ТБ' }), true);
+  assert.equal(variants.variantMissing(view, { storage: '2 ТБ', options: [] }), true);
+  // выбрана лишь часть групп — тоже не заказ
+  assert.equal(variants.variantMissing(view, { storage: '2 ТБ', options: [{ name: 'Связь', value: 'Wi-Fi' }] }), true);
+  // придуманное значение и придуманная группа
+  assert.equal(variants.variantMissing(view, item('Алмазное стекло', 'Wi-Fi')), true);
+  assert.equal(variants.variantMissing(view, {
+    storage: '2 ТБ',
+    options: full.options.concat([{ name: 'Гравировка', value: 'Да' }])
+  }), true);
+  // совместимость с конфигурацией — отдельная проверка, как у ремешка «в цвет корпуса»
+  const glass = view.options[0].values[1];
+  assert.equal(variants.optionFits(glass, '2 ТБ'), true);
+  assert.equal(variants.optionFits(glass, '256 ГБ'), false);
+  assert.equal(variants.optionFits(view.options[0].values[0], '256 ГБ'), true);
+  // товар без доп. характеристик работает как раньше
+  assert.equal(variants.variantMissing({ colors: [], storages: [], bands: [] }, {}), false);
+});
+
+test('доплата за доп. характеристику масштабируется множителем сайта', () => {
+  const product = { id: 'p', name: 'Товар', price: 1000, storages: [], colors: [],
+    options: [{ name: 'Связь', hint: 'подсказка', values: [
+      { label: 'Wi-Fi', add: 0 }, { label: 'Wi-Fi + Cellular', add: 200 }] }] };
+  const view = tenancy.viewFor(product, { priceMultiplier: 1.5, overrides: {} }, { avg: 0, count: 0 });
+  assert.equal(view.price, 1500);
+  assert.equal(view.options[0].values[1].add, 300);
+  assert.equal(view.options[0].hint, 'подсказка');
+});
+
+test('страница товара показывает доп. характеристики и прячет несовместимые значения', () => {
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const product = {
+    id: 'pad', name: 'iPad', category: 'iPad', price: 100000, inStock: true, images: [], colors: [],
+    storages: [{ label: '256 ГБ', add: 0 }, { label: '2 ТБ', add: 80000 }],
+    options: [{ name: 'Покрытие дисплея', hint: 'Выберите, какое стекло вам подходит', values: [
+      { label: 'Стандартное стекло', add: 0 },
+      { label: 'Нанотекстурное стекло', add: 15000, forStorage: ['2 ТБ'] }
+    ] }]
+  };
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
+  assert.match(html, /id="options"/);
+  assert.match(html, /Выберите, какое стекло вам подходит/);
+  // страница открывается на 256 ГБ, поэтому нанотекстура скрыта уже сервером
+  assert.match(html, /data-label="Нанотекстурное стекло"[^>]*hidden/);
+  assert.match(html, /class="option-opt active" data-label="Стандартное стекло"/);
+  assert.match(html, /data-for-storage="2 ТБ"/);
+  // значение по умолчанию — первое доступное и подходящее выбранной конфигурации
+  assert.equal(render.defaultOption(product.options[0], '256 ГБ'), 0);
+  assert.equal(render.defaultOption(product.options[0], '2 ТБ'), 0);
+  // распроданное первое значение уступает второму
+  const group = { name: 'Связь', values: [{ label: 'Wi-Fi', inStock: false }, { label: 'Cellular' }] };
+  assert.equal(render.defaultOption(group, ''), 1);
+  // товар нельзя купить, если в группе не осталось ни одного доступного значения
+  assert.equal(render.sellable(product), true);
+  product.options[0].values.forEach(v => { v.inStock = false; });
+  assert.equal(render.sellable(product), false);
 });
 
 test('нулевая или некорректная ручная цена не превращает товар в бесплатный', () => {
@@ -969,8 +1067,8 @@ test('корзина различает варианты одного товар
   assert.match(css, /\.cart-item-variant\{/);
   assert.match(js, /item\.img = fresh\.img \|\| ''/);
   assert.match(js, /addBtn\.dataset\.name = baseName;/);
-  // блок вариантов запускается и когда у товара только ремешки
-  assert.match(js, /getElementById\('bands'\)\)\) \{/);
+  // блок вариантов запускается и когда у товара только ремешки или только доп. характеристики
+  assert.match(js, /getElementById\('bands'\) \|\| document\.getElementById\('options'\)\)\) \{/);
   assert.equal(analyticsView.pageLabel('/checkout', {}), 'Оформление заказа');
   assert.equal(analyticsView.pageLabel('/', {}), 'Главная');
 });

@@ -8,7 +8,7 @@ const db = require('./lib/db');
 const auth = require('./lib/auth');
 const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
-const { findBand, variantMissing } = require('./lib/variants');
+const { findBand, variantMissing, findOptions, optionsAdd, optionFits } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/deals');
 const T = require('./lib/tenancy');
@@ -130,6 +130,48 @@ function parseBands(txt) {
   return uniqBy(groups.filter(g => g.name), g => g.name)
     .map(g => Object.assign(g, { options: uniqBy(g.options.filter(o => o.name), o => o.name) }))
     .filter(g => g.options.length);
+}
+
+// Дополнительные характеристики: группа задаёт вопрос, значения — ответы со своей
+// доплатой. Формат текстового поля формы такой же, как у ремешков:
+//   # Покрытие дисплея | Выберите, какое стекло вам подходит
+//   - Стандартное стекло | 0
+//   - Нанотекстурное стекло | 15000 | нет | @1 ТБ, 2 ТБ
+// «#» начинает группу (второе поле — подпись-подсказка), «-» — значение.
+// Второе поле значения — доплата, дальше «нет» для распроданных и «@метки» —
+// конфигурации, с которыми значение продаётся (пусто — со всеми).
+function parseOptions(txt) {
+  const groups = [];
+  for (const line of String(txt || '').split('\n')) {
+    const l = line.trim();
+    if (!l) continue;
+    if (l.startsWith('#')) {
+      if (groups.length >= 20) continue;
+      const [name, hint] = l.slice(1).split('|');
+      groups.push({ name: (name || '').trim().slice(0, 60), hint: (hint || '').trim().slice(0, 160), values: [] });
+    } else if (l.startsWith('-') && groups.length) {
+      if (groups[groups.length - 1].values.length >= 40) continue;
+      const parts = l.slice(1).split('|');
+      const [label, add] = parts;
+      const n = Number(add);
+      let inStock = true, forStorage = [];
+      for (const raw of parts.slice(2)) {
+        const v = String(raw || '').trim();
+        if (!v) continue;
+        if (v.startsWith('@')) {
+          forStorage = v.slice(1).split(',').map(s => s.trim().slice(0, 80)).filter(Boolean).slice(0, 20);
+        } else if (!parseStock(v)) inStock = false;
+      }
+      groups[groups.length - 1].values.push({
+        label: (label || '').trim().slice(0, 80),
+        add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0,
+        inStock, forStorage
+      });
+    }
+  }
+  return uniqBy(groups.filter(g => g.name), g => g.name)
+    .map(g => Object.assign(g, { values: uniqBy(g.values.filter(v => v.label), v => v.label) }))
+    .filter(g => g.values.length);
 }
 
 // Проверка формы товара. Возвращает список ошибок: пустой — можно сохранять.
@@ -522,11 +564,15 @@ app.post('/api/cart', (req, res) => {
         || (view.images || []).find(src => ibs[src] === bandKey && !ics[src])) : null;
     const byColor = color
       ? (view.images || []).find(src => ics[src] === color && !ibs[src]) : null;
+    // Доп. характеристики: доплата за каждое выбранное значение
+    const chosen = findOptions(view, it);
     const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0)
-      + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0);
+      + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0)
+      + optionsAdd(chosen);
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
       || (band && band.option.inStock === false)
       || (band && band.option.forColor && band.option.forColor !== color)
+      || chosen.some(c => c.value && (c.value.inStock === false || !optionFits(c.value, storage)))
       || variantMissing(view, it);
     return {
       id: view.id, name: view.name, storage, color, price,
@@ -593,6 +639,12 @@ app.post('/api/order', async (req, res) => {
       const sz = (band.group.sizes || []).find(x => x.label === String(it.bandSize || '').trim());
       if (sz) { price += Number(sz.add) || 0; name += ' ' + sz.label; }
     }
+    // Доп. характеристики: наличие и совместимость с конфигурацией перепроверяем
+    // так же, как у ремешка, — корзина могла сохраниться до правки каталога.
+    const chosen = findOptions(view, it);
+    if (chosen.some(c => !c.value || c.value.inStock === false || !optionFits(c.value, storageLabel))) continue;
+    price += optionsAdd(chosen);
+    for (const c of chosen) name += ', ' + c.value.label;
     if (!Number.isFinite(price) || price < 0) continue;
     items.push({ id: view.id, name, price, qty });
     total += price * qty;
@@ -685,7 +737,7 @@ app.post('/owner/products', async (req, res) => {
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
-    bands: parseBands(req.body.bands),
+    bands: parseBands(req.body.bands), options: parseOptions(req.body.options),
     images: await optimizeUploads(req.filesFor('images').slice(0, PRODUCT_IMAGE_MAX), 1200, { square: true })
   });
   res.redirect('/owner/products?flash=' + encodeURIComponent('Товар создан'));
@@ -732,7 +784,8 @@ app.post('/owner/products/:id', async (req, res) => {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
     inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
-    colors, storages: parseStorages(req.body.storages), bands, images, imageColors, imageBands
+    colors, storages: parseStorages(req.body.storages), bands, options: parseOptions(req.body.options),
+    images, imageColors, imageBands
   });
   remove.forEach(db.deleteUploadIfUnused);
   res.redirect('/owner/products?flash=' + encodeURIComponent('Сохранено'));

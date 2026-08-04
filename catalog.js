@@ -246,6 +246,80 @@ const ST = {
   tv: [{ label: '64 ГБ', add: 0 }, { label: '128 ГБ', add: 3000 }]
 };
 
+/* -------- дополнительные характеристики --------
+   Группы выбора с buy-страниц apple.com: покрытие дисплея, связь, подставка,
+   блок питания. У каждой группы свой обязательный выбор со своей доплатой (₽),
+   а forStorage ограничивает значение частью конфигураций — как у Apple, где
+   нанотекстурное стекло iPad Pro бывает только на 1 ТБ и 2 ТБ. */
+const OPT = {
+  // «Connectivity. Choose how you'll stay connected.»
+  cellular: (add) => ({
+    name: 'Связь', hint: 'Выберите, как оставаться на связи',
+    values: [{ label: 'Wi-Fi', add: 0 }, { label: 'Wi-Fi + Cellular', add }]
+  }),
+  // «Display glass. Choose which glass is best for you.»
+  glass: (add, forStorage) => ({
+    name: 'Покрытие дисплея', hint: 'Выберите, какое стекло вам подходит',
+    values: [
+      { label: 'Стандартное стекло', add: 0 },
+      { label: 'Нанотекстурное стекло', add, forStorage: forStorage || [] }
+    ]
+  }),
+  // Подставка монитора: у Apple это третий обязательный выбор наравне со стеклом
+  stand: (height) => ({
+    name: 'Подставка', hint: 'Выберите, как монитор будет стоять или крепиться',
+    values: [
+      { label: 'Наклон', add: 0 },
+      { label: 'Наклон и регулировка высоты', add: height },
+      { label: 'Крепление VESA', add: 0 }
+    ]
+  }),
+  watchCellular: (add) => ({
+    name: 'Связь', hint: 'Звонки и данные без телефона рядом — по желанию',
+    values: [{ label: 'GPS', add: 0 }, { label: 'GPS + Cellular', add }]
+  })
+};
+
+// Группы, которые встречаются у одного-двух товаров, — отдельными константами
+const POWER_AIR = {
+  name: 'Блок питания', hint: 'Выберите зарядное устройство в комплекте',
+  values: [
+    { label: '30 Вт USB-C', add: 0 },
+    { label: '35 Вт с двумя портами', add: 0 },
+    { label: '70 Вт быстрая зарядка', add: 2990 }
+  ]
+};
+const POWER_PRO14 = {
+  name: 'Блок питания', hint: 'Выберите зарядное устройство в комплекте',
+  values: [{ label: '70 Вт USB-C', add: 0 }, { label: '96 Вт быстрая зарядка', add: 3990 }]
+};
+const IMAC_PORTS = {
+  name: 'Порты и сеть', hint: 'Выберите набор портов на задней панели',
+  values: [
+    { label: '2 порта Thunderbolt', add: 0 },
+    { label: '4 порта Thunderbolt и Gigabit Ethernet', add: 19990 }
+  ]
+};
+const IMAC_KEYBOARD = {
+  name: 'Клавиатура', hint: 'Выберите Magic Keyboard в комплекте',
+  values: [
+    { label: 'Magic Keyboard с Touch ID', add: 0 },
+    { label: 'Magic Keyboard с Touch ID и цифровым блоком', add: 7990 }
+  ]
+};
+const MINI_ETHERNET = {
+  name: 'Сеть', hint: 'Выберите скорость проводного подключения',
+  values: [{ label: 'Gigabit Ethernet', add: 0 }, { label: '10 Гбит Ethernet', add: 12990 }]
+};
+const ZEISS_INSERTS = {
+  name: 'Оптические вставки ZEISS', hint: 'Нужны, если вы носите очки',
+  values: [
+    { label: 'Не нужны', add: 0 },
+    { label: 'Для чтения', add: 9990 },
+    { label: 'По рецепту', add: 16990 }
+  ]
+};
+
 const products = [
 
   /* ============================== iPhone ============================== */
@@ -328,6 +402,7 @@ const products = [
     description: 'Тонкий, быстрый, мощный и портативный. Чип M5 с 10-ядерным CPU, безвентиляторная конструкция, до 18 часов автономной работы и вес всего 1.24 кг.',
     specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_AIR, storages: ST.mac256,
+    options: [POWER_AIR],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.8 * DAY
   },
@@ -338,6 +413,7 @@ const products = [
     description: 'Всё то же, что в 13-дюймовом Air, но с большим экраном 15.3" и системой из шести динамиков. Идеально, когда нужен простор для работы и кино.',
     specs: 'Экран: 15.3" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.51 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_AIR, storages: ST.mac256,
+    options: [POWER_AIR],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.9 * DAY
   },
@@ -348,6 +424,7 @@ const products = [
     description: 'Самый продвинутый ноутбук Mac для требовательных задач. Чипы M5, M5 Pro или M5 Max, дисплей Liquid Retina XDR с ProMotion 120 Гц, Thunderbolt 5 и до 24 часов автономной работы.',
     specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_PRO, storages: ST.mac512,
+    options: [OPT.glass(19990), POWER_PRO14],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.1 * DAY
   },
@@ -358,6 +435,7 @@ const products = [
     description: 'Максимальный экран и максимальная производительность. Чипы M5 Pro и M5 Max, до 128 ГБ объединённой памяти, четыре порта Thunderbolt 5 и самая долгая автономность среди ноутбуков Mac.',
     specs: 'Экран: 16.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 Pro (до M5 Max)\nОЗУ: 24 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 26 ч\nВес: 2.14 кг\nПорты: 4× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_PRO, storages: ST.mac512,
+    options: [OPT.glass(19990)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.2 * DAY
   },
@@ -368,6 +446,7 @@ const products = [
     description: 'Моноблок для творчества и работы: дисплей 24" Retina 4.5K, чип M5, камера Center Stage 12 Мп и подобранные в цвет Magic Keyboard и Magic Mouse в комплекте.',
     specs: 'Экран: 24" Retina 4.5K, 500 нит\nЧип: Apple M5\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nКамера: 12 Мп Center Stage с Desk View\nАудио: 6 динамиков, Spatial Audio\nПорты: 2× Thunderbolt 4, 2× USB-C\nКлавиатура: Magic Keyboard в цвет корпуса\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: IMAC, storages: ST.mac256,
+    options: [IMAC_PORTS, IMAC_KEYBOARD],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.3 * DAY
   },
@@ -378,6 +457,7 @@ const products = [
     description: 'Самый маленький и доступный десктоп Mac. Чип M5, корпус 12.7 × 12.7 см, порты Thunderbolt спереди и сзади — подключается к любому монитору и клавиатуре.',
     specs: 'Чип: Apple M5\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nПорты: 2× Thunderbolt 4 спереди, 3× Thunderbolt сзади, HDMI, Ethernet\nРазмер: 12.7 × 12.7 × 5 см\nАудио: аудиоразъём 3.5 мм\nСвязь: Wi-Fi 7, Bluetooth 6\nПитание: встроенный блок питания',
     colors: [C.silver], storages: ST.mac256,
+    options: [MINI_ETHERNET],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.4 * DAY
   },
@@ -398,6 +478,7 @@ const products = [
     description: 'Монитор 27" Retina 5K, созданный для Mac: 600 нит, широкий цвет P3, True Tone, камера Center Stage 12 Мп, три микрофона и шесть динамиков с поддержкой Spatial Audio.',
     specs: 'Экран: 27" Retina 5K, 600 нит, P3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio, 3 микрофона\nПорты: Thunderbolt 3, 3× USB-C\nПоддержка: подставка с наклоном (опция — регулировка высоты)\nПокрытие: стандартное или нанотекстурное',
     colors: [C.silver], storages: [],
+    options: [OPT.glass(29990), OPT.stand(39990)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.6 * DAY
   },
@@ -408,6 +489,7 @@ const products = [
     description: 'Профессиональный монитор 27" Retina 5K XDR с подсветкой mini-LED: 1000 нит SDR и 2000 нит пиковой яркости HDR, частота 120 Гц и охват Adobe RGB для точной работы с цветом.',
     specs: 'Экран: 27" Retina 5K XDR, mini-LED\nЯркость: 1000 нит SDR, 2000 нит HDR\nЧастота: 120 Гц адаптивная\nЦвет: P3 и Adobe RGB\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nПорты: Thunderbolt 5, 3× USB-C\nПокрытие: стандартное или нанотекстурное',
     colors: [C.silver], storages: [],
+    options: [OPT.glass(44990), OPT.stand(59990)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.7 * DAY
   },
@@ -420,6 +502,8 @@ const products = [
     description: 'Самый мощный iPad. Чип M5, тандемный OLED-дисплей Ultra Retina XDR, толщина корпуса 5.1 мм, Thunderbolt и поддержка Apple Pencil Pro с Magic Keyboard.',
     specs: 'Экран: 13" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.1 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_PRO, storages: ST.pad256,
+    // Нанотекстура — только на 1 ТБ и 2 ТБ, как на apple.com/shop/buy-ipad
+    options: [OPT.glass(15000, ['1 ТБ', '2 ТБ']), OPT.cellular(20000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.8 * DAY
   },
@@ -430,6 +514,7 @@ const products = [
     description: 'Компактный iPad Pro с чипом M5 и тандемным OLED-дисплеем Ultra Retina XDR. Толщина всего 5.3 мм при полной производительности Pro.',
     specs: 'Экран: 11" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.3 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_PRO, storages: ST.pad256,
+    options: [OPT.glass(15000, ['1 ТБ', '2 ТБ']), OPT.cellular(20000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.9 * DAY
   },
@@ -440,6 +525,7 @@ const products = [
     description: 'Серьёзная производительность в тонком и легком корпусе. Чип M4, дисплей Liquid Retina 13", поддержка Apple Pencil Pro и клавиатуры Magic Keyboard.',
     specs: 'Экран: 13" Liquid Retina, 600 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 618 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_AIR, storages: ST.pad128,
+    options: [OPT.cellular(15000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2 * DAY
   },
@@ -450,6 +536,7 @@ const products = [
     description: 'Универсальный iPad для учёбы, работы и творчества: чип M4, дисплей Liquid Retina 11", поддержка Apple Pencil Pro и Apple Intelligence.',
     specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 460 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_AIR, storages: ST.pad128,
+    options: [OPT.cellular(15000)],
     hotDeal: true, hotDealPrice: 55990, hotDealUntil: now + 2 * DAY,
     images: [], createdAt: now - 2.1 * DAY
   },
@@ -460,6 +547,7 @@ const products = [
     description: 'Красочный iPad для повседневных дел. Чип A16, дисплей Liquid Retina 11", поддержка Apple Pencil (USB-C) и целый день автономной работы.',
     specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple A16\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 477 г\nРазъём: USB-C\nПоддержка: Apple Pencil (USB-C)\nСвязь: Wi-Fi 6, 5G (опция)',
     colors: IPAD_11, storages: ST.pad128,
+    options: [OPT.cellular(12000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.2 * DAY
   },
@@ -470,6 +558,7 @@ const products = [
     description: 'Полноценный iPad в ультрапортативном формате. Чип A17 Pro с поддержкой Apple Intelligence, дисплей 8.3" и поддержка Apple Pencil Pro.',
     specs: 'Экран: 8.3" Liquid Retina, 500 нит\nЧип: Apple A17 Pro\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 293 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
     colors: IPAD_AIR, storages: ST.pad128,
+    options: [OPT.cellular(15000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.3 * DAY
   },
@@ -480,9 +569,11 @@ const products = [
     price: 42990, oldPrice: 47990, badge: 'Хит', inStock: true,
     shortDesc: 'Уведомления о гипертонии, оценка сна, 5G.',
     description: 'Лучший способ следить за здоровьем: уведомления о признаках гипертонии, оценка качества сна, ЭКГ и кислород в крови. Экран в 2 раза устойчивее к царапинам, до 24 часов работы и связь 5G.',
-    specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
+    specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G (опция), Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
     colors: W_ALU, storages: ST.watch42,
     bands: BANDS.series,
+    // алюминиевые Series 11 продаются в двух версиях: GPS и GPS + Cellular
+    options: [OPT.watchCellular(9000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.4 * DAY
   },
@@ -517,6 +608,7 @@ const products = [
     specs: 'Корпус: алюминий 40 или 44 мм\nЭкран: Always-On Retina\nЧип: S10 SiP\nАвтономность: до 18 ч\nНавигация: GPS\nЗащита: WR50\nДатчики: пульс, температура, акселерометр\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Crash Detection\nСвязь: LTE (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, USB-C',
     colors: [C.midnight, C.starlight], storages: ST.watch40,
     bands: BANDS.se,
+    options: [OPT.watchCellular(7000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.7 * DAY
   },
@@ -615,6 +707,7 @@ const products = [
     description: 'Пространственный компьютер Apple: два дисплея micro-OLED с 23 миллионами пикселей, чип M5 в паре с R1, управление глазами, руками и голосом. В комплекте новый ремень Dual Knit.',
     specs: 'Экран: два micro-OLED, 23 млн пикселей\nЧип: Apple M5 и R1\nПамять: от 256 ГБ до 1 ТБ\nАвтономность: до 2.5 ч (внешний аккумулятор)\nДатчики: 12 камер, 5 сенсоров, 6 микрофонов\nАудио: Spatial Audio с трекингом головы\nСвязь: Wi-Fi 6E, Bluetooth\nПоддержка: Optic ID, управление взглядом и жестами',
     colors: [{ name: 'Белый', hex: '#f2f1ee' }], storages: ST.vision,
+    options: [ZEISS_INSERTS],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 3.6 * DAY
   },

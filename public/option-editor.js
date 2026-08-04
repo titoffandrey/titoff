@@ -1,0 +1,181 @@
+'use strict';
+// Редактор дополнительных характеристик товара (панель владельца).
+// Работает поверх скрытого <textarea name="options">, формат:
+//   # Покрытие дисплея | Выберите, какое стекло вам подходит
+//   - Стандартное стекло | 0
+//   - Нанотекстурное стекло | 15000 | нет | @1 ТБ, 2 ТБ
+// «#» — группа и подпись под её заголовком, «-» — значение с доплатой.
+// В интерфейсе вводится ПОЛНАЯ цена товара с этим значением, доплата считается
+// сама — так же, как в редакторах памяти и ремешков.
+(function () {
+  var editor = document.getElementById('option-editor');
+  if (!editor) return;
+  var raw = document.getElementById('options-raw');
+  var addBtn = document.getElementById('option-add');
+  var baseInput = document.querySelector('input[name="price"]');
+
+  function base() { return Number(baseInput && baseInput.value) || 0; }
+  function escHtml(s) { return String(s).replace(/[&<>]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]; }); }
+  function escAttr(s) { return String(s).replace(/[&<>"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]; }); }
+  // Конфигурации берём из живого редактора памяти: значение можно ограничить
+  // частью из них (нанотекстура у iPad Pro бывает только от 1 ТБ).
+  function storageLabels() {
+    var out = [];
+    document.querySelectorAll('#storage-editor .st-label').forEach(function (i) {
+      var v = i.value.trim(); if (v && out.indexOf(v) < 0) out.push(v);
+    });
+    return out;
+  }
+  // Ограничение хранится списком меток. Их набор меняется, пока владелец правит
+  // конфигурации, поэтому в поле остаётся то, что он выбрал, даже если метки
+  // временно нет: иначе строка «@2 ТБ» пропадала от одной опечатки в памяти.
+  function fillOnly(box, current) {
+    var labels = storageLabels();
+    current = (current || []).filter(Boolean);
+    current.forEach(function (v) { if (labels.indexOf(v) < 0) labels.push(v); });
+    if (!labels.length) { box.innerHTML = '<span class="muted small">добавьте конфигурации выше</span>'; return; }
+    box.innerHTML = labels.map(function (l) {
+      return '<label class="ov-only-item"><input type="checkbox" value="' + escAttr(l) + '"'
+        + (current.indexOf(l) >= 0 ? ' checked' : '') + '><span>' + escHtml(l) + '</span></label>';
+    }).join('');
+  }
+
+  // ---- одно значение характеристики ----
+  function makeValue(list, value) {
+    value = value || {};
+    var row = document.createElement('div');
+    row.className = 'option-val-row';
+    // Основные поля — своей строкой, «только для конфигураций» — под ней.
+    // Через flex-wrap это не сделать: у полей формы ширина 100%, и подпись
+    // значения уносила цену с галочкой на следующую строку.
+    row.innerHTML =
+      '<div class="ov-main">' +
+        '<input type="text" class="ov-label" placeholder="Например: Нанотекстурное стекло">' +
+        '<div class="st-price-wrap"><input type="text" class="ov-price" inputmode="numeric" placeholder="Цена с этим значением"><span class="st-cur">₽</span></div>' +
+        '<label class="stock-toggle" title="Снимите галочку, если вариант распродан"><input type="checkbox" class="ov-stock"><span>в наличии</span></label>' +
+        '<button type="button" class="color-del" title="Удалить значение" aria-label="Удалить значение">&times;</button>' +
+      '</div>' +
+      '<details class="ov-only-fold"><summary>Только для конфигураций</summary><div class="ov-only"></div></details>';
+    row.querySelector('.ov-label').value = value.label || '';
+    row.querySelector('.ov-price').value = value.add != null ? String(base() + Number(value.add || 0)) : '';
+    var stock = row.querySelector('.ov-stock');
+    stock.checked = value.inStock !== false;
+    row.classList.toggle('row-out', !stock.checked);
+    var only = row.querySelector('.ov-only');
+    fillOnly(only, value.forStorage || []);
+    if ((value.forStorage || []).length) row.querySelector('.ov-only-fold').open = true;
+    row.querySelector('.ov-label').addEventListener('input', sync);
+    row.querySelector('.ov-price').addEventListener('input', sync);
+    stock.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
+    only.addEventListener('change', sync);
+    row.querySelector('.color-del').addEventListener('click', function () { row.remove(); sync(); });
+    list.appendChild(row);
+    return row;
+  }
+
+  // ---- группа: заголовок, подсказка и список значений ----
+  function makeGroup(group) {
+    group = group || {};
+    var box = document.createElement('div');
+    box.className = 'option-group-box';
+    box.innerHTML =
+      '<div class="option-group-head">' +
+        '<input type="text" class="og-name" placeholder="Название, например Покрытие дисплея">' +
+        '<input type="text" class="og-hint" placeholder="Подсказка под заголовком (необязательно)">' +
+        '<button type="button" class="color-del" title="Удалить характеристику" aria-label="Удалить характеристику">&times;</button>' +
+      '</div>' +
+      '<div class="option-vals"></div>' +
+      '<button type="button" class="btn btn-sm og-add-val">+ Значение</button>';
+    box.querySelector('.og-name').value = group.name || '';
+    box.querySelector('.og-hint').value = group.hint || '';
+    var list = box.querySelector('.option-vals');
+    (group.values || []).forEach(function (v) { makeValue(list, v); });
+    box.querySelector('.og-name').addEventListener('input', sync);
+    box.querySelector('.og-hint').addEventListener('input', sync);
+    box.querySelector('.og-add-val').addEventListener('click', function () {
+      var row = makeValue(list, { inStock: true });
+      sync();
+      row.querySelector('.ov-label').focus();
+    });
+    box.querySelector('.option-group-head .color-del').addEventListener('click', function () { box.remove(); sync(); });
+    editor.appendChild(box);
+    return box;
+  }
+
+  function read() {
+    var out = [];
+    editor.querySelectorAll('.option-group-box').forEach(function (box) {
+      var name = box.querySelector('.og-name').value.trim();
+      if (!name) return;
+      var values = [];
+      box.querySelectorAll('.option-val-row').forEach(function (row) {
+        var label = row.querySelector('.ov-label').value.trim();
+        if (!label) return;
+        var priceStr = row.querySelector('.ov-price').value.replace(/\s+/g, '');
+        var price = Number(priceStr);
+        var add = (priceStr === '' || isNaN(price)) ? 0 : Math.max(0, Math.round(price - base()));
+        var forStorage = [];
+        row.querySelectorAll('.ov-only input:checked').forEach(function (c) { forStorage.push(c.value); });
+        values.push({ label: label, add: add, inStock: row.querySelector('.ov-stock').checked, forStorage: forStorage });
+      });
+      if (values.length) out.push({ name: name, hint: box.querySelector('.og-hint').value.trim(), values: values });
+    });
+    return out;
+  }
+
+  function sync() {
+    var groups = read();
+    var lines = [];
+    groups.forEach(function (g) {
+      lines.push('# ' + g.name + ' | ' + g.hint);
+      g.values.forEach(function (v) {
+        lines.push('- ' + v.label + ' | ' + v.add + (v.inStock ? '' : ' | нет')
+          + (v.forStorage.length ? ' | @' + v.forStorage.join(', ') : ''));
+      });
+    });
+    raw.value = lines.join('\n');
+  }
+
+  // ---- разбор текущего значения textarea ----
+  function parse(text) {
+    var groups = [];
+    (text || '').split('\n').forEach(function (line) {
+      var l = line.trim();
+      if (!l) return;
+      if (l.charAt(0) === '#') {
+        var head = l.slice(1).split('|');
+        groups.push({ name: (head[0] || '').trim(), hint: (head[1] || '').trim(), values: [] });
+      } else if (l.charAt(0) === '-' && groups.length) {
+        var parts = l.slice(1).split('|');
+        var value = { label: (parts[0] || '').trim(), add: parseInt(parts[1], 10) || 0, inStock: true, forStorage: [] };
+        parts.slice(2).forEach(function (part) {
+          var v = (part || '').trim();
+          if (!v) return;
+          if (v.charAt(0) === '@') value.forStorage = v.slice(1).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+          else if (/^(нет|no|0|out)$/i.test(v)) value.inStock = false;
+        });
+        groups[groups.length - 1].values.push(value);
+      }
+    });
+    return groups;
+  }
+
+  parse(raw.value).forEach(makeGroup);
+  // Конфигурации правятся рядом: список галочек и пересчёт доплат должны идти за ними
+  if (baseInput) baseInput.addEventListener('input', sync);
+  var storageEditor = document.getElementById('storage-editor');
+  if (storageEditor) storageEditor.addEventListener('input', function () {
+    editor.querySelectorAll('.option-val-row').forEach(function (row) {
+      var current = [];
+      row.querySelectorAll('.ov-only input:checked').forEach(function (c) { current.push(c.value); });
+      fillOnly(row.querySelector('.ov-only'), current);
+    });
+    sync();
+  });
+  addBtn.addEventListener('click', function () {
+    var box = makeGroup({ values: [{ add: 0, inStock: true }] });
+    sync();
+    box.querySelector('.og-name').focus();
+  });
+  sync();
+})();

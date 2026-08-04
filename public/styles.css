@@ -596,19 +596,35 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .swatch:hover{transform:scale(1.08)}
 .swatch.active{box-shadow:inset 0 0 0 2px #fff,0 0 0 2px var(--accent);transform:scale(1.08)}
 .storage-opts{display:flex;flex-wrap:wrap;gap:8px}
-.storage-opt{padding:9px 16px;border:1px solid var(--border);border-radius:12px;background:#fff;cursor:pointer;
+/* Доп. характеристики (покрытие дисплея, связь) — те же кнопки, что у памяти,
+   поэтому оформление общее: разница только в подписи с доплатой под названием. */
+.storage-opt,.option-opt{padding:9px 16px;border:1px solid var(--border);border-radius:12px;background:#fff;cursor:pointer;
   font-size:14px;font-weight:500;color:var(--text);font-family:inherit;transition:border-color .12s,background .12s}
-.storage-opt:hover{border-color:var(--accent)}
-.storage-opt.active{border-color:var(--accent);background:rgba(0,113,227,.08);color:var(--accent)}
+.storage-opt:hover,.option-opt:hover{border-color:var(--accent)}
+.storage-opt.active,.option-opt.active{border-color:var(--accent);background:rgba(0,113,227,.08);color:var(--accent)}
 
 /* Распроданный вариант: виден, но не выбирается (как в highlights у Apple). */
 .swatch.out{cursor:not-allowed;opacity:.45;box-shadow:inset 0 0 0 2px #fff}
 .swatch.out:hover{transform:none}
 .swatch.out::after{content:"";position:absolute;inset:-1px;border-radius:50%;
   background:linear-gradient(to top left,transparent calc(50% - 1px),var(--muted) calc(50% - 1px),var(--muted) calc(50% + 1px),transparent calc(50% + 1px))}
-.storage-opt.out{cursor:not-allowed;color:var(--muted);background:var(--bg2);border-style:dashed}
-.storage-opt.out:hover{border-color:var(--border)}
-.storage-opt .opt-note{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:2px}
+.storage-opt.out,.option-opt.out{cursor:not-allowed;color:var(--muted);background:var(--bg2);border-style:dashed}
+.storage-opt.out:hover,.option-opt.out:hover{border-color:var(--border)}
+.storage-opt .opt-note,.option-opt .opt-note{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:2px}
+
+/* ===== Доп. характеристики товара (страница товара) =====
+   Группы идут столбиком: у каждой свой заголовок с подсказкой, как в highlights
+   на apple.com/shop, и свой ряд значений с доплатой. */
+.option-groups{display:flex;flex-direction:column;gap:18px}
+.option-group .variant-label{margin-bottom:3px}
+.variant-hint{margin:0 0 9px;font-size:13px;line-height:1.4;color:var(--muted)}
+.option-opts{display:flex;flex-wrap:wrap;gap:8px}
+.option-opt{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left}
+.option-opt .opt-add{font-size:11.5px;font-weight:400;color:var(--muted)}
+.option-opt.active .opt-add{color:inherit;opacity:.82}
+/* hidden обязан побеждать display:flex — иначе видно значение, которого с
+   выбранной конфигурацией не бывает (нанотекстура на 256 ГБ). */
+.option-opt[hidden]{display:none}
 
 /* Галочка «в наличии» в редакторах вариантов */
 .stock-toggle{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
@@ -1009,8 +1025,9 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .swatches{gap:12px}
 .swatch{width:38px;height:38px;border-radius:50%}
 .storage-opts{gap:9px}
-.storage-opt{min-height:43px;padding:9px 16px;border-radius:12px;font-weight:600}
-.storage-opt.active{background:var(--text);border-color:var(--text);color:#fff}
+.storage-opt,.option-opt{min-height:43px;padding:9px 16px;border-radius:12px;font-weight:600}
+.storage-opt.active,.option-opt.active{background:var(--text);border-color:var(--text);color:#fff}
+.option-opt{justify-content:center;padding-block:7px}
 .buy-row{gap:12px;margin-top:26px;flex-wrap:nowrap}
 .qty{height:50px;flex:none;border-color:var(--border);background:#fff}
 .qty-btn,.qty-input{height:48px}
@@ -1643,6 +1660,31 @@ body.admin{background:#f4f4f6;color:#242426}
 .band-editor .band-opt-row .st-price-wrap{flex:none;width:150px}
 .band-opt-row.row-out{background:var(--bg2)}
 .band-opt-row.row-out .bo-name{text-decoration:line-through;color:var(--muted)}
+
+/* ===== Редактор доп. характеристик (панель владельца) ===== */
+.option-field{margin-top:18px}
+.option-editor{display:flex;flex-direction:column;gap:14px;margin-bottom:10px}
+.option-group-box{border:1px solid var(--border);border-radius:16px;padding:14px;background:var(--bg2)}
+.option-group-head{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+.option-editor .option-group-head .og-name{flex:1 1 42%;min-width:0;font-weight:600}
+.option-editor .option-group-head .og-hint{flex:1 1 50%;min-width:0}
+.option-vals{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.option-val-row{background:#fff;border:1px solid var(--border);border-radius:13px;padding:7px 10px}
+.ov-main{display:flex;align-items:center;gap:10px}
+.option-editor .option-val-row .ov-label{flex:1 1 auto;width:auto;min-width:0;border:none;background:none;padding:6px 2px;font-size:14.5px;font-weight:500}
+.option-editor .option-val-row .ov-label:focus{outline:none;box-shadow:none;background:none}
+.option-editor .option-val-row .st-price-wrap{flex:none;width:170px}
+.option-val-row.row-out{background:var(--bg2)}
+.option-val-row.row-out .ov-label{text-decoration:line-through;color:var(--muted)}
+/* «Только для конфигураций» — редкая настройка, поэтому по умолчанию свёрнута */
+.ov-only-fold{margin-top:2px}
+.ov-only-fold>summary{cursor:pointer;list-style:none;font-size:12px;color:var(--muted);padding:2px 0}
+.ov-only-fold>summary::-webkit-details-marker{display:none}
+.ov-only-fold>summary::before{content:'▸';margin-right:5px;font-size:10px;display:inline-block;transition:transform .15s ease}
+.ov-only-fold[open]>summary::before{transform:rotate(90deg)}
+.ov-only{display:flex;flex-wrap:wrap;gap:6px 12px;padding:6px 0 2px}
+.ov-only-item{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text);cursor:pointer}
+.ov-only-item input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
 
 /* Складные блоки загрузки фото: с 46 вариациями развёрнутый список бесполезен */
 .upload-fold{border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:var(--bg2)}
