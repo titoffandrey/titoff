@@ -796,6 +796,7 @@
     if (addBtn && (document.getElementById('colors') || document.getElementById('storages')
       || document.getElementById('bands') || document.getElementById('options'))) {
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
+      var baseCompare = Number(addBtn.dataset.baseCompare) || 0; // 0 — зачёркивать нечего
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0,
         options: [], optionsAdd: 0 };
@@ -811,6 +812,22 @@
         var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd + vstate.optionsAdd;
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
         addBtn.dataset.price = total;
+        // Зачёркнутая цена — та же сборка по старой цене, а не базовая сборка:
+        // доплата за память и доп. характеристики одинакова в обеих. Иначе рядом
+        // с ценой сборки за 93 990 ₽ висели старые 64 990 ₽ и «−12%» от базы —
+        // выходило, что дороже собранный вариант ещё и «выгоднее».
+        if (baseCompare) {
+          var cmpTotal = baseCompare + (total - basePrice);
+          var oe = document.getElementById('product-old-price');
+          if (oe) oe.textContent = money(cmpTotal);
+          var se = document.getElementById('product-save');
+          if (se) {
+            // Выгода в рублях та же, поэтому процент от суммы честно уменьшается.
+            var pct = Math.round((1 - total / cmpTotal) * 100);
+            se.textContent = '−' + pct + '%';
+            se.style.display = pct > 0 ? '' : 'none'; // у .save своё display
+          }
+        }
         // Название храним базовым, а вариант — в отдельных полях ниже. Иначе до
         // первого ответа /api/cart оформление показывало память/цвет дважды.
         addBtn.dataset.name = baseName;

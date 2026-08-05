@@ -602,6 +602,29 @@ test('формы не содержат галочек, а отзыв требу�
   assert.match(js, /fd\.append\('publicationAccepted', '1'\)/);
 });
 
+test('зачёркнутая цена пересчитывается вместе с вариантом', () => {
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const product = {
+    id: 'p1', name: 'Товар', category: 'Категория', price: 50000, oldPrice: 60000,
+    inStock: true, images: [], colors: [], storages: [{ label: '128 ГБ', add: 0 }, { label: '1 ТБ', add: 40000 }]
+  };
+  const html = render.productPage(settings, db, product, null, { origin: '' });
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  // Скрипт правит старую цену по id и берёт базу сравнения с кнопки: разъедется
+  // разметка с app.js — рядом с ценой сборки снова повиснет цена базовой.
+  assert.match(html, /id="product-old-price"/);
+  assert.match(html, /id="product-save"/);
+  assert.match(html, /data-base-compare="60000"/);
+  assert.match(js, /getElementById\('product-old-price'\)/);
+  assert.match(js, /getElementById\('product-save'\)/);
+  assert.match(js, /baseCompare \+ \(total - basePrice\)/);
+  // Зачёркивать нечего — атрибут нулевой, и скрипт ничего не трогает.
+  const plain = render.productPage(settings, db, Object.assign({}, product, { oldPrice: 0 }), null, { origin: '' });
+  assert.doesNotMatch(plain, /id="product-old-price"/);
+  assert.match(plain, /data-base-compare="0"/);
+});
+
 test('после заказа показывается понятное адаптивное подтверждение', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
