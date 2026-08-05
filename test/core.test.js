@@ -722,6 +722,43 @@ test('в подвале есть знаки оплаты, а на телефон
   assert.match(mobile, /\.footer-bottom\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
 });
 
+test('на телефоне слоган стоит в одну строку, а его длину считает сервер', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const tagline = 'Оригинальная техника Apple с гарантией';
+  const html = render.homePage({ storeName: 'Тест', tagline, currency: '₽' }, fakeDb, {});
+
+  // Разметка и CSS держатся вместе: без --fit в атрибуте var() подставит
+  // запасное число, и заголовок поедет по ширине чужого слогана.
+  assert.match(html, /<h1 style="--fit:[\d.]+">/);
+  assert.match(html, /class="foot-note" style="--fit:[\d.]+"/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(28px,calc\(\(100vw - 32px\)\/var\(--fit,\d+\)\)\)/);
+  assert.match(mobile, /\.foot-note\{[^}]*white-space:nowrap;font-size:min\(14px,calc\(\(100vw - 32px\)\/var\(--fit,\d+\)\)\)/);
+
+  // Оценка обязана быть не меньше ширины, замеренной в браузере (em при кегле
+  // 14px — на узком экране строка набирается примерно им). Заниженная оценка
+  // выносит строку за экран, и увидеть это можно только глазами.
+  const bound = render.bindShortWords(tagline);
+  assert.ok(Number(render.heroFit({}, bound)) >= 19.586 + 0.86, 'заголовок: оценка меньше замера');
+  assert.ok(Number(render.footFit(tagline)) >= 19.979, 'подвал: оценка меньше замера');
+  // Длинный слоган обязан давать большую оценку, иначе кегль не уменьшится
+  assert.ok(Number(render.footFit(tagline + ' и быстрой доставкой')) > Number(render.footFit(tagline)));
+});
+
+test('правовые ссылки в подвале тоже помещаются в строку', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.footer-links\{[^}]*flex-wrap:nowrap[^}]*font-size:min\(12px,calc\(\(100vw - 46px\)\/32\.9\)\)/);
+  assert.match(mobile, /\.footer-links a\{white-space:nowrap\}/);
+  // Длина строки вписана в CSS числом, поэтому подписи менять нельзя, не
+  // пересчитав константу 32.9 (это 31.3em двух ссылок плюс запас).
+  assert.match(html, />Политика конфиденциальности</);
+  assert.match(html, />Согласие на обработку данных</);
+});
+
 test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

@@ -1385,9 +1385,12 @@ body.admin{background:#f4f4f6;color:#242426}
   .site-header.header-compact .search{max-width:0;max-height:0}
 
   .store-hero-inner{display:block;padding-top:20px;padding-bottom:20px}
-  /* balance делит заголовок на строки поровну — иначе на второй строке
-     остаётся одно слово, и на узком экране этот «хвост» бросается в глаза */
-  .store-hero h1{font-size:clamp(22px,5.6vw,28px);line-height:1.2;text-wrap:balance}
+  /* Слоган — одна строка вместе с яблоком: перенос делил короткую фразу пополам
+     и оставлял на второй строке один-два слова. Кегль подбирается под ширину
+     экрана, а не задаётся числом: слоган пишет владелец. --fit — длина строки
+     в em, её считает heroFit() в lib/render.js; 32px — поля контейнера.
+     Длинный слоган из-за этого ужимается сильнее — это цена одной строки. */
+  .store-hero h1{white-space:nowrap;font-size:min(28px,calc((100vw - 32px)/var(--fit,21)));line-height:1.2}
   /* На телефоне лента идёт быстрее: экран уже, иначе подписи будто стоят */
   .hero-ticker{padding:12px 0 14px;
     -webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent);
@@ -1471,10 +1474,10 @@ body.admin{background:#f4f4f6;color:#242426}
   .site-footer{text-align:center;padding-top:36px}
   .footer-grid{grid-template-columns:1fr;gap:20px;justify-items:center}
   .foot-brand{font-size:22px}
-  /* balance делит строки поровну — иначе во второй строке остаётся одно
-     слово, и по центру этот «хвост» особенно заметен. Браузеры без
-     поддержки просто игнорируют свойство и переносят как раньше. */
-  .foot-note{max-width:32ch;margin:8px auto 0;text-wrap:balance}
+  /* Слоган в подвале — тоже одна строка, тем же способом, что в заголовке
+     первого экрана (--fit считает footFit() в lib/render.js). Кегль падает
+     ниже 14px только у слогана, который иначе не помещается. */
+  .foot-note{max-width:none;margin:8px auto 0;white-space:nowrap;font-size:min(14px,calc((100vw - 32px)/var(--fit,21)))}
   .footer-contacts{display:grid;justify-items:center;gap:10px;width:100%}
   .foot-contact{margin:0}
   /* Телеграм — основной способ связи с телефона, поэтому не строчная ссылка,
@@ -1490,8 +1493,11 @@ body.admin{background:#f4f4f6;color:#242426}
   .footer-pay{justify-content:center;gap:8px 14px}
   .footer-meta{justify-items:center;gap:6px}
   .foot-legal{line-height:1.5;text-wrap:balance}
-  /* Ссылки в ряд, если помещаются, и в столбик по центру, если нет. */
-  .footer-links{display:flex;flex-wrap:wrap;justify-content:center;gap:10px 18px}
+  /* Обе правовые ссылки — в одной строке. Подписи здесь свои, не владельца,
+     поэтому длина известна заранее: 31.3em на две ссылки, 46px — поля
+     контейнера плюс зазор между ними. */
+  .footer-links{display:flex;flex-wrap:nowrap;justify-content:center;gap:14px;font-size:min(12px,calc((100vw - 46px)/32.9))}
+  .footer-links a{white-space:nowrap}
 
   .legal-page{padding-inline:16px}
   .legal-hero{padding:34px 0 24px}
@@ -1580,7 +1586,8 @@ body.admin{background:#f4f4f6;color:#242426}
   .header-row{padding-inline:13px}
   .nav-inner{padding-inline:13px}
   .store-hero-inner{padding:17px 13px}
-  .store-hero h1{font-size:23px}
+  /* Поля контейнера здесь 13px, поэтому строке достаётся на 6px больше */
+  .store-hero h1{font-size:min(23px,calc((100vw - 26px)/var(--fit,21)))}
   .section-head{align-items:flex-end}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}
@@ -1608,6 +1615,16 @@ body.admin{background:#f4f4f6;color:#242426}
   .color-editor .color-row .color-hexed{width:78px;min-width:78px;padding-inline:5px}
   .st-price-wrap{padding-inline:6px}
   .storage-editor .storage-row .st-price{width:75px;min-width:75px}
+  /* Те же 13px полей, что и у первого экрана */
+  .foot-note{font-size:min(14px,calc((100vw - 26px)/var(--fit,21)))}
+  .footer-links{font-size:min(12px,calc((100vw - 40px)/32.9))}
+}
+
+/* Уже 340px обе правовые ссылки в строке потребовали бы кегля мельче 9px —
+   там они лучше вернутся в столбик, чем останутся нечитаемыми. Правило идёт
+   после блока 420px: побеждает последнее подошедшее. */
+@media(max-width:340px){
+  .footer-links{flex-wrap:wrap;gap:10px 18px;font-size:11px}
 }
 
 @media(min-width:640px) and (max-width:800px){
