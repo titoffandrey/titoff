@@ -263,6 +263,41 @@ const ST = {
   pad256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 15000 }, { label: '1 ТБ', add: 40000 }, { label: '2 ТБ', add: 80000 }],
   mac256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 18000 }, { label: '1 ТБ', add: 40000 }, { label: '2 ТБ', add: 80000 }],
   mac512: [{ label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 22000 }, { label: '2 ТБ', add: 62000 }, { label: '4 ТБ', add: 130000 }],
+  // Накопители Mac по apple.com (август 2026). Доплаты — долларовые Apple по
+  // курсу 90 ₽/$. Часть объёмов идёт только со своим чипом, отсюда forChoice.
+  air13: [
+    { label: '512 ГБ', add: 0 },
+    { label: '1 ТБ', add: 27000, forChoice: { 'Чип': ['M5, 10 ядер GPU'] } },
+    { label: '2 ТБ', add: 72000, forChoice: { 'Чип': ['M5, 10 ядер GPU'] } },
+    { label: '4 ТБ', add: 162000, forChoice: { 'Чип': ['M5, 10 ядер GPU'] } }
+  ],
+  air15: [{ label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 27000 }, { label: '2 ТБ', add: 72000 }, { label: '4 ТБ', add: 162000 }],
+  pro14: [
+    { label: '1 ТБ', add: 0 },
+    { label: '2 ТБ', add: 45000 },
+    { label: '4 ТБ', add: 135000 },
+    { label: '8 ТБ', add: 270000, forChoice: { 'Чип': ['M5 Max, 32 ядра GPU'] } }
+  ],
+  pro16: [
+    { label: '1 ТБ', add: 0, forChoice: { 'Чип': ['M5 Pro, 18 ядер CPU'] } },
+    { label: '2 ТБ', add: 45000 },
+    { label: '4 ТБ', add: 135000 },
+    { label: '8 ТБ', add: 270000, forChoice: { 'Чип': ['M5 Max, 32 ядра GPU', 'M5 Max, 40 ядер GPU'] } }
+  ],
+  imac: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 18000 }, { label: '1 ТБ', add: 45000 }, { label: '2 ТБ', add: 90000 }],
+  mini: [
+    { label: '256 ГБ', add: 0 },
+    { label: '512 ГБ', add: 18000 },
+    { label: '1 ТБ', add: 45000 },
+    { label: '2 ТБ', add: 90000 },
+    { label: '4 ТБ', add: 180000, forChoice: { 'Чип': ['M4 Pro, 12 ядер CPU'] } },
+    { label: '8 ТБ', add: 360000, forChoice: { 'Чип': ['M4 Pro, 12 ядер CPU'] } }
+  ],
+  studio: [
+    { label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 18000 }, { label: '2 ТБ', add: 54000 },
+    { label: '4 ТБ', add: 108000 }, { label: '8 ТБ', add: 216000 },
+    { label: '16 ТБ', add: 414000, forChoice: { 'Чип': ['M3 Ultra, 28 ядер CPU'] } }
+  ],
   watch42: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 4000 }],
   watch40: [{ label: '40 мм', add: 0 }, { label: '44 мм', add: 3000 }],
   vision: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 25000 }, { label: '1 ТБ', add: 50000 }],
@@ -320,30 +355,80 @@ const OPT = {
   // накопителя голое «32 ГБ» не отличить от него же.
   ram: (pairs) => ({
     name: 'Оперативная память', hint: 'Объединённая память Apple silicon: чем больше, тем больше задач разом',
-    values: pairs.map(([label, add]) => ({ label: label + ' ОЗУ', add }))
+    values: pairs.map(([label, add, forChoice]) => forChoice
+      ? { label: label + ' ОЗУ', add, forChoice }
+      : { label: label + ' ОЗУ', add })
   })
 };
 
 /* -------- конфигурации Mac --------
-   Объединённая память и чип — обязательный выбор на buy-странице каждого Mac,
-   наравне с накопителем. Потолок ладдера равен тому, что обещано в `specs`
-   товара («ОЗУ: 16 ГБ (до 32 ГБ)»), иначе витрина и характеристики разойдутся.
+   Сверено с apple.com/shop/buy-mac (август 2026). Состав снят с конфигуратора,
+   доплаты — долларовые Apple по курсу 90 ₽/$ ($200 → 18 000 ₽); базовые цены
+   товаров свои, серого рынка.
 
-   ВАЖНО: ладдер памяти общий для всех чипов товара. Ограничить значение можно
-   только по конфигурации накопителя (`forStorage`), привязки «это ОЗУ только к
-   этому чипу» в модели нет — поэтому у MacBook Pro 14" формально выбирается
-   M5 + 128 ГБ. Заявку подтверждает менеджер, и на серой поставке это допустимо;
-   если понадобится строгость — чипы разводятся отдельными карточками. */
-const RAM_16_24 = OPT.ram([['16 ГБ', 0], ['24 ГБ', 16000]]);
-const RAM_16_32 = OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000], ['32 ГБ', 36000]]);
-const RAM_PRO14 = OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000], ['32 ГБ', 36000], ['64 ГБ', 90000], ['128 ГБ', 180000]]);
-const RAM_PRO16 = OPT.ram([['24 ГБ', 0], ['48 ГБ', 54000], ['64 ГБ', 90000], ['128 ГБ', 180000]]);
-const RAM_STUDIO = OPT.ram([['36 ГБ', 0], ['48 ГБ', 28000], ['64 ГБ', 60000],
-  ['128 ГБ', 150000], ['256 ГБ', 330000], ['512 ГБ', 690000]]);
+   Главное: **у Apple объём памяти и потолок накопителя зависят от чипа.**
+   M5 Pro — это 24/48/64 ГБ и 1–4 ТБ; M5 Max с 32-ядерным GPU — ровно 36 ГБ;
+   M5 Max с 40-ядерным — 48/64/128 ГБ, и только с ним бывает 8 ТБ. Поэтому у
+   значений стоит `forChoice` — «доступно при таком выборе в группе «Чип»».
+   Без него витрина собирала бы то, чего Apple не продаёт. */
+const forChip = (...names) => ({ 'Чип': names });
 
-const CHIP_PRO14 = OPT.chip([['M5', 0], ['M5 Pro', 60000], ['M5 Max', 160000]]);
-const CHIP_PRO16 = OPT.chip([['M5 Pro', 0], ['M5 Max', 100000]]);
-const CHIP_STUDIO = OPT.chip([['M5 Max', 0], ['M3 Ultra', 180000]]);
+// MacBook Air: 13" — 8-ядерный GPU только в базе (16 ГБ / 512 ГБ), всё, что
+// выше, идёт с 10-ядерным. У 15" вариант один, поэтому и группы «Чип» нет.
+const CHIP_AIR13 = OPT.chip([['M5, 8 ядер GPU', 0], ['M5, 10 ядер GPU', 18000]]);
+const RAM_AIR13 = OPT.ram([
+  ['16 ГБ', 0],
+  ['24 ГБ', 18000, forChip('M5, 10 ядер GPU')],
+  ['32 ГБ', 36000, forChip('M5, 10 ядер GPU')]
+]);
+const RAM_AIR15 = OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000], ['32 ГБ', 36000]]);
+
+// MacBook Pro 14": M5 → M5 Pro (15 и 18 ядер CPU) → M5 Max. 16": M5 Pro → M5 Max
+// (32 и 40 ядер GPU). Доплаты за чип — разница базовых цен Apple по тому же курсу.
+const CHIP_PRO14 = OPT.chip([
+  ['M5, 10 ядер CPU', 0],
+  ['M5 Pro, 15 ядер CPU', 63000],
+  ['M5 Pro, 18 ядер CPU', 81000],
+  ['M5 Max, 32 ядра GPU', 153000]
+]);
+const RAM_PRO14 = OPT.ram([
+  ['16 ГБ', 0, forChip('M5, 10 ядер CPU')],
+  ['24 ГБ', 18000, forChip('M5, 10 ядер CPU', 'M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU')],
+  ['32 ГБ', 36000, forChip('M5, 10 ядер CPU')],
+  ['36 ГБ', 45000, forChip('M5 Max, 32 ядра GPU')],
+  ['48 ГБ', 54000, forChip('M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU')],
+  ['64 ГБ', 90000, forChip('M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU')]
+]);
+const CHIP_PRO16 = OPT.chip([
+  ['M5 Pro, 18 ядер CPU', 0],
+  ['M5 Max, 32 ядра GPU', 126000],
+  ['M5 Max, 40 ядер GPU', 180000]
+]);
+const RAM_PRO16 = OPT.ram([
+  ['24 ГБ', 0, forChip('M5 Pro, 18 ядер CPU')],
+  ['36 ГБ', 45000, forChip('M5 Max, 32 ядра GPU')],
+  ['48 ГБ', 54000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
+  ['64 ГБ', 90000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
+  ['128 ГБ', 270000, forChip('M5 Max, 40 ядер GPU')]
+]);
+
+// Десктопы. iMac и Mac mini — всё ещё M4, Mac Studio — M4 Max и M3 Ultra.
+const RAM_IMAC = OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000], ['32 ГБ', 36000]]);
+const CHIP_MINI = OPT.chip([['M4, 10 ядер CPU', 0], ['M4 Pro, 12 ядер CPU', 72000]]);
+const RAM_MINI = OPT.ram([
+  ['16 ГБ', 0, forChip('M4, 10 ядер CPU')],
+  ['24 ГБ', 18000, forChip('M4, 10 ядер CPU', 'M4 Pro, 12 ядер CPU')],
+  ['48 ГБ', 54000, forChip('M4 Pro, 12 ядер CPU')],
+  ['64 ГБ', 90000, forChip('M4 Pro, 12 ядер CPU')]
+]);
+const CHIP_STUDIO = OPT.chip([['M4 Max, 14 ядер CPU', 0], ['M3 Ultra, 28 ядер CPU', 252000]]);
+const RAM_STUDIO = OPT.ram([
+  ['36 ГБ', 0, forChip('M4 Max, 14 ядер CPU')],
+  ['64 ГБ', 36000, forChip('M4 Max, 14 ядер CPU')],
+  ['96 ГБ', 90000, forChip('M4 Max, 14 ядер CPU', 'M3 Ultra, 28 ядер CPU')],
+  ['256 ГБ', 306000, forChip('M3 Ultra, 28 ядер CPU')],
+  ['512 ГБ', 720000, forChip('M3 Ultra, 28 ядер CPU')]
+]);
 
 // Группы, которые встречаются у одного-двух товаров, — отдельными константами
 const POWER_AIR = {
@@ -567,7 +652,7 @@ const products = [
     description: 'Магия Mac по удивительной цене. Лёгкий 13-дюймовый ноутбук в четырёх ярких цветах, тоньше половины дюйма, с поддержкой Apple Intelligence и целым днём автономной работы.',
     specs: 'Экран: 13.3" Liquid Retina\nЧип: Apple silicon с нейронным движком\nОЗУ: 16 или 24 ГБ\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.2 кг\nПорты: 2× USB-C, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: стереодинамики, 3 микрофона\nКлавиатура: Magic Keyboard с Touch ID\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_NEO, storages: ST.mac256,
-    options: [RAM_16_24],
+    options: [OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000]])],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.7 * DAY
   },
@@ -576,9 +661,9 @@ const products = [
     price: 119990, oldPrice: 129990, badge: 'Хит', inStock: true,
     shortDesc: 'M5, 13.6", до 18 часов работы, 1.24 кг.',
     description: 'Тонкий, быстрый, мощный и портативный. Чип M5 с 10-ядерным CPU, безвентиляторная конструкция, до 18 часов автономной работы и вес всего 1.24 кг.',
-    specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: MB_AIR, storages: ST.mac256,
-    options: [RAM_16_32, POWER_AIR],
+    specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: MB_AIR, storages: ST.air13,
+    options: [CHIP_AIR13, RAM_AIR13, POWER_AIR],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.8 * DAY
   },
@@ -587,9 +672,9 @@ const products = [
     price: 139990, oldPrice: 149990, badge: '', inStock: true,
     shortDesc: 'M5, большой экран 15.3", шесть динамиков.',
     description: 'Всё то же, что в 13-дюймовом Air, но с большим экраном 15.3" и системой из шести динамиков. Идеально, когда нужен простор для работы и кино.',
-    specs: 'Экран: 15.3" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.51 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: MB_AIR, storages: ST.mac256,
-    options: [RAM_16_32, POWER_AIR],
+    specs: 'Экран: 15.3" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.51 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: MB_AIR, storages: ST.air15,
+    options: [RAM_AIR15, POWER_AIR],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.9 * DAY
   },
@@ -598,9 +683,9 @@ const products = [
     price: 189990, oldPrice: 209990, badge: '', inStock: true,
     shortDesc: 'M5 / M5 Pro / M5 Max, Liquid Retina XDR 120 Гц.',
     description: 'Самый продвинутый ноутбук Mac для требовательных задач. Чипы M5, M5 Pro или M5 Max, дисплей Liquid Retina XDR с ProMotion 120 Гц, Thunderbolt 5 и до 24 часов автономной работы.',
-    specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: MB_PRO, storages: ST.mac512,
-    options: [CHIP_PRO14, RAM_PRO14, OPT.glass(19990), POWER_PRO14],
+    specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 64 ГБ)\nПамять: от 1 ТБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: MB_PRO, storages: ST.pro14,
+    options: [CHIP_PRO14, RAM_PRO14, OPT.glass(13500), POWER_PRO14],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.1 * DAY
   },
@@ -609,41 +694,41 @@ const products = [
     price: 279990, oldPrice: 299990, badge: '', inStock: true,
     shortDesc: 'M5 Pro / M5 Max, 16.2" XDR, до 26 часов.',
     description: 'Максимальный экран и максимальная производительность. Чипы M5 Pro и M5 Max, до 128 ГБ объединённой памяти, четыре порта Thunderbolt 5 и самая долгая автономность среди ноутбуков Mac.',
-    specs: 'Экран: 16.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 Pro (до M5 Max)\nОЗУ: 24 ГБ (до 128 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 26 ч\nВес: 2.14 кг\nПорты: 4× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: MB_PRO, storages: ST.mac512,
-    options: [CHIP_PRO16, RAM_PRO16, OPT.glass(19990)],
+    specs: 'Экран: 16.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 Pro (до M5 Max)\nОЗУ: 24 ГБ (до 128 ГБ)\nПамять: от 1 ТБ SSD\nАвтономность: до 26 ч\nВес: 2.14 кг\nПорты: 4× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: MB_PRO, storages: ST.pro16,
+    options: [CHIP_PRO16, RAM_PRO16, OPT.glass(13500)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.2 * DAY
   },
   {
-    id: 'imac-m5', name: 'iMac 24" (M5)', category: 'Mac',
+    id: 'imac-m5', name: 'iMac 24" (M4)', category: 'Mac',
     price: 139990, oldPrice: 0, badge: '', inStock: true,
-    shortDesc: 'Моноблок 24" 4.5K, семь цветов, M5.',
-    description: 'Моноблок для творчества и работы: дисплей 24" Retina 4.5K, чип M5, камера Center Stage 12 Мп и подобранные в цвет Magic Keyboard и Magic Mouse в комплекте.',
-    specs: 'Экран: 24" Retina 4.5K, 500 нит\nЧип: Apple M5\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nКамера: 12 Мп Center Stage с Desk View\nАудио: 6 динамиков, Spatial Audio\nПорты: 2× Thunderbolt 4, 2× USB-C\nКлавиатура: Magic Keyboard в цвет корпуса\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: IMAC, storages: ST.mac256,
-    options: [RAM_16_32, IMAC_PORTS, IMAC_KEYBOARD],
+    shortDesc: 'Моноблок 24" 4.5K, семь цветов, M4.',
+    description: 'Моноблок для творчества и работы: дисплей 24" Retina 4.5K, чип M4, камера Center Stage 12 Мп и подобранные в цвет Magic Keyboard и Magic Mouse в комплекте.',
+    specs: 'Экран: 24" Retina 4.5K, 500 нит\nЧип: Apple M4, 8 или 10 ядер GPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nКамера: 12 Мп Center Stage с Desk View\nАудио: 6 динамиков, Spatial Audio\nПорты: 2× Thunderbolt 4, 2× USB-C\nКлавиатура: Magic Keyboard в цвет корпуса\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: IMAC, storages: ST.imac,
+    options: [RAM_IMAC, OPT.glass(18000), IMAC_PORTS, IMAC_KEYBOARD],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.3 * DAY
   },
   {
-    id: 'mac-mini-m5', name: 'Mac mini (M5)', category: 'Mac',
+    id: 'mac-mini-m5', name: 'Mac mini (M4)', category: 'Mac',
     price: 74990, oldPrice: 79990, badge: 'Выгодно', inStock: true,
-    shortDesc: 'Самый компактный Mac: M5, 12.7 см.',
-    description: 'Самый маленький и доступный десктоп Mac. Чип M5, корпус 12.7 × 12.7 см, порты Thunderbolt спереди и сзади — подключается к любому монитору и клавиатуре.',
-    specs: 'Чип: Apple M5\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nПорты: 2× Thunderbolt 4 спереди, 3× Thunderbolt сзади, HDMI, Ethernet\nРазмер: 12.7 × 12.7 × 5 см\nАудио: аудиоразъём 3.5 мм\nСвязь: Wi-Fi 7, Bluetooth 6\nПитание: встроенный блок питания',
-    colors: [C.silver], storages: ST.mac256,
-    options: [RAM_16_32, MINI_ETHERNET],
+    shortDesc: 'Самый компактный Mac: M4 или M4 Pro, 12.7 см.',
+    description: 'Самый маленький и доступный десктоп Mac. Чип M4 или M4 Pro, корпус 12.7 × 12.7 см, порты Thunderbolt спереди и сзади — подключается к любому монитору и клавиатуре.',
+    specs: 'Чип: Apple M4 (опция M4 Pro)\nОЗУ: 16 ГБ (до 64 ГБ)\nПамять: от 256 ГБ SSD\nПорты: 2× Thunderbolt 4 спереди, 3× Thunderbolt сзади, HDMI, Ethernet\nРазмер: 12.7 × 12.7 × 5 см\nАудио: аудиоразъём 3.5 мм\nСвязь: Wi-Fi 7, Bluetooth 6\nПитание: встроенный блок питания',
+    colors: [C.silver], storages: ST.mini,
+    options: [CHIP_MINI, RAM_MINI, MINI_ETHERNET],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.4 * DAY
   },
   {
-    id: 'mac-studio-m5-max', name: 'Mac Studio (M5 Max)', category: 'Mac',
+    id: 'mac-studio-m5-max', name: 'Mac Studio (M4 Max)', category: 'Mac',
     price: 239990, oldPrice: 0, badge: '', inStock: true,
-    shortDesc: 'M5 Max / M3 Ultra, Thunderbolt 5, 10 Гбит Ethernet.',
-    description: 'Настольная станция для профессионалов: чипы M5 Max и M3 Ultra, до 512 ГБ объединённой памяти, четыре порта Thunderbolt 5 и Ethernet 10 Гбит/с в компактном корпусе.',
-    specs: 'Чип: Apple M5 Max (опция M3 Ultra)\nОЗУ: 36 ГБ (до 512 ГБ)\nПамять: от 512 ГБ SSD\nПорты: 4× Thunderbolt 5, 2× USB-A, HDMI, SDXC, Ethernet 10 Гбит/с\nРазмер: 19.7 × 19.7 × 9.5 см\nАудио: аудиоразъём для наушников высокого сопротивления\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: [C.silver], storages: ST.mac512,
+    shortDesc: 'M4 Max / M3 Ultra, Thunderbolt 5, 10 Гбит Ethernet.',
+    description: 'Настольная станция для профессионалов: чипы M4 Max и M3 Ultra, до 512 ГБ объединённой памяти, четыре порта Thunderbolt 5 и Ethernet 10 Гбит/с в компактном корпусе.',
+    specs: 'Чип: Apple M4 Max (опция M3 Ultra)\nОЗУ: 36 ГБ (до 512 ГБ)\nПамять: от 512 ГБ SSD\nПорты: 4× Thunderbolt 5, 2× USB-A, HDMI, SDXC, Ethernet 10 Гбит/с\nРазмер: 19.7 × 19.7 × 9.5 см\nАудио: аудиоразъём для наушников высокого сопротивления\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: [C.silver], storages: ST.studio,
     options: [CHIP_STUDIO, RAM_STUDIO],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.5 * DAY

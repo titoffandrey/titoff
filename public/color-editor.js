@@ -152,9 +152,13 @@
   function base() { return Number(baseInput && baseInput.value) || 0; }
   function fmt(n) { return String(Math.round(n)); }
 
-  function makeRow(label, price, inStock) {
+  function makeRow(label, price, inStock, forChoice) {
     var row = document.createElement('div');
     row.className = 'storage-row';
+    // Привязка конфигурации к выбору в группе («8 ТБ только с M5 Max») своего
+    // поля тут не имеет, но обязана пережить сохранение формы: иначе редактор
+    // стирал бы её при каждой правке цены.
+    if (forChoice) row.dataset.forChoice = forChoice;
     row.innerHTML =
       '<input type="text" class="st-label" placeholder="Например: 256 ГБ">' +
       '<div class="st-price-wrap"><input type="text" class="st-price" inputmode="numeric" placeholder="Цена">' +
@@ -184,7 +188,8 @@
       var priceStr = r.querySelector('.st-price').value.replace(/\s+/g, '');
       var price = Number(priceStr);
       var add = (priceStr === '' || isNaN(price)) ? 0 : Math.max(0, Math.round(price - b));
-      lines.push(label + '|' + add + (r.querySelector('.st-stock').checked ? '' : '|нет'));
+      lines.push(label + '|' + add + (r.querySelector('.st-stock').checked ? '' : '|нет')
+        + (r.dataset.forChoice ? '|?' + r.dataset.forChoice : ''));
     });
     raw.value = lines.join('\n');
   }
@@ -194,7 +199,14 @@
     var parts = l.split('|');
     var label = (parts[0] || '').trim();
     var add = parseInt(parts[1], 10) || 0;
-    makeRow(label, base() + add, !/^(нет|no|0|out)$/i.test((parts[2] || '').trim()));
+    var inStock = true, forChoice = '';
+    parts.slice(2).forEach(function (part) {
+      var v = (part || '').trim();
+      if (!v) return;
+      if (v.charAt(0) === '?') forChoice = v.slice(1).trim();
+      else if (/^(нет|no|0|out)$/i.test(v)) inStock = false;
+    });
+    makeRow(label, base() + add, inStock, forChoice);
   });
   // при смене базовой цены пересчитываем доплаты (введённые полные цены сохраняются)
   if (baseInput) baseInput.addEventListener('input', sync);

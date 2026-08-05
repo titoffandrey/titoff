@@ -64,6 +64,10 @@
     var only = row.querySelector('.ov-only');
     fillOnly(only, value.forStorage || []);
     if ((value.forStorage || []).length) row.querySelector('.ov-only-fold').open = true;
+    // Привязка к выбору в другой группе («128 ГБ только с M5 Max») своего поля в
+    // редакторе не имеет, но пережить сохранение обязана: без переноса хвоста
+    // форма стирала бы её при каждой правке, как когда-то forColor у ремешков.
+    if (value.forChoice) row.dataset.forChoice = value.forChoice;
     row.querySelector('.ov-label').addEventListener('input', sync);
     row.querySelector('.ov-price').addEventListener('input', sync);
     stock.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
@@ -116,7 +120,8 @@
         var add = (priceStr === '' || isNaN(price)) ? 0 : Math.max(0, Math.round(price - base()));
         var forStorage = [];
         row.querySelectorAll('.ov-only input:checked').forEach(function (c) { forStorage.push(c.value); });
-        values.push({ label: label, add: add, inStock: row.querySelector('.ov-stock').checked, forStorage: forStorage });
+        values.push({ label: label, add: add, inStock: row.querySelector('.ov-stock').checked,
+          forStorage: forStorage, forChoice: row.dataset.forChoice || '' });
       });
       if (values.length) out.push({ name: name, hint: box.querySelector('.og-hint').value.trim(), values: values });
     });
@@ -130,7 +135,8 @@
       lines.push('# ' + g.name + ' | ' + g.hint);
       g.values.forEach(function (v) {
         lines.push('- ' + v.label + ' | ' + v.add + (v.inStock ? '' : ' | нет')
-          + (v.forStorage.length ? ' | @' + v.forStorage.join(', ') : ''));
+          + (v.forStorage.length ? ' | @' + v.forStorage.join(', ') : '')
+          + (v.forChoice ? ' | ?' + v.forChoice : ''));
       });
     });
     raw.value = lines.join('\n');
@@ -147,11 +153,12 @@
         groups.push({ name: (head[0] || '').trim(), hint: (head[1] || '').trim(), values: [] });
       } else if (l.charAt(0) === '-' && groups.length) {
         var parts = l.slice(1).split('|');
-        var value = { label: (parts[0] || '').trim(), add: parseInt(parts[1], 10) || 0, inStock: true, forStorage: [] };
+        var value = { label: (parts[0] || '').trim(), add: parseInt(parts[1], 10) || 0, inStock: true, forStorage: [], forChoice: '' };
         parts.slice(2).forEach(function (part) {
           var v = (part || '').trim();
           if (!v) return;
           if (v.charAt(0) === '@') value.forStorage = v.slice(1).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+          else if (v.charAt(0) === '?') value.forChoice = v.slice(1).trim();
           else if (/^(нет|no|0|out)$/i.test(v)) value.inStock = false;
         });
         groups[groups.length - 1].values.push(value);

@@ -8,7 +8,7 @@ const db = require('./lib/db');
 const auth = require('./lib/auth');
 const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
-const { findBand, variantMissing, findOptions, optionsAdd, optionFits } = require('./lib/variants');
+const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/deals');
 const T = require('./lib/tenancy');
@@ -83,7 +83,35 @@ const parseStock = (v) => !/^(нет|no|0|out)$/i.test(String(v == null ? '' : v
 // а в корзине это вообще один и тот же вариант.
 const uniqBy = (list, key) => { const seen = new Set(); return list.filter(x => { const k = key(x).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
 const parseColors = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100).map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name), c => c.name);
-const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100).map(l => l.trim()).filter(Boolean).map(l => { const [label, add, stock] = l.split('|'); const n = Number(add); return { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0, inStock: parseStock(stock) }; }).filter(s => s.label), s => s.label);
+// «Доступно только при таком выборе в другой группе»: хвост `?Чип=M5 Pro, M5 Max`.
+// У Apple от чипа зависит и объём памяти, и потолок накопителя, поэтому привязку
+// понимают и конфигурации, и значения групп. Пустой разбор — ограничения нет.
+function parseForChoice(raw) {
+  const out = {};
+  for (const part of String(raw || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i < 1) continue;
+    const group = part.slice(0, i).trim().slice(0, 60);
+    const values = part.slice(i + 1).split(',').map(s => s.trim().slice(0, 80)).filter(Boolean).slice(0, 20);
+    if (group && values.length) out[group] = values;
+  }
+  return Object.keys(out).length ? out : null;
+}
+const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100).map(l => l.trim()).filter(Boolean).map(l => {
+  const parts = l.split('|');
+  const [label, add] = parts;
+  const n = Number(add);
+  let inStock = true, forChoice = null;
+  for (const raw of parts.slice(2)) {
+    const v = String(raw || '').trim();
+    if (!v) continue;
+    if (v.startsWith('?')) forChoice = parseForChoice(v.slice(1));
+    else if (!parseStock(v)) inStock = false;
+  }
+  const s = { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0, inStock };
+  if (forChoice) s.forChoice = forChoice;
+  return s;
+}).filter(s => s.label), s => s.label);
 
 // Ремешки часов: коллекция задаёт размеры, внутри — цветовые вариации со своей
 // доплатой и наличием. Формат текстового поля формы:
@@ -154,19 +182,23 @@ function parseOptions(txt) {
       const parts = l.slice(1).split('|');
       const [label, add] = parts;
       const n = Number(add);
-      let inStock = true, forStorage = [];
+      let inStock = true, forStorage = [], forChoice = null;
       for (const raw of parts.slice(2)) {
         const v = String(raw || '').trim();
         if (!v) continue;
         if (v.startsWith('@')) {
           forStorage = v.slice(1).split(',').map(s => s.trim().slice(0, 80)).filter(Boolean).slice(0, 20);
+        } else if (v.startsWith('?')) {
+          forChoice = parseForChoice(v.slice(1));
         } else if (!parseStock(v)) inStock = false;
       }
-      groups[groups.length - 1].values.push({
+      const value = {
         label: (label || '').trim().slice(0, 80),
         add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0,
         inStock, forStorage
-      });
+      };
+      if (forChoice) value.forChoice = forChoice;
+      groups[groups.length - 1].values.push(value);
     }
   }
   return uniqBy(groups.filter(g => g.name), g => g.name)
@@ -572,7 +604,10 @@ app.post('/api/cart', (req, res) => {
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
       || (band && band.option.inStock === false)
       || (band && band.option.forColor && band.option.forColor !== color)
-      || chosen.some(c => c.value && (c.value.inStock === false || !optionFits(c.value, storage)))
+      || chosen.some(c => c.value && (c.value.inStock === false || !optionFits(c.value, storage, choiceMap(chosen))))
+      // Конфигурация тоже бывает привязана к выбору: 8 ТБ у MacBook Pro есть
+      // только с M5 Max. Проверяем на сервере — корзина могла собраться раньше.
+      || (st && !optionFits(st, storage, choiceMap(chosen)))
       || variantMissing(view, it);
     return {
       id: view.id, name: view.name, storage, color, price,
@@ -642,7 +677,11 @@ app.post('/api/order', async (req, res) => {
     // Доп. характеристики: наличие и совместимость с конфигурацией перепроверяем
     // так же, как у ремешка, — корзина могла сохраниться до правки каталога.
     const chosen = findOptions(view, it);
-    if (chosen.some(c => !c.value || c.value.inStock === false || !optionFits(c.value, storageLabel))) continue;
+    const picked = choiceMap(chosen);
+    if (chosen.some(c => !c.value || c.value.inStock === false || !optionFits(c.value, storageLabel, picked))) continue;
+    // Конфигурация, привязанная к чипу (8 ТБ только с M5 Max), проверяется здесь же.
+    const stPick = (view.storages || []).find(x => x.label === storageLabel);
+    if (stPick && !optionFits(stPick, storageLabel, picked)) continue;
     price += optionsAdd(chosen);
     for (const c of chosen) name += ', ' + c.value.label;
     if (!Number.isFinite(price) || price < 0) continue;

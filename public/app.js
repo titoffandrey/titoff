@@ -812,6 +812,7 @@
         options: [], optionsAdd: 0 };
       var onCaseColorChange = null;   // задаётся блоком ремешков, если он есть
       var onStorageChange = null;     // задаётся блоком доп. характеристик, если он есть
+      var pickStorage = null;         // задаётся блоком конфигураций ниже
       // Стартуем с варианта, отмеченного активным на сервере: первый доступный,
       // а не просто первый в списке (первый цвет может быть распродан).
       var fc = document.querySelector('#colors .swatch.active') || document.querySelector('#colors .swatch');
@@ -863,31 +864,72 @@
           });
           vstate.options = list; vstate.optionsAdd = add;
         };
-        var pickOption = function (btn) {
+        // quiet — выбор сделан не покупателем, а пересборкой рядов: тогда не
+        // трогаем цену и не запускаем пересборку заново, иначе она зациклится.
+        var pickOption = function (btn, quiet) {
           if (!btn || btn.disabled) return;
           var group = btn.closest('.option-group');
           if (!group) return;
           group.querySelectorAll('.option-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
           btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true');
-          readOptions(); applyVariant();
+          if (quiet) return;
+          syncRows(); applyVariant();
+        };
+        // Что сейчас выбрано в группах, в виде {'Чип':'M5 Pro'} — по этому
+        // и по выбранной конфигурации решается, какие значения показывать.
+        var choiceMap = function () {
+          var map = {};
+          optionsEl.querySelectorAll('.option-group').forEach(function (g) {
+            var on = g.querySelector('.option-opt.active');
+            if (on) map[g.dataset.group] = on.dataset.label;
+          });
+          return map;
+        };
+        var fits = function (el, storage, picked) {
+          var only = (el.dataset.forStorage || '').split('|').filter(Boolean);
+          if (only.length && only.indexOf(storage) === -1) return false;
+          var need = null;
+          try { need = JSON.parse(el.dataset.forChoice || 'null'); } catch (e) { need = null; }
+          if (!need) return true;
+          for (var k in need) {
+            if (!Object.prototype.hasOwnProperty.call(need, k)) continue;
+            var allowed = need[k] || [];
+            // Группа ещё не выбрана — не прячем, иначе пропало бы всё сразу.
+            if (allowed.length && picked[k] && allowed.indexOf(picked[k]) === -1) return false;
+          }
+          return true;
         };
         // Часть значений идёт не со всеми конфигурациями (нанотекстурное стекло —
-        // только от 1 ТБ), поэтому при смене памяти ряд перебирается заново.
-        var applyStorageToOptions = function () {
+        // только от 1 ТБ) или не со всеми чипами (128 ГБ памяти — только с M5 Max).
+        // Зависимость двусторонняя, поэтому пересобираем и ряды групп, и ряд
+        // конфигураций, а выбор, ставший недоступным, сбрасываем на соседний.
+        var syncRows = function () {
+          var picked = choiceMap();
           optionsEl.querySelectorAll('.option-group').forEach(function (g) {
             var fallback = null;
             g.querySelectorAll('.option-opt').forEach(function (b) {
-              var only = (b.dataset.forStorage || '').split('|').filter(Boolean);
-              b.hidden = only.length > 0 && only.indexOf(vstate.storageLabel) === -1;
+              b.hidden = !fits(b, vstate.storageLabel, picked);
               if (!b.hidden && !b.disabled && !fallback) fallback = b;
             });
             var active = g.querySelector('.option-opt.active');
             if (!active || active.hidden || active.disabled) {
-              pickOption(fallback || g.querySelector('.option-opt:not([hidden])'));
+              pickOption(fallback || g.querySelector('.option-opt:not([hidden])'), true);
+              picked = choiceMap();
             }
           });
+          var stRow = document.getElementById('storages');
+          if (stRow) {
+            var stFallback = null;
+            stRow.querySelectorAll('.storage-opt').forEach(function (b) {
+              b.hidden = !fits(b, vstate.storageLabel, picked);
+              if (!b.hidden && !b.disabled && !stFallback) stFallback = b;
+            });
+            var st = stRow.querySelector('.storage-opt.active');
+            if ((!st || st.hidden || st.disabled) && stFallback && pickStorage) pickStorage(stFallback, true);
+          }
           readOptions();
         };
+        var applyStorageToOptions = syncRows;
         optionsEl.addEventListener('click', function (e) {
           var b = e.target.closest('.option-opt');
           if (b) pickOption(b);
@@ -990,13 +1032,24 @@
       });
       if (vstate.color && gallerySetColor) gallerySetColor(vstate.color);
       var storagesEl = document.getElementById('storages');
-      if (storagesEl) storagesEl.addEventListener('click', function (e) {
-        var so = e.target.closest('.storage-opt'); if (!so) return;
+      // quiet — конфигурацию сменила пересборка рядов (8 ТБ пропали вместе с
+      // чипом): цену и повторную пересборку в этом случае запускает вызывающий.
+      pickStorage = function (so, quiet) {
+        if (!so || !storagesEl) return;
         storagesEl.querySelectorAll('.storage-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
-        so.classList.add('active'); so.setAttribute('aria-pressed', 'true'); vstate.storageLabel = so.dataset.label; vstate.storageAdd = Number(so.dataset.add) || 0;
+        so.classList.add('active'); so.setAttribute('aria-pressed', 'true');
+        vstate.storageLabel = so.dataset.label; vstate.storageAdd = Number(so.dataset.add) || 0;
+        if (quiet) return;
         if (onStorageChange) onStorageChange();   // значения «только от 1 ТБ»
         applyVariant();
+      };
+      if (storagesEl) storagesEl.addEventListener('click', function (e) {
+        var so = e.target.closest('.storage-opt'); if (!so) return;
+        pickStorage(so);
       });
+      // Первая сборка рядов на загрузке: сервер уже спрятал несовместимое, но
+      // после неё vstate точно совпадает с тем, что видно на экране.
+      if (onStorageChange) onStorageChange();
       applyVariant();
     }
 

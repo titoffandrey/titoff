@@ -602,6 +602,52 @@ test('формы не содержат галочек, а отзыв требу�
   assert.match(js, /fd\.append\('publicationAccepted', '1'\)/);
 });
 
+test('значение можно привязать к выбору в другой группе', () => {
+  const V = require('../lib/variants');
+  const ram128 = { label: '128 ГБ ОЗУ', add: 100, forChoice: { 'Чип': ['M5 Max'] } };
+  const ssd8 = { label: '8 ТБ', add: 200, forChoice: { 'Чип': ['M5 Max'] } };
+  assert.equal(V.optionFits(ram128, '', { 'Чип': 'M5 Max' }), true);
+  assert.equal(V.optionFits(ram128, '', { 'Чип': 'M5 Pro' }), false, 'у M5 Pro 128 ГБ не бывает');
+  // Группа ещё не выбрана — не прячем, иначе на первом рендере пропало бы всё.
+  assert.equal(V.optionFits(ram128, '', {}), true);
+  assert.equal(V.optionFits(ssd8, '', { 'Чип': 'M5 Pro' }), false);
+  // Ограничения складываются с прежней привязкой к конфигурации.
+  const both = { label: 'Нанотекстура', add: 0, forStorage: ['1 ТБ'], forChoice: { 'Чип': ['M5 Max'] } };
+  assert.equal(V.optionFits(both, '1 ТБ', { 'Чип': 'M5 Max' }), true);
+  assert.equal(V.optionFits(both, '512 ГБ', { 'Чип': 'M5 Max' }), false);
+  // Невыбранная группа в карту не попадает — иначе пустая строка спрятала бы всё.
+  assert.deepEqual(V.choiceMap([{ group: { name: 'Чип' }, label: 'M5 Max' }, { group: { name: 'Связь' }, label: '' }]),
+    { 'Чип': 'M5 Max' });
+
+  // Каталог не должен ссылаться на чип, которого нет в группе того же товара:
+  // опечатка прячет вариант молча и навсегда.
+  for (const p of catalog.products) {
+    const byGroup = new Map((p.options || []).map(g => [g.name, new Set((g.values || []).map(v => v.label))]));
+    for (const item of [...(p.options || []).flatMap(g => g.values || []), ...(p.storages || [])]) {
+      for (const group of Object.keys(item.forChoice || {})) {
+        assert.ok(byGroup.has(group), `${p.name}: нет группы «${group}»`);
+        for (const val of item.forChoice[group]) {
+          assert.ok(byGroup.get(group).has(val), `${p.name}: «${group}: ${val}» не существует`);
+        }
+      }
+    }
+    // У каждого чипа обязан остаться хотя бы один объём памяти и накопителя,
+    // иначе витрина покажет пустой ряд, а купить будет нечего.
+    const chips = (p.options || []).find(g => g.name === 'Чип');
+    if (!chips) continue;
+    for (const chip of chips.values) {
+      const picked = { 'Чип': chip.label };
+      for (const g of (p.options || [])) {
+        if (g.name === 'Чип') continue;
+        assert.ok((g.values || []).some(v => V.optionFits(v, '', picked)), `${p.name} / ${chip.label}: пустая группа «${g.name}»`);
+      }
+      if ((p.storages || []).length) {
+        assert.ok(p.storages.some(s => V.optionFits(s, '', picked)), `${p.name} / ${chip.label}: нет ни одного накопителя`);
+      }
+    }
+  }
+});
+
 test('добавление в корзину сразу уводит в корзину, а отказ — нет', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const add = js.slice(js.indexOf('    add: function ('), js.indexOf('    setQty: function ('));

@@ -36,8 +36,18 @@ function normOptions(groups) {
       label: v.label,
       add: Number(v.add) || 0,
       inStock: v.inStock !== false,
-      forStorage: (v.forStorage || []).map(String)
+      forStorage: (v.forStorage || []).map(String),
+      forChoice: v.forChoice || null
     }))
+  })));
+}
+// Конфигурации накопителя переносим вместе с группами, а не отдельным скриптом:
+// у Mac они привязаны к чипу («8 ТБ только с M5 Max»), и приехать на витрину
+// порознь не могут — иначе привязка укажет на чип, которого там ещё нет.
+function normStorages(list) {
+  return JSON.stringify((list || []).map(s => ({
+    label: s.label, add: Number(s.add) || 0,
+    inStock: s.inStock !== false, forChoice: s.forChoice || null
   })));
 }
 
@@ -45,30 +55,45 @@ for (const src of catalog.products) {
   if (!(src.options || []).length) continue;
   const cur = byId.get(src.id) || byName.get(src.name);
   if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
-  if (normOptions(cur.options) === normOptions(src.options)) continue;
-  // Метки конфигураций в живом каталоге могли разойтись с catalog.js: тогда
-  // «только для 1 ТБ» указывало бы на несуществующий вариант, и значение
-  // пропало бы с витрины навсегда. Такой товар пропускаем с предупреждением.
-  const labels = new Set((cur.storages || []).map(s => s.label));
+  const stChanged = normStorages(cur.storages) !== normStorages(src.storages);
+  if (normOptions(cur.options) === normOptions(src.options) && !stChanged) continue;
+  // Метки конфигураций могли разойтись: тогда «только для 1 ТБ» указывало бы на
+  // несуществующий вариант, и значение пропало бы с витрины навсегда. Сверяем с
+  // теми метками, которые встанут после этого же прогона, — конфигурации и
+  // группы едут вместе, поэтому смотреть на старые нельзя.
+  const labels = new Set(((stChanged ? src.storages : cur.storages) || []).map(s => s.label));
   const lost = [];
   for (const g of src.options) {
     for (const v of g.values || []) {
       for (const only of v.forStorage || []) if (!labels.has(only)) lost.push(`${g.name} · ${v.label} → «${only}»`);
     }
   }
+  // Привязка к выбору в другой группе должна указывать на существующие значения:
+  // опечатка в названии чипа прячет вариант молча и навсегда.
+  const byGroup = new Map(src.options.map(g => [g.name, new Set((g.values || []).map(v => v.label))]));
+  for (const item of [...src.options.flatMap(g => g.values || []), ...(src.storages || [])]) {
+    for (const group of Object.keys(item.forChoice || {})) {
+      const known = byGroup.get(group);
+      if (!known) { lost.push(`${item.label} → нет группы «${group}»`); continue; }
+      for (const val of item.forChoice[group] || []) if (!known.has(val)) lost.push(`${item.label} → «${group}: ${val}»`);
+    }
+  }
   if (lost.length) {
-    console.log(`! ${cur.name}: в живом каталоге нет таких конфигураций — ${lost.join('; ')}. Пропускаем.`);
+    console.log(`! ${cur.name}: привязка указывает в пустоту — ${lost.join('; ')}. Пропускаем.`);
     skipped++;
     continue;
   }
 
+  const tail = (x) => ((x.forStorage || []).length ? ` (только ${x.forStorage.join(', ')})` : '')
+    + (x.forChoice ? ' (' + Object.keys(x.forChoice).map(k => k + ': ' + x.forChoice[k].join('/')).join('; ') + ')' : '');
   console.log(`✓ ${cur.name}: характеристик ${(cur.options || []).length} → ${src.options.length}`);
-  for (const g of src.options) {
-    console.log(`    ${g.name}: ` + g.values.map(v => v.label
-      + (v.add ? ' +' + v.add : '')
-      + ((v.forStorage || []).length ? ` (только ${v.forStorage.join(', ')})` : '')).join(', '));
+  if (stChanged) {
+    console.log('    Конфигурации: ' + (src.storages || []).map(s => s.label + (s.add ? ' +' + s.add : '') + tail(s)).join(', '));
   }
-  if (apply) db.updateProduct(cur.id, { options: src.options });
+  for (const g of src.options) {
+    console.log(`    ${g.name}: ` + g.values.map(v => v.label + (v.add ? ' +' + v.add : '') + tail(v)).join(', '));
+  }
+  if (apply) db.updateProduct(cur.id, stChanged ? { options: src.options, storages: src.storages } : { options: src.options });
   changed++;
 }
 
