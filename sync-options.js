@@ -23,11 +23,29 @@ const byName = new Map(live.map(p => [p.name, p]));
 
 let changed = 0, missing = 0, skipped = 0;
 
+// Сравнивать поля напрямую нельзя: сохранение через панель дописывает значению
+// умолчания (`inStock: true`, `forStorage: []`), которых в catalog.js нет. Голый
+// JSON.stringify считал это расхождением, и скрипт обещал переписать половину
+// каталога там, где не менялось ни цены, ни наличия. Сводим обе стороны к
+// одному виду.
+function normOptions(groups) {
+  return JSON.stringify((groups || []).map(g => ({
+    name: g.name,
+    hint: g.hint || '',
+    values: (g.values || []).map(v => ({
+      label: v.label,
+      add: Number(v.add) || 0,
+      inStock: v.inStock !== false,
+      forStorage: (v.forStorage || []).map(String)
+    }))
+  })));
+}
+
 for (const src of catalog.products) {
   if (!(src.options || []).length) continue;
   const cur = byId.get(src.id) || byName.get(src.name);
   if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
-  if (JSON.stringify(cur.options || []) === JSON.stringify(src.options)) continue;
+  if (normOptions(cur.options) === normOptions(src.options)) continue;
   // Метки конфигураций в живом каталоге могли разойтись с catalog.js: тогда
   // «только для 1 ТБ» указывало бы на несуществующий вариант, и значение
   // пропало бы с витрины навсегда. Такой товар пропускаем с предупреждением.
