@@ -84,8 +84,6 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .card-media{position:relative;aspect-ratio:1/1;background:var(--bg2);display:flex;align-items:center;justify-content:center}
 .card-media img,.card-media .ph{width:100%;height:100%;object-fit:contain}
 .card-media img{padding:0}
-.badge{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:980px;z-index:2}
-.badge-muted{background:#8e8e93}
 .card-body{padding:12px 14px 4px;flex:1}
 .card-cat{font-size:12px;color:var(--muted)}
 .card-name{font-size:15px;font-weight:600;margin:2px 0 6px;letter-spacing:-.01em}
@@ -485,7 +483,6 @@ body.admin{background:var(--bg2)}
 /* =========================================================
    ГОРЯЩИЕ СКИДКИ
    ========================================================= */
-.badge-hot{background:linear-gradient(135deg,#e0281f,#e06a00);box-shadow:0 2px 8px rgba(215,0,21,.32)}
 .card-hot{border-color:#ffd9d3}
 .price-hot{color:#d70015}
 .deal-timer{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:12.5px;font-weight:600;color:#c21027;font-variant-numeric:tabular-nums}
@@ -998,17 +995,28 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .card-media img{mix-blend-mode:darken}
 .card-media img,.card-media .ph{transition:transform .35s cubic-bezier(.2,.8,.2,1)}
 .card:hover .card-media img,.card:hover .card-media .ph{transform:scale(1.025)}
-.badge{top:12px;left:12px;padding:6px 10px;border-radius:9px;background:rgba(29,29,31,.9);font-size:11px;letter-spacing:.01em;box-shadow:0 3px 12px rgba(17,17,26,.12);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
-.badge-hot{background:#d92d20;border:none;box-shadow:0 4px 12px rgba(217,45,32,.2)}
-.badge-muted{background:#8e8e93}
 .card-body{padding:16px 17px 5px}
 .card-cat{margin-bottom:5px;color:#8e8e93;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+/* Отметка товара занимает слот категории: тот же кегль, вес и трекинг, разница
+   только в цвете. Поэтому строка над названием у всех карточек одной высоты, а
+   на снимке не лежит ничего. Оранжевый — тот же, каким Apple подписывает
+   «Новинка» на светлом фоне: читается при любом акценте магазина. */
+.card-flag{color:#bf4800}
+.card-flag-out{color:#8e8e93}
+/* Распроданное видно и по снимку: подпись сверху и кнопка внизу легко
+   проскакивают мимо взгляда, а фото — первое, что читается в карточке. */
+.card-out .card-media img,.card-out .card-media .ph{opacity:.5;filter:grayscale(.7)}
 .card-name{display:-webkit-box;min-height:0;margin:0 0 7px;overflow:hidden;font-size:16px;font-weight:650;line-height:1.3;letter-spacing:-.018em;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .card-rating{gap:7px;min-height:20px}
 .rating-count{font-size:12px;color:var(--muted)}
 .card-rating-empty{font-size:12px;color:#8e8e93}
 .card-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px;margin-top:9px;font-size:18px;font-weight:720;letter-spacing:-.03em}
 .old-price{margin-left:5px;font-size:13px}
+/* Старая цена и процент — одна группа, чтобы на узкой карточке они переезжали
+   на вторую строку вместе. Процент скидки стоит там же, где на странице
+   товара, — рядом с зачёркнутой ценой, а не наклейкой на фото. */
+.price-was{display:inline-flex;align-items:baseline;gap:7px}
+.card-price .save{padding:2px 7px;border-radius:7px;font-size:11px;font-weight:700;letter-spacing:0}
 .card-add{padding:13px 17px 17px}
 .card-add .btn{min-height:43px;border-radius:13px}
 /* ===== Кнопка «в корзину»: одно состояние — один вид ===== */
@@ -1395,10 +1403,12 @@ body.admin{background:#f4f4f6;color:#242426}
   .rating-count{font-size:10.5px}
   .card-rating-empty{font-size:10.5px}
   .card-price{gap:1px;margin-top:7px;font-size:15px;line-height:1.35}
-  .card-price .old-price{width:100%;margin:1px 0 0;font-size:11px}
+  /* Карточка вдвое уже — старая цена с процентом уезжает под цену целой строкой */
+  .card-price .price-was{width:100%;margin:1px 0 0;gap:6px}
+  .card-price .old-price{margin:0;font-size:11px}
+  .card-price .save{padding:1px 6px;border-radius:6px;font-size:10px}
   .card-add{padding:10px 12px 12px}
   .card-add .btn{min-height:40px;padding:8px 7px;font-size:12.5px}
-  .badge{top:9px;left:9px;padding:5px 8px;font-size:10px}
 
   .deals-band{padding:34px 0 38px}
   .deals-head{display:block;margin-bottom:18px}
@@ -1566,6 +1576,10 @@ body.admin{background:#f4f4f6;color:#242426}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}
   .grid{gap:9px}
+  /* На узком экране карточка — половина ширины, и длинная отметка вроде «Выбор
+     покупателей» разрывалась на две строки. Чуть плотнее трекинг — и она снова
+     в одну, а с ней и категория. */
+  .card-cat{font-size:9px;letter-spacing:.045em}
   .card-body{padding-inline:10px}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{font-size:12px}
