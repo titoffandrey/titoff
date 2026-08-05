@@ -1126,10 +1126,14 @@ body.review-consent-open{overflow:hidden}
 .footer-bottom{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:16px 24px;padding-top:20px;border-top:1px solid var(--border)}
 /* Знаки оплаты — строкой над копирайтом, без плашек и в цвет соседнего текста */
 .footer-pay{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;color:var(--muted)}
-.pay{display:inline-flex;align-items:center;font-size:15px;font-weight:800;letter-spacing:.06em;line-height:1}
+.pay{display:inline-flex;align-items:center}
 .pay svg{display:block;width:auto;fill:currentColor}
+.pay-mir svg{height:15px}
 .pay-visa svg{height:15px}
 .pay-mc svg{height:19px}
+/* Сегменты знака СБП стыкуются вплотную: в один цвет они слились бы в пятно,
+   поэтому обводка цветом подвала возвращает фирменные зазоры между ними */
+.pay-sbp svg{height:21px;stroke:var(--bg2);stroke-width:1.6}
 .footer-meta{display:grid;gap:5px}
 .foot-legal{margin:0;font-size:12px}
 .footer-links{display:flex;align-items:flex-start;justify-content:flex-end;gap:8px 20px;flex-wrap:wrap;font-size:12px}
