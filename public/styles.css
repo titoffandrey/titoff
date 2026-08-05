@@ -1126,14 +1126,18 @@ body.review-consent-open{overflow:hidden}
 .footer-bottom{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:16px 24px;padding-top:20px;border-top:1px solid var(--border)}
 /* Знаки оплаты — строкой над копирайтом, без плашек и в цвет соседнего текста */
 .footer-pay{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;color:var(--muted)}
-.pay{display:inline-flex;align-items:center}
+/* У знаков со словом (Mastercard, СБП) знак и слово — два svg: у слова своя
+   высота, иначе рядом со знаком оно ужимается до нечитаемых 7 px */
+.pay{display:inline-flex;align-items:center;gap:6px}
 .pay svg{display:block;width:auto;fill:currentColor}
 .pay-mir svg{height:15px}
 .pay-visa svg{height:15px}
-.pay-mc svg{height:19px}
+.pay-mc svg:first-child{height:19px}
+.pay-mc svg+svg{height:9px}
+.pay-sbp svg+svg{height:13px}
 /* Сегменты знака СБП стыкуются вплотную: в один цвет они слились бы в пятно,
    поэтому обводка цветом подвала возвращает фирменные зазоры между ними */
-.pay-sbp svg{height:21px;stroke:var(--bg2);stroke-width:1.6}
+.pay-sbp svg:first-child{height:21px;stroke:var(--bg2);stroke-width:1.6}
 .footer-meta{display:grid;gap:5px}
 .foot-legal{margin:0;font-size:12px}
 .footer-links{display:flex;align-items:flex-start;justify-content:flex-end;gap:8px 20px;flex-wrap:wrap;font-size:12px}
@@ -1458,7 +1462,9 @@ body.admin{background:#f4f4f6;color:#242426}
   /* Одна колонка: без сброса сетка осталась бы двухколоночной, как на десктопе,
      и копирайт по центру уезжал бы за левый край экрана */
   .footer-bottom{grid-column:auto;display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;gap:12px;width:100%;padding-top:18px}
-  .footer-pay{justify-content:center;gap:7px}
+  /* Внешний зазор больше внутреннего (6 px между знаком и словом), иначе
+     «mastercard» и знак СБП читаются как один логотип */
+  .footer-pay{justify-content:center;gap:8px 14px}
   .footer-meta{justify-items:center;gap:6px}
   .foot-legal{line-height:1.5;text-wrap:balance}
   /* Ссылки в ряд, если помещаются, и в столбик по центру, если нет. */
