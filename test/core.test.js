@@ -895,7 +895,8 @@ test('наличие учитывает совместимость ремешк�
     ratingFor: () => ({ avg: 0, count: 0 })
   };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
-  assert.match(html, /href="\/product\/watch">Выбрать вариант<\/a>/);
+  // У товара с вариантами кнопка ведёт на страницу товара, а не кладёт в корзину сразу
+  assert.match(html, /href="\/product\/watch">В корзину<\/a>/);
   assert.doesNotMatch(html, /class="btn btn-primary btn-block add-to-cart"\s+data-id="watch"/);
 });
 
