@@ -572,6 +572,16 @@
     header.addEventListener('focusin', function () { setCompact(false); });
   }
 
+  // Бегущая строка преимуществ крутится анимацией CSS. Пока она за экраном,
+  // считать её незачем: ставим на паузу, чтобы не будить композитор на телефоне.
+  function initHeroTicker() {
+    var ticker = document.querySelector('.hero-ticker');
+    if (!ticker || typeof IntersectionObserver !== 'function') return;
+    new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) ticker.classList.toggle('is-idle', !entries[i].isIntersecting);
+    }, { rootMargin: '100px' }).observe(ticker);
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     Cart.load();
     Cart.updateBadge();
@@ -584,6 +594,7 @@
     startAnalytics(true);
     initAnalyticsControls();
     initCompactHeader();
+    initHeroTicker();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();

@@ -625,6 +625,34 @@ test('шапка сворачивается при прокрутке, а Telegr
   assert.doesNotMatch(js, /header\.contains\(document\.activeElement\)/);
 });
 
+test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({ storeName: 'Тест', tagline: 'Оригинальная техника', currency: '₽' }, fakeDb, {});
+
+  // Сдвиг в CSS обязан совпадать с числом копий: при -50 % на четырёх копиях
+  // (или наоборот) в конце цикла у края экрана появляется пустота.
+  const copies = (html.match(/class="ticker-row"/g) || []).length;
+  const shift = css.match(/@keyframes ticker-run\{[\s\S]*?to\{transform:translate3d\(-(\d+)%/);
+  assert.ok(shift, 'нет @keyframes ticker-run');
+  assert.equal(copies, 100 / Number(shift[1]));
+  assert.ok(copies >= 3, 'копий меньше трёх — ленты не хватит на широкий экран');
+
+  // Глифы лежат в спрайте, копии ссылаются на него через <use>
+  assert.match(html, /<symbol id="bi-price"/);
+  assert.equal((html.match(/<symbol id="bi-price"/g) || []).length, 1);
+  assert.match(html, /<use href="#bi-refund"\/>/);
+  // Дубли строки не читаются скринридером, у первой есть подпись
+  assert.equal((html.match(/class="ticker-row" aria-hidden="true"/g) || []).length, copies - 1);
+
+  // Анимация только по transform, с паузой за экраном и уважением к настройке системы
+  assert.match(css, /\.hero-ticker\.is-idle \.ticker-track\{animation-play-state:paused\}/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{\.ticker-track\{animation:none\}\}/);
+  assert.match(js, /function initHeroTicker\(\)/);
+  assert.match(js, /initHeroTicker\(\);/);
+});
+
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
   const fakeDb = { categories: () => ['AirPods'], pendingReviewCount: () => 0 };
   const html = ownerViews.productForm(fakeDb, null);
