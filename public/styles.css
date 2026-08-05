@@ -1132,8 +1132,9 @@ body.review-consent-open{overflow:hidden}
 .pay svg{display:block;width:auto;fill:currentColor}
 .pay-mir svg{height:15px}
 .pay-visa svg{height:15px}
-.pay-mc svg:first-child{height:19px}
-.pay-mc svg+svg{height:9px}
+/* Обводка цветом подвала: снаружи сливается с фоном, а между кругами рисует
+   линзу пересечения — так одноцветный знак остаётся плотным, а не блёклым */
+.pay-mc svg{height:19px;stroke:var(--bg2);stroke-width:44}
 .pay-sbp svg+svg{height:13px}
 /* Сегменты знака СБП стыкуются вплотную: в один цвет они слились бы в пятно,
    поэтому обводка цветом подвала возвращает фирменные зазоры между ними */
