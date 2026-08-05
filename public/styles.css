@@ -957,12 +957,21 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Первый экран */
 .store-hero{position:relative;overflow:hidden;background:#f4f4f6;border-bottom:1px solid var(--border-soft)}
 .store-hero::after{content:"";position:absolute;right:-100px;top:-240px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.9),rgba(255,255,255,0) 68%);pointer-events:none}
-.store-hero-inner{position:relative;z-index:1;padding-top:42px;padding-bottom:28px}
-.store-hero-copy{max-width:900px}
+/* Отступы сверху и снизу равные: полоса между меню и бегущей строкой держит
+   слоган по центру, а не прижимает его к низу. */
+.store-hero-inner{position:relative;z-index:1;padding-top:24px;padding-bottom:24px}
+.store-hero-copy{max-width:900px;margin-inline:auto;text-align:center}
 .section-kicker{display:block;margin-bottom:10px;color:var(--accent);font-size:12px;font-weight:750;letter-spacing:.11em;text-transform:uppercase}
-.store-hero h1{margin:0;font-family:var(--brand-font);font-size:clamp(26px,2.75vw,34px);line-height:1.14;letter-spacing:-.038em}
-/* Яблоко — часть строки: inline, размер в em и посадка на базовую линию, как у буквы */
-.apple-mark{display:inline-block;width:.6em;height:.732em;margin-right:.26em;vertical-align:-.022em;overflow:visible;fill:currentColor}
+/* Верх строки шрифт держит на 0.2em выше прописных, а выносные («р», «у») почти
+   достают её низ. При равных отступах контейнера это читается как «слоган
+   прижат к бегущей строке»: сверху пусто, снизу впритык. Отрицательный
+   margin-top снимает ровно эту разницу, и он в em — значит, работает на всех
+   размерах заголовка, а не только на десктопном. */
+.store-hero h1{margin:-.2em 0 0;font-family:var(--brand-font);font-size:clamp(26px,2.75vw,34px);line-height:1.14;letter-spacing:-.038em;color:var(--muted)}
+/* Яблоко — часть строки: inline и размер в em, как у буквы. Сидит не на базовой
+   линии, а по центру прописных: у логотипа нет ни выносных элементов, ни
+   плоского низа, поэтому «на базовой линии» читается как приклеенное к строке. */
+.apple-mark{display:inline-block;width:.6em;height:.732em;margin-right:.26em;vertical-align:.045em;overflow:visible;fill:currentColor}
 /* Бегущая строка преимуществ. Едет во всю ширину экрана, а не по контейнеру,
    поэтому подписи выходят из-за края — маска гасит их, чтобы не обрубались.
    Анимация одна на всю ленту и только по transform: считает композитор. */
@@ -1375,7 +1384,7 @@ body.admin{background:#f4f4f6;color:#242426}
   .site-header.header-compact .header-row{height:52px;min-height:52px;padding-top:4px;padding-bottom:4px;row-gap:0}
   .site-header.header-compact .search{max-width:0;max-height:0}
 
-  .store-hero-inner{display:block;padding-top:26px;padding-bottom:20px}
+  .store-hero-inner{display:block;padding-top:20px;padding-bottom:20px}
   /* balance делит заголовок на строки поровну — иначе на второй строке
      остаётся одно слово, и на узком экране этот «хвост» бросается в глаза */
   .store-hero h1{font-size:clamp(22px,5.6vw,28px);line-height:1.2;text-wrap:balance}
@@ -1570,7 +1579,7 @@ body.admin{background:#f4f4f6;color:#242426}
   .container{padding-inline:13px}
   .header-row{padding-inline:13px}
   .nav-inner{padding-inline:13px}
-  .store-hero-inner{padding:22px 13px 18px}
+  .store-hero-inner{padding:17px 13px}
   .store-hero h1{font-size:23px}
   .section-head{align-items:flex-end}
   .section-head h2{font-size:25px}
