@@ -625,6 +625,20 @@ test('шапка сворачивается при прокрутке, а Telegr
   assert.doesNotMatch(js, /header\.contains\(document\.activeElement\)/);
 });
 
+test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+  assert.equal((html.match(/class="pay /g) || []).length, 4);
+  assert.match(html, /class="pay pay-mc"[^>]*>[\s\S]*?<span class="sr-only">Mastercard<\/span>/);
+  // Знаки — разметка, а не файлы: ни одной картинки грузить не нужно
+  assert.doesNotMatch(html, /footer[\s\S]*?<img[^>]+pay/i);
+  // Мобильная сетка подвала обязана сбрасывать вторую колонку: иначе копирайт,
+  // выровненный по центру, уезжает за левый край экрана.
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.footer-bottom\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
+});
+
 test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
