@@ -290,13 +290,16 @@
       opts = opts || {};
       var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '',
         band: opts.band || '', bandSize: opts.bandSize || '', options: opts.options || [], img: opts.img || '' });
-      if (!next) return;
+      if (!next) return false;
       var ex = this.find(itemKey(next));
       if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img; }
       else if (this.items.length < MAX_CART_LINES) this.items.push(next);
-      else { toast('В корзине слишком много разных товаров'); return; }
+      else { toast('В корзине слишком много разных товаров'); return false; }
       this.save(); this.render();
-      toast(name + ' — в корзине');
+      // Признак успеха нужен вызывающему: после добавления он уводит на
+      // страницу корзины, а на отказе («слишком много товаров», битая позиция)
+      // покупатель обязан остаться на месте и увидеть подсказку.
+      return true;
     },
     setQty: function (key, qty) {
       var it = this.find(key);
@@ -645,8 +648,15 @@
             var box = document.querySelector('[data-qty] .qty-input');
             if (box) qty = Math.max(1, parseInt(box.value, 10) || 1);
           }
-          Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color,
+          // Добавили — и сразу ведём в корзину, тем же путём, что и повторный
+          // клик по товару, который в ней уже лежит. Раньше добавление меняло
+          // только подпись кнопки и счётчик в шапке: чтобы попасть в корзину,
+          // надо было нажать второй раз, а всплывающая подсказка успевала
+          // погаснуть. Отказ (корзина переполнена) оставляет на месте — там
+          // подсказка и есть весь ответ.
+          var added = Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color,
             band: btn.dataset.band, bandSize: btn.dataset.bandSize, options: picked, img: btn.dataset.img });
+          if (added) goToCheckout();
         }
         return;
       }

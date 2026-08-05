@@ -602,6 +602,20 @@ test('формы не содержат галочек, а отзыв требу�
   assert.match(js, /fd\.append\('publicationAccepted', '1'\)/);
 });
 
+test('добавление в корзину сразу уводит в корзину, а отказ — нет', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const add = js.slice(js.indexOf('    add: function ('), js.indexOf('    setQty: function ('));
+  // Признак успеха обязателен: без него переход случался бы и на отказе, и
+  // покупатель уезжал бы в корзину, куда ничего не положили.
+  assert.match(add, /if \(!next\) return false;/);
+  assert.match(add, /слишком много разных товаров'\); return false;/);
+  assert.match(add, /return true;\s*\},/);
+  assert.match(js, /var added = Cart\.add\(/);
+  assert.match(js, /if \(added\) goToCheckout\(\);/);
+  // Всплывающей подсказки на успехе больше нет — она гасла вместе со страницей.
+  assert.doesNotMatch(add, /toast\(name/);
+});
+
 test('зачёркнутая цена пересчитывается вместе с вариантом', () => {
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
