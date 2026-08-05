@@ -22,11 +22,17 @@ const live = db.getProducts();
 const byId = new Map(live.map(p => [p.id, p]));
 const byName = new Map(live.map(p => [p.name, p]));
 
+// Сохранение через панель приходит из <textarea>, а браузер переводит строки в
+// CRLF. Сравнение «в лоб» считало расхождением каждый такой товар: скрипт обещал
+// переписать почти весь каталог там, где не менялось ни буквы. Перед сравнением
+// приводим переводы строк и хвостовые пробелы к одному виду.
+const normSpecs = (s) => String(s == null ? '' : s).replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
+
 let changed = 0, missing = 0;
 for (const src of catalog.products) {
   const cur = byId.get(src.id) || byName.get(src.name);
   if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
-  if (String(cur.specs || '') === String(src.specs || '')) continue;
+  if (normSpecs(cur.specs) === normSpecs(src.specs)) continue;
 
   const was = String(cur.specs || '').split('\n').filter(Boolean).length;
   const now = String(src.specs || '').split('\n').filter(Boolean).length;
