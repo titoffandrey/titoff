@@ -47,10 +47,32 @@ const IPHONE_17 = [
   C.white, C.black
 ];
 const IPHONE_17E = [{ name: 'Нежно-розовый', hex: '#f0d3d6' }, C.white, C.black];
+// iPhone 16 и 16 Plus — одна палитра, как у Apple.
 const IPHONE_16 = [
   { name: 'Ультрамарин', hex: '#4b5ac4' },
   { name: 'Бирюзовый', hex: '#a7c8c4' },
   C.pink, C.white, C.black
+];
+const IPHONE_16_PRO = [
+  { name: 'Песочный титан', hex: '#b8a189' },
+  { name: 'Натуральный титан', hex: '#c0b9ae' },
+  { name: 'Белый титан', hex: '#f2f1ec' },
+  { name: 'Чёрный титан', hex: '#3b3b3d' }
+];
+const IPHONE_16E = [C.white, C.black];
+// У iPhone 15 и 15 Plus цвет запечён в стекло — оттенки бледнее, чем у 16-го.
+const IPHONE_15 = [
+  { name: 'Чёрный', hex: '#3c3c3b' },
+  { name: 'Синий', hex: '#d5dfe0' },
+  { name: 'Зелёный', hex: '#d0dbd0' },
+  { name: 'Жёлтый', hex: '#ece7cd' },
+  { name: 'Розовый', hex: '#ecd9d8' }
+];
+const IPHONE_15_PRO = [
+  { name: 'Натуральный титан', hex: '#bfb8ad' },
+  { name: 'Синий титан', hex: '#5b6b7d' },
+  { name: 'Белый титан', hex: '#f2f1ee' },
+  { name: 'Чёрный титан', hex: '#3d3c3a' }
 ];
 
 const MB_NEO = [
@@ -236,6 +258,7 @@ const ST = {
   ph256max: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }, { label: '2 ТБ', add: 60000 }],
   ph256s: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }],
   ph128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }],
+  ph128p: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }, { label: '1 ТБ', add: 37000 }],
   pad128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 8000 }, { label: '512 ГБ', add: 20000 }],
   pad256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 15000 }, { label: '1 ТБ', add: 40000 }, { label: '2 ТБ', add: 80000 }],
   mac256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 18000 }, { label: '1 ТБ', add: 40000 }, { label: '2 ТБ', add: 80000 }],
@@ -391,6 +414,36 @@ const products = [
     images: [], createdAt: now - 0.6 * DAY
   },
   {
+    id: 'iphone-16-pro-max', name: 'iPhone 16 Pro Max', category: 'iPhone',
+    price: 76990, oldPrice: 89990, badge: 'Хит', inStock: true,
+    shortDesc: 'A18 Pro, титан, 6.9", зум 5×, до 33 ч видео.',
+    description: 'Флагман прошлого поколения по цене без переплаты за новизну. Титановый корпус 6.9", чип A18 Pro, тройная камера с 48 Мп Fusion и 5-кратным тетрапризменным зумом, съёмка 4K120 в Dolby Vision и до 33 часов видео.',
+    specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A18 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 33 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_16_PRO, storages: ST.ph256,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 0.9 * DAY
+  },
+  {
+    id: 'iphone-16-pro', name: 'iPhone 16 Pro', category: 'iPhone',
+    price: 68990, oldPrice: 79990, badge: '', inStock: true,
+    shortDesc: 'A18 Pro, титан, 6.3", зум 5×.',
+    description: 'Компактный Pro в титановом корпусе: чип A18 Pro, три камеры с 48 Мп Fusion и 5-кратным зумом, кнопка Camera Control и до 27 часов видео.',
+    specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A18 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 27 ч видео\nПамять: от 128 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_16_PRO, storages: ST.ph128p,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 0.95 * DAY
+  },
+  {
+    id: 'iphone-16-plus', name: 'iPhone 16 Plus', category: 'iPhone',
+    price: 63990, oldPrice: 71990, badge: '', inStock: true,
+    shortDesc: 'A18, большой экран 6.7", до 27 ч видео.',
+    description: 'Тот же iPhone 16, но с экраном 6.7" и самой большой батареей в линейке — до 27 часов видео. Чип A18 с Apple Intelligence, камера 48 Мп Fusion и кнопка Camera Control.',
+    specs: 'Экран: 6.7" Super Retina XDR\nЧип: A18\nКамеры: 48 Мп Fusion + 12 Мп СШУ\nФронталка: 12 Мп TrueDepth\nАвтономность: до 27 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_16, storages: ST.ph128,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 0.98 * DAY
+  },
+  {
     id: 'iphone-16', name: 'iPhone 16', category: 'iPhone',
     price: 57990, oldPrice: 64990, badge: '', inStock: true,
     shortDesc: 'A18, две камеры, пять цветов.',
@@ -399,6 +452,56 @@ const products = [
     colors: IPHONE_16, storages: ST.ph128,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1 * DAY
+  },
+  {
+    id: 'iphone-16e', name: 'iPhone 16e', category: 'iPhone',
+    price: 44990, oldPrice: 49990, badge: '', inStock: true,
+    shortDesc: 'A18, камера 48 Мп, до 26 ч видео — вход в линейку.',
+    description: 'Самый доступный iPhone с Apple Intelligence. Чип A18, камера 48 Мп Fusion с 2-кратным оптическим зумом, кнопка «Действие» и собственный модем Apple C1, с которым автономность выросла до 26 часов видео.',
+    specs: 'Экран: 6.1" Super Retina XDR\nЧип: A18\nКамера: 48 Мп Fusion Main, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C\nСвязь: 5G, модем Apple C1\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_16E, storages: ST.ph128,
+    hotDeal: true, hotDealPrice: 41990, hotDealUntil: now + 3 * DAY,
+    images: [], createdAt: now - 1.1 * DAY
+  },
+  {
+    id: 'iphone-15-pro-max', name: 'iPhone 15 Pro Max', category: 'iPhone',
+    price: 64990, oldPrice: 74990, badge: '', inStock: true,
+    shortDesc: 'A17 Pro, титан, 6.7", зум 5×, до 29 ч видео.',
+    description: 'Первый iPhone из титана и первый с 5-кратным тетрапризменным зумом. Чип A17 Pro, кнопка «Действие» вместо переключателя звука, разъём USB-C и до 29 часов видео.',
+    specs: 'Экран: 6.7" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A17 Pro, 6-ядерный GPU\nКамеры: 48 Мп Main + 12 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 29 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 6E\nСистема: iOS 26',
+    colors: IPHONE_15_PRO, storages: ST.ph256,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 1.2 * DAY
+  },
+  {
+    id: 'iphone-15-pro', name: 'iPhone 15 Pro', category: 'iPhone',
+    price: 56990, oldPrice: 64990, badge: '', inStock: true,
+    shortDesc: 'A17 Pro, титан, 6.1", кнопка «Действие».',
+    description: 'Самый лёгкий Pro за счёт титанового корпуса: 187 граммов. Чип A17 Pro, три камеры с 48 Мп Main и 3-кратным зумом, кнопка «Действие» и USB-C со скоростью до 10 Гбит/с.',
+    specs: 'Экран: 6.1" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A17 Pro, 6-ядерный GPU\nКамеры: 48 Мп Main + 12 Мп СШУ + 12 Мп теле, зум 3×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 23 ч видео\nПамять: от 128 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 6E\nСистема: iOS 26',
+    colors: IPHONE_15_PRO, storages: ST.ph128p,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 1.25 * DAY
+  },
+  {
+    id: 'iphone-15-plus', name: 'iPhone 15 Plus', category: 'iPhone',
+    price: 47990, oldPrice: 54990, badge: '', inStock: true,
+    shortDesc: 'A16 Bionic, 6.7", камера 48 Мп, до 26 ч видео.',
+    description: 'Большой экран 6.7" и запас автономности на два дня спокойного пользования. Камера 48 Мп с 2-кратным зумом без потери качества, Dynamic Island и разъём USB-C.',
+    specs: 'Экран: 6.7" Super Retina XDR, Dynamic Island\nЧип: A16 Bionic\nКамеры: 48 Мп Main + 12 Мп СШУ, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 6\nСистема: iOS 26',
+    colors: IPHONE_15, storages: ST.ph128,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 1.3 * DAY
+  },
+  {
+    id: 'iphone-15', name: 'iPhone 15', category: 'iPhone',
+    price: 42990, oldPrice: 47990, badge: '', inStock: true,
+    shortDesc: 'A16 Bionic, 6.1", камера 48 Мп, Dynamic Island.',
+    description: 'Первый iPhone с USB-C и цветом, запечённым в само стекло. Камера 48 Мп с 2-кратным зумом, Dynamic Island и чип A16 Bionic — рабочая лошадка, которая ещё долго будет получать обновления.',
+    specs: 'Экран: 6.1" Super Retina XDR, Dynamic Island\nЧип: A16 Bionic\nКамеры: 48 Мп Main + 12 Мп СШУ, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 20 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 6\nСистема: iOS 26',
+    colors: IPHONE_15, storages: ST.ph128,
+    hotDeal: true, hotDealPrice: 39990, hotDealUntil: now + 6 * DAY,
+    images: [], createdAt: now - 1.35 * DAY
   },
 
   /* =============================== Mac =============================== */
@@ -740,9 +843,13 @@ const products = [
   }
 ];
 
-// Товары, которые считаются новинками — их добавляет `node add-novinki.js` в живой каталог.
+// Товары, которых может не быть в живом каталоге, — их доливает `node add-novinki.js`.
+// Это не только свежие релизы: прошлые поколения, добавленные в catalog.js после
+// первого запуска, попадают на витрину тем же способом.
 const NOVELTY_IDS = [
   'iphone-17-pro-max', 'iphone-17-pro', 'iphone-air', 'iphone-17', 'iphone-17e',
+  'iphone-16-pro-max', 'iphone-16-pro', 'iphone-16-plus', 'iphone-16e',
+  'iphone-15-pro-max', 'iphone-15-pro', 'iphone-15-plus', 'iphone-15',
   'macbook-neo', 'macbook-air-13-m5', 'macbook-air-15-m5', 'macbook-pro-14-m5', 'macbook-pro-16-m5-pro',
   'imac-m5', 'mac-mini-m5', 'mac-studio-m5-max', 'studio-display-xdr',
   'ipad-pro-13-m5', 'ipad-pro-11-m5',

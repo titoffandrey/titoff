@@ -851,6 +851,26 @@ test('порядок товаров меняется только точной �
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('доливка из каталога сохраняет id товара, а форма владельца — нет', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'product-id-'));
+  fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify([
+    { id: 'iphone-16', name: 'iPhone 16', category: 'iPhone', price: 10, images: [] }
+  ]));
+  const fresh = freshDb(dir);
+
+  // Демо-отзывы ищут товар по id из catalog.js: со случайным id карточка,
+  // добавленная через add-novinki.js, осталась бы без единого отзыва.
+  assert.equal(fresh.createProduct({ id: 'iphone-15-pro', name: 'iPhone 15 Pro', price: 1 }).id, 'iphone-15-pro');
+  // Занятый id второму товару не достаётся — иначе getProduct вернул бы чужую карточку.
+  assert.notEqual(fresh.createProduct({ id: 'iphone-16', name: 'Дубль', price: 1 }).id, 'iphone-16');
+  // «order» и «new» заняты адресами /owner/products/*, остальное — просто мусор.
+  for (const bad of ['order', 'new', 'Не Слаг', '../../etc', 'A'.repeat(80), '', null, undefined]) {
+    assert.match(fresh.createProduct({ id: bad, name: 'Товар ' + bad, price: 1 }).id, /^[0-9a-f]{8,}$/);
+  }
+  assert.equal(new Set(fresh.getProducts().map(p => p.id)).size, fresh.getProducts().length, 'id не повторяются');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('слияние карточек переносит отзывы покупателей, а не теряет их', () => {
   const reviews = [
     { id: 'real-1', productId: 'anc', author: 'Ирина', rating: 5, status: 'approved', createdAt: 3 },
