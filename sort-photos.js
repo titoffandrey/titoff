@@ -39,7 +39,7 @@ const only = args.find(a => !a.startsWith('--'));
   const products = db.getProducts().filter(p => !only || p.id === only);
   if (!products.length) { console.log('товар не найден:', only); return; }
 
-  let scanned = 0, cropped = 0, touched = 0;
+  let scanned = 0, cropped = 0, touched = 0, suspects = 0;
   for (const product of products) {
     const images = product.images || [];
     if (images.length < 2) continue;              // переставлять нечего
@@ -48,7 +48,7 @@ const only = args.find(a => !a.startsWith('--'));
     for (const file of images) {
       scanned++;
       const result = await IMG.inspectCrop(bin, path.join(db.UPLOAD_DIR, file), MAX);
-      marks.push({ file, cropped: result.cropped, corners: result.corners });
+      marks.push({ file, cropped: result.cropped, suspect: result.suspect, corners: result.corners });
       if (result.cropped) cropped++;
     }
 
@@ -57,12 +57,16 @@ const only = args.find(a => !a.startsWith('--'));
       .concat(marks.filter(m => m.cropped).map(m => m.file));
     const moved = next.some((file, i) => file !== images[i]);
     const list = marks.filter(m => m.cropped);
-    if (!list.length) continue;
+    const maybe = marks.filter(m => m.suspect && !m.cropped);
+    if (!list.length && !maybe.length) continue;
 
-    console.log(`— ${product.name} (${product.id}): срезанных ${list.length} из ${images.length}${moved ? '' : ', уже в конце'}`);
-    for (const m of list) {
-      const dark = m.corners.length ? Math.min(...m.corners).toFixed(2) : '—';
-      console.log(`   /uploads/${m.file}  тёмный угол ${dark}`);
+    const dark = m => (m.corners.length ? Math.min(...m.corners).toFixed(2) : '—');
+    console.log(`— ${product.name} (${product.id}): срезанных ${list.length} из ${images.length}${list.length && !moved ? ', уже в конце' : ''}`);
+    for (const m of list) console.log(`   /uploads/${m.file}  тёмный угол ${dark(m)}`);
+    if (maybe.length) {
+      suspects += maybe.length;
+      console.log(`   под вопросом (порядок не меняется, посмотрите сами) — ${maybe.length}:`);
+      for (const m of maybe) console.log(`     /uploads/${m.file}  тёмный угол ${dark(m)}`);
     }
     if (!moved) continue;
     touched++;
@@ -72,7 +76,8 @@ const only = args.find(a => !a.startsWith('--'));
     }
   }
 
-  console.log(`\nпросмотрено фото: ${scanned} | срезанных: ${cropped} | товаров к перестановке: ${touched}`);
+  console.log(`\nпросмотрено фото: ${scanned} | срезанных: ${cropped} | под вопросом: ${suspects} | товаров к перестановке: ${touched}`);
+  if (suspects) console.log('«Под вопросом» скрипт не трогает: там же оказываются целые снимки тёмных\nноутбуков и мониторов. Решает владелец — порядок меняется перетаскиванием\nв форме товара.');
   if (!apply && touched) console.log('Записать: node sort-photos.js --apply');
   if (apply && touched) console.log('Готово. Порядок фото на витрине обновится сразу, перезапуск не нужен.');
 })();
