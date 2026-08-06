@@ -128,6 +128,34 @@ test('товарное фото щадяще очищается от полей 
   assert.equal(images.targetContentSize(null, 1200), null);
 });
 
+test('срезанный краем кадр отличается от целого снимка квадратного товара', () => {
+  // Часть фото с buy-страниц Apple — крупный план детали, а не товар целиком.
+  // Одной геометрией их не отличить: Mac mini сверху тоже почти квадратный и
+  // тоже заполняет кадр, но он целый. Решают углы рамки содержимого — у целого
+  // товара там фон, у срезанного тело. Числа взяты с боевых снимков.
+  const S = 1200;
+  const bg = [0.97, 0.97, 0.97, 0.97];
+  assert.equal(images.looksCropped({ w: 738, h: 1102 }, bg, S), false, 'обычный вертикальный снимок');
+  assert.equal(images.looksCropped({ w: 1055, h: 1090 }, bg, S), false, 'Mac mini сверху — целый, хоть и квадратный');
+  assert.equal(images.looksCropped({ w: 1101, h: 439 }, [0.85, 0.87, 0.97, 0.97], S), false, 'широкий снимок с тенью в углах');
+  assert.equal(images.looksCropped({ w: 1096, h: 1104 }, [0.97, 0.97, 0.41, 0.56], S), true, 'макро-панель iPhone');
+  assert.equal(images.looksCropped({ w: 1055, h: 1046 }, [0.42, 0.96, 0.97, 0.94], S), true, 'сценарный кадр AirTag');
+  // Кадр с полем вокруг товара не проверяется по углам вовсе — поле и так есть.
+  assert.equal(images.looksCropped({ w: 800, h: 900 }, [0.1, 0.1, 0.1, 0.1], S), false);
+  assert.equal(images.looksCropped(null, bg, S), false);
+
+  // Перестановка обязана быть стабильной: галерея фильтрует список по цвету и
+  // ремешку, и относительный порядок внутри группы должен сохраниться.
+  const marks = [
+    { file: 'a', cropped: false }, { file: 'b', cropped: true },
+    { file: 'c', cropped: false }, { file: 'd', cropped: true }, { file: 'e', cropped: false }
+  ];
+  const next = marks.filter(m => !m.cropped).map(m => m.file).concat(marks.filter(m => m.cropped).map(m => m.file));
+  assert.deepEqual(next, ['a', 'c', 'e', 'b', 'd']);
+  // И остаётся точной перестановкой — иначе маршрут порядка её не примет.
+  assert.equal(images.validImageOrder(marks.map(m => m.file), next), true);
+});
+
 test('карточки используют единый фон фото и естественный интервал до отзывов', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.card-media\{[^}]*background:#f5f5f7[^}]*isolation:isolate/);
