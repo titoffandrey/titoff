@@ -65,6 +65,19 @@ const pageQuery = (value) => {
   const n = Math.floor(Number(value));
   return Number.isFinite(n) && n > 1 ? '?page=' + Math.min(n, 1e6) : '';
 };
+// Тот же возврат для очереди отзывов, где к странице добавляется ещё и вкладка.
+// Владелец разбирает модерацию сотнями страниц, и после каждого действия его
+// нельзя выбрасывать ни в начало списка, ни с вкладки «На модерации» на «Все».
+const REVIEW_TABS = ['all', 'pending', 'approved'];
+const reviewsBackUrl = (body, flash) => {
+  const params = [];
+  const status = String((body && body.status) || '');
+  if (REVIEW_TABS.includes(status) && status !== 'all') params.push('status=' + status);
+  const n = Math.floor(Number(body && body.page));
+  if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
+  if (flash) params.push('flash=' + encodeURIComponent(flash));
+  return '/owner/reviews' + (params.length ? '?' + params.join('&') : '');
+};
 const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return isNaN(t) ? null : t; };
 // Варианты из формы: цвета «Название|#hex|наличие» и память «Метка|доплата|наличие».
 // Третье поле необязательное: «нет» — вариант распродан. Пустое = в наличии,
@@ -83,17 +96,26 @@ const parseStock = (v) => !/^(нет|no|0|out)$/i.test(String(v == null ? '' : v
 // а в корзине это вообще один и тот же вариант.
 const uniqBy = (list, key) => { const seen = new Set(); return list.filter(x => { const k = key(x).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
 const parseColors = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100).map(l => l.trim()).filter(Boolean).map(l => { const [name, hex, stock] = l.split('|'); return { name: (name || '').trim().slice(0, 40), hex: safeHex(hex), inStock: parseStock(stock) }; }).filter(c => c.name), c => c.name);
-// «Доступно только при таком выборе в другой группе»: хвост `?Чип=M5 Pro, M5 Max`.
+// «Доступно только при таком выборе в другой группе»: хвост `?Чип=M5 Max, 32 ядра GPU`.
 // У Apple от чипа зависит и объём памяти, и потолок накопителя, поэтому привязку
 // понимают и конфигурации, и значения групп. Пустой разбор — ограничения нет.
+//
+// **Одна пара — ровно одно значение, а несколько задаются повтором группы**
+// (`?Чип=M5 Pro, 15 ядер CPU;Чип=M5 Pro, 18 ядер CPU`). Раньше значения внутри
+// пары делились запятой — и на этом всё ломалось: у Apple запятая стоит в самой
+// метке чипа. «M5 Max, 32 ядра GPU» превращалось в два несуществующих значения,
+// поэтому обычное «открыл карточку и нажал Сохранить» скрывало на витрине всю
+// оперативную память и старший накопитель, а Mac становился непокупаемым.
 function parseForChoice(raw) {
   const out = {};
   for (const part of String(raw || '').split(';')) {
     const i = part.indexOf('=');
     if (i < 1) continue;
     const group = part.slice(0, i).trim().slice(0, 60);
-    const values = part.slice(i + 1).split(',').map(s => s.trim().slice(0, 80)).filter(Boolean).slice(0, 20);
-    if (group && values.length) out[group] = values;
+    const value = part.slice(i + 1).trim().slice(0, 80);
+    if (!group || !value) continue;
+    const list = out[group] || (out[group] = []);
+    if (list.length < 20 && !list.includes(value)) list.push(value);
   }
   return Object.keys(out).length ? out : null;
 }
@@ -101,13 +123,15 @@ const parseStorages = (txt) => uniqBy(String(txt || '').split('\n').slice(0, 100
   const parts = l.split('|');
   const [label, add] = parts;
   const n = Number(add);
-  let inStock = true, forChoice = null;
+  let inStock = true;
+  const choiceRaw = [];   // хвостов «?» может быть несколько — они складываются
   for (const raw of parts.slice(2)) {
     const v = String(raw || '').trim();
     if (!v) continue;
-    if (v.startsWith('?')) forChoice = parseForChoice(v.slice(1));
+    if (v.startsWith('?')) choiceRaw.push(v.slice(1));
     else if (!parseStock(v)) inStock = false;
   }
+  const forChoice = parseForChoice(choiceRaw.join(';'));
   const s = { label: (label || '').trim().slice(0, 80), add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0, inStock };
   if (forChoice) s.forChoice = forChoice;
   return s;
@@ -182,16 +206,25 @@ function parseOptions(txt) {
       const parts = l.slice(1).split('|');
       const [label, add] = parts;
       const n = Number(add);
-      let inStock = true, forStorage = [], forChoice = null;
+      let inStock = true;
+      const forStorage = [];
+      const choiceRaw = [];   // хвостов «?» может быть несколько — они складываются
       for (const raw of parts.slice(2)) {
         const v = String(raw || '').trim();
         if (!v) continue;
         if (v.startsWith('@')) {
-          forStorage = v.slice(1).split(',').map(s => s.trim().slice(0, 80)).filter(Boolean).slice(0, 20);
+          // Хвостов «@» тоже может быть несколько, и они складываются: метка
+          // конфигурации сама бывает с запятой, а тогда одним списком её не
+          // записать. Деление по запятой внутри хвоста осталось — так формат
+          // описан в документации, и старые строки читаются по-прежнему.
+          for (const only of v.slice(1).split(',').map(s => s.trim().slice(0, 80)).filter(Boolean)) {
+            if (forStorage.length < 20 && !forStorage.includes(only)) forStorage.push(only);
+          }
         } else if (v.startsWith('?')) {
-          forChoice = parseForChoice(v.slice(1));
+          choiceRaw.push(v.slice(1));
         } else if (!parseStock(v)) inStock = false;
       }
+      const forChoice = parseForChoice(choiceRaw.join(';'));
       const value = {
         label: (label || '').trim().slice(0, 80),
         add: Number.isFinite(n) && n >= 0 && n <= PRICE_MAX ? Math.round(n) : 0,
@@ -961,8 +994,8 @@ app.post('/owner/reviews/new', async (req, res) => {
   db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'approved', createdAt });
   res.redirect('/owner/reviews?flash=' + encodeURIComponent('Отзыв опубликован'));
 });
-app.post('/owner/reviews/:id/approve', (req, res) => { if (!guardOwner(req, res)) return; db.setReviewStatus(req.params.id, 'approved'); res.redirect('/owner/reviews?status=pending&flash=' + encodeURIComponent('Отзыв опубликован')); });
-app.post('/owner/reviews/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteReview(req.params.id); res.redirect('/owner/reviews?flash=' + encodeURIComponent('Отзыв удалён')); });
+app.post('/owner/reviews/:id/approve', (req, res) => { if (!guardOwner(req, res)) return; db.setReviewStatus(req.params.id, 'approved'); res.redirect(reviewsBackUrl(req.body, 'Отзыв опубликован')); });
+app.post('/owner/reviews/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteReview(req.params.id); res.redirect(reviewsBackUrl(req.body, 'Отзыв удалён')); });
 
 // Домены
 app.get('/owner/sites', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.sitesList(db, req.query.flash)); });
@@ -1050,13 +1083,27 @@ app.get('/admin/catalog', (req, res) => { const site = guardSite(req, res); if (
 app.post('/admin/catalog', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
   const overrides = {};
+  // Нечисловую цену раньше отбрасывало молча уже хранилище: администратор писал
+  // «99 990» с пробелом, получал «Цены и видимость сохранены» — и товар уходил
+  // на базовую цену, а прежняя ручная цена пропадала. Считаем это ошибкой формы.
+  const badPrices = [];
   for (const p of db.getProducts()) {
     const enabled = req.body['enabled_' + p.id] !== undefined;
     const priceRaw = req.body['price_' + p.id];
     const entry = {};
     if (!enabled) entry.enabled = false;
-    if (priceRaw !== undefined && String(priceRaw).trim() !== '') entry.price = Number(priceRaw);
+    if (priceRaw !== undefined && String(priceRaw).trim() !== '') {
+      const price = Number(String(priceRaw).trim());
+      if (!Number.isFinite(price) || price <= 0 || price > PRICE_MAX) badPrices.push(p.id);
+      else entry.price = price;
+    }
     if (Object.keys(entry).length) overrides[p.id] = entry;
+  }
+  if (badPrices.length) {
+    const names = db.getProducts().filter(p => badPrices.includes(p.id)).map(p => p.name).slice(0, 5).join(', ');
+    return res.send(S.catalogPage(db, site,
+      `Не сохранено: цена должна быть числом больше нуля (${names}${badPrices.length > 5 ? ' и ещё ' + (badPrices.length - 5) : ''})`,
+      { flashType: 'err', draft: req.body, badPrices }), 400);
   }
   db.setSiteOverrides(site.id, overrides);
   res.redirect('/admin/catalog?flash=' + encodeURIComponent('Цены и видимость сохранены'));

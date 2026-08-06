@@ -135,7 +135,7 @@
       lines.push('# ' + g.name + ' | ' + g.hint);
       g.values.forEach(function (v) {
         lines.push('- ' + v.label + ' | ' + v.add + (v.inStock ? '' : ' | нет')
-          + (v.forStorage.length ? ' | @' + v.forStorage.join(', ') : '')
+          + v.forStorage.map(function (only) { return ' | @' + only; }).join('')
           + (v.forChoice ? ' | ?' + v.forChoice : ''));
       });
     });
@@ -157,9 +157,17 @@
         parts.slice(2).forEach(function (part) {
           var v = (part || '').trim();
           if (!v) return;
-          if (v.charAt(0) === '@') value.forStorage = v.slice(1).split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-          else if (v.charAt(0) === '?') value.forChoice = v.slice(1).trim();
-          else if (/^(нет|no|0|out)$/i.test(v)) value.inStock = false;
+          // Хвостов «@» и «?» бывает несколько — они складываются, а не заменяют
+          // друг друга: метка конфигурации и метка чипа сами бывают с запятой,
+          // поэтому одним списком через запятую их не записать.
+          if (v.charAt(0) === '@') {
+            v.slice(1).split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (only) {
+              if (value.forStorage.indexOf(only) === -1) value.forStorage.push(only);
+            });
+          } else if (v.charAt(0) === '?') {
+            var tail = v.slice(1).trim();
+            if (tail) value.forChoice = value.forChoice ? value.forChoice + ';' + tail : tail;
+          } else if (/^(нет|no|0|out)$/i.test(v)) value.inStock = false;
         });
         groups[groups.length - 1].values.push(value);
       }

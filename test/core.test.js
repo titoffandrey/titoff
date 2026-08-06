@@ -648,6 +648,70 @@ test('значение можно привязать к выбору в друг
   }
 });
 
+test('привязка к чипу переживает сохранение формы, хотя в метке есть запятая', () => {
+  // Метки чипов у Apple сами содержат запятую («M5 Max, 32 ядра GPU»). Пока
+  // значения привязки писались одним списком через запятую, обычное «открыл
+  // карточку и нажал Сохранить» разрезало метку пополам: привязка начинала
+  // ссылаться на несуществующие значения, вся оперативная память и старший
+  // накопитель пропадали с витрины, а Mac становился непокупаемым.
+  const MAX = 'M5 Max, 32 ядра GPU';
+  const PRO = 'M5 Pro, 18 ядер CPU';
+  const product = {
+    id: 'mac', name: 'MacBook', category: 'Mac', price: 100000, images: [], colors: [], bands: [],
+    storages: [{ label: '1 ТБ', add: 0 }, { label: '8 ТБ', add: 90000, forChoice: { 'Чип': [MAX] } }],
+    options: [
+      { name: 'Чип', hint: '', values: [{ label: PRO, add: 0 }, { label: MAX, add: 50000 }] },
+      { name: 'Оперативная память', hint: '', values: [
+        { label: '24 ГБ ОЗУ', add: 0, forChoice: { 'Чип': [PRO] } },
+        { label: '36 ГБ ОЗУ', add: 20000, forChoice: { 'Чип': [MAX] } },
+        { label: 'Нанотекстура', add: 0, forStorage: ['1 ТБ', '8 ТБ'] }
+      ] }
+    ]
+  };
+  const db = { categories: () => [], pendingReviewCount: () => 0, getProducts: () => [product] };
+  const form = ownerViews.productForm(db, product);
+  const textarea = id => {
+    const m = new RegExp('<textarea[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)</textarea>').exec(form);
+    return m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  };
+
+  // Разбор берём из самого server.js, а не переписываем в тесте: проверять надо
+  // именно ту функцию, которая читает форму на сервере.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const from = source.indexOf('function parseForChoice(');
+  const to = source.indexOf('\n}', from);
+  assert.ok(from > -1 && to > from, 'parseForChoice не найдена в server.js');
+  const parseForChoice = new Function(source.slice(from, to + 2) + '; return parseForChoice;')();
+
+  // Каждая строка варианта, вернувшаяся из формы, обязана разобраться в исходную привязку.
+  const tails = (line, mark) => line.split('|').map(s => s.trim()).filter(s => s.startsWith(mark)).map(s => s.slice(1));
+  const lines = (textarea('storages-raw') + '\n' + textarea('options-raw')).split('\n');
+
+  const ssd8 = lines.find(l => l.startsWith('8 ТБ'));
+  assert.deepEqual(parseForChoice(tails(ssd8, '?').join(';')), { 'Чип': [MAX] }, '8 ТБ потеряло привязку к чипу');
+  const ram36 = lines.find(l => l.includes('36 ГБ ОЗУ'));
+  assert.deepEqual(parseForChoice(tails(ram36, '?').join(';')), { 'Чип': [MAX] }, '36 ГБ потеряло привязку к чипу');
+  const ram24 = lines.find(l => l.includes('24 ГБ ОЗУ'));
+  assert.deepEqual(parseForChoice(tails(ram24, '?').join(';')), { 'Чип': [PRO] });
+
+  // Несколько допустимых значений задаются повтором группы, а не списком.
+  assert.deepEqual(parseForChoice('Чип=' + MAX + ';Чип=' + PRO), { 'Чип': [MAX, PRO] });
+  assert.deepEqual(parseForChoice('Чип=' + MAX + ';Чип=' + MAX), { 'Чип': [MAX] }, 'повтор не должен дублироваться');
+
+  // «@конфигурации» — по хвосту на метку, по той же причине.
+  const nano = lines.find(l => l.includes('Нанотекстура'));
+  assert.deepEqual(tails(nano, '@'), ['1 ТБ', '8 ТБ'], 'привязка к конфигурациям потерялась');
+
+  // Редакторы в браузере проносят те же хвосты насквозь и складывают их, а не
+  // заменяют друг другом: иначе форма стёрла бы часть привязок при сохранении.
+  const optionEditor = fs.readFileSync(path.join(__dirname, '..', 'public', 'option-editor.js'), 'utf8');
+  const colorEditor = fs.readFileSync(path.join(__dirname, '..', 'public', 'color-editor.js'), 'utf8');
+  assert.match(optionEditor, /value\.forStorage\.indexOf\(only\) === -1/);
+  assert.match(optionEditor, /value\.forChoice \+ ';' \+ tail/);
+  assert.match(optionEditor, /forStorage\.map\(function \(only\) \{ return ' \| @' \+ only; \}\)/);
+  assert.match(colorEditor, /forChoice \+ ';' \+ tail/);
+});
+
 test('добавление в корзину сразу уводит в корзину, а отказ — нет', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const add = js.slice(js.indexOf('    add: function ('), js.indexOf('    setQty: function ('));
@@ -1389,6 +1453,104 @@ test('списки заказов в панелях листаются, а не 
   // Действие над строкой возвращает на ту же страницу, а не в начало списка.
   const page3 = ownerViews.ordersList(db, null, 3);
   assert.match(page3, /<input type="hidden" name="page" value="3">/);
+});
+
+test('нечисловая цена в админке сайта не проходит молча', () => {
+  // Хранилище такую цену и раньше отбрасывало, но администратор видел
+  // «Цены и видимость сохранены»: товар уходил на базовую цену, а прежняя
+  // ручная цена пропадала. Теперь это ошибка формы с подсветкой строки.
+  const products = [
+    { id: 'p1', name: 'Товар один', category: 'К', price: 1000, images: [] },
+    { id: 'p2', name: 'Товар два', category: 'К', price: 2000, images: [] }
+  ];
+  const db = { getProducts: () => products, getReviews: () => [], approvedTotals: () => new Map() };
+  const site = { id: 's', storeName: 'М', accentColor: '#000', currency: '₽', currencyPosition: 'after',
+    priceMultiplier: 1, overrides: { p1: { price: 900 } }, hiddenReviews: [], hosts: [] };
+
+  // Обычный показ: сохранённая цена в поле, ошибок нет.
+  const plain = siteViews.catalogPage(db, site, null);
+  assert.match(plain, /name="price_p1"[^>]*value="900"/);
+  assert.doesNotMatch(plain, /row-error/);
+
+  // Форма с ошибкой: введённое не теряется, строка подсвечена, подпись объясняет.
+  const draft = { 'enabled_p1': 'on', 'enabled_p2': 'on', 'price_p1': '99 990', 'price_p2': '2500' };
+  const failed = siteViews.catalogPage(db, site, 'Не сохранено', { flashType: 'err', draft, badPrices: ['p1'] });
+  assert.match(failed, /value="99 990"/, 'введённое значение потеряно');
+  assert.match(failed, /value="2500"/, 'корректное значение соседа тоже должно вернуться');
+  assert.match(failed, /<tr class="row-error">/);
+  assert.match(failed, /Введите число больше нуля/);
+  assert.match(failed, /class="a-flash err"/);
+
+  // Снятая галочка «показывать» из черновика тоже должна вернуться снятой.
+  const hidden = siteViews.catalogPage(db, site, 'Не сохранено', { draft: { 'price_p1': 'abc' }, badPrices: ['p1'] });
+  assert.doesNotMatch(hidden, /name="enabled_p1" checked/);
+
+  // Подсветку рисует CSS — без правил она была бы невидимой.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.price-inp\.has-error/);
+  assert.match(css, /tr\.row-error/);
+
+  // Маршрут обязан отклонять такую отправку, а не сохранять её.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.post('/admin/catalog'"), source.indexOf("app.get('/admin/reviews'"));
+  assert.match(route, /badPrices\.push\(p\.id\)/);
+  assert.match(route, /if \(badPrices\.length\)/);
+  assert.ok(route.indexOf('if (badPrices.length)') < route.indexOf('db.setSiteOverrides'),
+    'проверка обязана идти до записи');
+});
+
+test('смена коллекции ремешков сбрасывает размер, а не тащит чужой', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const pick = js.slice(js.indexOf('var pickSize = function'), js.indexOf('var applyCaseColor'));
+  // showGroup зовёт pickSize(null), когда у коллекции нет размеров. Ранний выход
+  // по !btn оставлял «M/L» от прошлой коллекции: сервер такую позицию не примет,
+  // и покупатель получал «нет в наличии» на товаре, который есть.
+  assert.doesNotMatch(pick, /if \(!btn\) return;/, 'ранний выход снова оставляет чужой размер');
+  assert.match(pick, /vstate\.bandSize = '';/);
+  assert.match(pick, /vstate\.bandSizeAdd = 0;/);
+  assert.match(js, /pickSize\(sizes && sizes\.querySelector\('\.storage-opt'\)\)/);
+  // Размер входит в ключ позиции и в проверку варианта на сервере.
+  assert.match(js, /bandSize/);
+  const V = require('../lib/variants');
+  const view = { storages: [], colors: [], options: [], bands: [{ name: 'Ocean Band', sizes: [], options: [{ name: 'Black' }] }] };
+  assert.equal(V.variantMissing(view, { band: 'Ocean Band · Black', bandSize: 'M/L' }), true,
+    'размер от чужой коллекции обязан делать позицию недоступной');
+  assert.equal(V.variantMissing(view, { band: 'Ocean Band · Black', bandSize: '' }), false);
+});
+
+test('модерация отзыва возвращает на ту же страницу и вкладку', () => {
+  // То же правило, что у заказов. На боевых данных очередь отзывов — сотни
+  // страниц: без возврата владелец после каждого «Одобрить» улетал в начало
+  // списка, а «Удалить» вдобавок сбрасывало вкладку «На модерации» на «Все».
+  const per = render.ADMIN_PER_PAGE;
+  const many = Array.from({ length: per * 3 }, (_, i) => ({
+    id: 'r' + i, productId: 'p', author: 'Автор ' + i, rating: 5, text: 'т', status: 'pending', createdAt: 2000 - i
+  }));
+  const db = { getReviews: () => many, getProducts: () => [], pendingReviewCount: () => many.length };
+
+  const page3 = ownerViews.reviewsList(db, 'pending', null, 3);
+  const forms = page3.match(/<form method="post" action="\/owner\/reviews\/[^"]+\/(approve|delete)">([\s\S]*?)<\/form>/g) || [];
+  assert.ok(forms.length >= 2, 'на странице есть формы одобрения и удаления');
+  for (const form of forms) {
+    assert.match(form, /name="page" value="3"/, 'форма не несёт номер страницы');
+    assert.match(form, /name="status" value="pending"/, 'форма не несёт вкладку');
+  }
+
+  // Адрес возврата собирает сервер: вкладка «Все» и первая страница не должны
+  // засорять ссылку, а мусор в скрытых полях — уводить куда-то ещё.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const from = source.indexOf('const reviewsBackUrl =');
+  const to = source.indexOf('\n};', from);
+  assert.ok(from > -1 && to > from, 'reviewsBackUrl не найдена в server.js');
+  const build = new Function('const REVIEW_TABS = ["all","pending","approved"];'
+    + source.slice(from, to + 3) + ' return reviewsBackUrl;')();
+  assert.equal(build({ status: 'pending', page: '3' }, 'Готово'), '/owner/reviews?status=pending&page=3&flash=' + encodeURIComponent('Готово'));
+  assert.equal(build({ status: 'all', page: '1' }), '/owner/reviews');
+  assert.equal(build({ status: 'нет-такой', page: 'абв' }), '/owner/reviews');
+  assert.equal(build({ status: 'approved', page: -7 }), '/owner/reviews?status=approved');
+  // Маршруты обязаны пользоваться именно им, а не фиксированным адресом.
+  assert.match(source, /approve[\s\S]{0,120}reviewsBackUrl\(req\.body/);
+  assert.match(source, /deleteReview\(req\.params\.id\); res\.redirect\(reviewsBackUrl\(req\.body/);
 });
 
 test('оценка товара считается только когда её спрашивают', () => {

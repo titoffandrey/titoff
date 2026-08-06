@@ -203,8 +203,12 @@
     parts.slice(2).forEach(function (part) {
       var v = (part || '').trim();
       if (!v) return;
-      if (v.charAt(0) === '?') forChoice = v.slice(1).trim();
-      else if (/^(нет|no|0|out)$/i.test(v)) inStock = false;
+      // Хвостов «?» бывает несколько — они складываются: метка чипа сама бывает
+      // с запятой, поэтому одной парой со списком через запятую её не записать.
+      if (v.charAt(0) === '?') {
+        var tail = v.slice(1).trim();
+        if (tail) forChoice = forChoice ? forChoice + ';' + tail : tail;
+      } else if (/^(нет|no|0|out)$/i.test(v)) inStock = false;
     });
     makeRow(label, base() + add, inStock, forChoice);
   });

@@ -958,12 +958,19 @@
           if (gallerySetBand) gallerySetBand(sw.dataset.band + '|' + sw.dataset.option);
           applyVariant();
         };
+        // btn === null означает «у этой коллекции размеров нет» — тогда выбор надо
+        // именно СБРОСИТЬ, а не оставить как есть. Иначе размер прошлой коллекции
+        // («M/L» от Trail Loop) уезжал в корзину вместе с ремешком, у которого
+        // такого размера не бывает, и сервер помечал позицию недоступной.
         var pickSize = function (btn) {
-          if (!btn) return;
           bandsEl.querySelectorAll('.band-sizes .storage-opt').forEach(function (x) { x.classList.remove('active'); x.setAttribute('aria-pressed', 'false'); });
-          btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true');
-          vstate.bandSize = btn.dataset.size;
-          vstate.bandSizeAdd = Number(btn.dataset.add) || 0;
+          vstate.bandSize = '';
+          vstate.bandSizeAdd = 0;
+          if (btn) {
+            btn.classList.add('active'); btn.setAttribute('aria-pressed', 'true');
+            vstate.bandSize = btn.dataset.size;
+            vstate.bandSizeAdd = Number(btn.dataset.add) || 0;
+          }
           applyVariant();
         };
         // Часть вариаций идёт только со своим корпусом (титановый миланский у Apple
