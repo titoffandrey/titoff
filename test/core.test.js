@@ -749,6 +749,39 @@ test('зачёркнутая цена пересчитывается вмест�
   assert.match(plain, /data-base-compare="0"/);
 });
 
+test('старую цену видно, а стрелки галереи не лежат на товаре', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Все объявления селектора подряд: правила намеренно переопределяются ниже
+  // по файлу, поэтому проверять надо их сумму, а не первое совпадение.
+  const rule = name => [...css.matchAll(new RegExp(name + '\\s*\\{([^}]*)\\}', 'g'))].map(m => m[1]).join(';');
+
+  // Старая цена на странице товара была 15px под сплошной чертой — сумма не
+  // читалась. Кегль поднят, а линия тоньше и светлее самих цифр.
+  const oldPrice = rule('\\.product-price \\.old-price');
+  const size = /font-size:(\d+)px/.exec(oldPrice);
+  assert.ok(size && Number(size[1]) >= 19, 'старая цена на странице товара снова мелкая');
+  assert.match(css, /\.old-price\{[^}]*text-decoration-thickness:1px/, 'линия зачёркивания снова толстая');
+  assert.match(oldPrice, /text-decoration-color:rgba/, 'линия должна быть светлее цифр');
+
+  // Процент выгоды — залитая плашка с белым текстом (контраст 5.4:1), а не
+  // светло-зелёный текст на светло-зелёном фоне.
+  const save = rule('\\.save');
+  assert.match(save, /background:#0b7a37/);
+  assert.match(save, /color:#fff/);
+  assert.doesNotMatch(css, /\.save\{[^}]*color:#18794e/, 'вернулся бледный вариант плашки');
+
+  // Стрелки прижаты к краю кадра: товар вписан в 92 % квадрата, и на прежних
+  // 12–16px кнопка ложилась прямо на снимок.
+  assert.match(css, /\.g-prev\{left:6px\}/);
+  assert.match(css, /\.g-next\{right:6px\}/);
+  // На широком экране кнопка садится на границу кадра — половина снаружи,
+  // внутрь заходит ровно на пустую кромку (42/2 = 21px против 4 % кадра).
+  assert.match(css, /@media\(min-width:1200px\)\{\s*\.g-prev\{left:-21px\}\.g-next\{right:-21px\}/);
+  const arrow = rule('\\.g-arrow');
+  assert.match(arrow, /width:42px/, 'вынос рассчитан на кнопку 42px — размер и отступ связаны');
+  assert.match(css, /\.g-arrow:focus-visible\{outline/, 'кнопка должна быть видима с клавиатуры');
+});
+
 test('после заказа показывается понятное адаптивное подтверждение', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
