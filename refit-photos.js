@@ -40,18 +40,26 @@ const MAX = 1200;
     const file = path.join(db.UPLOAD_DIR, name);
     if (!fs.existsSync(file)) { console.log('• нет файла:', name); continue; }
 
+    const full = await IMG.imageSize(bin, file);
     const box = await IMG.contentBox(bin, file);
     const fit = IMG.targetContentSize(box, MAX);
     const longest = box ? Math.max(box.w, box.h) : 0;
-    // товар уже занимает почти весь кадр — трогать нечего
-    if (!box || longest >= Math.round(MAX * IMG.CONTENT_RATIO) - 8) { skipped++; continue; }
+    // Трогать нечего, только если кадр УЖЕ приведён к MAX×MAX и товар занимает его почти целиком.
+    // Размер товара тут в пикселях исходника, поэтому сравнивать его с порогом от MAX, не проверив
+    // холст, нельзя: у снимка 5120×2880 товар заведомо крупнее 1096 px, и файл, которому обработка
+    // нужнее всего, считался бы «уже в кадре». Ровно так скрипт и молчал про необработанные фото.
+    const framed = full && full.w === MAX && full.h === MAX;
+    if (framed && (!box || longest >= Math.round(MAX * IMG.CONTENT_RATIO) - 8)) { skipped++; continue; }
 
-    console.log(`${apply ? '✓' : '•'} ${name}: товар ${box.w}×${box.h} → ${fit}px в кадре ${MAX}×${MAX}`);
+    const size = full ? `${full.w}×${full.h}` : 'размер неизвестен';
+    // Фон не отделяется — остаётся «только уменьшить и вписать», как в lib/images.js.
+    const plan = box ? `товар ${box.w}×${box.h} → ${fit}px` : 'фон не отделяется, только вписываем';
+    console.log(`${apply ? '✓' : '•'} ${name}: ${size}, ${plan} в кадре ${MAX}×${MAX}`);
     if (!apply) { fixed++; continue; }
 
     const tmp = path.join(db.UPLOAD_DIR, '.refit-' + name);
     const args = [file, '-auto-orient', '-strip']
-      .concat(IMG.squareTransformArgs(MAX, { trim: true, fit, fuzz: box.fuzz }))
+      .concat(IMG.squareTransformArgs(MAX, { trim: true, fit, fuzz: box ? box.fuzz : undefined }))
       .concat(['-define', 'webp:method=4', '-quality', '82', tmp]);
     try {
       await execFileP(bin, args, { timeout: 20000 });
