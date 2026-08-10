@@ -123,6 +123,19 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
    контраст 5.4:1 — читается и на 11px в карточке каталога. */
 .save{background:#0b7a37;color:#fff;font-size:13px;font-weight:700;padding:3px 8px;border-radius:8px;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .product-short{color:#333;margin:0 0 18px}
+/* Подпись наличия над кнопкой покупки. Зелёная — обычная, оранжевая — «осталось
+   несколько штук»; оба цвета уже проверены в проекте (плашка скидки и «Новинка»).
+   Точка мигает ТОЛЬКО по opacity и transform: обе идут в композиторе, не требуют
+   ни перерисовки, ни пересчёта раскладки, поэтому анимация не стоит ничего ни при
+   загрузке, ни после неё. Скрипт для неё не нужен, разметка — два тега. */
+.stock{display:flex;align-items:center;gap:9px;margin:0 0 14px;font-size:14px;font-weight:500;color:#0b7a37}
+.stock-few{color:#bf4800}
+.stock-dot{position:relative;flex:none;width:9px;height:9px;border-radius:50%;background:currentColor;animation:stock-blink 1.8s ease-in-out infinite}
+/* Ореол вокруг точки: отдельный слой, чтобы не анимировать box-shadow — он бьёт по отрисовке. */
+.stock-dot::after{content:'';position:absolute;inset:-5px;border-radius:50%;background:currentColor;animation:stock-halo 1.8s ease-out infinite}
+@keyframes stock-blink{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes stock-halo{0%{transform:scale(.5);opacity:.35}70%,100%{transform:scale(1.4);opacity:0}}
+@media(prefers-reduced-motion:reduce){.stock-dot{animation:none}.stock-dot::after{animation:none;opacity:.22;transform:scale(1)}}
 .buy-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .qty{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:980px;overflow:hidden}
 .qty-btn{width:40px;height:44px;background:#fff;border:none;font-size:20px;cursor:pointer;color:var(--text)}

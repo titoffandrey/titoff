@@ -806,7 +806,8 @@ app.post('/owner/products', async (req, res) => {
   if (errors.length) return res.send(O.productForm(db, null, { errors, draft: req.body }), 400);
   db.createProduct({
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
-    inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
+    inStock: req.body.inStock !== undefined, stockLevel: req.body.stockLevel,
+    shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
     bands: parseBands(req.body.bands), options: parseOptions(req.body.options),
@@ -864,7 +865,8 @@ app.post('/owner/products/:id', async (req, res) => {
   }
   db.updateProduct(p.id, {
     name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
-    inStock: req.body.inStock !== undefined, shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
+    inStock: req.body.inStock !== undefined, stockLevel: req.body.stockLevel,
+    shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors, storages: parseStorages(req.body.storages), bands, options: parseOptions(req.body.options),
     images, imageColors, imageBands
