@@ -141,7 +141,15 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .qty-btn{width:40px;height:44px;background:#fff;border:none;font-size:20px;cursor:pointer;color:var(--text)}
 .qty-btn:hover{background:var(--bg2)}
 .qty-input{width:40px;height:44px;text-align:center;border:none;font-size:16px;outline:none}
-.trust{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;color:var(--muted);font-size:13px}
+/* Блок доверия под кнопкой покупки. Плашек нет намеренно: три серых
+   прямоугольника спорили с кнопкой и съедали первый экран. Вместо них —
+   волосяная линия сверху и тонкие разделители между колонками, как в таблицах
+   характеристик Apple. Список, а не набор span: это перечисление. */
+.trust{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin:22px 0 0;padding:14px 0 0;border-top:1px solid var(--border-soft);list-style:none}
+.trust-item{display:flex;align-items:center;justify-content:center;gap:8px;padding:1px 8px;font-size:12.5px;line-height:1.25;color:#48484a}
+.trust-item+.trust-item{border-left:1px solid var(--border-soft)}
+.trust-ico{width:19px;height:19px;flex:none;color:var(--text);opacity:.7}
+.trust-text b{font-weight:640;color:var(--text)}
 .prose{color:#333;max-width:720px}
 .specs{border-collapse:collapse;width:100%;max-width:640px;font-size:15px}
 .specs td{padding:11px 4px;border-bottom:1px solid var(--border);vertical-align:top}
@@ -1106,22 +1114,27 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .product-price .old-price{margin-left:0;font-size:21px;color:#6e6e73;letter-spacing:-.03em;text-decoration-thickness:1.5px;text-decoration-color:rgba(110,110,115,.55)}
 .save{padding:6px 10px;border-radius:10px;font-size:14px}
 .product-short{max-width:580px;margin-bottom:24px;color:#48484a;font-size:17px;line-height:1.55}
-.variant-group{margin:19px 0}
-.variant-label{margin-bottom:10px;font-size:13px}
-.swatches{gap:12px}
-.swatch{width:38px;height:38px;border-radius:50%}
-.storage-opts{gap:9px}
-.storage-opt,.option-opt{min-height:43px;padding:9px 16px;border-radius:12px;font-weight:600}
+/* Ряды выбора. Сжато против прежнего: у Mac групп бывает пять сразу (чип, ОЗУ,
+   накопитель, стекло, связь), и на старых отступах кнопка покупки уезжала за
+   первый экран — покупатель не видел ни цены, ни кнопки одновременно. Высота
+   нажатия оставлена 40px, на телефоне ниже возвращается 44px. */
+.variant-group{margin:13px 0}
+.variant-label{margin-bottom:7px;font-size:12.5px}
+.swatches{gap:9px}
+.swatch{width:32px;height:32px;border-radius:50%}
+.storage-opts{gap:7px}
+.storage-opt,.option-opt{min-height:40px;padding:6px 13px;border-radius:11px;font-weight:600;font-size:13.5px}
 .storage-opt.active,.option-opt.active{background:var(--text);border-color:var(--text);color:#fff}
-.option-opt{justify-content:center;padding-block:7px}
+.option-opt{justify-content:center;padding-block:5px}
+.option-groups{gap:13px}
+.variant-hint{margin:0 0 7px;font-size:12.5px}
 .buy-row{gap:12px;margin-top:26px;flex-wrap:nowrap}
 .qty{height:50px;flex:none;border-color:var(--border);background:#fff}
 .qty-btn,.qty-input{height:48px}
 .qty-btn{width:44px}
 .qty-input{width:42px}
 .buy-row .add-to-cart{flex:1;max-width:310px}
-.trust{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:24px;color:var(--muted);font-size:12px;line-height:1.35}
-.trust span{padding:10px 11px;border-radius:12px;background:var(--bg2);text-align:center}
+.trust{margin-top:24px}
 .section>.prose{max-width:900px;padding:24px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface-soft);font-size:16px;line-height:1.7}
 .spec-section{border-top:1px solid var(--border-soft)}
 .spec-h{font-size:clamp(28px,3vw,38px)}
@@ -1403,7 +1416,12 @@ body.admin{background:#f4f4f6;color:#242426}
 @media(max-width:1100px){
   .a-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
   .product{gap:36px}
-  .trust{grid-template-columns:1fr}
+  /* Колонка сведений сузилась — три подписи в строку больше не помещаются.
+     Столбиком разделители обязаны стать горизонтальными, иначе линии повиснут
+     слева от текста ни к чему не относящимися чёрточками. */
+  .trust{grid-template-columns:1fr;padding-top:6px}
+  .trust-item{justify-content:flex-start;padding:9px 0}
+  .trust-item+.trust-item{border-left:0;border-top:1px solid var(--border-soft)}
   .deals-band .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
@@ -1485,8 +1503,13 @@ body.admin{background:#f4f4f6;color:#242426}
   .qty-btn,.qty-input{height:46px}
   .qty-btn{width:38px}
   .qty-input{width:34px}
-  .trust{grid-template-columns:1fr;gap:6px;margin-top:18px}
-  .trust span{text-align:left}
+  /* Пальцем по 40px попадают плохо, поэтому сжатие рядов выбора действует только
+     на десктопе, а здесь высота и кружки цвета возвращаются к полноразмерным. */
+  .storage-opt,.option-opt{min-height:44px;padding:7px 14px}
+  .swatch{width:36px;height:36px}
+  .band-tab{padding:9px 15px}
+  .trust{margin-top:18px}
+  .trust-item{padding:8px 0}
   .spec-grid{grid-template-columns:1fr;gap:4px}
   .spec-item{padding:10px 0}
   .review-form-wrap{padding:20px}
@@ -1773,14 +1796,14 @@ body.admin{background:#f4f4f6;color:#242426}
 
 /* ===== Выбор ремешка часов (страница товара) ===== */
 .band-group{margin-top:4px}
-.variant-sub{font-size:13px;color:var(--muted);margin:16px 0 8px}
-.band-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
-.band-tab{padding:8px 15px;border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer;
+.variant-sub{font-size:12.5px;color:var(--muted);margin:12px 0 7px}
+.band-tabs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
+.band-tab{padding:7px 13px;border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer;
   font-size:13.5px;font-weight:500;color:var(--text);font-family:inherit;
   transition:border-color .14s ease,background .14s ease,color .14s ease}
 .band-tab:hover{border-color:var(--accent)}
 .band-tab.active{background:var(--text);border-color:var(--text);color:#fff}
-.band-colors{display:flex;flex-wrap:wrap;gap:10px}
+.band-colors{display:flex;flex-wrap:wrap;gap:9px}
 .band-sizes{display:flex;flex-wrap:wrap;gap:8px}
 /* атрибут hidden должен побеждать display:flex, иначе видны все коллекции сразу */
 .band-colors[hidden],.band-sizes[hidden]{display:none}
