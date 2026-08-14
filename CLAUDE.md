@@ -215,6 +215,7 @@ ssh -o BatchMode=yes istore2-onion 'cd /home/titoff/istore && pm2 status --no-co
 
 `add-novinki.js` доливает в живой каталог всё, чего там нет из `NOVELTY_IDS` (не только свежие релизы: прошлые поколения, дописанные в `catalog.js` после первого запуска, попадают на витрину тем же способом). Две вещи, которые он обязан сделать помимо самого создания товара:
 
+- **Сверка «уже есть» идёт по id И по названию.** Одного названия мало: владелец переименовывает карточки в панели («iMac 24" (M4)» → «iMac», «Apple Vision Pro (M5)» → «Apple Vision Pro»), и такой товар перестаёт узнаваться по имени, хотя его id занят. `createProduct` тогда выдаёт случайный id, и на витрину приезжает пустой дубль — без фото, без отзывов, с ценой из `catalog.js`. Ровно так на боевой витрине разом появилось шесть дублей: iMac, Mac mini, Mac Studio, оба iPad Pro и Vision Pro. Закреплено тестом.
 - **id берётся из `catalog.js`.** `db.createProduct` принимает `data.id`, если это слаг, он свободен и не занят адресами `/owner/products/new` и `/order`; иначе выдаётся случайный. Со случайным id карточка осталась бы **без единого отзыва**: `scripts/demo-reviews.js` генерирует набор по `catalog.js` и кладёт в отзыв `productId` каталожный. Форма владельца `id` не передаёт вовсе — там он всегда новый. Правило закреплено тестом.
 - **Карточка встаёт на своё место.** `createProduct` делает `unshift`, и для новинки это правильно, а прошлое поколение оказалось бы выше свежего. Поэтому после добавления скрипт зовёт `db.reorderProducts()` и ставит товар сразу за ближайшим соседом сверху по `catalog.js`, который на витрине уже есть. Расставленный вручную порядок остальных карточек при этом не меняется.
 
@@ -296,10 +297,10 @@ ssh -o BatchMode=yes istore2-onion 'cd /home/titoff/istore && pm2 status --no-co
 На сервере это делает cron пользователя `titoff` — ежедневно в 01:20 UTC (04:20 МСК):
 
 ```
-20 1 * * * { date -Is; /home/titoff/refresh-demo-reviews.sh; } >> /home/titoff/demo-reviews.log 2>&1
+20 1 * * * { date -Is; STORE_DATA_DIR=/var/lib/apple-store NODE_BIN=/usr/local/bin/node /home/titoff/istore/scripts/refresh-demo-reviews.sh; } >> /home/titoff/demo-reviews.log 2>&1
 ```
 
-`~/refresh-demo-reviews.sh` кладёт откатную копию в `/var/lib/apple-store/backups/reviews-before-refresh.json` и запускает `scripts/demo-reviews.js --apply` с нужным `STORE_DATA_DIR`. Полный прогон занимает 3 с и 72 МБ. Перезапуск процесса не нужен: `readJson` сверяет mtime и подхватывает файл сам.
+`scripts/refresh-demo-reviews.sh` (он лежит в репозитории, а не в домашней папке) кладёт откатную копию в `/var/lib/apple-store/backups/reviews-before-refresh.json` и запускает `scripts/demo-reviews.js --apply` с нужным `STORE_DATA_DIR`. Полный прогон занимает 3 с и 72 МБ. Перезапуск процесса не нужен: `readJson` сверяет mtime и подхватывает файл сам.
 
 После обновления самый свежий отзыв товара — сегодняшний, а первая страница из восьми укладывается примерно в неделю.
 

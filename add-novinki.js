@@ -12,11 +12,17 @@ db.ensureSeeded();
 
 const { products: CATALOG } = require('./catalog');
 const NEW = require('./new-products');
-const have = new Set(db.getProducts().map(p => p.name));
+// Сверяемся и по id, и по названию. Одного названия мало: владелец переименовывает
+// карточки в панели («iMac 24" (M4)» → «iMac»), и тогда товар с занятым id
+// перестаёт узнаваться по имени — createProduct выдаёт ему случайный id, и на
+// витрине появляется пустой дубль без фото и отзывов. Так и случилось разом
+// с шестью карточками: iMac, Mac mini, Mac Studio, оба iPad Pro и Vision Pro.
+const haveIds = new Set(db.getProducts().map(p => p.id));
+const haveNames = new Set(db.getProducts().map(p => p.name));
 const added = [];
 
 for (const p of NEW) {
-  if (have.has(p.name)) { console.log('• пропуск (уже есть):', p.name); continue; }
+  if (haveIds.has(p.id) || haveNames.has(p.name)) { console.log('• пропуск (уже есть):', p.name); continue; }
   added.push(db.createProduct(p).id);
   console.log('✓ добавлено:', p.name);
 }

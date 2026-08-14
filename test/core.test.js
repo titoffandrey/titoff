@@ -1136,6 +1136,32 @@ test('доливка из каталога сохраняет id товара, �
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('доливка не создаёт дубль переименованной карточки', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'add-novinki-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // Владелец переименовывает карточки в панели, и одной сверки по названию мало:
+  // id занят, имя не совпадает — товар заводится заново со случайным id, без фото
+  // и без отзывов. Так на витрине разом появилось шесть пустых дублей.
+  const renamed = catalog.products.find(p => p.id === 'vision-pro-m5');
+  fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify([
+    Object.assign({}, renamed, { name: 'Apple Vision Pro', images: [] })
+  ]));
+
+  const script = path.join(__dirname, '..', 'add-novinki.js');
+  execFileSync(process.execPath, [script], {
+    encoding: 'utf8', env: Object.assign({}, process.env, { STORE_DATA_DIR: dir })
+  });
+
+  const after = JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8'));
+  const vision = after.filter(p => p.id === 'vision-pro-m5' || p.name.startsWith('Apple Vision Pro'));
+  assert.equal(vision.length, 1, 'переименованная карточка не задвоилась');
+  assert.equal(vision[0].name, 'Apple Vision Pro', 'имя владельца не перезаписано');
+  assert.equal(new Set(after.map(p => p.id)).size, after.length, 'id не повторяются');
+  assert.equal(new Set(after.map(p => p.name)).size, after.length, 'названия не повторяются');
+  // Остальные новинки при этом доливаются как обычно.
+  assert.ok(after.some(p => p.id === 'watch-series-10'), 'новинки всё же добавлены');
+});
+
 test('слияние карточек переносит отзывы покупателей, а не теряет их', () => {
   const reviews = [
     { id: 'real-1', productId: 'anc', author: 'Ирина', rating: 5, status: 'approved', createdAt: 3 },
