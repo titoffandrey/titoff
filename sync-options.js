@@ -1,8 +1,9 @@
 'use strict';
 /*
- * Переносит дополнительные характеристики (поле options) из catalog.js
- * в живой каталог на сервере. Цены, фото, заказы и отзывы не трогает —
- * как sync-bands.js и sync-specs.js.
+ * Переносит дополнительные характеристики (поле options) и конфигурации
+ * накопителя (storages) из catalog.js в живой каталог на сервере. Базовые
+ * цены, фото, заказы и отзывы не трогает — как sync-bands.js и sync-specs.js;
+ * базовую цену везёт sync-prices.js.
  *
  * Нужен потому, что товары лежат в data/products.json и засеиваются из
  * catalog.js только при первом запуске: git pull сам по себе «Покрытие
@@ -52,26 +53,33 @@ function normStorages(list) {
 }
 
 for (const src of catalog.products) {
-  if (!(src.options || []).length) continue;
   const cur = byId.get(src.id) || byName.get(src.name);
-  if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
+  if (!cur) {
+    // Сообщаем только о тех, кому вообще что-то везли бы.
+    if ((src.options || []).length) { console.log('• нет в живом каталоге:', src.name); missing++; }
+    continue;
+  }
   const stChanged = normStorages(cur.storages) !== normStorages(src.storages);
-  if (normOptions(cur.options) === normOptions(src.options) && !stChanged) continue;
+  // Товар без групп в catalog.js трогаем только ради конфигураций: свою «Связь»
+  // владелец мог добавить в панели, и перенос пустого списка её сотрёт. Так на
+  // витрину доезжает новая доплата за память у iPhone Air, у которого групп нет.
+  const optChanged = !!(src.options || []).length && normOptions(cur.options) !== normOptions(src.options);
+  if (!optChanged && !stChanged) continue;
   // Метки конфигураций могли разойтись: тогда «только для 1 ТБ» указывало бы на
   // несуществующий вариант, и значение пропало бы с витрины навсегда. Сверяем с
   // теми метками, которые встанут после этого же прогона, — конфигурации и
   // группы едут вместе, поэтому смотреть на старые нельзя.
   const labels = new Set(((stChanged ? src.storages : cur.storages) || []).map(s => s.label));
   const lost = [];
-  for (const g of src.options) {
+  for (const g of src.options || []) {
     for (const v of g.values || []) {
       for (const only of v.forStorage || []) if (!labels.has(only)) lost.push(`${g.name} · ${v.label} → «${only}»`);
     }
   }
   // Привязка к выбору в другой группе должна указывать на существующие значения:
   // опечатка в названии чипа прячет вариант молча и навсегда.
-  const byGroup = new Map(src.options.map(g => [g.name, new Set((g.values || []).map(v => v.label))]));
-  for (const item of [...src.options.flatMap(g => g.values || []), ...(src.storages || [])]) {
+  const byGroup = new Map((src.options || []).map(g => [g.name, new Set((g.values || []).map(v => v.label))]));
+  for (const item of [...(src.options || []).flatMap(g => g.values || []), ...(src.storages || [])]) {
     for (const group of Object.keys(item.forChoice || {})) {
       const known = byGroup.get(group);
       if (!known) { lost.push(`${item.label} → нет группы «${group}»`); continue; }
@@ -86,14 +94,21 @@ for (const src of catalog.products) {
 
   const tail = (x) => ((x.forStorage || []).length ? ` (только ${x.forStorage.join(', ')})` : '')
     + (x.forChoice ? ' (' + Object.keys(x.forChoice).map(k => k + ': ' + x.forChoice[k].join('/')).join('; ') + ')' : '');
-  console.log(`✓ ${cur.name}: характеристик ${(cur.options || []).length} → ${src.options.length}`);
+  console.log(`✓ ${cur.name}: ` + (optChanged
+    ? `характеристик ${(cur.options || []).length} → ${src.options.length}`
+    : 'только конфигурации'));
   if (stChanged) {
     console.log('    Конфигурации: ' + (src.storages || []).map(s => s.label + (s.add ? ' +' + s.add : '') + tail(s)).join(', '));
   }
-  for (const g of src.options) {
+  if (optChanged) for (const g of src.options) {
     console.log(`    ${g.name}: ` + g.values.map(v => v.label + (v.add ? ' +' + v.add : '') + tail(v)).join(', '));
   }
-  if (apply) db.updateProduct(cur.id, stChanged ? { options: src.options, storages: src.storages } : { options: src.options });
+  if (apply) {
+    const patch = {};
+    if (optChanged) patch.options = src.options;
+    if (stChanged) patch.storages = src.storages;
+    db.updateProduct(cur.id, patch);
+  }
   changed++;
 }
 

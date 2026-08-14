@@ -255,8 +255,15 @@ const BANDS = {
 /* -------- типовые наборы памяти (add — доплата к базовой цене, ₽) -------- */
 const ST = {
   ph256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }],
-  ph256max: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 30000 }, { label: '2 ТБ', add: 60000 }],
   ph256s: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }],
+  // Пять iPhone переведены на прайс поставщика (см. «Прайс поставщика» ниже):
+  // доплата за память посчитана по его же ценам, и общая сетка ST.ph* им больше
+  // не подходит — у поставщика шаг за память заметно меньше типового.
+  ph17pm: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 11500 }, { label: '1 ТБ', add: 22500 }, { label: '2 ТБ', add: 32000 }],
+  ph17p: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 20500 }],
+  ph17air: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 5000 }, { label: '1 ТБ', add: 9500 }],
+  ph17: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 9500 }],
+  ph16: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 5500 }, { label: '512 ГБ', add: 14500 }],
   ph128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }],
   ph128p: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }, { label: '1 ТБ', add: 37000 }],
   pad128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 8000 }, { label: '512 ГБ', add: 20000 }],
@@ -487,49 +494,59 @@ const ZEISS_INSERTS = {
   ]
 };
 
+/* --------------------------- Прайс поставщика ---------------------------
+ * У iPhone 17 Pro Max, 17 Pro, Air, 17 и 16 цены пришли прайс-листом (eSIM и
+ * SIM+eSIM, по цветам и объёмам) и поставлены со скидкой 30 % от него.
+ * Цвет у нас цену не меняет, поэтому за базу взята самая дешёвая расцветка
+ * объёма — витрина показывает цену «от». Доплата за память — разница между
+ * объёмами в том же прайсе, доплата за физическую SIM — средняя по объёмам
+ * (в прайсе она гуляет от 400 до 20 000 ₽ и одним числом не задаётся).
+ * Старая цена и цена по акции сдвинуты пропорционально, чтобы процент скидки
+ * на витрине остался прежним.
+ * ---------------------------------------------------------------------- */
 const products = [
 
   /* ============================== iPhone ============================== */
   {
     id: 'iphone-17-pro-max', name: 'iPhone 17 Pro Max', category: 'iPhone',
-    price: 89990, oldPrice: 104990, badge: 'Хит', inStock: true,
+    price: 71990, oldPrice: 83990, badge: 'Хит', inStock: true,
     shortDesc: 'A19 Pro, три камеры 48 Мп, 6.9", до 39 ч видео.',
     description: 'Самый мощный iPhone. Чип A19 Pro с 6-ядерным GPU и паровой камерой охлаждения, три камеры по 48 Мп с 8-кратным оптическим зумом и рекордная автономность — до 39 часов видео. Цельный корпус из кованого алюминия, Ceramic Shield 2 спереди и Ceramic Shield сзади.',
     specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 39 ч видео\nПамять: от 256 ГБ до 2 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
-    colors: IPHONE_17_PRO, storages: ST.ph256max,
-    options: [OPT.sim(5000)],
-    hotDeal: true, hotDealPrice: 84990, hotDealUntil: now + 4 * DAY,
+    colors: IPHONE_17_PRO, storages: ST.ph17pm,
+    options: [OPT.sim(8500)],
+    hotDeal: true, hotDealPrice: 67990, hotDealUntil: now + 4 * DAY,
     images: [], createdAt: now - 0.2 * DAY
   },
   {
     id: 'iphone-17-pro', name: 'iPhone 17 Pro', category: 'iPhone',
-    price: 82990, oldPrice: 94990, badge: '', inStock: true,
+    price: 66990, oldPrice: 76990, badge: '', inStock: true,
     shortDesc: 'A19 Pro, три камеры 48 Мп, 6.3".',
     description: 'Вся мощь Pro в компактном корпусе 6.3". Чип A19 Pro, тройная система камер 48 Мп с оптическим зумом 8×, до 33 часов видео и корпус из кованого алюминия.',
     specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 33 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
-    colors: IPHONE_17_PRO, storages: ST.ph256,
-    options: [OPT.sim(5000)],
+    colors: IPHONE_17_PRO, storages: ST.ph17p,
+    options: [OPT.sim(3500)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.3 * DAY
   },
   {
     id: 'iphone-air', name: 'iPhone Air', category: 'iPhone',
-    price: 79990, oldPrice: 0, badge: 'Новинка', inStock: true,
+    price: 50990, oldPrice: 0, badge: 'Новинка', inStock: true,
     shortDesc: 'Самый тонкий iPhone: A19 Pro, титан, 6.5".',
     description: 'Самый тонкий iPhone в истории — и при этом с производительностью Pro. Титановый корпус, чип A19 Pro, камера 48 Мп Fusion и фронтальная камера Center Stage 18 Мп.',
     specs: 'Экран: 6.5" Super Retina XDR, ProMotion 120 Гц\nЧип: A19 Pro\nКамера: 48 Мп Fusion Main, зум 2×\nФронталка: 18 Мп Center Stage\nАвтономность: до 27 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield 2\nЗащита: IP68\nТолщина: 5.6 мм\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, eSIM\nСистема: iOS 26 с Apple Intelligence',
-    colors: IPHONE_AIR, storages: ST.ph256,
+    colors: IPHONE_AIR, storages: ST.ph17air,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.4 * DAY
   },
   {
     id: 'iphone-17', name: 'iPhone 17', category: 'iPhone',
-    price: 67990, oldPrice: 74990, badge: 'Выбор покупателей', inStock: true,
+    price: 51990, oldPrice: 56990, badge: 'Выбор покупателей', inStock: true,
     shortDesc: 'A19, ProMotion 120 Гц, две камеры 48 Мп.',
     description: 'Впервые в базовой модели — ProMotion 120 Гц и стартовая память 256 ГБ. Чип A19, две камеры по 48 Мп, до 30 часов видео и Ceramic Shield 2 с втрое лучшей стойкостью к царапинам.',
     specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц\nЧип: A19, 5-ядерный GPU\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ\nФронталка: 18 Мп Center Stage\nАвтономность: до 30 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
-    colors: IPHONE_17, storages: ST.ph256s,
-    options: [OPT.sim(4000)],
+    colors: IPHONE_17, storages: ST.ph17,
+    options: [OPT.sim(1500)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 0.5 * DAY
   },
@@ -579,12 +596,12 @@ const products = [
   },
   {
     id: 'iphone-16', name: 'iPhone 16', category: 'iPhone',
-    price: 57990, oldPrice: 64990, badge: '', inStock: true,
+    price: 41990, oldPrice: 46990, badge: '', inStock: true,
     shortDesc: 'A18, две камеры, пять цветов.',
     description: 'Проверенный флагман прошлого поколения по сниженной цене. Чип A18 с поддержкой Apple Intelligence, камера 48 Мп Fusion, кнопка Camera Control и прочный корпус из алюминия.',
     specs: 'Экран: 6.1" Super Retina XDR\nЧип: A18\nКамеры: 48 Мп Fusion + 12 Мп СШУ\nФронталка: 12 Мп TrueDepth\nАвтономность: до 22 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
-    colors: IPHONE_16, storages: ST.ph128,
-    options: [OPT.sim(4000)],
+    colors: IPHONE_16, storages: ST.ph16,
+    options: [OPT.sim(2000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1 * DAY
   },
