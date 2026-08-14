@@ -26,7 +26,7 @@ test('у каждого товара своё число отзывов, а ме
   const counts = new Map();
   for (const review of reviews) counts.set(review.productId, (counts.get(review.productId) || 0) + 1);
 
-  assert.equal(reviews.length, 8538);
+  assert.equal(reviews.length, 9627);
   assert.equal(Object.keys(REVIEW_COUNTS).length, products.length);
   // Записи для товаров, которых в каталоге больше нет, тоже ошибка: после
   // слияния карточек их легко забыть, а таблицы должны совпадать с каталогом.

@@ -106,6 +106,12 @@ const W_TITAN = [
   { name: 'Золотой титан', hex: '#d4b483' },
   { name: 'Сланцевый титан', hex: '#4a4a4d' }
 ];
+// У Series 10 палитра алюминия своя: вместо серого космоса — реактивный чёрный.
+const W_S10 = [
+  { name: 'Реактивный чёрный', hex: '#1c1c1e' },
+  { name: 'Розовое золото', hex: '#e5c0b4' },
+  C.silver
+];
 
 const HOMEPOD_MINI = [
   { name: 'Белый', hex: '#f2f1ee' },
@@ -264,6 +270,13 @@ const ST = {
   ph17air: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 5000 }, { label: '1 ТБ', add: 9500 }],
   ph17: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 9500 }],
   ph16: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 5500 }, { label: '512 ГБ', add: 14500 }],
+  // Линейка 15 пришла прайсом по каждому объёму отдельно, и шаги там свои у
+  // каждой модели: у 15 переход со 128 на 256 ГБ дороже, чем потом с 256 на 512,
+  // а у 15 Plus 512 ГБ дешевле 256 ГБ. Это не опечатка, а живой остаток склада.
+  ph15: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 15750 }, { label: '512 ГБ', add: 16500 }],
+  ph15plus: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 3000 }, { label: '512 ГБ', add: 2250 }],
+  ph15pro: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 750 }, { label: '512 ГБ', add: 8250 }, { label: '1 ТБ', add: 19500 }],
+  ph15pm: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 7500 }, { label: '1 ТБ', add: 11250 }],
   ph128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }],
   ph128p: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }, { label: '1 ТБ', add: 37000 }],
   pad128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 8000 }, { label: '512 ГБ', add: 20000 }],
@@ -307,6 +320,10 @@ const ST = {
   ],
   watch42: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 4000 }],
   watch40: [{ label: '40 мм', add: 0 }, { label: '44 мм', add: 3000 }],
+  // У Series 10 и 11 обе диагонали пришли прайсом по отдельности, и разница
+  // между ними там куда меньше типовых 4000 ₽.
+  watch42s10: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 750 }],
+  watch42s11: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 1500 }],
   vision: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 25000 }, { label: '1 ТБ', add: 50000 }],
   tv: [{ label: '64 ГБ', add: 0 }, { label: '128 ГБ', add: 3000 }]
 };
@@ -470,12 +487,13 @@ const MINI_ETHERNET = {
 };
 // Две версии AirPods 4 и два комплекта AirTag живут одной карточкой: у Apple
 // это тоже один товар с выбором, а не соседние позиции в каталоге. Доплата
-// выводит на прежнюю цену второй карточки — 17 990 ₽ и 11 990 ₽.
+// выводит на цену второй версии: у AirPods 4 это цена версии с шумоподавлением
+// из прайса поставщика, у AirTag — прежние 11 990 ₽ за набор.
 const AIRPODS_4_ANC = {
   name: 'Версия', hint: 'Выберите, нужно ли активное шумоподавление',
   values: [
     { label: 'Без шумоподавления', add: 0 },
-    { label: 'С шумоподавлением', add: 5000 }
+    { label: 'С шумоподавлением', add: 2250 }
   ]
 };
 const AIRTAG_PACK = {
@@ -618,46 +636,46 @@ const products = [
   },
   {
     id: 'iphone-15-pro-max', name: 'iPhone 15 Pro Max', category: 'iPhone',
-    price: 64990, oldPrice: 74990, badge: '', inStock: true,
+    price: 41250, oldPrice: 47500, badge: '', inStock: true,
     shortDesc: 'A17 Pro, титан, 6.7", зум 5×, до 29 ч видео.',
     description: 'Первый iPhone из титана и первый с 5-кратным тетрапризменным зумом. Чип A17 Pro, кнопка «Действие» вместо переключателя звука, разъём USB-C и до 29 часов видео.',
     specs: 'Экран: 6.7" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A17 Pro, 6-ядерный GPU\nКамеры: 48 Мп Main + 12 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 29 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 6E\nСистема: iOS 26',
-    colors: IPHONE_15_PRO, storages: ST.ph256,
+    colors: IPHONE_15_PRO, storages: ST.ph15pm,
     options: [OPT.sim(5000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.2 * DAY
   },
   {
     id: 'iphone-15-pro', name: 'iPhone 15 Pro', category: 'iPhone',
-    price: 56990, oldPrice: 64990, badge: '', inStock: true,
+    price: 33000, oldPrice: 37500, badge: '', inStock: true,
     shortDesc: 'A17 Pro, титан, 6.1", кнопка «Действие».',
     description: 'Самый лёгкий Pro за счёт титанового корпуса: 187 граммов. Чип A17 Pro, три камеры с 48 Мп Main и 3-кратным зумом, кнопка «Действие» и USB-C со скоростью до 10 Гбит/с.',
     specs: 'Экран: 6.1" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A17 Pro, 6-ядерный GPU\nКамеры: 48 Мп Main + 12 Мп СШУ + 12 Мп теле, зум 3×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 23 ч видео\nПамять: от 128 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 6E\nСистема: iOS 26',
-    colors: IPHONE_15_PRO, storages: ST.ph128p,
+    colors: IPHONE_15_PRO, storages: ST.ph15pro,
     options: [OPT.sim(5000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.25 * DAY
   },
   {
     id: 'iphone-15-plus', name: 'iPhone 15 Plus', category: 'iPhone',
-    price: 47990, oldPrice: 54990, badge: '', inStock: true,
+    price: 42000, oldPrice: 48000, badge: '', inStock: true,
     shortDesc: 'A16 Bionic, 6.7", камера 48 Мп, до 26 ч видео.',
     description: 'Большой экран 6.7" и запас автономности на два дня спокойного пользования. Камера 48 Мп с 2-кратным зумом без потери качества, Dynamic Island и разъём USB-C.',
     specs: 'Экран: 6.7" Super Retina XDR, Dynamic Island\nЧип: A16 Bionic\nКамеры: 48 Мп Main + 12 Мп СШУ, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 6\nСистема: iOS 26',
-    colors: IPHONE_15, storages: ST.ph128,
+    colors: IPHONE_15, storages: ST.ph15plus,
     options: [OPT.sim(4000)],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 1.3 * DAY
   },
   {
     id: 'iphone-15', name: 'iPhone 15', category: 'iPhone',
-    price: 42990, oldPrice: 47990, badge: '', inStock: true,
+    price: 28500, oldPrice: 32000, badge: '', inStock: true,
     shortDesc: 'A16 Bionic, 6.1", камера 48 Мп, Dynamic Island.',
     description: 'Первый iPhone с USB-C и цветом, запечённым в само стекло. Камера 48 Мп с 2-кратным зумом, Dynamic Island и чип A16 Bionic — рабочая лошадка, которая ещё долго будет получать обновления.',
     specs: 'Экран: 6.1" Super Retina XDR, Dynamic Island\nЧип: A16 Bionic\nКамеры: 48 Мп Main + 12 Мп СШУ, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 20 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 6\nСистема: iOS 26',
-    colors: IPHONE_15, storages: ST.ph128,
+    colors: IPHONE_15, storages: ST.ph15,
     options: [OPT.sim(4000)],
-    hotDeal: true, hotDealPrice: 39990, hotDealUntil: now + 6 * DAY,
+    hotDeal: true, hotDealPrice: 26500, hotDealUntil: now + 6 * DAY,
     images: [], createdAt: now - 1.35 * DAY
   },
 
@@ -845,11 +863,11 @@ const products = [
   /* =========================== Apple Watch =========================== */
   {
     id: 'watch-series-11-alu', name: 'Apple Watch Series 11 (алюминий)', category: 'Apple Watch',
-    price: 42990, oldPrice: 47990, badge: 'Хит', inStock: true,
+    price: 23250, oldPrice: 26000, badge: 'Хит', inStock: true,
     shortDesc: 'Уведомления о гипертонии, оценка сна, 5G.',
     description: 'Лучший способ следить за здоровьем: уведомления о признаках гипертонии, оценка качества сна, ЭКГ и кислород в крови. Экран в 2 раза устойчивее к царапинам, до 24 часов работы и связь 5G.',
     specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G (опция), Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
-    colors: W_ALU, storages: ST.watch42,
+    colors: W_ALU, storages: ST.watch42s11,
     bands: BANDS.series,
     // алюминиевые Series 11 продаются в двух версиях: GPS и GPS + Cellular
     options: [OPT.watchCellular(9000)],
@@ -868,8 +886,20 @@ const products = [
     images: [], createdAt: now - 2.5 * DAY
   },
   {
+    id: 'watch-series-10', name: 'Apple Watch Series 10', category: 'Apple Watch',
+    price: 21750, oldPrice: 0, badge: '', inStock: true,
+    shortDesc: 'Самый тонкий корпус, экран Wide-Angle OLED, 42 и 46 мм.',
+    description: 'Прошлое поколение флагманских часов по цене без переплаты за новизну. Самый тонкий корпус за всю линейку, широкоугольный OLED-экран, который читается под углом, зарядка до 80 % за полчаса и датчик апноэ во сне.',
+    specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Wide-Angle OLED, до 2000 нит\nЧип: S10 SiP\nАвтономность: до 18 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: пульс, ЭКГ, кислород в крови, температура\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: LTE (опция), Wi-Fi, Bluetooth 5.3\nЗарядка: до 80 % за 30 минут, USB-C',
+    colors: W_S10, storages: ST.watch42s10,
+    bands: BANDS.series,
+    options: [OPT.watchCellular(7000)],
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 2.55 * DAY
+  },
+  {
     id: 'watch-ultra-3', name: 'Apple Watch Ultra 3', category: 'Apple Watch',
-    price: 89990, oldPrice: 99990, badge: '', inStock: true,
+    price: 44250, oldPrice: 49000, badge: '', inStock: true,
     shortDesc: 'Титан 49 мм, спутник, до 42 часов, WR100.',
     description: 'Часы для спорта и приключений. Титановый корпус 49 мм, самый большой дисплей Apple Watch, спутниковая связь и экстренный вызов SOS, до 42 часов работы и до 72 часов в режиме энергосбережения.',
     specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит\nЧип: S11 SiP\nАвтономность: до 42 ч (72 ч в экономном режиме)\nНавигация: двухчастотный GPS\nСвязь: 5G, спутниковые сообщения\nБезопасность: Emergency SOS, сирена 86 дБ\nДатчики: Vitals — пульс, ЭКГ, кислород, температура, глубиномер\nЗащита: WR100, погружения до 40 м, MIL-STD 810H\nСон: оценка сна и отслеживание фаз\nКнопки: Действие, двойное нажатие',
@@ -878,6 +908,18 @@ const products = [
     bands: BANDS.ultra,
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 2.6 * DAY
+  },
+  {
+    id: 'watch-ultra-2', name: 'Apple Watch Ultra 2', category: 'Apple Watch',
+    price: 41250, oldPrice: 0, badge: '', inStock: true,
+    shortDesc: 'Титан 49 мм, до 36 часов, WR100, сирена 86 дБ.',
+    description: 'Первые часы Apple для настоящих нагрузок и вторая их версия: титановый корпус 49 мм, экран до 3000 нит, до 36 часов работы и до 72 в экономном режиме, погружения до 40 метров и сирена, которую слышно за 180 метров.',
+    specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит\nЧип: S9 SiP\nАвтономность: до 36 ч (72 ч в экономном режиме)\nНавигация: двухчастотный GPS\nСвязь: LTE, Wi-Fi, Bluetooth 5.3\nБезопасность: Emergency SOS, сирена 86 дБ\nДатчики: пульс, ЭКГ, кислород в крови, температура, глубиномер\nЗащита: WR100, погружения до 40 м, MIL-STD 810H\nСон: оценка сна и отслеживание фаз\nКнопки: Действие, двойное нажатие',
+    colors: [{ name: 'Натуральный титан', hex: '#cfc9c0' }, { name: 'Чёрный титан', hex: '#2b2b2e' }],
+    storages: [],
+    bands: BANDS.ultra,
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 2.65 * DAY
   },
   {
     id: 'watch-se-3', name: 'Apple Watch SE 3', category: 'Apple Watch',
@@ -906,20 +948,30 @@ const products = [
   /* ============================== AirPods ============================== */
   {
     id: 'airpods-pro-3', name: 'AirPods Pro 3', category: 'AirPods',
-    price: 22990, oldPrice: 25990, badge: 'Хит', inStock: true,
+    price: 15000, oldPrice: 17000, badge: 'Хит', inStock: true,
     shortDesc: 'Шумодав вдвое сильнее, пульсометр, IP57.',
     description: 'Активное шумоподавление вдвое эффективнее, чем у AirPods Pro 2, встроенный датчик пульса для тренировок, живой перевод и функции слухового аппарата. До 8 часов с включённым шумодавом.',
     specs: 'Чип: H2\nШумоподавление: активное, вдвое сильнее предыдущего\nДатчик пульса: есть\nАвтономность: до 8 ч (24 ч с кейсом)\nЗащита: IP57\nЗарядка: USB-C, MagSafe, Qi\nАудио: Spatial Audio с отслеживанием головы\nПоддержка: слуховой аппарат, проверка слуха, живой перевод\nКомплект: 5 размеров амбушюр',
     colors: [{ name: 'Белый', hex: '#f5f5f5' }], storages: [],
-    hotDeal: true, hotDealPrice: 19990, hotDealUntil: now + 5 * DAY,
+    hotDeal: true, hotDealPrice: 13000, hotDealUntil: now + 5 * DAY,
     images: [], createdAt: now - 2.9 * DAY
+  },
+  {
+    id: 'airpods-pro-2', name: 'AirPods Pro 2', category: 'AirPods',
+    price: 12000, oldPrice: 0, badge: 'Выгодно', inStock: true,
+    shortDesc: 'Чип H2, адаптивный звук, кейс USB-C, IP54.',
+    description: 'Прошлое поколение Pro за половину цены нынешнего. Чип H2 с активным шумоподавлением и режимом адаптивного звука, функции слухового аппарата и проверки слуха, до 6 часов работы и кейс с USB-C, MagSafe и динамиком для поиска.',
+    specs: 'Чип: H2\nШумоподавление: активное, адаптивный звук\nАвтономность: до 6 ч (30 ч с кейсом)\nЗащита: IP54\nЗарядка: USB-C, MagSafe, Qi, Apple Watch\nАудио: Spatial Audio с отслеживанием головы\nПоддержка: слуховой аппарат, проверка слуха, Voice Isolation\nУправление: сенсорное на ножке, громкость свайпом\nКомплект: 4 размера амбушюр',
+    colors: [{ name: 'Белый', hex: '#f5f5f5' }], storages: [],
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 2.95 * DAY
   },
   {
     // Обе версии AirPods 4 — одна карточка: у Apple это тоже один товар с
     // выбором «с шумоподавлением или без», а не две позиции в каталоге.
     // Базовая цена — версия без шумоподавления, доплата даёт прежние 17 990 ₽.
     id: 'airpods-4', name: 'AirPods 4', category: 'AirPods',
-    price: 12990, oldPrice: 14990, badge: 'Выгодно', inStock: true,
+    price: 7875, oldPrice: 9000, badge: 'Выгодно', inStock: true,
     shortDesc: 'Чип H2, кейс USB-C — с шумоподавлением или без.',
     description: 'Обновлённая форма для удобной посадки, чип H2, пространственное аудио с отслеживанием головы и компактный кейс с USB-C. В версии с активным шумоподавлением добавляются адаптивный звук, живой перевод и кейс с беспроводной зарядкой и динамиком для поиска.',
     specs: 'Чип: H2\nШумоподавление: активное и адаптивный звук — в версии с шумоподавлением\nАвтономность: до 5 ч (20–30 ч с кейсом)\nЗащита: IP54\nЗарядка: USB-C, а в версии с шумоподавлением ещё Qi и Apple Watch\nАудио: Spatial Audio с отслеживанием головы\nПоддержка: проверка слуха, Voice Isolation, живой перевод\nДатчики: оптический, акселерометр\nСвязь: Bluetooth 5.3',
@@ -929,8 +981,18 @@ const products = [
     images: [], createdAt: now - 3 * DAY
   },
   {
+    id: 'airpods-3', name: 'AirPods 3', category: 'AirPods',
+    price: 7500, oldPrice: 0, badge: '', inStock: true,
+    shortDesc: 'Открытая посадка, пространственное аудио, MagSafe.',
+    description: 'Классические AirPods без амбушюр: ничего не давит в ухе и слышно, что происходит вокруг. Пространственное аудио с отслеживанием головы, адаптивный эквалайзер, защита от пота и воды и кейс с MagSafe.',
+    specs: 'Чип: H1\nПосадка: открытая, без амбушюр\nАвтономность: до 6 ч (30 ч с кейсом)\nЗащита: IPX4\nЗарядка: Lightning, MagSafe, Qi\nАудио: Spatial Audio с отслеживанием головы, адаптивный эквалайзер\nМикрофоны: с формированием луча, датчик нажатия\nДатчики: оптический, акселерометр\nСвязь: Bluetooth 5.0',
+    colors: [{ name: 'Белый', hex: '#f5f5f5' }], storages: [],
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 3.1 * DAY
+  },
+  {
     id: 'airpods-max-2', name: 'AirPods Max 2', category: 'AirPods',
-    price: 54990, oldPrice: 59990, badge: 'Новинка', inStock: true,
+    price: 35250, oldPrice: 38500, badge: 'Новинка', inStock: true,
     shortDesc: 'Полноразмерные, H2, Lossless по USB-C, 20 ч.',
     description: 'Полноразмерные наушники нового поколения: чип H2 в каждой чашке, шумоподавление в 1.5 раза сильнее, Lossless-аудио и минимальная задержка по USB-C. Пять цветов.',
     specs: 'Тип: полноразмерные\nЧип: H2 в каждой чашке\nШумоподавление: активное, в 1.5 раза сильнее\nАвтономность: до 20 ч\nЗарядка: USB-C\nАудио: Lossless и ультранизкая задержка по USB-C, Spatial Audio\nМикрофоны: 9 микрофонов\nПоддержка: живой перевод, Digital Crown\nВес: 386 г',
@@ -938,6 +1000,17 @@ const products = [
     storages: [],
     hotDeal: false, hotDealPrice: null, hotDealUntil: null,
     images: [], createdAt: now - 3.2 * DAY
+  },
+  {
+    id: 'airpods-max', name: 'AirPods Max (USB-C)', category: 'AirPods',
+    price: 33000, oldPrice: 0, badge: '', inStock: true,
+    shortDesc: 'Полноразмерные, чип H1, USB-C, 20 ч, пять цветов.',
+    description: 'Обновление 2024 года: те же полноразмерные наушники в алюминии и с амбушюрами из сетчатой ткани, но с разъёмом USB-C и в новых цветах. Активное шумоподавление, прозрачный режим и пространственное аудио с отслеживанием головы.',
+    specs: 'Тип: полноразмерные\nЧип: H1 в каждой чашке\nШумоподавление: активное, прозрачный режим\nАвтономность: до 20 ч\nЗарядка: USB-C\nАудио: Spatial Audio с отслеживанием головы, адаптивный эквалайзер\nМикрофоны: 9 микрофонов\nУправление: Digital Crown, кнопка шумоподавления\nМатериал: алюминий, амбушюры из сетчатой ткани\nВес: 385 г',
+    colors: [C.midnight, C.starlight, C.blue, C.purple, { name: 'Оранжевый', hex: '#e8853c' }],
+    storages: [],
+    hotDeal: false, hotDealPrice: null, hotDealUntil: null,
+    images: [], createdAt: now - 3.3 * DAY
   },
 
   /* ========================= Apple TV и Дом ========================= */
@@ -1012,8 +1085,10 @@ const NOVELTY_IDS = [
   'macbook-neo', 'macbook-air-13-m5', 'macbook-air-15-m5', 'macbook-pro-14-m5', 'macbook-pro-16-m5-pro',
   'imac-m5', 'mac-mini-m5', 'mac-studio-m5-max', 'studio-display-xdr',
   'ipad-pro-13-m5', 'ipad-pro-11-m5',
-  'watch-series-11-alu', 'watch-series-11-titan', 'watch-ultra-3', 'watch-se-3',
-  'airpods-pro-3', 'airpods-4', 'airpods-max-2',
+  'watch-series-11-alu', 'watch-series-11-titan', 'watch-series-10',
+  'watch-ultra-3', 'watch-ultra-2', 'watch-se-3',
+  'airpods-pro-3', 'airpods-pro-2', 'airpods-4', 'airpods-3',
+  'airpods-max-2', 'airpods-max',
   'apple-tv-4k', 'homepod-mini', 'vision-pro-m5'
 ];
 
