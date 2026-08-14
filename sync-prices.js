@@ -31,7 +31,7 @@ const money = (x) => (Number(x) > 0 ? Math.round(Number(x)) : 0);
 const rub = (x) => (money(x) ? money(x).toLocaleString('ru-RU') + ' ₽' : '—');
 
 let changed = 0, missing = 0, skipped = 0;
-const overridden = [];
+const overridden = [], stale = [];
 const sites = db.getSites();
 
 for (const src of catalog.products) {
@@ -50,10 +50,16 @@ for (const src of catalog.products) {
 
   // Те же правила, что у validateProduct() в server.js: старая цена выше
   // базовой, цена по акции ниже. Иначе на витрине выйдет «скидка» вверх.
+  // У выключенной акции сумма на витрину не выходит вовсе, поэтому проверяем её
+  // только у включённой: иначе давняя завершённая скидка держала бы базовую цену
+  // и не давала её снизить.
   const bad = [];
   if (next.oldPrice && next.oldPrice <= next.price) bad.push(`старая цена ${rub(next.oldPrice)} не выше базовой ${rub(next.price)}`);
-  if (next.hotDealPrice && next.hotDealPrice >= next.price) bad.push(`цена по акции ${rub(next.hotDealPrice)} не ниже базовой ${rub(next.price)}`);
+  if (deal && next.hotDealPrice && next.hotDealPrice >= next.price) bad.push(`цена по акции ${rub(next.hotDealPrice)} не ниже базовой ${rub(next.price)}`);
   if (bad.length) { console.log(`! ${cur.name}: ${bad.join('; ')}. Пропускаем.`); skipped++; continue; }
+  if (!deal && next.hotDealPrice && next.hotDealPrice >= next.price) {
+    stale.push(`${cur.name}: ${rub(next.hotDealPrice)} при базовой ${rub(next.price)}`);
+  }
 
   console.log(`✓ ${cur.name}: ` + diff.map(k => `${k} ${rub(now[k])} → ${rub(next[k])}`).join(', '));
 
@@ -74,6 +80,10 @@ for (const src of catalog.products) {
 console.log(`\n${apply ? 'Обновлено' : 'Будет обновлено'} товаров: ${changed}`
   + (missing ? `, нет в каталоге магазина: ${missing}` : '')
   + (skipped ? `, пропущено из-за неверной пары цен: ${skipped}` : '') + '.');
+if (stale.length) {
+  console.log('\nУ этих товаров лежит цена выключенной акции выше новой базовой — включать её в панели нельзя, сначала поправить сумму:');
+  for (const line of stale) console.log('  • ' + line);
+}
 if (overridden.length) {
   console.log('\nУ этих сайтов цена задана вручную — базовая на них не подействует:');
   for (const line of overridden) console.log('  • ' + line);
