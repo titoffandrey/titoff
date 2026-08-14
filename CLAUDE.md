@@ -36,7 +36,7 @@ ssh istore2-onion
 На сервере:
 
 - SSH-пользователь — **`root`** (на прежней машине входили под `titoff` и повышались через sudo);
-- приложение работает под `titoff`, проект — `/home/titoff/istore`;
+- приложение работает под `titoff`, проект — `/home/titoff/istore`. **Заходим мы под `root`, поэтому `git pull` и любые скрипты в проекте запускаем через `sudo -u titoff -H bash -lc '…'`**: репозиторий принадлежит `titoff`, и от root git отказывается работать с ним вовсе («detected dubious ownership»). Добавлять `safe.directory` не нужно — под root там и не место;
 - PM2-процесс — `istore`;
 - **данные — `/var/lib/apple-store`, а не `data/` внутри проекта**: процесс запущен с `STORE_DATA_DIR`. Каталог `istore/data` там тоже есть, но он не используется, и правка в нём на витрину не влияет. Любую команду, которая пишет в хранилище, запускай с этой переменной: `STORE_DATA_DIR=/var/lib/apple-store node scripts/demo-reviews.js --apply`. Резервные копии — `/var/lib/apple-store/backups`;
 - Tor onion-служба обслуживается `tor@default`. Через onion проброшен **только SSH** (`HiddenServicePort 22`), витрина в Tor не публикуется;
