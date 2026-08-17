@@ -2006,7 +2006,10 @@ body.admin{background:#f4f4f6;color:#242426}
 .pay-opt-sbp{display:inline-flex;align-items:center;gap:5px;fill:currentColor}
 .pay-opt-sbp svg{display:block;width:auto;height:19px;fill:currentColor}
 .pay-opt-sbp svg:first-child{height:21px;stroke:#fff;stroke-width:1.6}
-.pay-opt-glyph{display:block;width:25px;height:25px;opacity:.75}
+/* Высота знака одна на всех — 21 px, как у знака СБП рядом. Ширину задаёт
+   viewBox: у карты она своя, у телефона своя, и подгонять их под общую значило
+   бы искажать (то же правило, что у логотипов перевозчиков на оформлении). */
+.pay-opt-glyph{display:block;height:21px;width:auto;fill:currentColor}
 .pay-opt .co-choice-text b{font-size:14.5px}
 .pay-opt .co-choice-text i{margin-top:1px}
 /* Галочка — украшение поверх настоящего радио: там, где :has() нет, её просто
@@ -2016,7 +2019,6 @@ body.admin{background:#f4f4f6;color:#242426}
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 8'%3E%3Cpath d='M1 4.2 3.6 6.8 9 1.2' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
 .pay-opt:has(input:checked){background:#fff;box-shadow:inset 0 0 0 1px var(--accent)}
 .pay-opt:has(input:checked) .pay-opt-tick{opacity:1}
-.pay-opt:has(input:checked) .pay-opt-glyph{opacity:1;color:var(--accent)}
 .pay-page .order-success{max-width:none}
 
 @media(max-width:900px){

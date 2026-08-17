@@ -1998,10 +1998,14 @@ test('у способа оплаты есть знак, а у СБП — нас�
 
   // Логотип СБП — тот же файл, что в подвале: два svg, знак и надпись.
   assert.match(html, /class="pay-opt-sbp">\s*<svg[\s\S]*?<\/svg>\s*<svg/);
-  // Остальным — волосяные глифы в общем стиле витрины (тот же вес штриха).
-  assert.match(html, /class="pay-opt-glyph"[^>]*stroke-width="1\.2"/);
+  // Остальные знаки — заливкой, а не волосяным контуром: рядом с плотным
+  // логотипом СБП тонкий глиф выглядел бледной мелочью.
+  assert.match(html, /class="pay-opt-glyph"[^>]*fill="currentColor"[^>]*fill-rule="evenodd"/);
+  assert.doesNotMatch(html, /class="pay-opt-glyph"[^>]*stroke/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Высота знака одна на всех, ширина — по пропорции из viewBox.
+  assert.match(css, /\.pay-opt-glyph\{[^}]*height:21px;width:auto/);
   // Знак СБП разделяет сегменты обводкой цветом фона. На карточке фон белый,
   // поэтому и обводка белая, а фон выбранной карточки обязан остаться белым —
   // иначе зазоры знака проступят полосками.
