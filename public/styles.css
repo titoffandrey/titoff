@@ -140,7 +140,10 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .buy-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .qty{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:980px;overflow:hidden}
 .qty-btn{width:40px;height:44px;background:#fff;border:none;font-size:20px;cursor:pointer;color:var(--text)}
-.qty-btn:hover{background:var(--bg2)}
+.qty-btn:hover:not(:disabled){background:var(--bg2)}
+/* «+» упёрлось в потолок одной покупки — та же немощь, что у распроданного
+   варианта: понятно без объяснений, что больше нельзя. */
+.qty-btn:disabled{color:#c7c7cc;cursor:not-allowed;background:#fff}
 .qty-input{width:40px;height:44px;text-align:center;border:none;font-size:16px;outline:none}
 /* Блок доверия под кнопкой покупки. Плашек нет намеренно: три серых
    прямоугольника спорили с кнопкой и съедали первый экран. Вместо них —
@@ -225,6 +228,7 @@ body.cart-open .cart-drawer{transform:translateX(0)}
 .cart-item-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
 .cart-qty{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:980px}
 .cart-qty button{width:28px;height:28px;border:none;background:none;cursor:pointer;font-size:16px}
+.cart-qty button:disabled{opacity:.3;cursor:not-allowed}
 .cart-qty span{min-width:22px;text-align:center;font-size:14px}
 .cart-remove{margin-left:auto;color:var(--muted);background:none;border:none;cursor:pointer;font-size:13px}
 .cart-remove:hover{color:#d70015}

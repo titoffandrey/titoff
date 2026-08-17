@@ -2362,6 +2362,48 @@ test('витрина уводит на свою страницу оплаты т
   assert.match(submit, /online = !!d\.pay;/);
 });
 
+test('сборка дороже потолка недоступна, а количество упирается в него же', () => {
+  const CROCO = require('../lib/crocopay');
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const base = { id: 'p1', name: 'Товар', category: 'К', inStock: true, images: [], colors: [], bands: [] };
+
+  // Товар, у которого даже стартовая сборка дороже потолка, купить нельзя —
+  // значит и на витрине он «Нет в наличии», а не кнопка, ведущая в отказ.
+  const pricey = Object.assign({}, base, { price: CROCO.MAX_TOTAL + 10, storages: [], options: [] });
+  assert.equal(render.sellable(pricey), false);
+  assert.match(render.productPage(ss, db, pricey, null, { origin: '' }), /Нет в наличии/);
+  const fine = Object.assign({}, base, { price: 100000, storages: [], options: [] });
+  assert.equal(render.sellable(fine), true);
+
+  // Конфигурация и значение группы, выводящие сборку за потолок, гаснут как
+  // распроданные — с той же подписью, чтобы покупателю не пришлось гадать.
+  const mac = Object.assign({}, base, {
+    price: 200000,
+    storages: [{ label: '1 ТБ', add: 0 }, { label: '8 ТБ', add: 100000 }],
+    options: [{ name: 'Чип', values: [{ label: 'M5', add: 0 }, { label: 'M5 Max', add: 90000 }] }]
+  });
+  const html = render.productPage(ss, db, mac, null, { origin: '' });
+  const btn = label => (html.match(new RegExp('<button[^>]*>(?:(?!</button>).)*' + label + '(?:(?!</button>).)*</button>', 's')) || [''])[0];
+  assert.doesNotMatch(btn('1 ТБ'), /disabled/, 'базовая конфигурация доступна');
+  assert.match(btn('8 ТБ'), /disabled/, '200 000 + 100 000 не влезает в потолок');
+  assert.match(btn('8 ТБ'), /нет в наличии/);
+  assert.doesNotMatch(btn('M5<'), /disabled/);
+  assert.match(btn('M5 Max'), /disabled/, '200 000 + 90 000 не влезает');
+
+  // Стартовая цена уходит на витрину: от неё скрипт считает потолок количества.
+  assert.match(html, /data-start-price="200000"/);
+
+  // Потолок количества считается от АКТУАЛЬНОЙ цены сборки, а не от базовой.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(js, /Math\.floor\(ORDER_MAX \/ unit\)/);
+  assert.match(js, /markLimits\(total\);\s*\n\s*refreshQtyCap\(\);/, 'после смены варианта пересчитываются и варианты, и количество');
+  // Корзина упирается в тот же потолок: «+» гаснет, а не даёт собрать заказ,
+  // который потом не оформить.
+  assert.match(js, /fits: function \(item\)/);
+  assert.match(js, /i\.qty >= Cart\.fits\(i\) \? ' disabled/);
+});
+
 test('заказ вне пределов одной покупки не оформляется вовсе', () => {
   const CROCO = require('../lib/crocopay');
   assert.equal(CROCO.MIN_TOTAL, 1000);
@@ -2379,15 +2421,17 @@ test('заказ вне пределов одной покупки не офор
   assert.match(CROCO.limitError(999), /Минимальная сумма заказа — 1\s000\s₽/);
 
   // Пределы уходят на витрину от сервера и НЕ зависят от того, включена ли
-  // онлайн-оплата: «один заказ — не больше 250 000 ₽» действует всегда.
+  // онлайн-оплата: «один заказ — не больше 250 000 ₽» действует всегда. Они
+  // нужны на каждой странице (корзина открывается везде), поэтому идут
+  // глобальными, как валюта, а не атрибутом страницы оформления.
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   for (const html of [render.checkoutPage(ss, { origin: '', payOnline: true }), render.checkoutPage(ss, { origin: '' })]) {
-    assert.match(html, /data-order-min="1000"/);
-    assert.match(html, /data-order-max="250000"/);
+    assert.match(html, /window\.__ORDER_MIN__=1000/);
+    assert.match(html, /window\.__ORDER_MAX__=250000/);
   }
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  assert.match(js, /dataset\.orderMin|d\.orderMin/, 'витрина читает пределы из атрибута, а не хранит свои');
+  assert.match(js, /window\.__ORDER_MAX__/, 'витрина читает пределы от сервера, а не хранит свои');
   assert.doesNotMatch(js, /250000/, 'числа пределов в скрипте не дублируются');
   // Кнопка гаснет, а причина стоит под ней: серая кнопка без объяснения
   // читается как поломка сайта.

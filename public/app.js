@@ -6,6 +6,12 @@
   var analyticsTimer = null;
   var CUR = window.__CURRENCY__ || '₽';
   var POS = window.__CURPOS__ || 'after';
+  // Пределы одной покупки — от сервера (см. «Пределы одной покупки» в CLAUDE.md).
+  // Своих чисел витрина не держит: они разъехались бы с серверными, а отказ
+  // всё равно за сервером. Из них берутся и потолок количества на странице
+  // товара, и «нет в наличии» у слишком дорогих сборок, и проверка на оформлении.
+  var ORDER_MIN = Number(window.__ORDER_MIN__) || 0;
+  var ORDER_MAX = Number(window.__ORDER_MAX__) || 0;
   var MAX_CART_LINES = 100;
   var lastCartFocus = null;
 
@@ -106,7 +112,8 @@
           + '<div class="co-item-controls">'
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Уменьшить количество">−</button>'
           + '<span>' + i.qty + '</span>'
-          + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Увеличить количество">+</button></div>'
+          + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Увеличить количество"'
+          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ — не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
           + '<button type="button" class="co-remove" data-act="rm" data-key="' + k + '" aria-label="Удалить из корзины" title="Удалить">'
           + '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3h6M4 6h12M6.5 6l.6 10a1.4 1.4 0 0 0 1.4 1.3h3a1.4 1.4 0 0 0 1.4-1.3l.6-10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
           + '</button>'
@@ -205,16 +212,11 @@
       : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ.';
   }
 
-  // Пределы одной покупки приходят от сервера атрибутами страницы — своих чисел
-  // витрина не держит, иначе они разъехались бы с серверными. Возвращает текст
-  // отказа или пустую строку. Заказ вне пределов не оформляется вовсе: кнопка
-  // гаснет, а сервер такую сумму всё равно не примет.
+  // Текст отказа по сумме заказа или пустая строка. Заказ вне пределов не
+  // оформляется вовсе: кнопка гаснет, а сервер такую сумму всё равно не примет.
   function totalLimitError(sum) {
-    var page = document.getElementById('checkout-page');
-    var d = (page && page.dataset) || {};
-    var min = Number(d.orderMin), max = Number(d.orderMax);
-    if (isFinite(max) && max > 0 && sum > max) return 'Один заказ — не более ' + money(max) + '. Разделите покупку на несколько заказов.';
-    if (isFinite(min) && min > 0 && sum > 0 && sum < min) return 'Минимальная сумма заказа — ' + money(min) + '.';
+    if (ORDER_MAX && sum > ORDER_MAX) return 'Один заказ — не более ' + money(ORDER_MAX) + '. Разделите покупку на несколько заказов.';
+    if (ORDER_MIN && sum > 0 && sum < ORDER_MIN) return 'Минимальная сумма заказа — ' + money(ORDER_MIN) + '.';
     return '';
   }
 
@@ -431,9 +433,17 @@
         band: opts.band || '', bandSize: opts.bandSize || '', options: opts.options || [], img: opts.img || '' });
       if (!next) return false;
       var ex = this.find(itemKey(next));
-      if (ex) { ex.qty = Math.min(99, ex.qty + next.qty); ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img; }
-      else if (this.items.length < MAX_CART_LINES) this.items.push(next);
-      else { toast('В корзине слишком много разных товаров'); return false; }
+      var want = next.qty;
+      if (ex) {
+        ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img;
+        want = Math.min(99, ex.qty + next.qty);
+        ex.qty = Math.min(want, this.fits(ex));
+        if (ex.qty < want) toast('Больше в один заказ не помещается: не более ' + money(ORDER_MAX));
+      } else if (this.items.length < MAX_CART_LINES) {
+        next.qty = Math.min(next.qty, this.fits(next));
+        if (next.qty < want) toast('Больше в один заказ не помещается: не более ' + money(ORDER_MAX));
+        this.items.push(next);
+      } else { toast('В корзине слишком много разных товаров'); return false; }
       this.save(); this.render();
       // Признак успеха нужен вызывающему: после добавления он уводит на
       // страницу корзины, а на отказе («слишком много товаров», битая позиция)
@@ -443,8 +453,24 @@
     setQty: function (key, qty) {
       var it = this.find(key);
       if (!it) return;
-      it.qty = Math.max(1, Math.min(99, Math.floor(Number(qty)) || 1));
+      var want = Math.max(1, Math.min(99, Math.floor(Number(qty)) || 1));
+      // Тот же потолок, что и на странице товара: больше того, что помещается в
+      // один заказ, набрать нельзя. Считается по остатку — от суммы уже набранных
+      // позиций, а не от одной этой.
+      it.qty = Math.min(want, this.fits(it));
       this.save(); this.render();
+    },
+    // Сколько штук этой позиции помещается в один заказ вместе с остальными.
+    // Считается по ключу позиции, поэтому работает и до того, как её положили в
+    // корзину, и после: сумма «всех, кроме этой» в обоих случаях одна.
+    fits: function (item) {
+      var price = Number(item.price) || 0;
+      if (!ORDER_MAX || price <= 0 || item.available === false) return 99;
+      var key = itemKey(item);
+      var others = this.items.reduce(function (a, i) {
+        return a + (i.available === false || itemKey(i) === key ? 0 : Number(i.price) * Number(i.qty));
+      }, 0);
+      return Math.max(1, Math.min(99, Math.floor((ORDER_MAX - others) / price)));
     },
     remove: function (key) { this.items = this.items.filter(function (i) { return itemKey(i) !== key; }); this.save(); this.render(); },
     clear: function () { this.items = []; this.save(); this.render(); },
@@ -506,7 +532,9 @@
           + (out ? '<div class="cart-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
           + '<div class="cart-item-price">' + money(i.price) + '</div>'
           + '<div class="cart-item-controls">'
-          + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button><span>' + i.qty + '</span><button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше">+</button></div>'
+          + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button><span>' + i.qty + '</span>'
+          + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше"'
+          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ — не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
           + '<button type="button" class="cart-remove" data-act="rm" data-key="' + k + '">Удалить</button>'
           + '</div></div></div>';
       }).join('');
@@ -915,15 +943,47 @@
       renderDots(); updateArrows();
     })();
 
-    // Количество на странице товара
+    // Количество на странице товара.
+    //
+    // Потолок считается от АКТУАЛЬНОЙ цены выбранной сборки, а не от базовой:
+    // у Mac разница между базой и старшей конфигурацией — миллион с лишним, и
+    // «3 штуки» для одной сборки означает «ни одной» для другой. Поэтому
+    // `refreshQtyCap()` зовётся и на каждое нажатие, и из `applyVariant()`.
+    //
+    // Кнопка «+» просто гаснет, как распроданный вариант: покупателю не нужно
+    // объяснение про кассу, ему нужно понять, что больше нельзя. Подсказка —
+    // в `title`, для тех, кто наведёт.
     var qtyBox = document.querySelector('[data-qty]');
+    function qtyCap() {
+      var add = document.querySelector('.add-to-cart[data-qty-source]');
+      var unit = Number(add && add.dataset.price) || 0;
+      if (!ORDER_MAX || unit <= 0) return 99;
+      return Math.max(1, Math.min(99, Math.floor(ORDER_MAX / unit)));
+    }
+    function refreshQtyCap() {
+      if (!qtyBox) return;
+      var input = qtyBox.querySelector('.qty-input');
+      var plus = qtyBox.querySelector('.qty-btn[data-delta="1"]');
+      if (!input) return;
+      var cap = qtyCap();
+      // Сборку могли переключить на более дорогую — тогда уже набранное
+      // количество опускаем до того, что помещается в один заказ.
+      var v = Math.max(1, Math.min(cap, parseInt(input.value, 10) || 1));
+      input.value = v;
+      if (plus) {
+        plus.disabled = v >= cap;
+        plus.title = plus.disabled ? 'Больше нельзя: один заказ — не более ' + money(ORDER_MAX) : '';
+      }
+    }
     if (qtyBox) {
       qtyBox.addEventListener('click', function (e) {
-        var b = e.target.closest('.qty-btn'); if (!b) return;
+        var b = e.target.closest('.qty-btn'); if (!b || b.disabled) return;
         var input = qtyBox.querySelector('.qty-input');
-        var v = Math.max(1, Math.min(99, (parseInt(input.value, 10) || 1) + parseInt(b.dataset.delta, 10)));
+        var v = Math.max(1, Math.min(qtyCap(), (parseInt(input.value, 10) || 1) + parseInt(b.dataset.delta, 10)));
         input.value = v;
+        refreshQtyCap();
       });
+      refreshQtyCap();
     }
 
     // Ввод рейтинга (звёзды): общая оценка + аспекты (доставка/сервис/цена)
@@ -956,6 +1016,54 @@
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0,
         options: [], optionsAdd: 0 };
+      // Значение, которое выводит сборку за потолок одной покупки, гасим ровно
+      // как распроданное: покупателю это одно и то же, а объяснять ему устройство
+      // кассы незачем. Свою пометку помним в `data-limit-out`, чтобы не «оживить»
+      // вариант, которого действительно нет в наличии.
+      var setLimitOut = function (btn, over) {
+        if (over === !!btn.dataset.limitOut) return;
+        if (over && btn.disabled) return;              // и так недоступна — не наша забота
+        if (over) {
+          btn.dataset.limitOut = '1';
+          btn.disabled = true;
+          btn.classList.add('out');
+          if (!btn.classList.contains('swatch') && !btn.querySelector('.opt-note')) {
+            var note = document.createElement('span');
+            note.className = 'opt-note';
+            note.textContent = 'нет в наличии';
+            btn.appendChild(note);
+          }
+        } else {
+          delete btn.dataset.limitOut;
+          btn.disabled = false;
+          btn.classList.remove('out');
+          var old = btn.querySelector('.opt-note');
+          if (old && old.parentNode) old.parentNode.removeChild(old);
+        }
+      };
+      // Та же подстановка, что делает сервер при первом рендере: «убрать доплату
+      // текущего значения группы, прибавить доплату кандидата». Считается от
+      // актуальной цены сборки, поэтому дорогой чип гасит старшую память сам.
+      var markLimits = function (total) {
+        if (!ORDER_MAX) return;
+        var over = function (candidate) { return candidate > ORDER_MAX; };
+        document.querySelectorAll('#storages .storage-opt').forEach(function (b) {
+          setLimitOut(b, over(total - vstate.storageAdd + (Number(b.dataset.add) || 0)));
+        });
+        document.querySelectorAll('#options .option-group').forEach(function (g) {
+          var on = g.querySelector('.option-opt.active');
+          var cur = Number(on && on.dataset.add) || 0;
+          g.querySelectorAll('.option-opt').forEach(function (b) {
+            setLimitOut(b, over(total - cur + (Number(b.dataset.add) || 0)));
+          });
+        });
+        document.querySelectorAll('#bands .band-colors .swatch').forEach(function (b) {
+          setLimitOut(b, over(total - vstate.bandAdd + (Number(b.dataset.add) || 0)));
+        });
+        document.querySelectorAll('#bands .band-sizes .storage-opt').forEach(function (b) {
+          setLimitOut(b, over(total - vstate.bandSizeAdd + (Number(b.dataset.add) || 0)));
+        });
+      };
       var onCaseColorChange = null;   // задаётся блоком ремешков, если он есть
       var onStorageChange = null;     // задаётся блоком доп. характеристик, если он есть
       var pickStorage = null;         // задаётся блоком конфигураций ниже
@@ -993,6 +1101,10 @@
         addBtn.dataset.band = vstate.band;
         addBtn.dataset.bandSize = vstate.bandSize;
         addBtn.dataset.options = JSON.stringify(vstate.options);
+        // Что теперь не влезает в один заказ: сначала гасим варианты, потом
+        // пересчитываем потолок количества — он считается от новой цены сборки.
+        markLimits(total);
+        refreshQtyCap();
         syncCartButtons(); // подпись кнопки зависит от выбранного варианта
       }
 
