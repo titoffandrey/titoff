@@ -1586,10 +1586,13 @@ body.admin{background:#f4f4f6;color:#242426}
   .footer-pay{justify-content:center;gap:8px 14px}
   .footer-meta{justify-items:center;gap:6px}
   .foot-legal{line-height:1.5;text-wrap:balance}
-  /* Обе правовые ссылки — в одной строке. Подписи здесь свои, не владельца,
-     поэтому длина известна заранее: 31.3em на две ссылки, 46px — поля
-     контейнера плюс зазор между ними. */
-  .footer-links{display:flex;flex-wrap:nowrap;justify-content:center;gap:14px;font-size:min(12px,calc((100vw - 46px)/32.9))}
+  /* Четыре ссылки — сеткой 2×2, а не переносом по месту: у flex-wrap раскладка
+     зависит от кегля, и «Политика конфиденциальности» то поднималась в первую
+     строку, то падала во вторую. Ширину задаёт самая длинная пара — те же две
+     ссылки про данные, что и раньше (31.3em плюс зазор), поэтому константа не
+     меняется: 46px — поля контейнера плюс зазор между колонками. Короткие
+     ссылки центруются под длинными. */
+  .footer-links{display:grid;grid-template-columns:repeat(2,auto);justify-content:center;justify-items:center;gap:10px 14px;font-size:min(12px,calc((100vw - 46px)/32.9))}
   .footer-links a{white-space:nowrap}
 
   .legal-page{padding-inline:16px}
@@ -1613,6 +1616,8 @@ body.admin{background:#f4f4f6;color:#242426}
   .cookies-table td:nth-child(2)::before{content:"Тип"}
   .cookies-table td:nth-child(3)::before{content:"Назначение"}
   .cookies-table td:nth-child(4)::before{content:"Срок"}
+  .warranty-table td:nth-child(1)::before{content:"Срок"}
+  .warranty-table td:nth-child(2)::before{content:"На что"}
   .legal-actions{display:grid}
   .legal-actions .btn{width:100%;white-space:normal;text-align:center}
 
@@ -1713,11 +1718,11 @@ body.admin{background:#f4f4f6;color:#242426}
   .footer-links{font-size:min(12px,calc((100vw - 40px)/32.9))}
 }
 
-/* Уже 340px обе правовые ссылки в строке потребовали бы кегля мельче 9px —
+/* Уже 340px пара правовых ссылок в строке потребовала бы кегля мельче 9px —
    там они лучше вернутся в столбик, чем останутся нечитаемыми. Правило идёт
    после блока 420px: побеждает последнее подошедшее. */
 @media(max-width:340px){
-  .footer-links{flex-wrap:wrap;gap:10px 18px;font-size:11px}
+  .footer-links{grid-template-columns:minmax(0,1fr);gap:10px;font-size:11px}
 }
 
 @media(min-width:640px) and (max-width:800px){

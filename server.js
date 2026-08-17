@@ -367,7 +367,7 @@ function metricPublicPath(site, rawPath) {
   // /checkout сервер записывал его посещение как «предварительное», клиент такой
   // адрес не подтверждал, и живой посетитель, зашедший сразу на оформление,
   // через две минуты уезжал в «неподтверждённые автоматические запросы».
-  if (['/', '/checkout', '/privacy', '/personal-data-consent', '/personal-data-publication-consent'].includes(pathname)) return pathname;
+  if (['/', '/checkout', '/privacy', '/personal-data-consent', '/personal-data-publication-consent', '/warranty', '/returns'].includes(pathname)) return pathname;
   const match = pathname.match(/^\/product\/([^/]+)$/);
   return match && T.siteProductView(site, match[1]) ? '/product/' + match[1] : '';
 }
@@ -474,6 +474,18 @@ app.get('/personal-data-publication-consent', (req, res) => {
   res.send(R.publicationConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
 });
 
+app.get('/warranty', (req, res) => {
+  const site = siteOf(req);
+  trackPage(req, res, site, '/warranty');
+  res.send(R.warrantyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
+app.get('/returns', (req, res) => {
+  const site = siteOf(req);
+  trackPage(req, res, site, '/returns');
+  res.send(R.returnsPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+});
+
 // Собственная метрика запускается автоматически при первом открытии страницы.
 app.post('/api/analytics/start', (req, res) => {
   if (rateLimited(req, 'analytics-start', 120, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
@@ -543,7 +555,9 @@ app.get('/sitemap.xml', (req, res) => {
     '<url><loc>' + R.esc(origin) + '/</loc><changefreq>daily</changefreq></url>',
     '<url><loc>' + R.esc(origin) + '/privacy</loc></url>',
     '<url><loc>' + R.esc(origin) + '/personal-data-consent</loc></url>',
-    '<url><loc>' + R.esc(origin) + '/personal-data-publication-consent</loc></url>'
+    '<url><loc>' + R.esc(origin) + '/personal-data-publication-consent</loc></url>',
+    '<url><loc>' + R.esc(origin) + '/warranty</loc></url>',
+    '<url><loc>' + R.esc(origin) + '/returns</loc></url>'
   ];
   for (const category of T.siteCategories(site)) {
     urls.push('<url><loc>' + R.esc(origin) + '/?category=' + encodeURIComponent(category) + '</loc><changefreq>weekly</changefreq></url>');

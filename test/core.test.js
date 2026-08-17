@@ -896,12 +896,53 @@ test('правовые ссылки в подвале тоже помещают�
   const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
   const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
-  assert.match(mobile, /\.footer-links\{[^}]*flex-wrap:nowrap[^}]*font-size:min\(12px,calc\(\(100vw - 46px\)\/32\.9\)\)/);
+  assert.match(mobile, /\.footer-links\{[^}]*grid-template-columns:repeat\(2,auto\)[^}]*font-size:min\(12px,calc\(\(100vw - 46px\)\/32\.9\)\)/);
   assert.match(mobile, /\.footer-links a\{white-space:nowrap\}/);
   // Длина строки вписана в CSS числом, поэтому подписи менять нельзя, не
-  // пересчитав константу 32.9 (это 31.3em двух ссылок плюс запас).
+  // пересчитав константу 32.9 (это 31.3em самой длинной пары плюс запас).
+  // В сетке 2×2 такая пара — вторая строка, ссылки про персональные данные:
+  // «Гарантия» и «Возврат и обмен» короче и ширину колонок не задают.
+  assert.match(html, />Гарантия</);
+  assert.match(html, />Возврат и обмен</);
   assert.match(html, />Политика конфиденциальности</);
   assert.match(html, />Согласие на обработку данных</);
+});
+
+test('гарантия и возврат — две отдельные страницы со своими условиями', () => {
+  const settings = {
+    storeName: 'a:Market', tagline: '', accentColor: '#ef3340', currency: '₽', currencyPosition: 'after',
+    legalOperator: 'ИП <Тест>', legalDetails: 'ИНН 123', legalAddress: 'Москва', privacyEmail: 'privacy@example.test'
+  };
+  const warranty = render.warrantyPage(settings, { origin: 'https://example.test' });
+  const returns = render.returnsPage(settings, { origin: 'https://example.test' });
+
+  assert.match(warranty, /<link rel="canonical" href="https:\/\/example\.test\/warranty"/);
+  assert.match(returns, /<link rel="canonical" href="https:\/\/example\.test\/returns"/);
+  assert.match(warranty, /1 год с момента покупки/);
+  assert.match(warranty, /не превышает 45 дней/);
+  assert.match(returns, /статьей? 25|статье 25/);
+  assert.match(returns, /от 1 до 30 банковских дней/);
+  assert.match(returns, /Публичная оферта/);
+  // Реквизиты продавца экранируются так же, как на странице политики.
+  assert.match(warranty, /ИП &lt;Тест&gt;/);
+  assert.match(returns, /privacy@example\.test/);
+
+  // Страницы ссылаются друг на друга: покупатель приходит с одним вопросом,
+  // а попадает нередко не на тот документ.
+  assert.match(warranty, /href="\/returns"/);
+  assert.match(returns, /href="\/warranty"/);
+
+  // Перевозчики берутся из закрытого списка доставки, а не переписаны руками.
+  for (const m of require('../lib/delivery').METHODS) {
+    assert.ok(warranty.includes(m.name), 'гарантия: нет перевозчика ' + m.name);
+    assert.ok(returns.includes(m.name), 'возврат: нет перевозчика ' + m.name);
+  }
+
+  // Мобильные подписи колонок таблицы сроков — как у остальных legal-таблиц:
+  // на телефоне шапка скрыта, и без них строка «1 месяц» осталась бы без имени.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.warranty-table td:nth-child\(1\)::before\{content:"Срок"\}/);
+  assert.match(css, /\.warranty-table td:nth-child\(2\)::before/);
 });
 
 test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
