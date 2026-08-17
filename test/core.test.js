@@ -1569,7 +1569,7 @@ test('списки заказов в панелях листаются, а не 
   // поток около 100 мс — всё это время витрина не отвечала никому.
   const per = render.ADMIN_PER_PAGE;
   const many = Array.from({ length: per * 3 + 7 }, (_, i) => ({
-    id: 'o' + i, number: 'ORD-' + String(i).padStart(4, '0'), siteId: 's', siteName: 'Магазин',
+    id: 'o' + i, number: String(500000 + i), siteId: 's', siteName: 'Магазин',
     items: [{ id: 'p', name: 'Товар', price: 100, qty: 1 }], total: 100,
     customerName: 'Клиент ' + i, contact: '@u' + i, status: 'new', createdAt: 2000 - i
   }));
@@ -1595,8 +1595,8 @@ test('списки заказов в панелях листаются, а не 
   assert.equal(rows(siteViews.ordersList(db, site, null, -5)), per);
 
   // Порядок файла сохраняется: свежие заявки остаются на первой странице.
-  assert.ok(ownerFirst.indexOf('ORD-0000') > -1, 'самый свежий заказ на первой странице');
-  assert.equal(ownerFirst.indexOf('ORD-0150'), -1, 'заказы других страниц сюда не попадают');
+  assert.ok(ownerFirst.indexOf('№500000') > -1, 'самый свежий заказ на первой странице');
+  assert.equal(ownerFirst.indexOf('№500150'), -1, 'заказы других страниц сюда не попадают');
 
   // Действие над строкой возвращает на ту же страницу, а не в начало списка.
   const page3 = ownerViews.ordersList(db, null, 3);
@@ -1955,6 +1955,52 @@ test('сырое тело JSON сохраняется для подписи, н�
   assert.equal(await send(big), undefined);
 });
 
+test('номера заказов случайные, не маленькие и не повторяются', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-num-'));
+  const fresh = freshDb(dir);
+  const numbers = [];
+  for (let i = 0; i < 40; i++) {
+    const o = fresh.createOrder({ items: [], total: 1, contact: 'tg' });
+    numbers.push(o.number);
+  }
+  for (const n of numbers) {
+    // Шестизначный: по «Заказ №7» покупатель прочитал бы оборот магазина.
+    assert.match(n, /^\d{6,7}$/, 'номер не похож на случайный: ' + n);
+    assert.ok(Number(n) >= 100000, 'номер выглядит маленьким: ' + n);
+  }
+  // По номеру менеджер находит заявку, поэтому повторов быть не должно.
+  assert.equal(new Set(numbers).size, numbers.length, 'номера повторились');
+  // Именно случайные, а не подряд: сорок последовательных значений — это счётчик.
+  const sorted = numbers.map(Number).slice().sort((a, b) => a - b);
+  const consecutive = sorted.every((v, i) => i === 0 || v === sorted[i - 1] + 1);
+  assert.equal(consecutive, false, 'номера выдаются подряд');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('номер заказа везде пишется как «Заказ №…»', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.equal(render.orderNo('482913'), '№482913');
+  // Заявки до перехода на случайные номера остаются с префиксом ORD-, и
+  // «Заказ №ORD-0001» читалось бы как опечатка. Сами номера не переписываем.
+  assert.equal(render.orderNo('ORD-0001'), '№0001');
+  assert.equal(render.orderNo(''), '—');
+  assert.equal(render.orderNo(null), '—');
+
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const order = { id: 'o1', number: '482913', total: 71990, items: [], contact: 'tg', payment: { status: 'paid' } };
+  const paid = render.payPage(ss, order, { origin: '' });
+  assert.match(paid, /<span>Заказ<\/span><strong>№482913<\/strong>/);
+  assert.doesNotMatch(paid, /Номер заказа/, 'подпись «Номер заказа» рядом с «№» читалась бы дважды');
+
+  // Панели и витрина берут ту же функцию, иначе где-то останется голое число.
+  const list = [{ id: 'o1', number: '482913', createdAt: Date.now(), status: 'new', contact: 'tg', total: 100, items: [] }];
+  const db = { getOrders: () => list, ordersForSite: () => list, getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0 };
+  assert.match(ownerViews.ordersList(db, null, 1), /<b>№482913<\/b>/);
+  assert.match(siteViews.ordersList(db, dbCore.defaultSite(), null, 1), /<b>№482913<\/b>/);
+  assert.match(js, /function orderNo\(number\)/);
+  assert.doesNotMatch(js, /<span>Номер заказа<\/span>/);
+});
+
 test('оплата живёт отдельным полем и закрывается один раз', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-pay-'));
   const fresh = freshDb(dir);
@@ -2162,7 +2208,7 @@ test('имя с фамилией собираются в customerName, а ста
 test('страница оплаты показывает реквизиты, пока счёт действует', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const pay = require('../lib/pay-methods');
-  const order = { id: 'ord1', number: 'ORD-0007', total: 71990, items: [], contact: 'tg' };
+  const order = { id: 'ord1', number: '482913', total: 71990, items: [], contact: 'tg' };
   const methods = pay.allowed(['SBP', 'TO_CARD']);
   const live = {
     status: 'pending', method: 'TO_CARD', invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc',
@@ -2206,10 +2252,10 @@ test('страница оплаты показывает реквизиты, п�
 
 test('оплаченным заказ на странице называется только по ответу кассы', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const order = { id: 'ord1', number: 'ORD-0007', total: 71990, items: [], contact: 'tg' };
+  const order = { id: 'ord1', number: '482913', total: 71990, items: [], contact: 'tg' };
   const paid = render.payPage(ss, Object.assign({}, order, { payment: { status: 'paid' } }), { origin: '' });
   assert.match(paid, /Платёж получен/);
-  assert.match(paid, /ORD-0007/);
+  assert.match(paid, /№482913/);
   assert.doesNotMatch(paid, /name="pay-method"/, 'оплаченному заказу счёт больше не выставляем');
 
   // Расхождение по сумме успехом не выглядит: его смотрит человек.

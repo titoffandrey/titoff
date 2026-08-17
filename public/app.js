@@ -500,6 +500,13 @@
     });
   }
 
+  // Номер заказа для показа: «№482913». Такой же, как orderNo() в lib/render.js —
+  // покупатель видит один и тот же вид и на витрине, и на странице оплаты.
+  function orderNo(number) {
+    var digits = String(number == null ? '' : number).replace(/^ORD-?/i, '').trim();
+    return digits ? '№' + digits : '—';
+  }
+
   // Кнопка «в корзину» как переключатель: показывает статус в зависимости от корзины.
   function setBtnState(btn, inCart) {
     if (!btn.dataset.label) btn.dataset.label = btn.textContent.trim();
@@ -1413,7 +1420,7 @@
       + '<p class="order-success-eyebrow">Заявка получена</p>'
       + '<h3>Спасибо за заказ!</h3>'
       + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
-      + '<div class="order-success-number"><span>Номер заказа</span><strong>' + escapeHtml(number || '—') + '</strong></div>'
+      + '<div class="order-success-number"><span>Заказ</span><strong>' + escapeHtml(orderNo(number)) + '</strong></div>'
       + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
       + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
       + '</section>';
@@ -1461,7 +1468,7 @@
       .then(function (d) {
         if (d.ok) {
           Cart.clear();
-          var number = escapeHtml(d.number || '—');
+          var number = d.number || '';
           var page = document.getElementById('checkout-page');
           if (page) {                       // страница оформления: показываем результат на всю ширину
             // Оплата — отдельный шаг поверх записанной заявки, поэтому уводим на
@@ -1481,7 +1488,7 @@
               + '<p class="order-success-eyebrow">Заявка получена</p>'
               + '<h3>Спасибо за заказ!</h3>'
               + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
-              + '<div class="order-success-number"><span>Номер заказа</span><strong>' + number + '</strong></div>'
+              + '<div class="order-success-number"><span>Заказ</span><strong>' + escapeHtml(orderNo(number)) + '</strong></div>'
               + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
               + '</section>';
             var success = document.getElementById('order-success');

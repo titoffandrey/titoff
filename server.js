@@ -778,7 +778,7 @@ app.post('/api/order', async (req, res) => {
   const ss = T.siteSettings(site);
   const notify = saved => {
     const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
-    const msg = `🛒 <b>Новый заказ ${saved.number}</b>\n🏬 ${tgEsc(site.storeName)}\n`
+    const msg = `🛒 <b>Новый заказ ${tgEsc(R.orderNo(saved.number))}</b>\n🏬 ${tgEsc(site.storeName)}\n`
       + `👤 Получатель: ${tgEsc(saved.customerName) || '—'}\n📞 Контакт: ${tgEsc(saved.contact)}\n`
       + (saved.delivery ? `🚚 Доставка: ${tgEsc(DELIVERY.nameOf(saved.delivery))}\n` : '')
       + (saved.address ? `📍 Адрес: ${tgEsc(saved.address)}\n` : '')
@@ -836,7 +836,7 @@ function notifyPayment(order, state, note) {
   const ss = T.siteSettings(site);
   const head = { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
   if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
-  const msg = `${head} ${tgEsc(order.number)}</b>\n🏬 ${tgEsc(order.siteName || site.storeName)}\n`
+  const msg = `${head} ${tgEsc(R.orderNo(order.number))}</b>\n🏬 ${tgEsc(order.siteName || site.storeName)}\n`
     + `👤 ${tgEsc(order.customerName) || '—'}\n📞 ${tgEsc(order.contact)}\n`
     + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
     + (note ? `❗ ${tgEsc(note)}\n` : '');
