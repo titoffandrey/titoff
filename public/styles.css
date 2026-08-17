@@ -1340,9 +1340,39 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-table th{padding:10px 11px;border-color:var(--border-soft);font-size:11px;font-weight:700}
 .a-table td{padding:14px 11px;border-color:var(--border-soft)}
 .a-table tbody tr:last-child td{border-bottom:0}
-.order-client-meta{display:grid;gap:3px;margin-top:8px;color:#737378;font-size:11px;line-height:1.35}
-.order-client-meta span{overflow-wrap:anywhere}
 .a-table tr:target td{background:#fff8df;transition:background .25s}
+
+/* ===== Список заказов =====
+   Строка заказа несёт много мелочей: имя, контакт, доставку, адрес, состав,
+   город, устройство, IP. Раскиданные по отдельным строкам, они растягивали
+   каждую заявку на треть экрана, и десяток заказов уже не помещался целиком.
+   Здесь всё сжато: пары «имя · контакт» и «доставка · адрес» в одну строку,
+   а технические поля свёрнуты в <details>. */
+.a-orders td{padding:11px;vertical-align:top;line-height:1.4}
+.a-orders .o-num{white-space:nowrap}
+.a-orders .o-num b{display:block;font-size:14.5px}
+.a-orders .o-num .small{display:block;font-size:11.5px;line-height:1.5}
+.a-orders .o-client{min-width:210px;max-width:320px}
+.a-orders .o-who{font-weight:600;overflow-wrap:anywhere}
+/* Доставка и адрес — приглушённые: в строке они подсказка, а не заголовок. */
+.a-orders .o-line{margin-top:3px;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+.a-orders .o-items{max-width:300px}
+.a-orders .o-items-list{font-size:12.5px;color:#48484a}
+.a-orders .o-items-list div+div{margin-top:4px}
+.a-orders .o-sum{white-space:nowrap;text-align:right}
+.a-orders .o-sum b{font-size:14.5px;font-variant-numeric:tabular-nums}
+.a-orders .o-sum .pay-tag{margin-left:auto}
+.a-orders .o-act{width:1%;text-align:right}
+/* Технические поля нужны редко — при разборе спорного заказа. Свёрнуты
+   средствами браузера: ни строчки скрипта, и в закрытом виде это одна строка
+   вместо четырёх. */
+.o-tech{margin-top:4px}
+.o-tech summary{color:#8e8e93;font-size:11.5px;cursor:pointer;list-style:none;width:fit-content}
+.o-tech summary::-webkit-details-marker{display:none}
+.o-tech summary::before{content:"▸ ";display:inline-block;transition:transform .12s}
+.o-tech[open] summary::before{content:"▾ "}
+.o-tech summary:hover{color:var(--text)}
+.o-tech div{color:#737378;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
 
 /* Собственная метрика */
 .metric-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:18px}

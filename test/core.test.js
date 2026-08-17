@@ -1535,7 +1535,7 @@ test('админка сайта отдаёт закрытое правило :ro
 
 function fakeSiteDb() {
   return {
-    ordersForSite: () => [], getProducts: () => [], getReviews: () => [],
+    ordersForSite: () => [], visibleOrders: () => [], getProducts: () => [], getReviews: () => [],
     getSites: () => [], ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 0
   };
 }
@@ -1574,7 +1574,7 @@ test('списки заказов в панелях листаются, а не 
     customerName: 'Клиент ' + i, contact: '@u' + i, status: 'new', createdAt: 2000 - i
   }));
   const db = {
-    getOrders: () => many, ordersForSite: () => many, getSites: () => [],
+    getOrders: () => many, visibleOrders: () => many, ordersForSite: () => many, getSites: () => [],
     getProducts: () => [], pendingReviewCount: () => 0
   };
   const site = { id: 's', storeName: 'Магазин', accentColor: '#000', currency: '₽', hosts: [] };
@@ -1955,6 +1955,61 @@ test('сырое тело JSON сохраняется для подписи, н�
   assert.equal(await send(big), undefined);
 });
 
+test('черновик не считается заказом, пока не выбран способ оплаты', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-draft-'));
+  const fresh = freshDb(dir);
+  const real = fresh.createOrder({ items: [], total: 100, contact: 'tg' });
+  const draft = fresh.createOrder({ draft: true, items: [], total: 200, contact: 'tg' });
+
+  // В панелях черновика нет: покупатель мог просто заглянуть на страницу оплаты.
+  assert.deepEqual(fresh.visibleOrders().map(o => o.id), [real.id]);
+  assert.equal(fresh.ordersForSite(null).some(o => o.id === draft.id), false);
+  // Но сам он записан: на него вешается счёт, и по id его надо находить.
+  assert.equal(fresh.getOrder(draft.id).id, draft.id);
+  assert.equal(fresh.getOrders().length, 2, 'внутренний список отдаёт всё — иначе запись стёрла бы черновики');
+
+  // Способ выбран — черновик стал заказом, и ровно один раз: уведомление
+  // менеджеру и отметка в метрике идут по этому признаку.
+  const first = fresh.promoteOrder(draft.id);
+  assert.equal(first.promoted, true);
+  assert.equal(fresh.promoteOrder(draft.id).promoted, false, 'второй раз менеджера не дёргаем');
+  assert.equal(fresh.visibleOrders().length, 2);
+  assert.equal('draft' in fresh.getOrder(draft.id), false, 'признак снимается, а не остаётся false');
+
+  // Брошенные черновики не копятся: их больше, чем купивших.
+  const stale = fresh.createOrder({ draft: true, items: [], total: 300, contact: 'tg' });
+  const file = path.join(dir, 'orders.json');
+  const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+  list.find(o => o.id === stale.id).createdAt = Date.now() - 25 * 60 * 60 * 1000;
+  fs.writeFileSync(file, JSON.stringify(list));
+  fresh.createOrder({ items: [], total: 400, contact: 'tg' });
+  assert.equal(fresh.getOrder(stale.id), null, 'сутки — и брошенный черновик убран');
+  assert.equal(fresh.getOrder(real.id).id, real.id, 'настоящие заказы уборка не трогает');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('оформление с онлайн-оплатой не чистит корзину до выбора способа', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const pay = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Корзина остаётся до выбора способа: иначе ушедший со страницы оплаты
+  // покупатель теряет и заказ, и товары разом.
+  assert.match(js, /if \(!online\) Cart\.clear\(\)/);
+  assert.match(pay, /d\.placed[\s\S]{0,80}Cart\.clear\(\)/);
+
+  // Заказ становится настоящим при выборе способа — ДО обращения к кассе:
+  // отказ кассы (у неё кончились свободные реквизиты) не должен прятать от
+  // менеджера готового покупателя.
+  const start = source.slice(source.indexOf("app.post('/api/pay/crocopay/start'"), source.indexOf("app.get('/api/pay/crocopay/status'"));
+  assert.ok(start.indexOf('db.promoteOrder(id)') < start.indexOf('CROCO.createInvoice'));
+  assert.match(start, /grown\.promoted[\s\S]{0,160}notifyNewOrder\(grown\.order\)/);
+  // Черновик — только когда есть что выбирать. Без онлайн-оплаты заявка
+  // настоящая сразу, как и была.
+  assert.match(source, /const draft = CROCO\.enabled\(settings\(\)\)/);
+  assert.match(source, /if \(!draft\) metrics\.markOrder/);
+});
+
 test('номера заказов случайные, не маленькие и не повторяются', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-num-'));
   const fresh = freshDb(dir);
@@ -1994,7 +2049,7 @@ test('номер заказа везде пишется как «Заказ №�
 
   // Панели и витрина берут ту же функцию, иначе где-то останется голое число.
   const list = [{ id: 'o1', number: '482913', createdAt: Date.now(), status: 'new', contact: 'tg', total: 100, items: [] }];
-  const db = { getOrders: () => list, ordersForSite: () => list, getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0 };
+  const db = { getOrders: () => list, visibleOrders: () => list, ordersForSite: () => list, getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0 };
   assert.match(ownerViews.ordersList(db, null, 1), /<b>№482913<\/b>/);
   assert.match(siteViews.ordersList(db, dbCore.defaultSite(), null, 1), /<b>№482913<\/b>/);
   assert.match(js, /function orderNo\(number\)/);
@@ -2196,7 +2251,7 @@ test('имя с фамилией собираются в customerName, а ста
 
   // В панелях видно способ доставки, а комментарий старых заявок — по-прежнему.
   const list = [order, { id: 'o9', number: 'ORD-9', createdAt: Date.now(), status: 'new', contact: 'tg', total: 1, items: [], comment: 'позвоните вечером' }];
-  const db = { getOrders: () => list, ordersForSite: () => list, getSites: () => [], pendingReviewCount: () => 0 };
+  const db = { getOrders: () => list, visibleOrders: () => list, ordersForSite: () => list, getSites: () => [], pendingReviewCount: () => 0 };
   for (const html of [ownerViews.ordersList(db, null, 1), siteViews.ordersList(db, dbCore.defaultSite(), null, 1)]) {
     assert.match(html, /СДЭК/);
     assert.match(html, /Иван Петров/);
@@ -2294,15 +2349,16 @@ test('состояние оплаты видно в обеих панелях и
   assert.equal(render.paymentBadge({ payment: { status: 'выдумка' } }), '');
 
   const db = {
-    getOrders: () => [paid, bad], ordersForSite: () => [paid, bad], getSites: () => [], pendingReviewCount: () => 0
+    getOrders: () => [paid, bad], visibleOrders: () => [paid, bad], ordersForSite: () => [paid, bad], getSites: () => [], pendingReviewCount: () => 0
   };
   const ownerHtml = ownerViews.ordersList(db, null, 1);
   const siteHtml = siteViews.ordersList(db, dbCore.defaultSite(), null, 1);
   for (const html of [ownerHtml, siteHtml]) {
     assert.match(html, /pay-ok/);
     assert.match(html, /pay-warn/);
-    // Подпись оплаты — рядом с суммой, а селект статуса остаётся своим.
-    assert.match(html, /option value="new"/);
+    // Ручной статус заказа с панелей убран: рядом с настоящим состоянием оплаты
+    // от кассы он только путал — заказ бывает и «новым», и уже оплаченным.
+    assert.doesNotMatch(html, /option value="new"|name="status"/);
   }
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.pay-tag\.pay-ok/);

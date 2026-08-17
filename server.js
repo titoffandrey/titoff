@@ -685,6 +685,26 @@ app.post('/api/address-suggest', async (req, res) => {
 });
 
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
+// Уведомление менеджеру о новом заказе. Общее для двух путей: заявки без
+// онлайн-оплаты (уходит сразу) и черновика, который стал заказом после выбора
+// способа оплаты. Собирается из самого заказа, чтобы не тащить за собой
+// замыкание маршрута.
+function notifyNewOrder(order) {
+  const site = db.getSite(order.siteId) || db.defaultSite();
+  const ss = T.siteSettings(site);
+  const lines = (order.items || []).map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
+  const msg = `🛒 <b>Новый заказ ${tgEsc(R.orderNo(order.number))}</b>\n🏬 ${tgEsc(order.siteName || site.storeName)}\n`
+    + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
+    + (order.delivery ? `🚚 Доставка: ${tgEsc(DELIVERY.nameOf(order.delivery))}\n` : '')
+    + (order.address ? `📍 Адрес: ${tgEsc(order.address)}\n` : '')
+    + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
+    + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
+    + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
+    + (order.comment ? `💬 ${tgEsc(order.comment)}\n` : '')
+    + `\n${lines}\n\n<b>Итого: ${R.money(order.total, ss)}</b>`;
+  sendTelegram(ss, msg).catch(() => {});
+}
+
 app.post('/api/order', async (req, res) => {
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const site = siteOf(req);
@@ -766,7 +786,14 @@ app.post('/api/order', async (req, res) => {
     for (const key of ['city', 'region', 'country', 'isp']) if (metricVisitor[key]) client[key] = metricVisitor[key];
   }
 
+  // С онлайн-оплатой заказ сначала черновик: покупатель ещё не выбрал способ и
+  // мог просто заглянуть на страницу оплаты. Настоящим он станет, когда способ
+  // будет выбран (`promoteOrder` в /api/pay/crocopay/start) — тогда же уйдут
+  // уведомление менеджеру и отметка в метрике, а корзина очистится.
+  // Без онлайн-оплаты выбирать нечего: заявка сразу настоящая, как и раньше.
+  const draft = CROCO.enabled(settings());
   const order = db.createOrder({
+    draft,
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
     items, total, firstName, lastName, contact, address, delivery, comment: req.body.comment,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
@@ -774,21 +801,7 @@ app.post('/api/order', async (req, res) => {
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
     clientSource: (metricVisitor && metricVisitor.source) || client.source
   });
-  metrics.markOrder(visitorId, order);
-  const ss = T.siteSettings(site);
-  const notify = saved => {
-    const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
-    const msg = `🛒 <b>Новый заказ ${tgEsc(R.orderNo(saved.number))}</b>\n🏬 ${tgEsc(site.storeName)}\n`
-      + `👤 Получатель: ${tgEsc(saved.customerName) || '—'}\n📞 Контакт: ${tgEsc(saved.contact)}\n`
-      + (saved.delivery ? `🚚 Доставка: ${tgEsc(DELIVERY.nameOf(saved.delivery))}\n` : '')
-      + (saved.address ? `📍 Адрес: ${tgEsc(saved.address)}\n` : '')
-      + `🌍 Город: ${tgEsc([saved.clientCity, saved.clientRegion, saved.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
-      + `💻 Устройство: ${tgEsc([saved.clientModel || saved.clientDevice, saved.clientOs, saved.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
-      + `🌐 IP: ${tgEsc(saved.clientIp) || 'не определён'}\n`
-      + (saved.comment ? `💬 ${tgEsc(saved.comment)}\n` : '')
-      + `\n${lines}\n\n<b>Итого: ${R.money(total, ss)}</b>`;
-    sendTelegram(ss, msg).catch(() => {});
-  };
+  if (!draft) metrics.markOrder(visitorId, order);
   // Медленные геобаза и Telegram больше не держат покупателя на «Отправляем».
   // Заказ уже записан; технические поля безопасно обогащаются в фоне.
   metrics.describeRequest(req, requestIp, proxyTrusted).then(enriched => {
@@ -798,8 +811,8 @@ app.post('/api/order', async (req, res) => {
       clientModel: enriched.model, clientOs: enriched.os, clientBrowser: enriched.browser,
       clientSource: (metricVisitor && metricVisitor.source) || enriched.source
     });
-    notify(saved || order);
-  }).catch(() => notify(order));
+    if (!draft) notifyNewOrder(saved || order);
+  }).catch(() => { if (!draft) notifyNewOrder(order); });
   // id заказа нужен следующему шагу — онлайн-оплате. Он же кладётся в подписанную
   // cookie-сессию покупателя (как id своего отзыва), поэтому запустить оплату
   // можно только по своей заявке, а не по чужой, угадав идентификатор.
@@ -858,6 +871,18 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   const method = String((req.body && req.body.method) || '');
   if (!PAY.isValid(method)) return res.json({ ok: false, error: 'Выберите способ оплаты' }, 400);
 
+  // Способ выбран — черновик становится заказом. Именно здесь, ДО обращения к
+  // кассе: покупатель уже сказал, чем платит, и если касса откажет (у неё
+  // кончились свободные реквизиты — штатный ответ), менеджер всё равно увидит
+  // готового покупателя с заполненным адресом. А вот тот, кто просто открыл
+  // страницу оплаты и ушёл, заказом не станет — и товары останутся у него в
+  // корзине.
+  const grown = db.promoteOrder(id);
+  if (grown.promoted) {
+    metrics.markOrder(grown.order.visitorId, grown.order);
+    notifyNewOrder(grown.order);
+  }
+
   // Token записываем ДО создания счёта: он уходит в callback_url, а id счёта
   // появляется только в ответе платёжки. У заказа с прежним платежом
   // startOrderPayment сохранит старый token — см. комментарий в lib/db.js.
@@ -883,7 +908,9 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
     // Ошибку кассы показываем как есть только для «способ недоступен»: остальные
     // тексты платёжки покупателю ничего не объясняют.
     const known = /payment_option|not enabled|not supported/i.test(String(r.error || ''));
-    return res.json({ ok: false, error: known ? 'Этот способ оплаты сейчас недоступен — выберите другой' : 'Не удалось выставить счёт' }, 502);
+    // `placed` — заказ уже настоящий, даже если счёт не вышел. Витрине это нужно,
+    // чтобы очистить корзину: иначе покупатель оформит второй такой же.
+    return res.json({ ok: false, placed: true, error: known ? 'Этот способ оплаты сейчас недоступен — выберите другой' : 'Не удалось выставить счёт' }, 502);
   }
   // Способ пишем тот, что ВЕРНУЛА касса: на запрос TO_CARD она вправе выдать
   // TO_CARD_TRANSGRAN, и подпись реквизита должна соответствовать выданному.
@@ -891,7 +918,7 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
     invoiceId: r.invoice.id, requisite: r.invoice.requisite, bank: r.invoice.bank,
     owner: r.invoice.owner, method: r.invoice.method || method, expiresAt: r.invoice.expiresAt
   });
-  res.json({ ok: true, url: '/pay/' + encodeURIComponent(id) });
+  res.json({ ok: true, placed: true, url: '/pay/' + encodeURIComponent(id) });
 });
 
 // Статус счёта — то, ради чего затевался переход на H2H. Спрашиваем кассу и
@@ -1239,7 +1266,6 @@ app.post('/owner/sites/:id/delete', (req, res) => {
 
 // Заказы (все) + настройки владельца
 app.get('/owner/orders', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.ordersList(db, req.query.flash, req.query.page)); });
-app.post('/owner/orders/:id/status', (req, res) => { if (!guardOwner(req, res)) return; db.setOrderStatus(req.params.id, req.body.status); res.redirect('/owner/orders' + pageQuery(req.body.page)); });
 app.post('/owner/orders/:id/delete', (req, res) => { if (!guardOwner(req, res)) return; db.deleteOrder(req.params.id); res.redirect('/owner/orders' + pageQuery(req.body.page)); });
 
 app.get('/owner/settings', (req, res) => { if (!guardOwner(req, res)) return; res.send(O.settingsPage(settings(), db, req.query.flash)); });
@@ -1342,12 +1368,6 @@ app.post('/admin/reviews', (req, res) => {
 // Заказы сайта
 app.get('/admin/orders', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.ordersList(db, site, req.query.flash, req.query.page)); });
 app.get('/admin/analytics', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.analyticsPage(db, site, metrics.snapshot({ siteId: site.id, days: req.query.days }))); });
-app.post('/admin/orders/:id/status', (req, res) => {
-  const site = guardSite(req, res); if (!site) return;
-  const o = db.getOrders().find(x => x.id === req.params.id);
-  if (o && o.siteId === site.id) db.setOrderStatus(req.params.id, req.body.status);
-  res.redirect('/admin/orders' + pageQuery(req.body.page));
-});
 app.post('/admin/orders/:id/delete', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
   const o = db.getOrders().find(x => x.id === req.params.id);

@@ -1467,7 +1467,10 @@
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d.ok) {
-          Cart.clear();
+          // При онлайн-оплате корзину тут НЕ чистим: заказ пока черновик, и
+          // покупатель, ушедший со страницы оплаты не выбрав способ, должен
+          // найти товары на месте. Очистит её pay.js, когда способ выбран.
+          if (!online) Cart.clear();
           var number = d.number || '';
           var page = document.getElementById('checkout-page');
           if (page) {                       // страница оформления: показываем результат на всю ширину
