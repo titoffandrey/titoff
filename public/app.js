@@ -137,17 +137,23 @@
         + '<input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required>'
         + '<p class="field-note">Сюда придёт подтверждение и трек-номер.</p></div>'
         + '</div>'
+        // Адрес идёт ПЕРВЫМ, а способ доставки — за ним: цена доставки зависит
+        // от региона, и до адреса у карточек нечего показать, кроме прочерка.
         + '<div class="co-block">'
         + '<h2 class="co-block-title"><span class="co-step" aria-hidden="true">3</span>Доставка</h2>'
-        + deliveryChoiceHtml()
-        + '<div class="co-modes" id="co-modes"></div>'
         + '<div class="field"><label for="co-address">Адрес или пункт выдачи <span class="req">*</span></label>'
         + '<div class="suggest-box">'
-        + '<input type="text" id="co-address" maxlength="400" placeholder="Начните вводить — подскажем" autocomplete="off"'
+        + '<input type="text" id="co-address" maxlength="400" placeholder="Город, улица, дом" autocomplete="off"'
         + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list" required>'
         + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
         + '</div>'
         + '<p class="field-note" id="co-address-note">' + escapeHtml(addressNote()) + '</p></div>'
+        + '<div class="co-ways is-locked" id="co-ways">'
+        + '<span class="co-modes-label">Способ доставки</span>'
+        + deliveryChoiceHtml()
+        + '<div class="co-modes" id="co-modes"></div>'
+        + '<p class="co-ways-note" id="co-ways-note">Укажите адрес — от него зависят сроки и стоимость доставки.</p>'
+        + '</div>'
         + '</div>'
         + '<div class="co-submit">'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
@@ -287,12 +293,24 @@
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
     return '';
   }
+  // Подсказка под адресом. Чего не хватает, говорит СЕРВЕР (см. quoteDelivery):
+  // своя проверка в скрипте пропускала бы адрес, который сервер потом отвергает.
   function addressNote() {
+    if (addressValue() && ship.address === addressValue() && !ship.valid && ship.error) return ship.error;
     var id = deliveryChoice(), courier = deliveryModeChoice() === 'courier';
-    if (courier) return 'Город, улица, дом и квартира — курьер привезёт по этому адресу.';
-    if (id === 'cdek') return 'Адрес пункта выдачи СДЭК — или город и улица, подберём ближайший.';
-    if (id === 'ozon') return 'Адрес пункта выдачи или постамата OZON.';
-    return 'Укажите адрес доставки или пункт выдачи.';
+    if (courier) return 'Куда привезти: город, улица, дом и квартира.';
+    if (id === 'cdek') return 'Адрес пункта выдачи СДЭК: город, улица и дом.';
+    if (id === 'ozon') return 'Адрес пункта выдачи или постамата OZON: город, улица и дом.';
+    return 'Город, улица и дом — например: г Екатеринбург, ул Малышева, д 5.';
+  }
+  // Ошибку показываем не красным полем, а подписью: адрес дописывают на ходу, и
+  // алый текст под каждой второй буквой читался бы как поломка формы.
+  function syncAddressNote() {
+    var note = document.getElementById('co-address-note');
+    if (!note) return;
+    var bad = !!(addressValue() && ship.address === addressValue() && !ship.valid);
+    note.textContent = addressNote();
+    note.className = bad ? 'field-note field-note-warn' : 'field-note';
   }
   function deliveryChoiceHtml() {
     var list = deliveryMethods();
@@ -352,13 +370,29 @@
     if (!box) return;
     box.innerHTML = deliveryModesHtml();
   }
+  /* Выбор способа заперт, пока адрес не полон. Способы никуда не деваются —
+   * покупатель видит, чем повезут, — но выбирать их до адреса не из чего: цена
+   * зависит от региона, и у карточек стоял бы прочерк вместо суммы.
+   * Радио именно `disabled`, а не спрятаны: выбранными они остаются, поэтому
+   * после разблокировки не надо ничего доставать заново.
+   */
+  function setWaysLocked(locked) {
+    var box = document.getElementById('co-ways');
+    if (!box) return;
+    box.classList.toggle('is-locked', !!locked);
+    var inputs = box.querySelectorAll('input[type="radio"]');
+    for (var i = 0; i < inputs.length; i++) inputs[i].disabled = !!locked;
+    var note = document.getElementById('co-ways-note');
+    if (note) note.hidden = !locked;
+  }
   // Название перевозчика живёт в правой сводке, подсказка — под адресом, а
   // варианты доставки зависят от выбранного перевозчика, поэтому обновляем всё.
   function syncDelivery() {
     renderModes();
+    setWaysLocked(!ship.valid);
     renderRail();
     syncSubmit();
-    setText('co-address-note', addressNote());
+    syncAddressNote();
   }
   function initDeliveryChoice() {
     var box = document.querySelector('.co-choice');
@@ -372,20 +406,25 @@
     // Смена варианта перевозчика не меняет список вариантов — перерисовывать их
     // не нужно, достаточно обновить сумму и подсказку под адресом.
     if (modes) modes.addEventListener('change', function () {
-      renderRail(); syncSubmit(); setText('co-address-note', addressNote());
+      renderRail(); syncSubmit(); syncAddressNote();
     });
   }
 
-  /* ===== Стоимость доставки =====
-   * Считает сервер (`/api/delivery/quote`) — тем же модулем, которым потом
-   * считает заказ. Своей сетки тарифов у витрины нет и быть не может: цифра в
-   * сводке обязана совпадать с той, что уйдёт в заказ.
+  /* ===== Адрес и стоимость доставки =====
+   * И то и другое считает сервер (`/api/delivery/quote`) — тем же модулем,
+   * которым потом считает заказ. Ни сетки тарифов, ни правил разбора адреса у
+   * витрины нет и быть не может: цифра в сводке обязана совпадать с той, что
+   * уйдёт в заказ, а адрес, прошедший проверку здесь, — приниматься там.
    *
    * Ответ несёт цены сразу всех способов и вариантов по этому адресу, поэтому
    * переключение перевозчика или «курьером/в пункт выдачи» не ходит на сервер —
    * запрос нужен только когда изменился адрес или состав корзины.
+   *
+   * `address` — строка, к которой относится ответ. По ней видно, что разбор не
+   * устарел: показывать «не хватает дома» про адрес, который покупатель уже
+   * дописал, нельзя.
    */
-  var ship = { key: '', prices: null, zoneName: '', pending: false, timer: null };
+  var ship = { key: '', address: '', valid: false, error: '', prices: null, zoneName: '', pending: false, timer: null };
 
   function shipPrice(method, mode) {
     if (!ship.prices || !method || !mode) return null;
@@ -412,7 +451,12 @@
   function quoteDelivery(delay) {
     var address = addressValue();
     var key = Cart.total() + '|' + address;
-    if (!address) { ship.key = ''; ship.prices = null; ship.zoneName = ''; syncDelivery(); return; }
+    if (!address) {
+      ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
+      ship.prices = null; ship.zoneName = '';
+      syncDelivery();
+      return;
+    }
     if (key === ship.key || ship.pending && ship.wanted === key) return;
     clearTimeout(ship.timer);
     ship.wanted = key;
@@ -426,12 +470,14 @@
         .then(function (d) {
           ship.pending = false;
           if (!d || !d.ok || ship.wanted !== key) return;   // ответ устарел
-          ship.key = key; ship.prices = d.prices || null; ship.zoneName = d.zoneName || '';
+          ship.key = key; ship.address = address;
+          ship.valid = !!d.valid; ship.error = d.error || '';
+          ship.prices = d.prices || null; ship.zoneName = d.zoneName || '';
           syncDelivery();
         })
         .catch(function () {
-          // Сеть подвела — цену не выдумываем: сводка честно скажет, что она
-          // считается, а сервер посчитает её при оформлении сам.
+          // Сеть подвела — ни цену, ни разбор адреса не выдумываем: выбор
+          // способа останется запертым, а решать всё равно серверу при заказе.
           ship.pending = false;
         });
     }, delay == null ? 350 : delay);
@@ -1740,6 +1786,15 @@
         if (field) { try { field.focus(); } catch (e) {} }
         return;
       }
+    }
+    // Адрес разбирает сервер, и его ответ мы уже знаем — если он про ЭТУ строку.
+    // Про другую (покупатель дописал адрес и нажал кнопку, не дождавшись ответа)
+    // ничего не решаем: пусть отвечает сервер, он всё равно проверяет заново.
+    if (ship.address === val('co-address') && !ship.valid && ship.error) {
+      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = ship.error; }
+      var addr = document.getElementById('co-address');
+      if (addr) { try { addr.focus(); } catch (e) {} }
+      return;
     }
     if (!deliveryChoice()) {
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите способ доставки'; }

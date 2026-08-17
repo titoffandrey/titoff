@@ -2674,6 +2674,96 @@ test('куда доставить — обязательный выбор, а е
   assert.doesNotMatch(html, new RegExp('data-delivery="[^"]*' + SHIP.RATES.cdek.pvz.dfo));
 });
 
+test('адрес обязан быть полным: населённый пункт, улица и дом', () => {
+  const ADDRESS = require('../lib/address');
+
+  // Полные адреса — в обоих видах: как их отдаёт DaData и как набирают руками.
+  for (const good of [
+    'г Москва, ул Тверская, д 1',
+    'Свердловская обл, г Екатеринбург, ул Малышева, д 5',
+    'Екатеринбург, ул Малышева, 5',
+    'г Санкт-Петербург, Невский пр-кт, д 100, кв 12',
+    'Московская обл, г Химки, Ленинградская ул, 1к2',
+    'с Верхние Луки, ул Мира, 5',
+    '620000, г Екатеринбург, ул Малышева, д 5',
+    'г Владивосток, ул Светланская, д 12/3'
+  ]) assert.equal(ADDRESS.checkAddress(good).ok, true, 'отвергнут полный адрес: ' + good);
+
+  // Город без «г» засчитываем по таблице зон: так пишут чаще всего, и требовать
+  // сокращение — придирка. Три части через запятую заменяют слово «ул»:
+  // «Екатеринбург, Малышева, 5» — это город, улица и дом.
+  assert.equal(ADDRESS.checkAddress('Екатеринбург, Малышева, 5').ok, true);
+
+  // Чего не хватает — сказано словами: покупателю надо знать, что дописать.
+  assert.match(ADDRESS.checkAddress('Екатеринбург').error, /улицы и номера дома/);
+  assert.match(ADDRESS.checkAddress('Москва, ул Тверская').error, /номера дома/);
+  assert.match(ADDRESS.checkAddress('ул Малышева, 5').error, /населённого пункта/);
+  assert.match(ADDRESS.checkAddress('ПВЗ у метро').error, /населённого пункта, улицы и номера дома/);
+  assert.equal(ADDRESS.checkAddress('').error, 'Укажите адрес или пункт выдачи');
+  // Индекс — это не дом: шесть цифр подряд номером дома не считаются.
+  assert.equal(ADDRESS.checkAddress('620000').ok, false);
+  for (const bad of ['Екатеринбург', 'Москва, ул Тверская', 'ул Малышева, 5', 'Свердловская область', '']) {
+    assert.equal(ADDRESS.checkAddress(bad).ok, false, 'принят неполный адрес: ' + bad);
+  }
+  // В отказе есть образец — иначе непонятно, чего от тебя хотят.
+  assert.match(ADDRESS.checkAddress('Екатеринбург').error, /Например: г Екатеринбург, ул Малышева, д 5/);
+
+  // Проверка одна на всех: сервер не принимает неполный адрес, а витрина берёт
+  // тот же разбор от `/api/delivery/quote` и своей копии правил не держит.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ====================== ОПЛАТА'));
+  assert.match(route, /ADDRESS\.checkAddress\(address\)/);
+  assert.ok(route.indexOf('checkAddress') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
+  assert.match(server, /app\.post\('\/api\/delivery\/quote'[\s\S]{0,900}ADDRESS\.checkAddress\(address\)/);
+  assert.doesNotMatch(js, /населённого пункта|checkAddress/, 'разбор адреса не дублируется в скрипте');
+  assert.match(js, /ship\.error/);
+
+  // Словарь маркеров общий с разбором зоны: разъехавшись, они пропускали бы
+  // адрес, который потом уезжает в другую зону.
+  const Z = require('../lib/delivery-zones');
+  assert.ok(Z.STREET_MARKERS.includes('ул') && Z.HOUSE_MARKERS.includes('д'));
+  for (const w of Z.STREET_MARKERS.concat(Z.HOUSE_MARKERS)) assert.ok(Z.MARKERS.has(w), 'маркер потерян: ' + w);
+});
+
+test('способ доставки заперт, пока адрес не полон, и стоит ПОСЛЕ адреса', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const form = js.slice(js.indexOf("<span class=\"co-step\" aria-hidden=\"true\">3</span>Доставка"), js.indexOf('co-submit'));
+
+  // Адрес первым, способ доставки за ним: цена зависит от региона, и до адреса
+  // у карточек нечего показать, кроме прочерка.
+  assert.ok(form.indexOf('co-address') < form.indexOf('co-ways'), 'адрес обязан идти выше способа доставки');
+  assert.ok(form.indexOf('co-ways') < form.indexOf('co-modes'), 'варианты — внутри блока способов');
+  // Блок собирается запертым: до ответа сервера адрес заведомо не проверен.
+  assert.match(form, /class="co-ways is-locked" id="co-ways"/);
+  assert.match(form, /id="co-ways-note"/);
+
+  // Запирание — это `disabled` у радио, а не спрятанные карточки: покупатель
+  // видит, чем повезут, ещё до того как впишет улицу, а выбранное значение
+  // остаётся выбранным и после разблокировки.
+  const lock = js.slice(js.indexOf('function setWaysLocked'), js.indexOf('function setWaysLocked') + 500);
+  assert.match(lock, /inputs\[i\]\.disabled = !!locked/);
+  assert.match(lock, /classList\.toggle\('is-locked'/);
+  assert.match(css, /\.co-ways\.is-locked\{opacity/);
+  assert.match(css, /\.field-note-warn\{color:#b42318\}/);
+  // Специфичность у `.field-note` и `.field-note-warn` одинаковая — значит
+  // решает порядок, и предупреждение обязано стоять ниже. Уже ломалось: подпись
+  // оставалась серой, хотя класс проставлялся.
+  assert.ok(css.indexOf('.field-note{') < css.indexOf('.field-note-warn{'), 'предупреждение обязано идти после .field-note');
+
+  // Отпирает ответ сервера, а не собственная догадка витрины.
+  assert.match(js, /setWaysLocked\(!ship\.valid\)/);
+  assert.match(js, /ship\.valid = !!d\.valid/);
+  // Разбор устаревает: показывать «не хватает дома» про адрес, который уже
+  // дописали, нельзя — поэтому ответ помнит строку, к которой относится.
+  assert.match(js, /ship\.address === addressValue\(\)/);
+  assert.match(js, /ship\.address = address;/);
+  // На отправке решаем только по свежему разбору — иначе дописанный в последний
+  // момент адрес отвергался бы по прошлому ответу.
+  assert.match(js, /ship\.address === val\('co-address'\) && !ship\.valid && ship\.error/);
+});
+
 test('вариант, цена и зона доставки хранятся в заказе, а старые заявки читаются как были', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-ship-'));
   const fresh = freshDb(dir);
@@ -3032,7 +3122,8 @@ test('оформление разложено на три блока, а сум�
   assert.match(sync, /renderModes\(\)/);
   assert.match(sync, /renderRail\(\)/);
   assert.match(sync, /syncSubmit\(\)/);
-  assert.match(sync, /setText\('co-address-note'/);
+  assert.match(sync, /syncAddressNote\(\)/);
+  assert.match(sync, /setWaysLocked\(!ship\.valid\)/);
 });
 
 test('логотип перевозчика инлайнится спрайтом, а без файла остаётся текст', () => {

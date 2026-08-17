@@ -11,6 +11,7 @@ const { suggestAddress } = require('./lib/dadata');
 const CROCO = require('./lib/crocopay');
 const DELIVERY = require('./lib/delivery');
 const SHIP = require('./lib/delivery-price');
+const ADDRESS = require('./lib/address');
 const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
@@ -685,13 +686,19 @@ app.post('/api/address-suggest', async (req, res) => {
   res.json({ ok: r.ok, configured: r.reason !== 'not_configured', items: r.items });
 });
 
-/* Стоимость доставки для оформления. Считает ТОТ ЖЕ модуль, что и /api/order,
- * поэтому цифра в сводке и цифра в заказе совпадают по построению — своя сетка
- * в скрипте разъехалась бы с серверной, как разъехался бы свой список способов.
+/* Проверка адреса и стоимость доставки для оформления. Считает ТОТ ЖЕ модуль,
+ * что и /api/order, поэтому цифра в сводке и цифра в заказе совпадают по
+ * построению — своя сетка в скрипте разъехалась бы с серверной, как разъехался
+ * бы свой список способов.
+ *
+ * Полноту адреса тоже проверяет сервер, а не витрина: витрина по этому ответу
+ * лишь отпирает выбор способа доставки. Своя проверка в скрипте пропускала бы
+ * адрес, который сервер потом отвергает, — и покупатель узнавал бы об этом уже
+ * нажав «Оформить заказ».
  *
  * Внешних запросов здесь нет вовсе: зона определяется по строке адреса, тариф
  * берётся из таблицы. Поэтому запрос дешёвый, и витрина шлёт его на каждую
- * правку адреса и на каждую смену перевозчика.
+ * правку адреса.
  *
  * `total` приходит от витрины и на цену товаров не влияет — он нужен только для
  * подгонки итога под круглое число. Настоящую сумму /api/order считает сам.
@@ -700,10 +707,14 @@ app.post('/api/delivery/quote', (req, res) => {
   if (rateLimited(req, 'ship', 120, 60 * 1000)) return res.json({ ok: false }, 429);
   const goods = Number(req.body && req.body.total);
   const address = String(req.body && req.body.address || '').slice(0, 400);
+  const check = ADDRESS.checkAddress(address);
+  // Неполный адрес — не ошибка запроса: витрина спрашивает цену на каждой
+  // правке поля, и половина этих строк заведомо недописана. Отвечаем разбором.
+  if (!check.ok) return res.json({ ok: true, valid: false, error: check.error, prices: null });
   // Цены отдаём сразу все: покупатель должен видеть, во что обойдётся курьер,
   // ДО того как выберет его, а переключение способа не должно ходить на сервер.
   const q = SHIP.quoteAll(address, Number.isFinite(goods) && goods > 0 ? goods : 0);
-  res.json({ ok: true, zone: q.zone, zoneName: q.zoneName, prices: q.prices });
+  res.json({ ok: true, valid: true, error: '', zone: q.zone, zoneName: q.zoneName, prices: q.prices });
 });
 
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
@@ -795,6 +806,10 @@ app.post('/api/order', async (req, res) => {
   if (!lastName) return res.json({ ok: false, error: 'Укажите фамилию получателя' }, 400);
   const address = String(req.body.address || '').trim();
   if (!address) return res.json({ ok: false, error: 'Укажите адрес или пункт выдачи' }, 400);
+  // Адрес обязан быть полным: населённый пункт, улица и дом. По «Екатеринбургу»
+  // нельзя ни оформить накладную, ни посчитать доставку, а заказ уже оплачен.
+  const addressCheck = ADDRESS.checkAddress(address);
+  if (!addressCheck.ok) return res.json({ ok: false, error: addressCheck.error }, 400);
   const delivery = String(req.body.delivery || '').trim();
   if (!DELIVERY.isValid(delivery)) return res.json({ ok: false, error: 'Выберите способ доставки' }, 400);
   const deliveryMode = String(req.body.deliveryMode || '').trim();

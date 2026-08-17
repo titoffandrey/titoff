@@ -2009,6 +2009,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    Цена стоит у КАЖДОГО варианта, а не только у выбранного: разница между ПВЗ и
    курьером — полторы-две сотни, и покупатель должен видеть её до выбора, а не
    в итоговой сумме. */
+/* Способ доставки заперт, пока адрес не полон: цена зависит от региона, и до
+   адреса у карточек стоял бы прочерк вместо суммы. Карточки при этом видно —
+   покупатель знает, чем повезут, ещё до того как впишет улицу. */
+.co-ways.is-locked{opacity:.55}
+.co-ways.is-locked .co-choice-opt,.co-ways.is-locked .co-mode{cursor:default;background:#fbfbfd}
+.co-ways.is-locked .co-choice-opt:hover,.co-ways.is-locked .co-mode:hover{border-color:var(--border)}
+.co-ways-note{margin:-6px 0 0;font-size:12.5px;color:var(--muted)}
 .co-modes{margin:0 0 16px}
 /* Подпись отделяет второй вопрос от первого. На телефоне обе группы встают в
    один столбик, и без неё это читается как список из четырёх перевозчиков. */
@@ -2035,6 +2042,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    иначе он уезжал бы вниз на высоту подписи под полем. */
 .suggest-box{position:relative}
 .field-note{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.4}
+/* Чего не хватает в адресе — подписью под полем, а не алой рамкой: адрес
+   дописывают на ходу, и красное поле под каждой второй буквой читалось бы как
+   поломка формы. Правило обязано стоять ПОСЛЕ `.field-note`: специфичность у
+   них одинаковая, и при равной побеждает последнее. */
+.field-note-warn{color:#b42318}
 .suggest-list{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 6px);max-height:264px;overflow-y:auto;
   background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 14px 34px rgba(0,0,0,.14);padding:5px}
 .suggest-item{display:block;width:100%;text-align:left;border:0;background:none;font:inherit;color:var(--text);
