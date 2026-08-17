@@ -2356,7 +2356,40 @@ test('витрина уводит на свою страницу оплаты т
   assert.doesNotMatch(js, /crocopay\.tech|client_secret|Client-Secret/);
   // Выбора «оплатить позже» нет: включённая оплата — всегда оплата сразу.
   assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
-  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
+  assert.match(js, /function submitLabel\(\) \{ return payNow\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
+  // Идём ли на оплату, решает ответ сервера: только он знает пересчитанную
+  // сумму и пределы кассы. Витринная догадка нужна лишь для подписи кнопки.
+  assert.match(submit, /online = !!d\.pay;/);
+});
+
+test('сумма вне пределов кассы уходит заявкой, а не отказом на оформлении', () => {
+  const CROCO = require('../lib/crocopay');
+  assert.equal(CROCO.MIN_TOTAL, 1000);
+  assert.equal(CROCO.MAX_TOTAL, 250000);
+  assert.equal(CROCO.payable(1000), true);
+  assert.equal(CROCO.payable(250000), true);
+  assert.equal(CROCO.payable(999), false);
+  assert.equal(CROCO.payable(250001), false);
+  assert.equal(CROCO.payable('не число'), false);
+
+  // В каталоге пять товаров дороже потолка уже в базовой сборке (Vision Pro,
+  // Studio Display XDR, MacBook Pro 16"…). Жёсткий отказ означал бы, что их
+  // нельзя купить вовсе, поэтому такой заказ идёт прежним путём — заявкой.
+  assert.ok(catalog.products.some(p => p.price > CROCO.MAX_TOTAL), 'в каталоге есть товар дороже потолка');
+
+  // Пределы уходят на витрину от сервера, а не дублируются в app.js.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  assert.match(html, /data-pay-min="1000"/);
+  assert.match(html, /data-pay-max="250000"/);
+  // Оплата не настроена — пределов на странице нет вовсе: платить всё равно нечем.
+  assert.doesNotMatch(render.checkoutPage(ss, { origin: '' }), /data-pay-min/);
+
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(js, /d\.payMin|dataset\.payMin|d\.payMin/, 'витрина читает пределы из атрибута, а не хранит свои');
+  assert.doesNotMatch(js, /250000/, 'числа пределов в скрипте не дублируются');
+  // Подсказок про пределы на витрине нет — покупателю нечего с ними делать.
+  assert.doesNotMatch(js, /Минимальная сумма|Максимальная сумма/);
 });
 
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {

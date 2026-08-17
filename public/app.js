@@ -146,9 +146,7 @@
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note">' + (payOnline()
-          ? 'Оплата переводом по реквизитам: номер карты на сайте вводить не нужно, магазин его не спрашивает и не получает. '
-          : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ. ')
+        + '<p class="form-legal-note"><span id="co-note-pay">' + payNote() + '</span> '
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
       initAddressSuggest();
@@ -163,6 +161,9 @@
       var label = submit.querySelector('.btn-checkout-label');
       if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
     }
+    // Подпись под кнопкой следует за суммой: у заказа вне пределов кассы шаг
+    // будет не «оплата», а «менеджер свяжется», и обещать реквизиты нельзя.
+    setText('co-note-pay', payNote());
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
@@ -190,7 +191,24 @@
     var page = document.getElementById('checkout-page');
     return !!(page && page.dataset && page.dataset.pay);
   }
-  function submitLabel() { return payOnline() ? 'Перейти к оплате' : 'Оформить заказ'; }
+  // Пределы одного платежа приходят от сервера тем же атрибутом, что и сама
+  // оплата. Сумма за границами — это не отказ в заказе: он оформляется обычной
+  // заявкой, как когда оплата вообще не настроена. Витрина об этом знает ровно
+  // затем, чтобы кнопка называла верный следующий шаг; решает всё равно сервер.
+  function payableTotal(sum) {
+    var page = document.getElementById('checkout-page');
+    var d = (page && page.dataset) || {};
+    var min = Number(d.payMin), max = Number(d.payMax);
+    if (!isFinite(min) || !isFinite(max)) return true;
+    return sum >= min && sum <= max;
+  }
+  function payNow() { return payOnline() && payableTotal(Cart.total()); }
+  function submitLabel() { return payNow() ? 'Перейти к оплате' : 'Оформить заказ'; }
+  function payNote() {
+    return payNow()
+      ? 'Оплата переводом по реквизитам: номер карты на сайте вводить не нужно, магазин его не спрашивает и не получает.'
+      : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ.';
+  }
 
   // Способы доставки приходят от сервера тем же списком, по которому он потом
   // проверяет заказ, — свой в скрипте разъехался бы с серверным.
@@ -1451,7 +1469,7 @@
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите способ доставки'; }
       return;
     }
-    var online = payOnline();
+    var online = payNow();
     btn.disabled = true;
     var btnHtml = btn.innerHTML;
     btn.textContent = online ? 'Открываем оплату...' : 'Отправляем...';
@@ -1467,6 +1485,10 @@
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d.ok) {
+          // Идём ли на оплату, говорит СЕРВЕР (`d.pay`): только он знает
+          // пересчитанную сумму и пределы кассы. Витринная догадка выше нужна
+          // была лишь для подписи кнопки.
+          online = !!d.pay;
           // При онлайн-оплате корзину тут НЕ чистим: заказ пока черновик, и
           // покупатель, ушедший со страницы оплаты не выбрав способ, должен
           // найти товары на месте. Очистит её pay.js, когда способ выбран.

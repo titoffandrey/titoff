@@ -113,7 +113,6 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .thumb{width:60px;height:60px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#fff;cursor:pointer;padding:4px}
 .thumb.active{border-color:var(--accent)}
 .thumb img{width:100%;height:100%;object-fit:contain}
-.product-cat{color:var(--muted);font-size:14px}
 .product-name{font-size:clamp(22px,5vw,32px);margin:.15em 0 .3em}
 .rating-summary{display:inline-flex;align-items:center;gap:8px;font-size:14px;margin-bottom:14px}
 .rating-summary b{font-size:15px}
@@ -123,13 +122,15 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
    контраст 5.4:1 — читается и на 11px в карточке каталога. */
 .save{background:#0b7a37;color:#fff;font-size:13px;font-weight:700;padding:3px 8px;border-radius:8px;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .product-short{color:#333;margin:0 0 18px}
-/* Подпись наличия над кнопкой покупки. Зелёная — обычная, оранжевая — «осталось
-   несколько штук»; оба цвета уже проверены в проекте (плашка скидки и «Новинка»).
+/* Подпись наличия ПОД кнопкой покупки. Зелёная — обычная, красная — «осталось
+   несколько штук»: это предупреждение, и оранжевый рядом с крупной кнопкой читался
+   как оформление, а не как «поторопитесь». Красный тот же, что у плашки акции
+   (#b42318), — новых цветов в палитре не заводим.
    Точка мигает ТОЛЬКО по opacity и transform: обе идут в композиторе, не требуют
    ни перерисовки, ни пересчёта раскладки, поэтому анимация не стоит ничего ни при
    загрузке, ни после неё. Скрипт для неё не нужен, разметка — два тега. */
-.stock{display:flex;align-items:center;gap:9px;margin:0 0 14px;font-size:14px;font-weight:500;color:#0b7a37}
-.stock-few{color:#bf4800}
+.stock{display:flex;align-items:center;gap:9px;margin:12px 0 0;font-size:14px;font-weight:500;color:#0b7a37}
+.stock-few{color:#b42318;font-weight:600}
 .stock-dot{position:relative;flex:none;width:9px;height:9px;border-radius:50%;background:currentColor;animation:stock-blink 1.8s ease-in-out infinite}
 /* Ореол вокруг точки: отдельный слой, чтобы не анимировать box-shadow — он бьёт по отрисовке. */
 .stock-dot::after{content:'';position:absolute;inset:-5px;border-radius:50%;background:currentColor;animation:stock-halo 1.8s ease-out infinite}
@@ -1130,23 +1131,26 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .product-gallery{position:sticky;top:128px}
 .gallery-main{border:1px solid var(--border-soft);border-radius:30px;background:linear-gradient(155deg,#f7f8fa,#edf0f5);box-shadow:0 1px 2px rgba(17,17,26,.03);touch-action:pan-y}
 .gallery-main img,.gallery-main .ph{padding:3%;transition:opacity .16s ease}
-.product-info{padding:24px 0 0}
-.product-cat{margin-bottom:7px;color:var(--accent);font-size:12px;font-weight:750;letter-spacing:.09em;text-transform:uppercase}
-.product-name{max-width:620px;margin:0 0 12px;font-size:clamp(34px,4vw,52px);line-height:1.04;letter-spacing:-.052em}
-.rating-summary{min-height:28px;margin-bottom:20px;padding:4px 0}
-.deal-banner{display:flex;width:max-content;max-width:100%;margin:0 0 20px;padding:9px 12px;border:0;border-radius:10px;background:#fff0ed;color:#b42318;font-size:13px}
-.product-price{margin:0 0 17px;font-size:clamp(28px,3vw,38px);font-weight:730;letter-spacing:-.045em}
+/* Первый экран сжат намеренно: строка категории убрана (она же стоит в
+   хлебных крошках выше), а отступы между названием, ценой и рядами выбора
+   уменьшены — у товара с пятью группами вариантов кнопка покупки иначе уезжает
+   за первый экран. */
+.product-info{padding:10px 0 0}
+.product-name{max-width:620px;margin:0 0 9px;font-size:clamp(32px,3.7vw,48px);line-height:1.04;letter-spacing:-.052em}
+.rating-summary{min-height:24px;margin-bottom:13px;padding:2px 0}
+.deal-banner{display:flex;width:max-content;max-width:100%;margin:0 0 14px;padding:8px 11px;border:0;border-radius:10px;background:#fff0ed;color:#b42318;font-size:13px}
+.product-price{margin:0 0 13px;font-size:clamp(27px,2.8vw,36px);font-weight:730;letter-spacing:-.045em}
 /* На странице товара старая цена была 15px и терялась под чертой. Крупнее,
    темнее и с тонкой линией — сумму видно, а зачёркнутость по-прежнему читается. */
 .product-price .old-price{margin-left:0;font-size:21px;color:#6e6e73;letter-spacing:-.03em;text-decoration-thickness:1.5px;text-decoration-color:rgba(110,110,115,.55)}
 .save{padding:6px 10px;border-radius:10px;font-size:14px}
-.product-short{max-width:580px;margin-bottom:24px;color:#48484a;font-size:17px;line-height:1.55}
+.product-short{max-width:580px;margin-bottom:17px;color:#48484a;font-size:16.5px;line-height:1.5}
 /* Ряды выбора. Сжато против прежнего: у Mac групп бывает пять сразу (чип, ОЗУ,
    накопитель, стекло, связь), и на старых отступах кнопка покупки уезжала за
    первый экран — покупатель не видел ни цены, ни кнопки одновременно. Высота
    нажатия оставлена 40px, на телефоне ниже возвращается 44px. */
-.variant-group{margin:13px 0}
-.variant-label{margin-bottom:7px;font-size:12.5px}
+.variant-group{margin:11px 0}
+.variant-label{margin-bottom:6px;font-size:12.5px}
 .swatches{gap:9px}
 .swatch{width:32px;height:32px;border-radius:50%}
 .storage-opts{gap:7px}
@@ -1155,13 +1159,13 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .option-opt{justify-content:center;padding-block:5px}
 .option-groups{gap:13px}
 .variant-hint{margin:0 0 7px;font-size:12.5px}
-.buy-row{gap:12px;margin-top:26px;flex-wrap:nowrap}
+.buy-row{gap:12px;margin-top:20px;flex-wrap:nowrap}
 .qty{height:50px;flex:none;border-color:var(--border);background:#fff}
 .qty-btn,.qty-input{height:48px}
 .qty-btn{width:44px}
 .qty-input{width:42px}
 .buy-row .add-to-cart{flex:1;max-width:310px}
-.trust{margin-top:24px}
+.trust{margin-top:18px}
 .section>.prose{max-width:900px;padding:24px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface-soft);font-size:16px;line-height:1.7}
 .spec-section{border-top:1px solid var(--border-soft)}
 .spec-h{font-size:clamp(28px,3vw,38px)}

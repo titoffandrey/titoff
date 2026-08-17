@@ -791,7 +791,9 @@ app.post('/api/order', async (req, res) => {
   // будет выбран (`promoteOrder` в /api/pay/crocopay/start) — тогда же уйдут
   // уведомление менеджеру и отметка в метрике, а корзина очистится.
   // Без онлайн-оплаты выбирать нечего: заявка сразу настоящая, как и раньше.
-  const draft = CROCO.enabled(settings());
+  // Сумма за пределами кассы (1 000–250 000 ₽) — тот же случай: платить онлайн
+  // нечем, заказ идёт обычной заявкой, а не упирается в отказ.
+  const draft = CROCO.enabled(settings()) && CROCO.payable(total);
   const order = db.createOrder({
     draft,
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
@@ -818,7 +820,10 @@ app.post('/api/order', async (req, res) => {
   // можно только по своей заявке, а не по чужой, угадав идентификатор.
   const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
   req.session.myOrders = [order.id].concat(mine.filter(x => x !== order.id)).slice(0, 20);
-  res.json({ ok: true, id: order.id, number: order.number, total, telegram: 'queued' });
+  // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
+  // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
+  // её чистит pay.js, когда способ выбран).
+  res.json({ ok: true, id: order.id, number: order.number, total, pay: draft, telegram: 'queued' });
 });
 
 /* ======================== ОПЛАТА: CrocoPAY (схема H2H) ========================
@@ -866,6 +871,9 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   if (!order) return res.json({ ok: false, error: 'Заказ не найден' }, 404);
   if (order.status === 'cancelled') return res.json({ ok: false, error: 'Заказ отменён' }, 400);
   if (order.payment && order.payment.status === 'paid') return res.json({ ok: false, error: 'Заказ уже оплачен' }, 400);
+  // Пределы кассы проверяем и здесь: заказ мог быть оформлен до их появления, а
+  // счёт на такую сумму она всё равно не выставит.
+  if (!CROCO.payable(order.total)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
   // Способ оплаты проверяем по своему закрытому списку до запроса: чужое
   // значение касса всё равно отвергнет, а поймать это лучше у себя.
   // Способ проверяем не только по своему закрытому списку, но и по тому, что
