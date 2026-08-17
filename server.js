@@ -762,6 +762,10 @@ app.post('/api/order', async (req, res) => {
   }
   if (!items.length) return res.json({ ok: false, error: 'В корзине нет доступных товаров' }, 400);
   if (!Number.isFinite(total) || total > 1e12) return res.json({ ok: false, error: 'Сумма заказа некорректна' }, 400);
+  // Пределы одной покупки (1 000 – 250 000 ₽). Витрина гасит кнопку заранее, но
+  // проверяем и здесь: клиентским данным не верим, как и в цене заказа.
+  const limit = CROCO.limitError(total);
+  if (limit) return res.json({ ok: false, error: limit }, 400);
   const contact = String(req.body.contact || '').trim();
   if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
   // Получатель и доставка обязательны: заказ идёт с предоплатой и уезжает
@@ -791,9 +795,9 @@ app.post('/api/order', async (req, res) => {
   // будет выбран (`promoteOrder` в /api/pay/crocopay/start) — тогда же уйдут
   // уведомление менеджеру и отметка в метрике, а корзина очистится.
   // Без онлайн-оплаты выбирать нечего: заявка сразу настоящая, как и раньше.
-  // Сумма за пределами кассы (1 000–250 000 ₽) — тот же случай: платить онлайн
-  // нечем, заказ идёт обычной заявкой, а не упирается в отказ.
-  const draft = CROCO.enabled(settings()) && CROCO.payable(total);
+  // Сумма здесь заведомо в пределах кассы — заказ вне их не доходит до этой
+  // строки, его отвергает проверка выше.
+  const draft = CROCO.enabled(settings());
   const order = db.createOrder({
     draft,
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),

@@ -146,7 +146,7 @@
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note"><span id="co-note-pay">' + payNote() + '</span> '
+        + '<p class="form-legal-note">' + payNote() + ' '
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
       initAddressSuggest();
@@ -154,16 +154,23 @@
     }
     renderRail();
     setText('co-btn-sum', money(Cart.total()));
+    // Сумма вне пределов одной покупки — кнопка гаснет, а причина стоит прямо
+    // под ней: серая кнопка без объяснения выглядит как поломка сайта.
+    var overLimit = totalLimitError(Cart.total());
     var submit = document.getElementById('checkout-submit');
     if (submit) {
       var canOrder = Cart.availableCount() > 0;
-      submit.disabled = !canOrder;
+      submit.disabled = !canOrder || !!overLimit;
       var label = submit.querySelector('.btn-checkout-label');
       if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
     }
-    // Подпись под кнопкой следует за суммой: у заказа вне пределов кассы шаг
-    // будет не «оплата», а «менеджер свяжется», и обещать реквизиты нельзя.
-    setText('co-note-pay', payNote());
+    var limitMsg = document.getElementById('order-msg');
+    if (limitMsg && (overLimit || limitMsg.dataset.limit)) {
+      limitMsg.hidden = !overLimit;
+      limitMsg.className = 'form-msg err';
+      limitMsg.textContent = overLimit;
+      if (overLimit) limitMsg.dataset.limit = '1'; else delete limitMsg.dataset.limit;
+    }
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
@@ -191,23 +198,24 @@
     var page = document.getElementById('checkout-page');
     return !!(page && page.dataset && page.dataset.pay);
   }
-  // Пределы одного платежа приходят от сервера тем же атрибутом, что и сама
-  // оплата. Сумма за границами — это не отказ в заказе: он оформляется обычной
-  // заявкой, как когда оплата вообще не настроена. Витрина об этом знает ровно
-  // затем, чтобы кнопка называла верный следующий шаг; решает всё равно сервер.
-  function payableTotal(sum) {
-    var page = document.getElementById('checkout-page');
-    var d = (page && page.dataset) || {};
-    var min = Number(d.payMin), max = Number(d.payMax);
-    if (!isFinite(min) || !isFinite(max)) return true;
-    return sum >= min && sum <= max;
-  }
-  function payNow() { return payOnline() && payableTotal(Cart.total()); }
-  function submitLabel() { return payNow() ? 'Перейти к оплате' : 'Оформить заказ'; }
+  function submitLabel() { return payOnline() ? 'Перейти к оплате' : 'Оформить заказ'; }
   function payNote() {
-    return payNow()
+    return payOnline()
       ? 'Оплата переводом по реквизитам: номер карты на сайте вводить не нужно, магазин его не спрашивает и не получает.'
       : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ.';
+  }
+
+  // Пределы одной покупки приходят от сервера атрибутами страницы — своих чисел
+  // витрина не держит, иначе они разъехались бы с серверными. Возвращает текст
+  // отказа или пустую строку. Заказ вне пределов не оформляется вовсе: кнопка
+  // гаснет, а сервер такую сумму всё равно не примет.
+  function totalLimitError(sum) {
+    var page = document.getElementById('checkout-page');
+    var d = (page && page.dataset) || {};
+    var min = Number(d.orderMin), max = Number(d.orderMax);
+    if (isFinite(max) && max > 0 && sum > max) return 'Один заказ — не более ' + money(max) + '. Разделите покупку на несколько заказов.';
+    if (isFinite(min) && min > 0 && sum > 0 && sum < min) return 'Минимальная сумма заказа — ' + money(min) + '.';
+    return '';
   }
 
   // Способы доставки приходят от сервера тем же списком, по которому он потом
@@ -1469,7 +1477,14 @@
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите способ доставки'; }
       return;
     }
-    var online = payNow();
+    // Кнопка при такой сумме уже погашена, но проверяем ещё раз: сумму мог
+    // изменить второй открытый таб.
+    var limitError = totalLimitError(Cart.total());
+    if (limitError) {
+      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = limitError; }
+      return;
+    }
+    var online = payOnline();
     btn.disabled = true;
     var btnHtml = btn.innerHTML;
     btn.textContent = online ? 'Открываем оплату...' : 'Отправляем...';

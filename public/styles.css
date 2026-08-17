@@ -1109,7 +1109,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .btn-checkout{justify-content:space-between;padding-left:22px;padding-right:18px;gap:12px}
 .btn-checkout-sum{font-variant-numeric:tabular-nums;font-weight:600;
   background:rgba(255,255,255,.18);border-radius:980px;padding:4px 11px;font-size:14px}
-.btn-checkout:disabled .btn-checkout-sum{background:rgba(255,255,255,.12)}
+/* Недоступная кнопка оформления — именно серая, а не выцветшая синяя: общий
+   `opacity:.45` на акцентном фоне читается как «кнопка ещё грузится», а не как
+   «нажать нельзя». Причина при этом всегда стоит строкой ниже. */
+.btn-checkout:disabled{background:#e8e8ed;border-color:#e8e8ed;color:#86868b;opacity:1}
+.btn-checkout:disabled .btn-checkout-sum{background:rgba(0,0,0,.06);color:#86868b}
 
 @media(prefers-reduced-motion:reduce){
   .add-to-cart,.add-to-cart.just-added{animation:none;transition:none}

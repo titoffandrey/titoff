@@ -2356,13 +2356,13 @@ test('витрина уводит на свою страницу оплаты т
   assert.doesNotMatch(js, /crocopay\.tech|client_secret|Client-Secret/);
   // Выбора «оплатить позже» нет: включённая оплата — всегда оплата сразу.
   assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
-  assert.match(js, /function submitLabel\(\) \{ return payNow\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
+  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
   // Идём ли на оплату, решает ответ сервера: только он знает пересчитанную
   // сумму и пределы кассы. Витринная догадка нужна лишь для подписи кнопки.
   assert.match(submit, /online = !!d\.pay;/);
 });
 
-test('сумма вне пределов кассы уходит заявкой, а не отказом на оформлении', () => {
+test('заказ вне пределов одной покупки не оформляется вовсе', () => {
   const CROCO = require('../lib/crocopay');
   assert.equal(CROCO.MIN_TOTAL, 1000);
   assert.equal(CROCO.MAX_TOTAL, 250000);
@@ -2372,24 +2372,31 @@ test('сумма вне пределов кассы уходит заявкой,
   assert.equal(CROCO.payable(250001), false);
   assert.equal(CROCO.payable('не число'), false);
 
-  // В каталоге пять товаров дороже потолка уже в базовой сборке (Vision Pro,
-  // Studio Display XDR, MacBook Pro 16"…). Жёсткий отказ означал бы, что их
-  // нельзя купить вовсе, поэтому такой заказ идёт прежним путём — заявкой.
-  assert.ok(catalog.products.some(p => p.price > CROCO.MAX_TOTAL), 'в каталоге есть товар дороже потолка');
+  // Границы включительно, а текст отказа называет предел.
+  assert.equal(CROCO.limitError(250000), '');
+  assert.equal(CROCO.limitError(1000), '');
+  assert.match(CROCO.limitError(250001), /не более 250\s000\s₽/);   // toLocaleString ставит неразрывный пробел
+  assert.match(CROCO.limitError(999), /Минимальная сумма заказа — 1\s000\s₽/);
 
-  // Пределы уходят на витрину от сервера, а не дублируются в app.js.
+  // Пределы уходят на витрину от сервера и НЕ зависят от того, включена ли
+  // онлайн-оплата: «один заказ — не больше 250 000 ₽» действует всегда.
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
-  assert.match(html, /data-pay-min="1000"/);
-  assert.match(html, /data-pay-max="250000"/);
-  // Оплата не настроена — пределов на странице нет вовсе: платить всё равно нечем.
-  assert.doesNotMatch(render.checkoutPage(ss, { origin: '' }), /data-pay-min/);
+  for (const html of [render.checkoutPage(ss, { origin: '', payOnline: true }), render.checkoutPage(ss, { origin: '' })]) {
+    assert.match(html, /data-order-min="1000"/);
+    assert.match(html, /data-order-max="250000"/);
+  }
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  assert.match(js, /d\.payMin|dataset\.payMin|d\.payMin/, 'витрина читает пределы из атрибута, а не хранит свои');
+  assert.match(js, /dataset\.orderMin|d\.orderMin/, 'витрина читает пределы из атрибута, а не хранит свои');
   assert.doesNotMatch(js, /250000/, 'числа пределов в скрипте не дублируются');
-  // Подсказок про пределы на витрине нет — покупателю нечего с ними делать.
-  assert.doesNotMatch(js, /Минимальная сумма|Максимальная сумма/);
+  // Кнопка гаснет, а причина стоит под ней: серая кнопка без объяснения
+  // читается как поломка сайта.
+  const render_ = js.slice(js.indexOf('var overLimit'), js.indexOf('var overLimit') + 700);
+  assert.match(render_, /submit\.disabled = !canOrder \|\| !!overLimit/);
+  assert.match(js, /Один заказ — не более/);
+  // Сервер проверяет сумму заново — клиентским данным не верим.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /const limit = CROCO\.limitError\(total\);[\s\S]{0,120}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
 });
 
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
