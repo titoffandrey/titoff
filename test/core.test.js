@@ -2138,3 +2138,37 @@ test('в настройках владельца есть касса, а клю�
   assert.match(route, /patch\.crocopayEnabled = req\.body\.crocopayEnabled !== undefined/);
   assert.match(route, /CROCO\.CURRENCIES\.includes\(code\) \? code : 'RUB'/);
 });
+
+test('оформление разложено на три блока, а сумма липнет отдельно от формы', () => {
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  // Три контейнера, а не «список слева, форма справа»: форме нужна широкая
+  // колонка, иначе она снова окажется в узкой полосе рядом с пустым местом.
+  assert.match(html, /id="checkout-items"/);
+  assert.match(html, /id="checkout-form"/);
+  assert.match(html, /class="checkout-rail"[\s\S]*id="checkout-side"/);
+  // Доводы в правой панели — из общего TRUST_BLOCK, в колоночном варианте.
+  assert.match(html, /class="trust trust-col"/);
+  assert.match(css, /\.trust-col\{grid-template-columns:1fr/);
+
+  // Раскладка через именованные области: только так сумма встаёт МЕЖДУ товарами
+  // и формой на телефоне, оставаясь справа на десктопе.
+  assert.match(css, /grid-template-areas:"items rail" "form rail"/);
+  assert.match(css, /grid-template-areas:"items" "rail" "form"/);
+  assert.match(css, /\.checkout-rail\{grid-area:rail;position:sticky/);
+  // Пустая корзина: ни формы, ни суммы, ни обещания шагов.
+  assert.match(css, /\.checkout-page\.is-empty #checkout-form,\.checkout-page\.is-empty \.checkout-rail\{display:none\}/);
+
+  // Форма собирается один раз — иначе смена количества стирала бы введённое.
+  assert.match(js, /if \(form && !form\.dataset\.ready\)/);
+  assert.match(js, /form\.dataset\.ready = '1'/);
+  // В правой панели только деньги: полей формы там быть не должно.
+  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 900);
+  assert.doesNotMatch(rail, /co-first-name|co-last-name|co-contact|co-address|checkout-submit/);
+  assert.match(rail, /Cart\.availableCount\(\)/, 'число товаров обязано совпадать с суммой рядом');
+  // Смена перевозчика обновляет и сумму справа, и подсказку под адресом.
+  assert.match(js, /function syncDelivery\(\) \{\s*renderRail\(\);\s*setText\('co-address-note'/);
+});

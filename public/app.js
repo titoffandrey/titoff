@@ -58,10 +58,13 @@
   }
 
   // ===== Страница оформления (/checkout) =====
-  // Позиции и форма — на отдельной странице: список остаётся видимым и прокручивается
-  // сам по себе, а не выталкивается формой, как было в выдвижной корзине.
+  // Три блока, а не «список слева, форма справа»: товары и форма идут одной
+  // колонкой сверху вниз (шаг за шагом), а справа липнет только сводка. Прежняя
+  // раскладка отдавала форме узкую полосу, пока широкая колонка с одним товаром
+  // стояла почти пустой.
   function renderCheckoutPage() {
     var items = document.getElementById('checkout-items');
+    var form = document.getElementById('checkout-form');
     var side = document.getElementById('checkout-side');
     if (!items || !side) return;
 
@@ -73,13 +76,19 @@
         + '<h2>В корзине пока пусто</h2>'
         + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
         + '<a class="btn btn-primary btn-lg" href="/">Перейти в каталог</a></div>';
+      if (form) { form.innerHTML = ''; delete form.dataset.ready; }
       side.innerHTML = '';
       return;
     }
 
     var count = Cart.count();
-    items.innerHTML = '<div class="co-items-head"><span>' + count + ' ' + plural(count, 'товар', 'товара', 'товаров') + '</span>'
-      + '<a class="co-back" href="/">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a></div>'
+    items.innerHTML = '<div class="co-block">'
+      + '<div class="co-block-head">'
+      + '<h2 class="co-block-title"><span class="co-step" aria-hidden="true">1</span>Ваш заказ'
+      + '<span class="co-block-count">' + count + ' ' + plural(count, 'товар', 'товара', 'товаров') + '</span></h2>'
+      + '<a class="co-back" href="/">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a>'
+      + '</div>'
+      + '<div class="co-list">'
       + Cart.items.map(function (i) {
         var k = escapeHtml(itemKey(i));
         var variant = [i.storage, i.color, i.band, i.bandSize].concat(optionValues(i)).filter(Boolean).join(' · ');
@@ -103,23 +112,26 @@
           + '</button>'
           + '</div></div>'
           + '</article>';
-      }).join('');
+      }).join('')
+      + '</div></div>';
 
-    // форму перерисовываем только один раз, чтобы не стирать введённое при смене количества
-    if (!side.dataset.ready) {
-      side.dataset.ready = '1';
-      side.innerHTML = '<div class="co-summary">'
-        + '<h2 class="co-summary-title">Ваш заказ</h2>'
-        + '<div class="co-line"><span id="co-count-label">Товары</span><span id="co-goods-sum">' + money(Cart.total()) + '</span></div>'
-        + '<div class="co-line"><span>Доставка</span><span id="co-delivery-sum">' + escapeHtml(deliveryName()) + '</span></div>'
-        + '<div class="co-total"><span>Итого</span><b id="co-total-sum">' + money(Cart.total()) + '</b></div>'
+    // Форму собираем один раз, чтобы смена количества не стирала введённое.
+    if (form && !form.dataset.ready) {
+      form.dataset.ready = '1';
+      form.innerHTML = '<div class="co-block">'
+        + '<h2 class="co-block-title"><span class="co-step" aria-hidden="true">2</span>Получатель</h2>'
         + '<div class="co-names">'
         + '<div class="field"><label for="co-first-name">Имя <span class="req">*</span></label>'
         + '<input type="text" id="co-first-name" maxlength="60" placeholder="Иван" autocomplete="given-name" required></div>'
         + '<div class="field"><label for="co-last-name">Фамилия <span class="req">*</span></label>'
         + '<input type="text" id="co-last-name" maxlength="60" placeholder="Петров" autocomplete="family-name" required></div>'
         + '</div>'
-        + '<div class="field"><label for="co-contact">Контакт для связи <span class="req">*</span></label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required></div>'
+        + '<div class="field"><label for="co-contact">Контакт для связи <span class="req">*</span></label>'
+        + '<input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required>'
+        + '<p class="field-note">Сюда придёт подтверждение и трек-номер.</p></div>'
+        + '</div>'
+        + '<div class="co-block">'
+        + '<h2 class="co-block-title"><span class="co-step" aria-hidden="true">3</span>Доставка</h2>'
         + deliveryChoiceHtml()
         + '<div class="field"><label for="co-address">Адрес или пункт выдачи <span class="req">*</span></label>'
         + '<div class="suggest-box">'
@@ -128,6 +140,8 @@
         + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
         + '</div>'
         + '<p class="field-note" id="co-address-note">' + escapeHtml(addressNote()) + '</p></div>'
+        + '</div>'
+        + '<div class="co-submit">'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
@@ -140,9 +154,8 @@
       initAddressSuggest();
       initDeliveryChoice();
     }
-    var sum = money(Cart.total());
-    setText('co-total-sum', sum); setText('co-btn-sum', sum); setText('co-goods-sum', sum);
-    setText('co-count-label', 'Товары (' + count + ')');
+    renderRail();
+    setText('co-btn-sum', money(Cart.total()));
     var submit = document.getElementById('checkout-submit');
     if (submit) {
       var canOrder = Cart.availableCount() > 0;
@@ -150,6 +163,21 @@
       var label = submit.querySelector('.btn-checkout-label');
       if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
     }
+  }
+
+  // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
+  // возиться с отдельными id ради трёх строк смысла нет.
+  function renderRail() {
+    var side = document.getElementById('checkout-side');
+    if (!side || !Cart.items.length) return;
+    // Именно availableCount: сумма считается без распроданных позиций, и рядом с
+    // ней должно стоять то же число. С общим count строка читалась как «три товара
+    // за 67 990», хотя в цену вошёл один.
+    var count = Cart.availableCount();
+    var sum = money(Cart.total());
+    side.innerHTML = '<div class="co-line"><span>Товары (' + count + ')</span><span>' + sum + '</span></div>'
+      + '<div class="co-line"><span>Доставка</span><span>' + escapeHtml(deliveryName()) + '</span></div>'
+      + '<div class="co-total"><span>Итого</span><b>' + sum + '</b></div>';
   }
 
   // ===== Оплата и доставка =====
@@ -201,8 +229,10 @@
       }).join('')
       + '</div>';
   }
+  // Название перевозчика живёт в правой сводке, а подсказка — под адресом в форме,
+  // поэтому обновляем оба места.
   function syncDelivery() {
-    setText('co-delivery-sum', deliveryName());
+    renderRail();
     setText('co-address-note', addressNote());
   }
   function initDeliveryChoice() {

@@ -1739,21 +1739,41 @@ body.admin{background:#f4f4f6;color:#242426}
 .checkout-head{text-align:center;max-width:640px;margin:0 auto 32px}
 .checkout-title{font-size:38px;letter-spacing:-.03em;line-height:1.08;margin:0 0 10px}
 .checkout-sub{color:var(--muted);font-size:15.5px;line-height:1.5;margin:0}
-.checkout-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:24px;align-items:start}
+/* Товары и форма идут одной колонкой сверху вниз, справа липнет сводка. Именованные
+   области нужны ради телефона: там порядок обязан быть «товары → сумма → форма»,
+   а из вложенной обёртки сводку между ними не поставить. */
+/* Панель сжимается на узком десктопе: фиксированные 360 px на 1024 px забирали у
+   формы почти половину, и ряды выбора вставали в две тесные колонки. */
+.checkout-grid{display:grid;grid-template-columns:minmax(0,1fr) clamp(300px,26vw,360px);
+  grid-template-areas:"items rail" "form rail";gap:16px 24px;align-items:start}
+#checkout-items{grid-area:items;min-width:0}
+#checkout-form{grid-area:form;min-width:0;display:flex;flex-direction:column;gap:16px}
+.checkout-rail{grid-area:rail;position:sticky;top:96px}
 
-.co-items-head{display:flex;align-items:baseline;justify-content:space-between;
-  margin:0 4px 12px;font-size:14px;color:var(--muted)}
-.co-back{color:var(--accent);font-weight:500;white-space:nowrap}
+/* Шаг оформления. Одна карточка на шаг: у покупателя перед глазами и что он
+   покупает, и кому это едет, без прыжков между колонками. */
+.co-block{background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:20px;padding:22px 24px}
+.co-block-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px}
+.co-block-title{display:flex;align-items:center;gap:10px;font-size:19px;letter-spacing:-.02em;margin:0 0 16px}
+.co-block-head .co-block-title{margin-bottom:14px}
+/* Номер шага — тонкий кружок, а не залитая плашка: акцент у сайтов свой, и
+   светлый заливкой под белой цифрой не читается. */
+.co-step{display:grid;place-items:center;width:23px;height:23px;flex:none;border-radius:50%;
+  border:1px solid var(--border);font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0}
+.co-block-count{font-size:13.5px;font-weight:400;color:var(--muted);letter-spacing:0}
+.co-back{color:var(--accent);font-weight:500;white-space:nowrap;font-size:14px}
 .co-back-short{display:none}
 .co-back:hover{text-decoration:underline}
 
-.checkout-items{display:flex;flex-direction:column;gap:10px}
-.co-item{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:18px;align-items:center;
-  background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:18px;padding:16px 20px;
-  transition:border-color .16s ease,box-shadow .16s ease}
-.co-item:hover{border-color:var(--border);box-shadow:0 6px 20px rgba(17,17,26,.05)}
+/* Позиции — строки с волосяной линией, а не карточки в карточке: своя рамка у
+   каждого товара внутри блока шага давала рамку в рамке. */
+.co-list{display:flex;flex-direction:column}
+.co-item{display:grid;grid-template-columns:80px minmax(0,1fr) auto;gap:16px;align-items:center;
+  padding:14px 0;border-top:1px solid var(--border-soft,var(--border))}
+.co-item:first-child{border-top:0;padding-top:2px}
+.co-item:last-child{padding-bottom:2px}
 .co-item-out{opacity:.62}
-.co-item-media{width:96px;height:96px;border-radius:14px;background:var(--bg2);overflow:hidden;
+.co-item-media{width:80px;height:80px;border-radius:14px;background:var(--bg2);overflow:hidden;
   display:flex;align-items:center;justify-content:center}
 .co-item-media img,.co-item-media svg{width:100%;height:100%;object-fit:contain}
 .co-item-name{font-size:16.5px;font-weight:600;margin:0;line-height:1.3;letter-spacing:-.01em}
@@ -1770,35 +1790,53 @@ body.admin{background:#f4f4f6;color:#242426}
 .co-remove svg{width:19px;height:19px}
 .co-remove:hover{color:#b42318;background:#fef3f2}
 
-.checkout-page.is-empty .checkout-grid{grid-template-columns:minmax(0,560px);justify-content:center}
+.checkout-page.is-empty .checkout-grid{grid-template-columns:minmax(0,560px);
+  grid-template-areas:"items";justify-content:center}
+.checkout-page.is-empty #checkout-form,.checkout-page.is-empty .checkout-rail{display:none}
+/* Подзаголовок обещает шаги, которых при пустой корзине нет. */
+.checkout-page.is-empty .checkout-sub{display:none}
 .checkout-empty{background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:20px;padding:56px 24px;text-align:center}
 .checkout-empty-ico{font-size:40px;line-height:1;margin-bottom:14px;opacity:.55}
 .checkout-empty h2{font-size:21px;letter-spacing:-.02em;margin:0 0 8px}
 .checkout-empty p{color:var(--muted);margin:0 0 22px;font-size:15px}
 
-/* правая колонка: сводка и форма, липнет при прокрутке списка */
-.checkout-side{position:sticky;top:96px}
-.co-summary{background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:20px;padding:24px}
-.co-summary-title{font-size:19px;letter-spacing:-.02em;margin:0 0 16px}
+/* Правая панель — только деньги: сумма всегда на виду, пока покупатель заполняет
+   форму. Раньше сюда была втиснута вся форма, и панель превращалась в длинную
+   узкую полосу. */
+.co-summary{background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:20px;padding:22px 24px}
 .co-line{display:flex;justify-content:space-between;gap:12px;font-size:14.5px;margin-bottom:9px}
+.co-line span:last-child{font-variant-numeric:tabular-nums}
 .co-line-muted span:last-child{color:var(--muted);font-size:13px}
 .co-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  padding:14px 0 18px;margin-bottom:6px;border-top:1px solid var(--border);margin-top:14px}
+  padding-top:14px;border-top:1px solid var(--border);margin-top:14px}
 .co-total span{font-size:15px}
 .co-total b{font-size:26px;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
-.co-summary .field{margin-bottom:12px}
-.co-summary .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-.co-summary .req{color:#d92d20}
-.co-summary .btn-checkout{margin-top:6px}
-.co-summary .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
+/* Доводы в колонку: три в ряд в 360 px не встают, а медиазапрос по ширине окна
+   про ширину этой панели ничего не знает (разметку даёт TRUST_BLOCK_COL). */
+.trust-col{grid-template-columns:1fr;margin-top:18px;padding-top:16px}
+.trust-col .trust-item{justify-content:flex-start;padding:5px 0}
+.trust-col .trust-item+.trust-item{border-left:0}
+
+/* Поля формы: подписи те же, что были в правой панели. */
+.co-block .field{margin-bottom:14px}
+.co-block .field:last-child{margin-bottom:0}
+.co-block .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+.co-block .req{color:#d92d20}
+/* Кнопка не на всю ширину колонки: растянутая на 870 px синяя полоса выглядит
+   тяжелее, чем читается, а правовая подпись под ней рвалась посреди слова. */
+.co-submit{margin-top:2px;max-width:440px;margin-inline:auto;width:100%}
+.co-submit .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5;text-align:center}
+.co-submit .form-msg{margin:10px 0 0}
 /* Имя и фамилия — двумя колонками: по отдельной строке на каждое поле форма
    вытягивалась, и кнопка оплаты уезжала за первый экран. На узком экране
    колонки складываются сами. */
-.co-names{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.co-names{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
 @media(max-width:420px){.co-names{grid-template-columns:1fr}}
 /* Способ доставки. Плашек нет намеренно, как и в блоке доверия: рамка выбранного
-   варианта берёт акцент сайта, остальное — волосяные линии. */
-.co-choice{display:grid;gap:8px;margin:4px 0 14px}
+   варианта берёт акцент сайта, остальное — волосяные линии.
+   В широкой колонке варианты встают рядом — так их видно одним взглядом, а не
+   списком в столбик, как было в узкой панели. */
+.co-choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:0 0 16px}
 .co-choice-opt{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;cursor:pointer;
   border:1px solid var(--border);border-radius:13px;transition:border-color .16s,background .16s}
 .co-choice-opt:hover{border-color:#c7c7cc}
@@ -1828,16 +1866,20 @@ body.admin{background:#f4f4f6;color:#242426}
 
 @media(max-width:900px){
   .checkout-page{padding-block:22px 40px}
-  .checkout-grid{grid-template-columns:1fr;gap:18px}
-  .checkout-side{position:static}
+  /* Сумма встаёт МЕЖДУ товарами и формой: внизу, после кнопки, её бы уже никто
+     не увидел, а знать её надо до заполнения. */
+  .checkout-grid{grid-template-columns:1fr;grid-template-areas:"items" "rail" "form";gap:14px}
+  .checkout-rail{position:static}
   .checkout-title{font-size:27px}
   .checkout-sub{font-size:14.5px}
-  .co-item{grid-template-columns:72px minmax(0,1fr);gap:14px;padding:14px;row-gap:12px}
-  .co-item-media{width:72px;height:72px;border-radius:12px}
+  .co-block{padding:18px 16px;border-radius:18px}
+  .co-block-title{font-size:17.5px}
+  .co-item{grid-template-columns:64px minmax(0,1fr);gap:14px;row-gap:10px}
+  .co-item-media{width:64px;height:64px;border-radius:12px}
   .co-item-side{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
   .co-item-unit{margin-top:6px}
-  .co-summary{padding:20px}
-  .co-items-head{margin-inline:2px;font-size:13.5px}
+  .co-summary{padding:18px 16px}
+  .trust-col{margin-top:14px;padding-top:12px}
   .co-back-full{display:none}
   .co-back-short{display:inline}
 }
