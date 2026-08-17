@@ -290,6 +290,17 @@ body.admin{background:var(--bg2)}
 .a-table td{padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .a-thumb{width:56px}
 .a-thumb img,.a-thumb svg{width:48px;height:48px;object-fit:contain;border-radius:8px;background:var(--bg2)}
+/* Состояние онлайн-оплаты в строке заказа. Цвета — уже проверенные в проекте:
+   зелёный плашки скидки и оранжевый отметки «Новинка», а не var(--accent):
+   в панели акцент нейтрально-серый и подпись на нём не читалась бы. */
+/* Отдельной строкой под суммой, а не рядом с ней: инлайновая плашка тянула
+   колонку «Сумма» на всю ширину подписи. width:fit-content — чтобы фон
+   обтягивал текст, а не всю ячейку. */
+.pay-tag{display:block;width:fit-content;margin-top:5px;padding:2px 8px;border-radius:20px;
+  font-size:11.5px;font-weight:600;line-height:1.5;white-space:nowrap}
+.pay-tag.pay-ok{background:#0b7a37;color:#fff}
+.pay-tag.pay-wait{background:var(--bg2);color:var(--muted)}
+.pay-tag.pay-warn{background:#bf4800;color:#fff}
 
 /* Порядок товаров в каталоге: ручка перетаскивания, номер позиции и стрелки.
    Ячейка остаётся обычной (не flex) по той же причине, что и .a-actions ниже —
@@ -1281,6 +1292,10 @@ body.review-consent-open{overflow:hidden}
 .order-success{width:100%;padding:30px 22px;border:1px solid #d9efe1;border-radius:24px;background:linear-gradient(180deg,#f4fbf7 0%,#fff 72%);text-align:center;outline:none}
 .order-success-check{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 18px;border-radius:50%;background:#21a366;color:#fff;box-shadow:0 12px 30px rgba(33,163,102,.2);font-size:34px;font-weight:700;line-height:1}
 .order-success-eyebrow{margin:0 0 7px;color:#16784a;font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+/* Отменённая оплата: заявка цела, но зелёный кружок читался бы как «оплачено».
+   Нейтральный серый — событие не ошибка и не успех. */
+.order-success-neutral .order-success-check{background:var(--bg2);color:var(--muted);box-shadow:none}
+.order-success-neutral .order-success-eyebrow{color:var(--muted)}
 .order-success h3{margin:0;font-size:28px;letter-spacing:-.04em}
 .order-success-copy{max-width:310px;margin:10px auto 20px;color:var(--muted);font-size:14px;line-height:1.55}
 .order-success-number{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:15px;background:#fff;text-align:left}
@@ -1776,6 +1791,21 @@ body.admin{background:#f4f4f6;color:#242426}
 .co-summary .req{color:#d92d20}
 .co-summary .btn-checkout{margin-top:6px}
 .co-summary .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
+/* Способ оплаты. Плашек нет намеренно, как и в блоке доверия: рамка выбранного
+   варианта берёт акцент сайта, остальное — волосяные линии. */
+.co-pay{display:grid;gap:8px;margin:4px 0 14px}
+.co-pay-opt{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;cursor:pointer;
+  border:1px solid var(--border);border-radius:13px;transition:border-color .16s,background .16s}
+.co-pay-opt:hover{border-color:#c7c7cc}
+.co-pay-opt:has(input:checked){border-color:var(--accent);background:#fbfbfd}
+/* :has() поддерживают не все версии Safari, до которых доходит витрина, поэтому
+   выбранный вариант обязан читаться и по самому радио, а не только по рамке. */
+.co-pay-opt input{flex:none;width:auto;margin:2px 0 0;accent-color:var(--accent)}
+.co-pay-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.co-pay-text{display:block;line-height:1.35}
+.co-pay-text b{display:block;font-size:14.5px;font-weight:600}
+.co-pay-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
+.order-success .form-msg{margin:4px auto 14px;max-width:34em}
 .checkout-done{background:#fff;border:1px solid var(--border);border-radius:22px;padding:14px}
 
 /* Подсказки адреса: список привязан к самому полю, а не ко всему блоку —

@@ -122,14 +122,18 @@
         + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
         + '</div>'
         + '<p class="field-note">Необязательно — можно уточнить при подтверждении заказа.</p></div>'
+        + payChoiceHtml()
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note">Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ. '
+        + '<p class="form-legal-note">' + (payOnline()
+          ? 'Оплата проходит на защищённой странице платёжного сервиса — реквизиты карты магазин не получает. '
+          : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ. ')
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
       initAddressSuggest();
+      initPayChoice();
     }
     var sum = money(Cart.total());
     setText('co-total-sum', sum); setText('co-btn-sum', sum); setText('co-goods-sum', sum);
@@ -139,8 +143,44 @@
       var canOrder = Cart.availableCount() > 0;
       submit.disabled = !canOrder;
       var label = submit.querySelector('.btn-checkout-label');
-      if (label) label.textContent = canOrder ? 'Оформить заказ' : 'Нет доступных товаров';
+      if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
     }
+  }
+
+  // ===== Способ оплаты =====
+  // Включена ли онлайн-оплата, витрина узнаёт единственным атрибутом от сервера:
+  // ключи кассы остаются на сервере, как и ключ подсказок адреса.
+  function payOnline() {
+    var page = document.getElementById('checkout-page');
+    return !!(page && page.dataset && page.dataset.pay);
+  }
+  // Что выбрал покупатель. Оплата выключена — всегда прежний путь «заявка».
+  function payMode() {
+    if (!payOnline()) return 'later';
+    var on = document.querySelector('input[name="co-pay"]:checked');
+    return (on && on.value === 'later') ? 'later' : 'online';
+  }
+  function submitLabel() { return payMode() === 'online' ? 'Перейти к оплате' : 'Оформить заказ'; }
+
+  function payChoiceHtml() {
+    if (!payOnline()) return '';
+    // Онлайн-оплата предложена первой, но выбор оставлен: у серого импорта наличие
+    // подтверждает менеджер, и покупателю бывает спокойнее заплатить после звонка.
+    return '<div class="co-pay" role="radiogroup" aria-label="Способ оплаты">'
+      + '<label class="co-pay-opt"><input type="radio" name="co-pay" value="online" checked>'
+      + '<span class="co-pay-text"><b>Оплатить сейчас</b><i>Карта, СБП и другие способы — на странице платёжного сервиса</i></span></label>'
+      + '<label class="co-pay-opt"><input type="radio" name="co-pay" value="later">'
+      + '<span class="co-pay-text"><b>Оплатить после подтверждения</b><i>Менеджер свяжется с вами и подтвердит наличие</i></span></label>'
+      + '</div>';
+  }
+  function initPayChoice() {
+    var box = document.querySelector('.co-pay');
+    if (!box) return;
+    box.addEventListener('change', function () {
+      var submit = document.getElementById('checkout-submit');
+      var label = submit && submit.querySelector('.btn-checkout-label');
+      if (label && !submit.disabled) label.textContent = submitLabel();
+    });
   }
   // ===== Подсказки адреса (dadata.ru через наш /api/address-suggest) =====
   // Подсказки — помощь, а не условие: если ключ не настроен, запрос не удался или
@@ -1277,13 +1317,62 @@
     }
   });
 
+  // Заказ уже создан — открываем оплату. Ссылку выдаёт наш сервер, а не браузер:
+  // ключи кассы на витрину не попадают.
+  // Упавшая оплата не отменяет заказ: заявка записана и у менеджера уже есть,
+  // поэтому покупателю показываем номер и предлагаем повторить.
+  function startPayment(orderId, number) {
+    fetch('/api/pay/crocopay/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: orderId })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.ok && d.url) { location.href = d.url; return; }
+        showOrderDone(number, (d && d.error) || 'Не удалось открыть оплату', orderId);
+      })
+      .catch(function () { showOrderDone(number, 'Не удалось открыть оплату: ошибка сети', orderId); });
+  }
+
+  // Экран «заказ оформлен». payError — оплату начать не удалось: заявка при этом
+  // цела, поэтому это предупреждение, а не ошибка оформления.
+  function showOrderDone(number, payError, orderId) {
+    var page = document.getElementById('checkout-page');
+    if (!page) return;
+    var grid = page.querySelector('.checkout-grid') || page.querySelector('.checkout-done');
+    var head = page.querySelector('.checkout-title');
+    if (head) head.textContent = 'Заказ оформлен';
+    if (!grid) return;
+    grid.className = 'checkout-done';
+    grid.innerHTML = '<section class="order-success" id="order-success" role="status" aria-live="polite" tabindex="-1">'
+      + '<div class="order-success-check" aria-hidden="true">✓</div>'
+      + '<p class="order-success-eyebrow">Заявка получена</p>'
+      + '<h3>Спасибо за заказ!</h3>'
+      + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
+      + '<div class="order-success-number"><span>Номер заказа</span><strong>' + escapeHtml(number || '—') + '</strong></div>'
+      + (payError
+        ? '<p class="form-msg err">' + escapeHtml(payError) + '. Заказ сохранён — можно повторить оплату или дождаться менеджера.</p>'
+          + (orderId ? '<button type="button" class="btn btn-primary btn-lg" id="pay-retry">Повторить оплату</button>' : '')
+        : '')
+      + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
+      + '<a class="btn' + (payError ? '' : ' btn-primary') + ' btn-lg" href="/">Продолжить покупки</a>'
+      + '</section>';
+    var retry = document.getElementById('pay-retry');
+    if (retry) retry.addEventListener('click', function () {
+      retry.disabled = true; retry.textContent = 'Открываем оплату...';
+      startPayment(orderId, number);
+    });
+    var ok = document.getElementById('order-success');
+    if (ok) { try { ok.focus(); } catch (e) {} }
+  }
+
   function submitOrder(btn) {
     var msg = document.getElementById('order-msg');
     var contact = (document.getElementById('co-contact') || {}).value || '';
     if (!contact.trim()) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Укажите контакт для связи'; } return; }
+    var mode = payMode();
     btn.disabled = true;
     var btnHtml = btn.innerHTML;
-    btn.textContent = 'Отправляем...';
+    btn.textContent = mode === 'online' ? 'Открываем оплату...' : 'Отправляем...';
     var payload = {
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '', options: i.options || [] }; }),
       customerName: (document.getElementById('co-name') || {}).value || '',
@@ -1298,23 +1387,10 @@
           var number = escapeHtml(d.number || '—');
           var page = document.getElementById('checkout-page');
           if (page) {                       // страница оформления: показываем результат на всю ширину
-            var grid = page.querySelector('.checkout-grid');
-            var head = page.querySelector('.checkout-title');
-            if (head) head.textContent = 'Заказ оформлен';
-            if (grid) {
-              grid.className = 'checkout-done';
-              grid.innerHTML = '<section class="order-success" id="order-success" role="status" aria-live="polite" tabindex="-1">'
-                + '<div class="order-success-check" aria-hidden="true">✓</div>'
-                + '<p class="order-success-eyebrow">Заявка получена</p>'
-                + '<h3>Спасибо за заказ!</h3>'
-                + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
-                + '<div class="order-success-number"><span>Номер заказа</span><strong>' + number + '</strong></div>'
-                + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
-                + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
-                + '</section>';
-              var ok = document.getElementById('order-success');
-              if (ok) { try { ok.focus(); } catch (e) {} }
-            }
+            // Оплата — отдельный шаг поверх записанной заявки, поэтому уводим на
+            // форму только после подтверждения, что заказ создан.
+            if (mode === 'online' && d.id) { startPayment(d.id, d.number || '—'); return; }
+            showOrderDone(d.number || '—');
             return;
           }
           var items = document.getElementById('cart-items');
