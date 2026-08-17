@@ -861,9 +861,11 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   // Token записываем ДО создания счёта: он уходит в callback_url, а id счёта
   // появляется только в ответе платёжки. У заказа с прежним платежом
   // startOrderPayment сохранит старый token — см. комментарий в lib/db.js.
+  // Сумму храним в ОСНОВНЫХ единицах — в тех же, в которых её понимает касса
+  // (документация обещает копейки и врёт, см. lib/crocopay.js).
   const started = db.startOrderPayment(id, {
     provider: 'crocopay', token: crypto.randomBytes(16).toString('hex'),
-    method, amount: CROCO.toMinor(order.total), currency: CROCO.CURRENCY
+    method, amount: order.total, currency: CROCO.CURRENCY
   });
   if (!started || !started.payment || !started.payment.token) return res.json({ ok: false, error: 'Не удалось начать оплату' }, 500);
 
@@ -883,9 +885,11 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
     const known = /payment_option|not enabled|not supported/i.test(String(r.error || ''));
     return res.json({ ok: false, error: known ? 'Этот способ оплаты сейчас недоступен — выберите другой' : 'Не удалось выставить счёт' }, 502);
   }
+  // Способ пишем тот, что ВЕРНУЛА касса: на запрос TO_CARD она вправе выдать
+  // TO_CARD_TRANSGRAN, и подпись реквизита должна соответствовать выданному.
   db.attachOrderInvoice(id, {
     invoiceId: r.invoice.id, requisite: r.invoice.requisite, bank: r.invoice.bank,
-    owner: r.invoice.owner, method, expiresAt: r.invoice.expiresAt
+    owner: r.invoice.owner, method: r.invoice.method || method, expiresAt: r.invoice.expiresAt
   });
   res.json({ ok: true, url: '/pay/' + encodeURIComponent(id) });
 });
@@ -953,21 +957,22 @@ app.post('/api/pay/crocopay/callback', (req, res) => {
     return res.json({ ok: false }, 403);
   }
 
-  // Сумма в вебхуке — в минимальных единицах, ожидаемую мы записали такой же.
+  // Ожидаемую сумму мы записали в рублях, а в каких единицах её пришлёт вебхук —
+  // проверить, не проведя настоящий платёж, невозможно: документация обещает
+  // минимальные, но на счёте она уже соврала. `paidEnough()` принимает оба
+  // прочтения и на недоплате не срабатывает ни по одному из них.
   const expected = Number(pay.amount) || 0;
-  const paid = Number(req.body && req.body.total);
-  // Меньше ожидаемого — оплаченным не считаем. Больше или равно — считаем: при
-  // мульти-гео плательщик выбирает свою страну, сумма пересчитывается по курсу и
-  // приходит в его валюте, то есть численно почти всегда больше рублёвой.
-  const paidEnough = Number.isFinite(paid) && paid >= expected;
-  const note = !Number.isFinite(paid) ? 'Платёжка не передала сумму'
-    : (paid === expected ? '' : `Пришло ${paid}, ожидали ${expected} (минимальных единиц ${pay.currency || ''})`.trim());
-  const result = db.settleOrderPayment(id, { status: paidEnough ? 'paid' : 'mismatch', total: paid, timestamp: req.body && req.body.timestamp, note });
+  const raw = req.body && req.body.total;
+  const check = CROCO.paidEnough(expected, raw);
+  const note = check.major === null ? 'Платёжка не передала сумму'
+    : (Math.abs(check.major - expected) < 0.01 ? '' : `Пришло ${raw}, ожидали ${expected} ${pay.currency || ''}`.trim());
+  const state = check.ok ? 'paid' : 'mismatch';
+  const result = db.settleOrderPayment(id, { status: state, total: check.major, timestamp: req.body && req.body.timestamp, note });
   if (!result) return res.json({ ok: false }, 404);
 
   // Платёжка вправе повторить вызов, да и опрос статуса приходит к тому же
   // изменению — второй раз менеджера не дёргаем.
-  if (result.changed) notifyPayment(order, paidEnough ? 'paid' : 'mismatch', note);
+  if (result.changed) notifyPayment(order, state, note);
   res.json({ ok: true });
 });
 /* ====================== /ОПЛАТА: CrocoPAY (схема H2H) ====================== */

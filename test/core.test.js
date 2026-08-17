@@ -1807,10 +1807,27 @@ test('оплата выключена по умолчанию и не включ
   assert.equal(croco.enabled({ crocopayClientId: 'a', crocopayClientSecret: 'b' }), false);
   // Касса рублёвая, выбора валюты нет ни у покупателя, ни у владельца.
   assert.equal(croco.CURRENCY, 'RUB');
-  // В H2H сумма счёта — в минимальных единицах (в Express была в основных).
-  // Здесь легко ошибиться в сто раз.
   assert.equal(croco.toMinor(5000), 500000);
   assert.equal(croco.toMinor(99990), 9999000);
+});
+
+test('единицы суммы вебхука угадываются, а недоплата не проходит ни в каких', () => {
+  const croco = require('../lib/crocopay');
+  // Ожидаем 239 990 ₽. Касса вправе прислать и рубли, и копейки — документация
+  // обещает копейки, но она же врёт про единицы счёта, так что верим обеим.
+  assert.deepEqual(croco.paidEnough(239990, 239990), { ok: true, major: 239990 });
+  assert.deepEqual(croco.paidEnough(239990, 23999000), { ok: true, major: 23999000 });
+  assert.equal(croco.paidEnough(100, 10000).ok, true, 'копейки распознаются');
+  assert.equal(croco.paidEnough(100, 10000).major, 10000);
+  // Переплата законна: при пересчёте по курсу сумма приходит больше рублёвой.
+  assert.equal(croco.paidEnough(1000, 1200).ok, true);
+  // Недоплата мала сразу в обоих прочтениях, поэтому ложного «оплачено» нет.
+  assert.equal(croco.paidEnough(239990, 1000).ok, false);
+  assert.equal(croco.paidEnough(239990, 239989).ok, false);
+  assert.equal(croco.paidEnough(100, 99).ok, false);
+  // Суммы нет вовсе — это не оплата.
+  assert.deepEqual(croco.paidEnough(100, undefined), { ok: false, major: null });
+  assert.deepEqual(croco.paidEnough(100, 'вообще не число'), { ok: false, major: null });
 });
 
 test('статусы счёта переводятся в наши состояния, а чужой id в адрес не уходит', () => {
@@ -2012,10 +2029,11 @@ test('вебхук оплаты сверяет token заказа до запи�
   assert.match(route, /CROCO\.verify\(secret, req\.body, req\.rawBody\)/);
   assert.match(route, /403/);
   assert.ok(route.indexOf('!tokenOk') < route.indexOf('db.settleOrderPayment'), 'проверка обязана идти до записи');
-  // Меньше ожидаемого — не «оплачено». Больше или равно бывает законно: при
-  // мульти-гео сумма приходит в валюте плательщика.
-  assert.match(route, /paid >= expected/);
-  assert.match(route, /paidEnough \? 'paid' : 'mismatch'/);
+  // Меньше ожидаемого — не «оплачено». Больше бывает законно: при пересчёте по
+  // курсу сумма приходит в валюте плательщика. Единицы вебхука неизвестны,
+  // поэтому сверку делает CROCO.paidEnough, принимающий оба прочтения.
+  assert.match(route, /CROCO\.paidEnough\(expected, raw\)/);
+  assert.match(route, /check\.ok \? 'paid' : 'mismatch'/);
   // Уведомляем только на реальное изменение — вебхук повторяется.
   assert.match(route, /if \(result\.changed\)/);
 
@@ -2261,20 +2279,32 @@ test('счёт создаётся в минимальных единицах, а
     assert.equal((await croco.createInvoice(on, { amount: 100, method: '' })).error, 'bad_method');
     assert.equal(sent, null, 'ни одного запроса на кривых входных данных');
 
-    stub(json({
-      id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', amount: 6799000, currency: 'RUB',
-      payment_option: 'TO_CARD', card: '4276 1234 5678 9012', bank_receiver: 'Сбербанк',
-      card_owner: 'IVAN PETROV', expires_at: '2026-01-15T12:30:00Z'
-    }));
+    // Формат — тот, что РЕАЛЬНО отдаёт касса (проверено на боевой 17.08.2026):
+    // вложенный response.transaction + paymentRequisites, camelCase, сумма
+    // строкой в рублях. В документации показан плоский snake_case — он ниже.
+    stub(json({ message: 'Data successfully received', response: {
+      transaction: {
+        id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending',
+        currency: 'RUB', amount: '67990.00000000', expiredAt: '2026-01-15T12:30:00Z'
+      },
+      paymentRequisites: {
+        paymentOption: 'TO_CARD_TRANSGRAN', paymentMethod: 'Сбербанк',
+        card: '4276 1234 5678 9012', cardOwner: 'IVAN PETROV'
+      }
+    } }));
     const ok = await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD', callbackUrl: 'https://shop/cb?order=1&token=t' });
     assert.equal(ok.ok, true);
     assert.equal(ok.invoice.requisite, '4276 1234 5678 9012');
+    assert.equal(ok.invoice.owner, 'IVAN PETROV');
     assert.equal(ok.invoice.state, 'pending');
     assert.equal(ok.invoice.expiresAt, Date.parse('2026-01-15T12:30:00Z'));
-    // Сумма — в МИНИМАЛЬНЫХ единицах: в Express она была в основных, и на этой
-    // асимметрии легко ошибиться в сто раз.
+    // Касса вправе подменить способ — записываем возвращённый, иначе подпись
+    // реквизита будет от другого способа.
+    assert.equal(ok.invoice.method, 'TO_CARD_TRANSGRAN');
+    // Сумма уходит в ОСНОВНЫХ единицах. Документация обещает копейки и врёт:
+    // с копейками счёт вышел бы в сто раз больше заказа.
     const body = JSON.parse(sent.opts.body);
-    assert.equal(body.amount, 6799000);
+    assert.equal(body.amount, 67990);
     assert.equal(body.currency, 'RUB');
     assert.equal(body.payment_option, 'TO_CARD');
     assert.equal(body.callback_url, 'https://shop/cb?order=1&token=t');
@@ -2282,8 +2312,14 @@ test('счёт создаётся в минимальных единицах, а
     assert.equal(sent.opts.headers['Client-Secret'], 'secret');
     assert.match(sent.url, /\/api\/v2\/h2h\/invoices$/);
 
+    // Касса вернула другую сумму — реквизиты показывать нельзя: покупатель
+    // переведёт не столько, и платёж не сойдётся.
+    stub(json({ response: { transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', amount: '6799000.00' },
+      paymentRequisites: { card: '4276 1234 5678 9012' } } }));
+    assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'amount_mismatch');
+
     // Счёт без реквизитов бесполезен: показывать покупателю нечего.
-    stub(json({ id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', card: '' }));
+    stub(json({ response: { transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending' }, paymentRequisites: { paymentMethod: 'Сбербанк' } } }));
     assert.equal((await croco.createInvoice(on, { amount: 1, method: 'SBP' })).error, 'no_requisite');
 
     // Ошибки кассы: и с полем status, и просто кодом ответа.
@@ -2292,10 +2328,14 @@ test('счёт создаётся в минимальных единицах, а
     stub({ ok: false, status: 500, json: async () => { throw new Error('не json'); } });
     assert.equal((await croco.createInvoice(on, { amount: 1, method: 'SBP' })).error, 'http_500');
 
-    // Статус счёта — ради него всё и затевалось.
-    stub(json({ id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Success', amount: 6799000 }));
+    // Статус счёта — ради него всё и затевалось. У GET своя форма ответа:
+    // transaction лежит в корне, без обёртки response (проверено на боевой).
+    stub(json({ message: 'Data successfully received', transaction: {
+      id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Success', currency: 'RUB', amount: '67990.00000000'
+    } }));
     const st = await croco.invoice(on, '911c2823-f55b-43b5-9881-d5653107f7dc');
     assert.equal(st.invoice.state, 'paid');
+    assert.equal(st.invoice.amount, 67990);
     assert.match(sent.url, /\/invoices\/911c2823-f55b-43b5-9881-d5653107f7dc$/);
     // Чужая строка в путь запроса не уходит.
     sent = null;
