@@ -1847,6 +1847,12 @@ body.admin{background:#f4f4f6;color:#242426}
 .co-choice-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .co-choice-text{display:block;line-height:1.35}
 .co-choice-text b{display:block;font-size:14.5px;font-weight:600}
+/* Логотип перевозчика вместо названия. Высота фиксирована, ширина по пропорции
+   из viewBox — вордмарки у СДЭК и OZON разной длины, и подгонять их под общую
+   ширину значило бы искажать. min-height держит строку той же высоты, что у
+   текстового варианта, чтобы карточки с логотипом и без не разъезжались. */
+.co-choice-mark{display:flex;align-items:center;min-height:20px}
+.co-choice-logo{display:block;height:19px;width:auto;max-width:118px}
 .co-choice-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
 .order-success .form-msg{margin:4px auto 14px;max-width:34em}
 .checkout-done{background:#fff;border:1px solid var(--border);border-radius:22px;padding:14px}

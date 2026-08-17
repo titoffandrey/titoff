@@ -222,9 +222,16 @@
     // лишний раз, а строка «Доставка» в итогах висела бы без значения.
     return '<div class="co-choice" role="radiogroup" aria-label="Способ доставки">'
       + list.map(function (m, i) {
+        // Логотип берётся из спрайта, вставленного сервером в страницу: ссылка
+        // <use> вместо копии разметки, чётко на любом экране и без запросов.
+        // Логотипа нет — остаётся название текстом, и раскладка не меняется.
+        var mark = m.logoBox
+          ? '<svg class="co-choice-logo" viewBox="' + escapeHtml(m.logoBox) + '" role="img" aria-label="'
+            + escapeHtml(m.name) + '"><use href="#dl-' + escapeHtml(m.id) + '"></use></svg>'
+          : '<b>' + escapeHtml(m.name) + '</b>';
         return '<label class="co-choice-opt"><input type="radio" name="co-delivery" value="'
           + escapeHtml(m.id) + '"' + (i === 0 ? ' checked' : '') + '>'
-          + '<span class="co-choice-text"><b>' + escapeHtml(m.name) + '</b>'
+          + '<span class="co-choice-text"><span class="co-choice-mark">' + mark + '</span>'
           + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span></label>';
       }).join('')
       + '</div>';

@@ -2172,3 +2172,50 @@ test('оформление разложено на три блока, а сум�
   // Смена перевозчика обновляет и сумму справа, и подсказку под адресом.
   assert.match(js, /function syncDelivery\(\) \{\s*renderRail\(\);\s*setText\('co-address-note'/);
 });
+
+test('логотип перевозчика инлайнится спрайтом, а без файла остаётся текст', () => {
+  const logos = require('../lib/delivery-logos');
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  // Файлы приходят снаружи (их скачивают с брендбука), а инлайн чужого SVG в
+  // HTML исполняет всё, что внутри.
+  const dirty = '<svg viewBox="0 0 10 10"><script>alert(1)</script>'
+    + '<rect onload="alert(2)" fill="url(#a)"/>'
+    + '<image href="https://example.com/t.png"/>'
+    + '<foreignObject><b>x</b></foreignObject></svg>';
+  const clean = logos.sanitize(dirty);
+  assert.doesNotMatch(clean, /<script/i);
+  assert.doesNotMatch(clean, /onload/i);
+  assert.doesNotMatch(clean, /example\.com/);
+  assert.doesNotMatch(clean, /foreignObject/i);
+  assert.match(clean, /url\(#a\)/, 'внутренние ссылки логотипа обязаны остаться');
+
+  // В брендбуках служебные id — сплошь «a». Без приставки второй логотип на
+  // странице красился бы градиентом первого.
+  const one = logos.namespaceIds('<linearGradient id="a"/><rect fill="url(#a)"/><use href="#a"/>', 'dl-cdek');
+  assert.match(one, /id="dl-cdek-a"/);
+  assert.match(one, /url\(#dl-cdek-a\)/);
+  assert.match(one, /href="#dl-cdek-a"/);
+  assert.doesNotMatch(one, /url\(#a\)/);
+
+  // Витрина получает viewBox логотипа списком способов — по нему <use>
+  // масштабируется, а высоту задаёт CSS.
+  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  assert.match(html, /logoBox/);
+  assert.match(js, /m\.logoBox/);
+  assert.match(js, /<use href="#dl-/);
+  // Логотипа нет — название текстом, раскладка та же. Это и есть текущее
+  // состояние: файлы в public/delivery/ кладутся отдельно.
+  assert.match(js, /: '<b>' \+ escapeHtml\(m\.name\) \+ '<\/b>'/);
+  for (const m of require('../lib/delivery').METHODS) {
+    if (!logos.has(m.id)) assert.ok(html.includes(m.name), 'без логотипа обязано остаться название ' + m.name);
+  }
+  // Высота фиксирована, ширина по пропорции: вордмарки разной длины, подгонять
+  // их под общую ширину значило бы искажать.
+  assert.match(css, /\.co-choice-logo\{display:block;height:19px;width:auto/);
+  assert.match(css, /\.co-choice-mark\{display:flex;align-items:center;min-height:20px\}/);
+  // Спрайта нет, пока нет ни одного файла — лишнего узла в разметке не будет.
+  if (!logos.names().length) assert.equal(logos.sprite(), '');
+});
