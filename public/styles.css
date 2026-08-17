@@ -301,6 +301,9 @@ body.admin{background:var(--bg2)}
 .pay-tag.pay-ok{background:#0b7a37;color:#fff}
 .pay-tag.pay-wait{background:var(--bg2);color:var(--muted)}
 .pay-tag.pay-warn{background:#bf4800;color:#fff}
+/* Истёкший и отменённый счёт — не ошибка и не ожидание: обводка вместо заливки,
+   чтобы в списке заказов такие строки не спорили с оплаченными. */
+.pay-tag.pay-off{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--border)}
 
 /* Порядок товаров в каталоге: ручка перетаскивания, номер позиции и стрелки.
    Ячейка остаётся обычной (не flex) по той же причине, что и .a-actions ниже —
@@ -1900,6 +1903,49 @@ body.admin{background:#f4f4f6;color:#242426}
 .suggest-value{display:block;font-size:14px}
 .suggest-hint{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 
+/* ===== Страница оплаты (/pay/:id, схема H2H) =====
+   Своя страница вместо формы платёжки: счёт выставляем мы и реквизиты
+   показываем сами. Раскладка узкая и в одну колонку — здесь ровно одно дело:
+   перенести сумму и реквизит в банковское приложение. */
+.pay-page .checkout-head{margin-bottom:24px}
+.pay-wrap{max-width:560px;margin:0 auto}
+.pay-invoice .co-block-title,.pay-choice .co-block-title{margin-bottom:18px}
+/* Сумма — самое важное на странице, поэтому отдельной плашкой и крупно:
+   покупатель переводит её вручную, и ошибка в цифре стоит платежа. */
+.pay-amount{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:14px 16px;border-radius:14px;background:var(--bg2);margin-bottom:16px}
+.pay-amount span{color:var(--muted);font-size:13px}
+.pay-amount b{font-size:26px;letter-spacing:-.025em;font-variant-numeric:tabular-nums;margin-right:auto}
+.pay-req{border:1px solid var(--border-soft,var(--border));border-radius:14px;overflow:hidden}
+.pay-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--border-soft,var(--border))}
+.pay-row:first-child{border-top:0}
+.pay-row-label{flex:none;width:132px;color:var(--muted);font-size:13px}
+/* Реквизит набран моноширинным с расширенным трекингом: длинный номер карты
+   без этого читается сплошной лентой, а его сверяют глазами. */
+.pay-row-value{flex:1;min-width:0;font-size:16px;font-weight:600;letter-spacing:.02em;
+  font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.pay-copy{flex:none;border:1px solid var(--border);border-radius:10px;background:#fff;
+  padding:6px 11px;font:inherit;font-size:12.5px;color:var(--text);cursor:pointer;
+  transition:border-color .14s,color .14s}
+.pay-copy:hover{border-color:#8e8e93}
+.pay-copy.is-done{border-color:#0b7a37;color:#0b7a37}
+.pay-row-qr{flex-wrap:wrap}
+.pay-qr-link{flex:1;min-width:200px}
+.pay-hint,.pay-why{margin:16px 0 0;color:var(--muted);font-size:13.5px;line-height:1.5}
+.pay-why{margin:0 0 16px;color:var(--text)}
+.pay-timer{margin:14px 0 0;font-size:13.5px;color:var(--muted)}
+.pay-timer b{color:var(--text);font-variant-numeric:tabular-nums}
+/* Строка состояния живёт постоянно, а не появляется при ответе: иначе блок
+   прыгает на каждой проверке статуса. */
+.pay-state{margin:10px 0 0;min-height:20px;font-size:13.5px;color:var(--muted)}
+.pay-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.pay-actions .btn{flex:1;min-width:150px}
+.btn-plain{border-color:transparent;background:none;color:var(--accent)}
+.btn-plain:hover{border-color:var(--border)}
+.pay-choice .co-choice{margin-bottom:0}
+.pay-choice .btn-lg{width:100%;margin-top:18px}
+.pay-page .order-success{max-width:none}
+
 @media(max-width:900px){
   .checkout-page{padding-block:22px 40px}
   /* Сумма встаёт МЕЖДУ товарами и формой: внизу, после кнопки, её бы уже никто
@@ -1918,6 +1964,24 @@ body.admin{background:#f4f4f6;color:#242426}
   .trust-col{margin-top:14px;padding-top:12px}
   .co-back-full{display:none}
   .co-back-short{display:inline}
+  /* Подпись реквизита уходит на свою строку: в 375 px колонка в 132 px не
+     оставляет номеру карты места, и он рвался посреди группы цифр. Кнопка при
+     этом обязана остаться рядом со значением — отсюда более узкие поля у неё:
+     номер карты и «Копировать» занимают ровно ширину строки, и без этого
+     кнопка съезжала под номер лишней строкой. */
+  .pay-row{flex-wrap:wrap;gap:4px 10px;padding:11px 12px}
+  .pay-row-label{width:100%;font-size:12px}
+  .pay-row-value{flex:1 1 auto;font-size:15.5px}
+  .pay-copy{padding:5px 9px;font-size:12px}
+  /* Подпись суммы — своей строкой, как у реквизитов: иначе «Копировать» не
+     влезало рядом и уезжало под сумму отдельной строкой. */
+  .pay-amount{gap:4px 10px;padding:13px 14px}
+  .pay-amount span{width:100%}
+  .pay-amount b{font-size:23px}
+  /* Два действия в строку не встают: «Выбрать другой способ» вылезало за
+     кнопку, потому что подпись длиннее её минимальной ширины. */
+  .pay-actions{flex-direction:column}
+  .pay-actions .btn{width:100%}
 }
 
 /* ===== Выбор ремешка часов (страница товара) ===== */

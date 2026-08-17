@@ -147,7 +147,7 @@
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
         + '<p class="form-legal-note">' + (payOnline()
-          ? 'Оплата проходит на защищённой странице платёжного сервиса — реквизиты карты магазин не получает. '
+          ? 'Оплата переводом по реквизитам: номер карты на сайте вводить не нужно, магазин его не спрашивает и не получает. '
           : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ. ')
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
@@ -1390,25 +1390,17 @@
     }
   });
 
-  // Заказ уже создан — открываем оплату. Ссылку выдаёт наш сервер, а не браузер:
-  // ключи кассы на витрину не попадают.
-  // Упавшая оплата не отменяет заказ: заявка записана и у менеджера уже есть,
-  // поэтому покупателю показываем номер и предлагаем повторить.
-  function startPayment(orderId, number) {
-    fetch('/api/pay/crocopay/start', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId: orderId })
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d && d.ok && d.url) { location.href = d.url; return; }
-        showOrderDone(number, (d && d.error) || 'Не удалось открыть оплату', orderId);
-      })
-      .catch(function () { showOrderDone(number, 'Не удалось открыть оплату: ошибка сети', orderId); });
+  // Заказ уже создан — открываем оплату. Способ покупатель выбирает уже НА
+  // странице оплаты, а не здесь: набор способов зависит от кассы, спрашивать её
+  // на каждом открытии оформления незачем, а так покупатель ещё и может
+  // переключиться на другой способ, не оформляя заказ заново.
+  function startPayment(orderId) {
+    location.href = '/pay/' + encodeURIComponent(orderId);
   }
 
-  // Экран «заказ оформлен». payError — оплату начать не удалось: заявка при этом
-  // цела, поэтому это предупреждение, а не ошибка оформления.
-  function showOrderDone(number, payError, orderId) {
+  // Экран «заказ оформлен» — путь без онлайн-оплаты. При включённой оплате сюда
+  // не приходим: заказ записан, и покупатель уходит на свою страницу оплаты.
+  function showOrderDone(number) {
     var page = document.getElementById('checkout-page');
     if (!page) return;
     var grid = page.querySelector('.checkout-grid') || page.querySelector('.checkout-done');
@@ -1422,18 +1414,9 @@
       + '<h3>Спасибо за заказ!</h3>'
       + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
       + '<div class="order-success-number"><span>Номер заказа</span><strong>' + escapeHtml(number || '—') + '</strong></div>'
-      + (payError
-        ? '<p class="form-msg err">' + escapeHtml(payError) + '. Заказ сохранён — можно повторить оплату или дождаться менеджера.</p>'
-          + (orderId ? '<button type="button" class="btn btn-primary btn-lg" id="pay-retry">Повторить оплату</button>' : '')
-        : '')
       + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
-      + '<a class="btn' + (payError ? '' : ' btn-primary') + ' btn-lg" href="/">Продолжить покупки</a>'
+      + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
       + '</section>';
-    var retry = document.getElementById('pay-retry');
-    if (retry) retry.addEventListener('click', function () {
-      retry.disabled = true; retry.textContent = 'Открываем оплату...';
-      startPayment(orderId, number);
-    });
     var ok = document.getElementById('order-success');
     if (ok) { try { ok.focus(); } catch (e) {} }
   }
@@ -1483,7 +1466,7 @@
           if (page) {                       // страница оформления: показываем результат на всю ширину
             // Оплата — отдельный шаг поверх записанной заявки, поэтому уводим на
             // форму только после подтверждения, что заказ создан.
-            if (online && d.id) { startPayment(d.id, d.number || '—'); return; }
+            if (online && d.id) { startPayment(d.id); return; }
             showOrderDone(d.number || '—');
             return;
           }

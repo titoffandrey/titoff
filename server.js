@@ -10,6 +10,7 @@ const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
 const CROCO = require('./lib/crocopay');
 const DELIVERY = require('./lib/delivery');
+const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/deals');
@@ -807,53 +808,131 @@ app.post('/api/order', async (req, res) => {
   res.json({ ok: true, id: order.id, number: order.number, total, telegram: 'queued' });
 });
 
-/* ====================== ОПЛАТА: CrocoPAY (схема Express) ======================
- * Блок снимается целиком вместе с lib/crocopay.js — витрина возвращается к
- * прежнему «заявка, менеджер свяжется», данные заказов при этом остаются целы
- * (см. «Онлайн-оплата» в CLAUDE.md).
+/* ======================== ОПЛАТА: CrocoPAY (схема H2H) ========================
+ * Блок снимается целиком вместе с lib/crocopay.js и lib/pay-methods.js — витрина
+ * возвращается к прежнему «заявка, менеджер свяжется», данные заказов при этом
+ * остаются целы (см. «Онлайн-оплата» в CLAUDE.md).
  *
  * Порядок шагов важен: заказ создаётся и записывается ПЕРВЫМ, оплата идёт поверх
  * уже сохранённой заявки. Поэтому упавшая платёжка не теряет заказ — покупатель
  * видит номер, а менеджер получает заявку как обычно.
+ *
+ * H2H, а не Express: счёт выставляем сами и реквизиты показываем у себя, зато
+ * знаем НАСТОЯЩИЙ статус счёта. В Express статуса нет вовсе — вебхук приходит
+ * только на успех, и неоплаченный заказ висел в ожидании вечно.
  */
 
-// Открыть оплату уже созданного заказа: получаем ссылку на форму CrocoPAY.
+// Свой ли это заказ. Ключ — подписанная cookie-сессия, в которой id появился при
+// оформлении: иначе оплату чужой заявки открывал бы любой, кто угадал номер.
+function ownOrder(req, id) {
+  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
+  return mine.includes(String(id || '')) ? db.getOrder(String(id)) : null;
+}
+
+// Уведомление менеджеру об оплате. Общее для вебхука и опроса статуса: оба пути
+// приводят к одному и тому же изменению, и дублировать текст незачем.
+function notifyPayment(order, state, note) {
+  const site = db.getSite(order.siteId) || db.defaultSite();
+  const ss = T.siteSettings(site);
+  const head = { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
+  if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
+  const msg = `${head} ${tgEsc(order.number)}</b>\n🏬 ${tgEsc(order.siteName || site.storeName)}\n`
+    + `👤 ${tgEsc(order.customerName) || '—'}\n📞 ${tgEsc(order.contact)}\n`
+    + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
+    + (note ? `❗ ${tgEsc(note)}\n` : '');
+  sendTelegram(ss, msg).catch(() => {});
+}
+
+// Выставить счёт по уже созданному заказу и отдать реквизиты.
 app.post('/api/pay/crocopay/start', async (req, res) => {
-  if (rateLimited(req, 'pay', 12, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  if (rateLimited(req, 'pay', 20, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const s = settings();
   if (!CROCO.enabled(s)) return res.json({ ok: false, error: 'Онлайн-оплата отключена' }, 400);
   const id = String((req.body && req.body.orderId) || '');
-  // Платить можно только за свой заказ. Ключ — подписанная cookie-сессия, в
-  // которой id появился при оформлении.
-  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
-  const order = mine.includes(id) ? db.getOrder(id) : null;
+  const order = ownOrder(req, id);
   if (!order) return res.json({ ok: false, error: 'Заказ не найден' }, 404);
   if (order.status === 'cancelled') return res.json({ ok: false, error: 'Заказ отменён' }, 400);
   if (order.payment && order.payment.status === 'paid') return res.json({ ok: false, error: 'Заказ уже оплачен' }, 400);
+  // Способ оплаты проверяем по своему закрытому списку до запроса: чужое
+  // значение касса всё равно отвергнет, а поймать это лучше у себя.
+  const method = String((req.body && req.body.method) || '');
+  if (!PAY.isValid(method)) return res.json({ ok: false, error: 'Выберите способ оплаты' }, 400);
 
-  const token = crypto.randomBytes(16).toString('hex');
+  // Token записываем ДО создания счёта: он уходит в callback_url, а id счёта
+  // появляется только в ответе платёжки. У заказа с прежним платежом
+  // startOrderPayment сохранит старый token — см. комментарий в lib/db.js.
   const started = db.startOrderPayment(id, {
-    provider: 'crocopay', token, amount: CROCO.toMinor(order.total), currency: CROCO.currencyOf(s)
+    provider: 'crocopay', token: crypto.randomBytes(16).toString('hex'),
+    method, amount: CROCO.toMinor(order.total), currency: CROCO.CURRENCY
   });
   if (!started || !started.payment || !started.payment.token) return res.json({ ok: false, error: 'Не удалось начать оплату' }, 500);
 
-  const origin = originOf(req);
-  const back = '?order=' + encodeURIComponent(order.number);
-  const r = await CROCO.initiate(s, {
+  const r = await CROCO.createInvoice(s, {
     amount: order.total,
-    successUrl: origin + '/pay/success' + back,
-    cancelUrl: origin + '/pay/cancel' + back,
+    method,
     // Своего идентификатора заказа в теле вебхука нет вовсе — есть только
     // GET-параметры этого адреса, платёжка их сохраняет. Подпись подтверждает,
     // что вебхук от CrocoPAY, а token — что он про ЭТОТ заказ: без него хватило
     // бы одного перехваченного вебхука на любую заявку с той же суммой.
-    callbackUrl: origin + '/api/pay/crocopay/callback?order=' + encodeURIComponent(id) + '&token=' + started.payment.token
+    callbackUrl: originOf(req) + '/api/pay/crocopay/callback?order=' + encodeURIComponent(id) + '&token=' + started.payment.token
   });
   if (!r.ok) {
-    console.error('crocopay initiate:', r.error);
-    return res.json({ ok: false, error: 'Не удалось открыть оплату' }, 502);
+    console.error('crocopay invoice:', r.error);
+    // Ошибку кассы показываем как есть только для «способ недоступен»: остальные
+    // тексты платёжки покупателю ничего не объясняют.
+    const known = /payment_option|not enabled|not supported/i.test(String(r.error || ''));
+    return res.json({ ok: false, error: known ? 'Этот способ оплаты сейчас недоступен — выберите другой' : 'Не удалось выставить счёт' }, 502);
   }
-  res.json({ ok: true, url: r.url });
+  db.attachOrderInvoice(id, {
+    invoiceId: r.invoice.id, requisite: r.invoice.requisite, bank: r.invoice.bank,
+    owner: r.invoice.owner, method, expiresAt: r.invoice.expiresAt
+  });
+  res.json({ ok: true, url: '/pay/' + encodeURIComponent(id) });
+});
+
+// Статус счёта — то, ради чего затевался переход на H2H. Спрашиваем кассу и
+// записываем изменение у себя; страница оплаты дёргает этот адрес по таймеру.
+app.get('/api/pay/crocopay/status', async (req, res) => {
+  if (rateLimited(req, 'pay-status', 240, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто' }, 429);
+  const s = settings();
+  const order = ownOrder(req, req.query.order);
+  const pay = order && order.payment;
+  if (!pay) return res.json({ ok: false, error: 'Оплата не запускалась' }, 404);
+  // Уже оплаченный заказ кассу не тревожим: 'paid' у нас липкий.
+  if (pay.status === 'paid' || pay.status === 'mismatch') return res.json({ ok: true, state: pay.status });
+  if (!CROCO.enabled(s) || !pay.invoiceId) return res.json({ ok: true, state: pay.status || 'pending' });
+
+  const r = await CROCO.invoice(s, pay.invoiceId);
+  if (!r.ok) return res.json({ ok: true, state: pay.status || 'pending', stale: true });
+  const state = r.invoice.state;
+  if (!state || state === 'pending') return res.json({ ok: true, state: 'pending', expires: pay.expiresAt || 0 });
+
+  const result = db.settleOrderPayment(order.id, { status: state, total: r.invoice.amount });
+  if (result && result.changed) notifyPayment(result.order, state, '');
+  res.json({ ok: true, state });
+});
+
+// Страница оплаты: реквизиты выставленного счёта либо выбор способа. Своя, а не
+// форма платёжки, — это и есть разница между H2H и Express.
+// В trackPage она намеренно не попадает: пришлось бы вносить её и в
+// metricPublicPath, а живой посетитель уехал бы в «неподтверждённые».
+app.get('/pay/:id', async (req, res) => {
+  const site = siteOf(req);
+  const order = ownOrder(req, req.params.id);
+  if (!order) return res.send(R.notFoundPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }), 404);
+  const s = settings();
+  // Список способов — тот, что реально включён у кассы. Ответ платёжки
+  // кэшируется на пять минут, поэтому запрос уходит не на каждое открытие.
+  let methods = [];
+  if (CROCO.enabled(s)) {
+    const r = await CROCO.availableOptions(s);
+    methods = PAY.allowed(r.ok ? r.options : null);
+  }
+  res.send(R.payPage(T.siteSettings(site), order, {
+    origin: originOf(req), categories: T.siteCategories(site), methods,
+    // «Выбрать другой способ»: показать выбор поверх ещё действующего счёта.
+    choose: String(req.query.choose || '') === '1'
+  }));
 });
 
 // Вебхук об успешной оплате. Приходит только на успех (так в документации),
@@ -886,38 +965,12 @@ app.post('/api/pay/crocopay/callback', (req, res) => {
   const result = db.settleOrderPayment(id, { status: paidEnough ? 'paid' : 'mismatch', total: paid, timestamp: req.body && req.body.timestamp, note });
   if (!result) return res.json({ ok: false }, 404);
 
-  // Платёжка вправе повторить вызов — второй раз менеджера не дёргаем.
-  if (result.changed) {
-    const site = db.getSite(order.siteId) || db.defaultSite();
-    const ss = T.siteSettings(site);
-    const head = paidEnough ? '💳 <b>Оплачен заказ' : '⚠️ <b>Оплата с расхождением';
-    const msg = `${head} ${tgEsc(order.number)}</b>\n🏬 ${tgEsc(order.siteName || site.storeName)}\n`
-      + `👤 ${tgEsc(order.customerName) || '—'}\n📞 ${tgEsc(order.contact)}\n`
-      + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
-      + (note ? `❗ ${tgEsc(note)}\n` : '');
-    sendTelegram(ss, msg).catch(() => {});
-  }
+  // Платёжка вправе повторить вызов, да и опрос статуса приходит к тому же
+  // изменению — второй раз менеджера не дёргаем.
+  if (result.changed) notifyPayment(order, paidEnough ? 'paid' : 'mismatch', note);
   res.json({ ok: true });
 });
-
-// Возврат плательщика с формы. Оплату подтверждает ТОЛЬКО вебхук, поэтому
-// «успех» здесь — это «платёж отправлен», а не «деньги получены»: на эти адреса
-// покупатель может зайти и просто закрыв форму.
-// В trackPage эти страницы намеренно не попадают — иначе их пришлось бы вносить
-// и в metricPublicPath, а живой посетитель уехал бы в «неподтверждённые».
-app.get('/pay/success', (req, res) => {
-  const site = siteOf(req);
-  res.send(R.paymentPage(T.siteSettings(site), {
-    kind: 'success', number: req.query.order, origin: originOf(req), categories: T.siteCategories(site)
-  }));
-});
-app.get('/pay/cancel', (req, res) => {
-  const site = siteOf(req);
-  res.send(R.paymentPage(T.siteSettings(site), {
-    kind: 'cancel', number: req.query.order, origin: originOf(req), categories: T.siteCategories(site)
-  }));
-});
-/* ==================== /ОПЛАТА: CrocoPAY (схема Express) ==================== */
+/* ====================== /ОПЛАТА: CrocoPAY (схема H2H) ====================== */
 
 /* =========================== ПАНЕЛЬ ВЛАДЕЛЬЦА (/owner) =========================== */
 
@@ -1198,11 +1251,10 @@ app.post('/owner/settings', (req, res) => {
   patch.crocopayEnabled = req.body.crocopayEnabled !== undefined;
   if (req.body.crocopayClientId !== undefined) patch.crocopayClientId = String(req.body.crocopayClientId).trim().slice(0, 200);
   if (req.body.crocopayClientSecret !== undefined) patch.crocopayClientSecret = String(req.body.crocopayClientSecret).trim().slice(0, 300);
-  if (req.body.crocopayCurrency !== undefined) {
-    const code = String(req.body.crocopayCurrency).trim().toUpperCase();
-    patch.crocopayCurrency = CROCO.CURRENCIES.includes(code) ? code : 'RUB';
-  }
   db.saveSettings(patch);
+  // Список способов оплаты кэширован под ключи прежней кассы — после смены
+  // ключей он бы ещё пять минут отвечал за чужую кассу.
+  CROCO.forgetMethods();
   res.redirect('/owner/settings?flash=' + encodeURIComponent('Сохранено'));
 });
 
