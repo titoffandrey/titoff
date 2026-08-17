@@ -1926,16 +1926,99 @@ test('витрина уводит на оплату только после то
   // Сначала /api/order, и только на его ok — оплата. Иначе упавшая платёжка
   // теряла бы заявку целиком.
   assert.ok(submit.indexOf("fetch('/api/order'") < submit.indexOf('startPayment(d.id'));
-  assert.match(submit, /if \(mode === 'online' && d\.id\) \{ startPayment/);
+  assert.match(submit, /if \(online && d\.id\) \{ startPayment/);
   // Адрес формы приходит от нашего сервера — ключи кассы на витрину не попадают.
   assert.match(js, /fetch\('\/api\/pay\/crocopay\/start'/);
   assert.doesNotMatch(js, /crocopay\.tech|client_secret/);
-  // Оплата выключена — прежний путь без единого запроса к платёжке.
-  assert.match(js, /if \(!payOnline\(\)\) return 'later';/);
-  assert.match(js, /if \(!payOnline\(\)\) return '';/);
+  // Выбора «оплатить позже» нет: включённая оплата — всегда оплата сразу.
+  assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
+  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
   // Упавшая оплата не отменяет заказ: показываем номер и даём повторить.
   assert.match(js, /showOrderDone\(number, \(d && d\.error\)/);
   assert.match(js, /id="pay-retry"/);
+});
+
+test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  // Заказ оформляется с оплатой сразу, поэтому расплывчатых обещаний «уточним
+  // потом» на странице не остаётся ни в разметке, ни в скрипте.
+  for (const text of [js, html]) {
+    assert.doesNotMatch(text, /обсудим при подтверждении/);
+    assert.doesNotMatch(text, /уточнить при подтверждении/);
+  }
+  assert.doesNotMatch(html, /подтвердит наличие/);
+  assert.match(html, /на следующем шаге откроется оплата/);
+  // Оплата не настроена — прежний путь «заявка» обязан остаться: иначе кнопка
+  // вела бы в платёжку, которой нет.
+  const off = render.checkoutPage(ss, { origin: '' });
+  assert.match(off, /менеджер свяжется с вами и подтвердит наличие/);
+});
+
+test('имя, фамилия, адрес и способ доставки обязательны', () => {
+  const delivery = require('../lib/delivery');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ====================== ОПЛАТА'));
+
+  // Сервер проверяет сам: клиентским данным не верим, как и в цене заказа.
+  assert.match(route, /Укажите имя получателя/);
+  assert.match(route, /Укажите фамилию получателя/);
+  assert.match(route, /Укажите адрес или пункт выдачи/);
+  assert.match(route, /DELIVERY\.isValid\(delivery\)/);
+  assert.ok(route.indexOf('Выберите способ доставки') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
+
+  // Витрина отправляет ровно эти поля, а не прежнее одно customerName.
+  assert.match(js, /firstName: val\('co-first-name'\)/);
+  assert.match(js, /lastName: val\('co-last-name'\)/);
+  assert.match(js, /delivery: deliveryChoice\(\)/);
+  assert.doesNotMatch(js, /customerName:/);
+  assert.match(js, /id="co-first-name"/);
+  assert.match(js, /id="co-last-name"/);
+
+  // Список способов доставки один: витрина берёт его от сервера, а не свой.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  assert.match(html, /data-delivery=/);
+  for (const m of delivery.METHODS) assert.ok(html.includes(m.name), 'в разметке нет способа ' + m.name);
+  // Свой список в скрипте разъехался бы с серверным, и покупатель выбрал бы то,
+  // чего сервер потом не принимает. Названия в подсказке к адресу — не список.
+  assert.match(js, /JSON\.parse\(page\.dataset\.delivery\)/);
+  assert.doesNotMatch(js, /id:\s*'cdek'|id:\s*'ozon'/, 'способы не дублируются в скрипте');
+  assert.deepEqual(delivery.METHODS.map(m => m.id), ['cdek', 'ozon']);
+  assert.equal(delivery.isValid('cdek'), true);
+  assert.equal(delivery.isValid('почта'), false);
+  assert.equal(delivery.nameOf('ozon'), 'OZON');
+  assert.equal(delivery.nameOf(''), '', 'заказ без доставки не даёт «undefined»');
+});
+
+test('имя с фамилией собираются в customerName, а старые заказы читаются как были', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-name-'));
+  const fresh = freshDb(dir);
+  const order = fresh.createOrder({ items: [], total: 100, contact: 'tg', firstName: 'Иван', lastName: 'Петров', delivery: 'cdek', address: 'Москва' });
+  assert.equal(order.firstName, 'Иван');
+  assert.equal(order.lastName, 'Петров');
+  // Панели и Telegram рисуются по customerName — она обязана собраться сама.
+  assert.equal(order.customerName, 'Иван Петров');
+  assert.equal(order.delivery, 'cdek');
+  // Чужой способ доставки в заказ не попадает.
+  assert.equal(fresh.createOrder({ items: [], total: 1, contact: 'tg', delivery: 'своя-почта' }).delivery, '');
+  assert.equal(fresh.createOrder({ items: [], total: 1, contact: 'tg' }).delivery, '');
+  // Прежний заказ без раздельных полей: customerName остаётся как есть.
+  const old = fresh.createOrder({ items: [], total: 1, contact: 'tg', customerName: 'Старый Клиент' });
+  assert.equal(old.customerName, 'Старый Клиент');
+  assert.equal(old.firstName, '');
+
+  // В панелях видно способ доставки, а комментарий старых заявок — по-прежнему.
+  const list = [order, { id: 'o9', number: 'ORD-9', createdAt: Date.now(), status: 'new', contact: 'tg', total: 1, items: [], comment: 'позвоните вечером' }];
+  const db = { getOrders: () => list, ordersForSite: () => list, getSites: () => [], pendingReviewCount: () => 0 };
+  for (const html of [ownerViews.ordersList(db, null, 1), siteViews.ordersList(db, dbCore.defaultSite(), null, 1)]) {
+    assert.match(html, /СДЭК/);
+    assert.match(html, /Иван Петров/);
+    assert.match(html, /позвоните вечером/);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('страница возврата с формы не обещает, что деньги получены', () => {

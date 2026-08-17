@@ -1791,20 +1791,25 @@ body.admin{background:#f4f4f6;color:#242426}
 .co-summary .req{color:#d92d20}
 .co-summary .btn-checkout{margin-top:6px}
 .co-summary .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
-/* Способ оплаты. Плашек нет намеренно, как и в блоке доверия: рамка выбранного
+/* Имя и фамилия — двумя колонками: по отдельной строке на каждое поле форма
+   вытягивалась, и кнопка оплаты уезжала за первый экран. На узком экране
+   колонки складываются сами. */
+.co-names{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media(max-width:420px){.co-names{grid-template-columns:1fr}}
+/* Способ доставки. Плашек нет намеренно, как и в блоке доверия: рамка выбранного
    варианта берёт акцент сайта, остальное — волосяные линии. */
-.co-pay{display:grid;gap:8px;margin:4px 0 14px}
-.co-pay-opt{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;cursor:pointer;
+.co-choice{display:grid;gap:8px;margin:4px 0 14px}
+.co-choice-opt{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;cursor:pointer;
   border:1px solid var(--border);border-radius:13px;transition:border-color .16s,background .16s}
-.co-pay-opt:hover{border-color:#c7c7cc}
-.co-pay-opt:has(input:checked){border-color:var(--accent);background:#fbfbfd}
+.co-choice-opt:hover{border-color:#c7c7cc}
+.co-choice-opt:has(input:checked){border-color:var(--accent);background:#fbfbfd}
 /* :has() поддерживают не все версии Safari, до которых доходит витрина, поэтому
    выбранный вариант обязан читаться и по самому радио, а не только по рамке. */
-.co-pay-opt input{flex:none;width:auto;margin:2px 0 0;accent-color:var(--accent)}
-.co-pay-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
-.co-pay-text{display:block;line-height:1.35}
-.co-pay-text b{display:block;font-size:14.5px;font-weight:600}
-.co-pay-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
+.co-choice-opt input{flex:none;width:auto;margin:2px 0 0;accent-color:var(--accent)}
+.co-choice-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.co-choice-text{display:block;line-height:1.35}
+.co-choice-text b{display:block;font-size:14.5px;font-weight:600}
+.co-choice-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
 .order-success .form-msg{margin:4px auto 14px;max-width:34em}
 .checkout-done{background:#fff;border:1px solid var(--border);border-radius:22px;padding:14px}
 

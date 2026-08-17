@@ -9,6 +9,7 @@ const auth = require('./lib/auth');
 const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
 const CROCO = require('./lib/crocopay');
+const DELIVERY = require('./lib/delivery');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/deals');
@@ -728,6 +729,16 @@ app.post('/api/order', async (req, res) => {
   if (!Number.isFinite(total) || total > 1e12) return res.json({ ok: false, error: 'Сумма заказа некорректна' }, 400);
   const contact = String(req.body.contact || '').trim();
   if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
+  // Получатель и доставка обязательны: заказ идёт с предоплатой и уезжает
+  // перевозчиком, а не «уточним при подтверждении», как было у заявки.
+  const firstName = String(req.body.firstName || '').trim();
+  const lastName = String(req.body.lastName || '').trim();
+  if (!firstName) return res.json({ ok: false, error: 'Укажите имя получателя' }, 400);
+  if (!lastName) return res.json({ ok: false, error: 'Укажите фамилию получателя' }, 400);
+  const address = String(req.body.address || '').trim();
+  if (!address) return res.json({ ok: false, error: 'Укажите адрес или пункт выдачи' }, 400);
+  const delivery = String(req.body.delivery || '').trim();
+  if (!DELIVERY.isValid(delivery)) return res.json({ ok: false, error: 'Выберите способ доставки' }, 400);
 
   const visitorId = metrics.visitorId(req) || null;
   const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
@@ -742,8 +753,7 @@ app.post('/api/order', async (req, res) => {
 
   const order = db.createOrder({
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
-    items, total, customerName: req.body.customerName, contact,
-    address: String(req.body.address || '').trim(), comment: req.body.comment,
+    items, total, firstName, lastName, contact, address, delivery, comment: req.body.comment,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
     clientCountry: client.country, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
@@ -754,7 +764,8 @@ app.post('/api/order', async (req, res) => {
   const notify = saved => {
     const lines = items.map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
     const msg = `🛒 <b>Новый заказ ${saved.number}</b>\n🏬 ${tgEsc(site.storeName)}\n`
-      + `👤 Имя: ${tgEsc(saved.customerName) || '—'}\n📞 Контакт: ${tgEsc(saved.contact)}\n`
+      + `👤 Получатель: ${tgEsc(saved.customerName) || '—'}\n📞 Контакт: ${tgEsc(saved.contact)}\n`
+      + (saved.delivery ? `🚚 Доставка: ${tgEsc(DELIVERY.nameOf(saved.delivery))}\n` : '')
       + (saved.address ? `📍 Адрес: ${tgEsc(saved.address)}\n` : '')
       + `🌍 Город: ${tgEsc([saved.clientCity, saved.clientRegion, saved.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
       + `💻 Устройство: ${tgEsc([saved.clientModel || saved.clientDevice, saved.clientOs, saved.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`

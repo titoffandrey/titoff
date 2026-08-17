@@ -111,18 +111,23 @@
       side.innerHTML = '<div class="co-summary">'
         + '<h2 class="co-summary-title">Ваш заказ</h2>'
         + '<div class="co-line"><span id="co-count-label">Товары</span><span id="co-goods-sum">' + money(Cart.total()) + '</span></div>'
-        + '<div class="co-line co-line-muted"><span>Доставка</span><span>обсудим при подтверждении</span></div>'
+        + '<div class="co-line"><span>Доставка</span><span id="co-delivery-sum">' + escapeHtml(deliveryName()) + '</span></div>'
         + '<div class="co-total"><span>Итого</span><b id="co-total-sum">' + money(Cart.total()) + '</b></div>'
-        + '<div class="field"><label for="co-name">Ваше имя</label><input type="text" id="co-name" maxlength="100" placeholder="Как к вам обращаться"></div>'
+        + '<div class="co-names">'
+        + '<div class="field"><label for="co-first-name">Имя <span class="req">*</span></label>'
+        + '<input type="text" id="co-first-name" maxlength="60" placeholder="Иван" autocomplete="given-name" required></div>'
+        + '<div class="field"><label for="co-last-name">Фамилия <span class="req">*</span></label>'
+        + '<input type="text" id="co-last-name" maxlength="60" placeholder="Петров" autocomplete="family-name" required></div>'
+        + '</div>'
         + '<div class="field"><label for="co-contact">Контакт для связи <span class="req">*</span></label><input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required></div>'
-        + '<div class="field"><label for="co-address">Адрес доставки</label>'
+        + deliveryChoiceHtml()
+        + '<div class="field"><label for="co-address">Адрес или пункт выдачи <span class="req">*</span></label>'
         + '<div class="suggest-box">'
         + '<input type="text" id="co-address" maxlength="400" placeholder="Начните вводить — подскажем" autocomplete="off"'
-        + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list">'
+        + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list" required>'
         + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
         + '</div>'
-        + '<p class="field-note">Необязательно — можно уточнить при подтверждении заказа.</p></div>'
-        + payChoiceHtml()
+        + '<p class="field-note" id="co-address-note">' + escapeHtml(addressNote()) + '</p></div>'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
@@ -133,7 +138,7 @@
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
       initAddressSuggest();
-      initPayChoice();
+      initDeliveryChoice();
     }
     var sum = money(Cart.total());
     setText('co-total-sum', sum); setText('co-btn-sum', sum); setText('co-goods-sum', sum);
@@ -147,40 +152,67 @@
     }
   }
 
-  // ===== Способ оплаты =====
+  // ===== Оплата и доставка =====
   // Включена ли онлайн-оплата, витрина узнаёт единственным атрибутом от сервера:
   // ключи кассы остаются на сервере, как и ключ подсказок адреса.
+  // Выбора «оплатить позже» нет: заказ оформляется с оплатой сразу. Прежний путь
+  // «заявка, менеджер свяжется» остаётся только когда оплата вообще не настроена —
+  // иначе кнопка вела бы в платёжку, которой нет.
   function payOnline() {
     var page = document.getElementById('checkout-page');
     return !!(page && page.dataset && page.dataset.pay);
   }
-  // Что выбрал покупатель. Оплата выключена — всегда прежний путь «заявка».
-  function payMode() {
-    if (!payOnline()) return 'later';
-    var on = document.querySelector('input[name="co-pay"]:checked');
-    return (on && on.value === 'later') ? 'later' : 'online';
-  }
-  function submitLabel() { return payMode() === 'online' ? 'Перейти к оплате' : 'Оформить заказ'; }
+  function submitLabel() { return payOnline() ? 'Перейти к оплате' : 'Оформить заказ'; }
 
-  function payChoiceHtml() {
-    if (!payOnline()) return '';
-    // Онлайн-оплата предложена первой, но выбор оставлен: у серого импорта наличие
-    // подтверждает менеджер, и покупателю бывает спокойнее заплатить после звонка.
-    return '<div class="co-pay" role="radiogroup" aria-label="Способ оплаты">'
-      + '<label class="co-pay-opt"><input type="radio" name="co-pay" value="online" checked>'
-      + '<span class="co-pay-text"><b>Оплатить сейчас</b><i>Карта, СБП и другие способы — на странице платёжного сервиса</i></span></label>'
-      + '<label class="co-pay-opt"><input type="radio" name="co-pay" value="later">'
-      + '<span class="co-pay-text"><b>Оплатить после подтверждения</b><i>Менеджер свяжется с вами и подтвердит наличие</i></span></label>'
+  // Способы доставки приходят от сервера тем же списком, по которому он потом
+  // проверяет заказ, — свой в скрипте разъехался бы с серверным.
+  function deliveryMethods() {
+    var page = document.getElementById('checkout-page');
+    if (!page || !page.dataset || !page.dataset.delivery) return [];
+    try { var list = JSON.parse(page.dataset.delivery); return Array.isArray(list) ? list : []; }
+    catch (e) { return []; }
+  }
+  function deliveryChoice() {
+    var on = document.querySelector('input[name="co-delivery"]:checked');
+    return on ? on.value : '';
+  }
+  function deliveryName() {
+    var id = deliveryChoice(), list = deliveryMethods();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
+    return 'выберите способ';
+  }
+  function addressNote() {
+    var id = deliveryChoice();
+    if (id === 'cdek') return 'Город, улица и дом — или адрес пункта выдачи СДЭК.';
+    if (id === 'ozon') return 'Адрес пункта выдачи или постамата OZON.';
+    return 'Укажите адрес доставки или пункт выдачи.';
+  }
+  function deliveryChoiceHtml() {
+    var list = deliveryMethods();
+    if (!list.length) return '';
+    // Первый способ выбран заранее: пустой выбор заставлял бы покупателя ткнуть
+    // лишний раз, а строка «Доставка» в итогах висела бы без значения.
+    return '<div class="co-choice" role="radiogroup" aria-label="Способ доставки">'
+      + list.map(function (m, i) {
+        return '<label class="co-choice-opt"><input type="radio" name="co-delivery" value="'
+          + escapeHtml(m.id) + '"' + (i === 0 ? ' checked' : '') + '>'
+          + '<span class="co-choice-text"><b>' + escapeHtml(m.name) + '</b>'
+          + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span></label>';
+      }).join('')
       + '</div>';
   }
-  function initPayChoice() {
-    var box = document.querySelector('.co-pay');
+  function syncDelivery() {
+    setText('co-delivery-sum', deliveryName());
+    setText('co-address-note', addressNote());
+  }
+  function initDeliveryChoice() {
+    var box = document.querySelector('.co-choice');
     if (!box) return;
-    box.addEventListener('change', function () {
-      var submit = document.getElementById('checkout-submit');
-      var label = submit && submit.querySelector('.btn-checkout-label');
-      if (label && !submit.disabled) label.textContent = submitLabel();
-    });
+    // Сразу, а не только на change: при сборке разметки радио в DOM ещё нет, и
+    // строка «Доставка» в итогах показывала «выберите способ» при уже выбранном
+    // первом способе.
+    syncDelivery();
+    box.addEventListener('change', syncDelivery);
   }
   // ===== Подсказки адреса (dadata.ru через наш /api/address-suggest) =====
   // Подсказки — помощь, а не условие: если ключ не настроен, запрос не удался или
@@ -1367,17 +1399,38 @@
 
   function submitOrder(btn) {
     var msg = document.getElementById('order-msg');
-    var contact = (document.getElementById('co-contact') || {}).value || '';
-    if (!contact.trim()) { if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Укажите контакт для связи'; } return; }
-    var mode = payMode();
+    var val = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
+    // Те же требования, что и на сервере, — просто без ожидания ответа. Сервер
+    // всё равно проверяет заново: клиентским данным не верим.
+    var checks = [
+      ['co-first-name', 'Укажите имя получателя'],
+      ['co-last-name', 'Укажите фамилию получателя'],
+      ['co-contact', 'Укажите контакт для связи'],
+      ['co-address', 'Укажите адрес или пункт выдачи']
+    ];
+    for (var c = 0; c < checks.length; c++) {
+      if (!val(checks[c][0])) {
+        if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = checks[c][1]; }
+        var field = document.getElementById(checks[c][0]);
+        if (field) { try { field.focus(); } catch (e) {} }
+        return;
+      }
+    }
+    if (!deliveryChoice()) {
+      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите способ доставки'; }
+      return;
+    }
+    var online = payOnline();
     btn.disabled = true;
     var btnHtml = btn.innerHTML;
-    btn.textContent = mode === 'online' ? 'Открываем оплату...' : 'Отправляем...';
+    btn.textContent = online ? 'Открываем оплату...' : 'Отправляем...';
     var payload = {
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '', options: i.options || [] }; }),
-      customerName: (document.getElementById('co-name') || {}).value || '',
-      contact: contact,
-      address: (document.getElementById('co-address') || {}).value || ''
+      firstName: val('co-first-name'),
+      lastName: val('co-last-name'),
+      contact: val('co-contact'),
+      address: val('co-address'),
+      delivery: deliveryChoice()
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })
@@ -1389,7 +1442,7 @@
           if (page) {                       // страница оформления: показываем результат на всю ширину
             // Оплата — отдельный шаг поверх записанной заявки, поэтому уводим на
             // форму только после подтверждения, что заказ создан.
-            if (mode === 'online' && d.id) { startPayment(d.id, d.number || '—'); return; }
+            if (online && d.id) { startPayment(d.id, d.number || '—'); return; }
             showOrderDone(d.number || '—');
             return;
           }
