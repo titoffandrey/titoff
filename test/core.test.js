@@ -18,7 +18,8 @@ const analyticsView = require('../lib/analytics-view');
 const variants = require('../lib/variants');
 const tenancy = require('../lib/tenancy');
 const images = require('../lib/images');
-const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer } = require('../lib/analytics');
+const clientIcons = require('../lib/client-icons');
+const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, sessionsOf, MAX_HITS } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
 
@@ -617,6 +618,126 @@ test('старая загрязнённая метрика мигрирует н
   assert.equal(analytics.data.version, 2);
   assert.equal(report.unique, 0);
   assert.equal(report.pageViews, 0);
+});
+
+test('хронология посетителя пишется просмотрами, а время идёт открытой странице', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-visitor-hits-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  const id = 'a'.repeat(32);
+  analytics.recordPageView({ id, siteId: 'shop', path: '/', context: { ip: '8.8.8.8', device: 'Телефон', os: 'iOS 26.0' } });
+  analytics.recordPageView({ id, siteId: 'shop', path: '/product/p1', context: {} });
+  const v = analytics.findVisitor(id);
+  v.lastSeen = Date.now() - 30000;
+  analytics.heartbeat({ id, siteId: 'shop', path: '/product/p1', context: {} });
+
+  assert.deepEqual(v.hits.map(h => h.p), ['/', '/product/p1']);
+  // Секунды heartbeat уходят той странице, что открыта сейчас, а не первой.
+  assert.equal(v.hits[0].s, 0);
+  assert.ok(v.hits[1].s >= 29, 'время засчитано текущей странице');
+
+  // Оба просмотра — один визит: визит рвётся получасовым разрывом, а не каждой
+  // страницей.
+  const one = sessionsOf(v);
+  assert.equal(one.length, 1);
+  assert.equal(one[0].hits.length, 2);
+
+  // Разрыв больше получаса — новый визит, свежие визиты идут первыми.
+  v.lastSessionAt = Date.now() - 40 * 60 * 1000;
+  analytics.recordPageView({ id, siteId: 'shop', path: '/checkout', context: {} });
+  const two = sessionsOf(v);
+  assert.equal(two.length, 2);
+  assert.equal(two[0].hits[0].p, '/checkout');
+  assert.equal(v.visits, 2);
+
+  // Потолок: файл пишется целиком, и хронология не должна расти без предела.
+  for (let i = 0; i < 80; i++) analytics.recordPageView({ id, siteId: 'shop', path: '/product/p' + i, context: {} });
+  assert.equal(v.hits.length, MAX_HITS);
+  assert.equal(v.hits[v.hits.length - 1].p, '/product/p79', 'вытесняются самые старые');
+});
+
+test('значок подбирается по строке устройства, а флаг — по стране или её коду', () => {
+  assert.equal(clientIcons.osKey('iOS 26.0'), 'apple');
+  assert.equal(clientIcons.osKey('macOS 15.5'), 'apple');
+  assert.equal(clientIcons.osKey('Android 15'), 'android');
+  assert.equal(clientIcons.osKey('Windows 10/11'), 'windows');
+  assert.equal(clientIcons.osKey('Другая ОС'), 'globe');
+  assert.equal(clientIcons.deviceKey('Телефон', 'iPhone'), 'phone');
+  assert.equal(clientIcons.deviceKey('Планшет', 'iPad'), 'tablet');
+  assert.equal(clientIcons.deviceKey('Робот', ''), 'bot');
+  assert.equal(clientIcons.deviceKey('Компьютер', ''), 'desktop');
+  assert.equal(clientIcons.browserKey('Яндекс Браузер 25'), 'yandex');
+  assert.equal(clientIcons.browserKey('Safari 26'), 'safari');
+  assert.equal(clientIcons.browserKey('Другой браузер'), 'globe');
+
+  // Код от геосервиса и название из старых заявок дают один и тот же флаг.
+  assert.equal(clientIcons.flag('', 'ru'), '🇷🇺');
+  assert.equal(clientIcons.flag('Россия', ''), '🇷🇺');
+  assert.equal(clientIcons.flag('Казахстан', ''), '🇰🇿');
+  assert.equal(clientIcons.flag('Страны такой нет', ''), '', 'незнакомая страна остаётся без флага');
+
+  // Имя глифа приходит из разбора строк — чужая строка не должна попасть в разметку.
+  const stray = clientIcons.icon('<script>alert(1)</script>', 'a"b');
+  assert.match(stray, /^<svg class="cico ab" viewBox="0 0 24 24"/);
+  assert.doesNotMatch(stray, /script|"b/);
+});
+
+test('в строке заказа видно, откуда клиент, а адрес ведёт в его карточку метрики', () => {
+  const order = {
+    id: 'o1', number: '482913', customerName: 'Пётр Северов', contact: '@severov',
+    delivery: 'cdek', address: 'Москва, СДЭК', visitorId: 'a'.repeat(32), clientIp: '85.140.7.212',
+    clientCity: 'Москва', clientCountry: 'Россия', clientIsp: 'MTS',
+    clientDevice: 'Телефон', clientModel: 'iPhone', clientOs: 'iOS 26.0', clientBrowser: 'Safari 26', items: []
+  };
+  const html = render.orderClient(order, { metricsBase: '/owner/analytics/visitor/' });
+  assert.match(html, /href="\/owner\/analytics\/visitor\/a{32}"/);
+  assert.match(html, /🇷🇺/, 'флаг находится по названию страны — кода у прежних заявок нет');
+  assert.match(html, /class="cico/, 'устройство, система и браузер — значками');
+  assert.match(html, /iOS 26\.0/);
+
+  // Без базы адреса значки остаются, а ссылки нет: та же функция рисует строку
+  // там, где переходить некуда.
+  const plain = render.orderClient(order);
+  assert.match(plain, /class="cmarks"/);
+  assert.doesNotMatch(plain, /visitor\//);
+
+  // У заявки до появления id метрики есть только адрес — по нему и открываем.
+  const old = Object.assign({}, order, { visitorId: null });
+  assert.match(render.orderClient(old, { metricsBase: '/admin/analytics/visitor/' }), /href="\/admin\/analytics\/visitor\/85\.140\.7\.212"/);
+
+  // Обе панели передают свою базу, иначе ссылка ведёт в чужую панель.
+  const list = [order];
+  const db = { getOrders: () => list, visibleOrders: () => list, ordersForSite: () => list, getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0 };
+  assert.match(ownerViews.ordersList(db, null, 1), /\/owner\/analytics\/visitor\//);
+  assert.match(siteViews.ordersList(db, dbCore.defaultSite(), null, 1), /\/admin\/analytics\/visitor\//);
+});
+
+test('карточка посетителя показывает визиты, страницы и время на каждой', () => {
+  const now = Date.now();
+  const visitor = {
+    id: 'a'.repeat(32), siteId: 'shop', firstSeen: now - 40 * 86400000, lastSeen: now - 5 * 60000,
+    visits: 3, pageViews: 9, activeSeconds: 900, ip: '85.140.7.212', isp: 'MTS',
+    city: 'Москва', country: 'Россия', countryCode: 'RU',
+    device: 'Телефон', model: 'iPhone', os: 'iOS 26.0', browser: 'Safari 26',
+    source: 'yandex.ru', pathCounts: { '/product/p1': 4, '/': 3 },
+    hits: [{ p: '/', t: now - 600000, s: 20, v: 1 }, { p: '/product/p1', t: now - 580000, s: 245 }]
+  };
+  const html = analyticsView.visitorPage(visitor, {
+    products: { p1: 'iPhone 17 Pro Max' }, backHref: '/owner/analytics', ordersHref: '/owner/orders',
+    visitorBase: '/owner/analytics/visitor/', now,
+    orders: [{ id: 'o1', number: '482913', total: 121990, createdAt: now }]
+  });
+  assert.match(html, /Визит №3/, 'нумерация идёт от общего счётчика визитов');
+  assert.match(html, /iPhone 17 Pro Max/, 'страница названа по товару, а не голым путём');
+  assert.match(html, /4 мин 5 сек/, 'время на странице');
+  assert.match(html, /85\.140\.7\.212/);
+  assert.match(html, /🇷🇺/);
+  assert.match(html, /yandex\.ru/);
+  assert.match(html, /№482913/, 'заказы этого посетителя рядом с историей');
+  assert.match(html, /href="\/owner\/analytics"/, 'возврат ко всей метрике');
+
+  // Посетителя могло вытеснить сроком хранения — это не ошибка, а понятный ответ.
+  assert.match(analyticsView.visitorMissing('85.140.7.212', { backHref: '/owner/analytics' }), /История не найдена/);
 });
 
 test('длинные названия городов не перекрывают числа в метрике', () => {

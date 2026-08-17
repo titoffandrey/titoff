@@ -783,7 +783,7 @@ app.post('/api/order', async (req, res) => {
   // карточки посетителя, а новый IP обогащаем после ответа покупателю.
   const client = metrics.context(req, requestIp, proxyTrusted);
   if (metricVisitor && metricVisitor.siteId === site.id) {
-    for (const key of ['city', 'region', 'country', 'isp']) if (metricVisitor[key]) client[key] = metricVisitor[key];
+    for (const key of ['city', 'region', 'country', 'countryCode', 'isp']) if (metricVisitor[key]) client[key] = metricVisitor[key];
   }
 
   // С онлайн-оплатой заказ сначала черновик: покупатель ещё не выбрал способ и
@@ -797,7 +797,7 @@ app.post('/api/order', async (req, res) => {
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
     items, total, firstName, lastName, contact, address, delivery, comment: req.body.comment,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
-    clientCountry: client.country, clientIsp: client.isp, clientDevice: client.device,
+    clientCountry: client.country, clientCountryCode: client.countryCode, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
     clientSource: (metricVisitor && metricVisitor.source) || client.source
   });
@@ -807,7 +807,7 @@ app.post('/api/order', async (req, res) => {
   metrics.describeRequest(req, requestIp, proxyTrusted).then(enriched => {
     const saved = db.updateOrderClient(order.id, {
       clientIp: enriched.ip, clientCity: enriched.city, clientRegion: enriched.region,
-      clientCountry: enriched.country, clientIsp: enriched.isp, clientDevice: enriched.device,
+      clientCountry: enriched.country, clientCountryCode: enriched.countryCode, clientIsp: enriched.isp, clientDevice: enriched.device,
       clientModel: enriched.model, clientOs: enriched.os, clientBrowser: enriched.browser,
       clientSource: (metricVisitor && metricVisitor.source) || enriched.source
     });
@@ -1030,6 +1030,35 @@ app.get('/owner/analytics', (req, res) => {
   if (!guardOwner(req, res)) return;
   const siteId = db.getSite(req.query.site) ? req.query.site : '';
   res.send(O.analyticsPage(db, metrics.snapshot({ siteId, days: req.query.days }), siteId));
+});
+
+// Карточка посетителя: по ней открывается вся его история — визиты, страницы и
+// время на них. Ключ в адресе — либо id метрики из cookie, либо IP: в заявках,
+// оформленных до появления id (и теми, кто от метрики отказался), есть только
+// адрес, а нажать на него менеджер должен уметь так же.
+function lookupVisitor(rawKey, siteId, siteOrders) {
+  let key = String(rawKey || '');
+  try { key = decodeURIComponent(key); } catch (e) {}
+  key = key.slice(0, 80);
+  let visitor = /^[a-f0-9]{32}$/.test(key) ? metrics.findVisitor(key) : null;
+  // Админка домена видит только своих посетителей: чужая карточка для неё —
+  // то же самое, что несуществующая.
+  if (visitor && siteId && visitor.siteId !== siteId) visitor = null;
+  if (!visitor) visitor = metrics.findByIp(key, siteId)[0] || null;
+  if (!visitor) return { key, visitor: null, orders: [], alsoOnIp: [] };
+  const orders = (siteOrders || db.visibleOrders())
+    .filter(o => o.visitorId === visitor.id || (!o.visitorId && visitor.ip && o.clientIp === visitor.ip))
+    .slice(0, 20);
+  // За одним адресом сидит целая квартира или офис — соседние карточки полезны
+  // ровно тем, что показывают: это тот же человек или всё-таки другой.
+  const alsoOnIp = metrics.findByIp(visitor.ip, siteId).filter(x => x.id !== visitor.id).slice(0, 10);
+  return { key, visitor, orders, alsoOnIp };
+}
+
+app.get('/owner/analytics/visitor/:key', (req, res) => {
+  if (!guardOwner(req, res)) return;
+  const found = lookupVisitor(req.params.key, '', null);
+  res.send(O.visitorPage(db, found.visitor, found), found.visitor ? 200 : 404);
 });
 
 // Каталог (мастер)
@@ -1380,6 +1409,11 @@ app.post('/admin/reviews', (req, res) => {
 // Заказы сайта
 app.get('/admin/orders', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.ordersList(db, site, req.query.flash, req.query.page)); });
 app.get('/admin/analytics', (req, res) => { const site = guardSite(req, res); if (!site) return; res.send(S.analyticsPage(db, site, metrics.snapshot({ siteId: site.id, days: req.query.days }))); });
+app.get('/admin/analytics/visitor/:key', (req, res) => {
+  const site = guardSite(req, res); if (!site) return;
+  const found = lookupVisitor(req.params.key, site.id, db.ordersForSite(site.id));
+  res.send(S.visitorPage(db, site, found.visitor, found), found.visitor ? 200 : 404);
+});
 app.post('/admin/orders/:id/delete', (req, res) => {
   const site = guardSite(req, res); if (!site) return;
   const o = db.getOrders().find(x => x.id === req.params.id);

@@ -1385,6 +1385,21 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-tech[open] summary::before{content:"▾ "}
 .o-tech summary:hover{color:var(--text)}
 .o-tech div{color:#737378;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
+.o-ip{color:#0b6bcb;text-decoration:underline;text-decoration-color:rgba(11,107,203,.35);text-underline-offset:2px}
+.o-ip:hover{text-decoration-color:currentColor}
+
+/* Значки клиента: флаг страны, устройство, система, браузер. Одной строкой и
+   открыто, а не в свёртке: с одного взгляда видно, кто и с чего зашёл.
+   Обводка глифов волосяная — тот же вес штриха, что у витрины. */
+.cico{width:15px;height:15px;flex:none;vertical-align:-2px}
+.cflag{font-size:14px;line-height:1;font-weight:400;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
+.cmarks{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:5px;color:#5c5c61;font-size:11.5px;line-height:1.35}
+.cmark{display:inline-flex;align-items:center;gap:4px;min-width:0;overflow-wrap:anywhere}
+a.cmarks-link{display:flex;color:#5c5c61;border-radius:9px;padding:3px 5px;margin-left:-5px;transition:background .12s}
+a.cmarks-link:hover{background:#f2f2f5;color:var(--text)}
+a.cmarks-link:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cmarks-go{margin-left:auto;color:#a1a1a6;font-size:12px}
+a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 /* Собственная метрика */
 .metric-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:18px}
@@ -1443,6 +1458,41 @@ body.admin{background:#f4f4f6;color:#242426}
 .metric-bot-summary span{color:#8e8e93;font-size:11px}
 .metric-bot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
 .metric-bot-grid h3{margin:0 0 13px;font-size:13px}
+.metric-open{display:block;color:inherit}
+.metric-open:hover b,.metric-open:hover{color:var(--text)}
+.metric-ip{color:#0b6bcb;text-decoration:underline;text-decoration-color:rgba(11,107,203,.35);text-underline-offset:2px}
+.metric-table .cmarks{margin-top:0}
+
+/* Карточка одного посетителя: куда ведут IP и значки из строки заказа */
+.visitor-head{margin-bottom:14px}
+.visitor-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.visitor-title h2{margin:0;font-size:23px;letter-spacing:-.025em}
+.visitor-when{color:#8e8e93;font-size:12px}
+.visitor-ip{margin:6px 0 2px;color:#6e6e73;font-size:13px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.visitor-head .cmarks{gap:6px 14px;font-size:12.5px}
+.visitor-summary{margin-bottom:14px;grid-template-columns:repeat(6,minmax(0,1fr))}
+.visitor-summary .metric-card{padding:16px}
+.visitor-summary .metric-card strong{margin:7px 0 3px;font-size:22px}
+.visitor-visits{margin-bottom:14px}
+.visit+.visit{margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft)}
+.visit-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:9px}
+.visit-head b{font-size:13.5px}
+.visit-head span{color:#8e8e93;font-size:11.5px}
+.visit-steps{display:grid;gap:2px;margin:0;padding:0;list-style:none}
+.visit-steps li{display:grid;grid-template-columns:46px minmax(0,1fr) max-content;align-items:baseline;gap:12px;padding:6px 8px;border-radius:9px;font-size:12.5px}
+.visit-steps li:nth-child(odd){background:#fafafb}
+.visit-time{color:#8e8e93;font-size:11px;font-variant-numeric:tabular-nums}
+.visit-page{min-width:0;overflow-wrap:anywhere}
+.visit-page i{display:block;color:#a1a1a6;font-size:10.5px;font-style:normal}
+.visit-sec{color:#6e6e73;font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.vfacts{display:grid;gap:9px}
+.vfact{display:grid;grid-template-columns:minmax(120px,38%) minmax(0,1fr);gap:12px;font-size:12.5px}
+.vfact span{color:#8e8e93}
+.vfact b{font-weight:600;overflow-wrap:anywhere}
+.visitor-orders{display:grid;gap:9px;margin:0;padding:0;list-style:none}
+.visitor-orders li{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 12px;border:1px solid var(--border-soft);border-radius:12px;font-size:12.5px}
+.visitor-orders a{color:#0b6bcb}
+.visitor-orders span{color:#6e6e73}
 .a-thumb img,.a-thumb svg{width:54px;height:54px;border-radius:11px}
 .a-actions .btn{min-width:116px;padding:8px 13px;border-radius:11px;font-size:13px}
 .a-actions .pill{min-width:116px}
@@ -1720,6 +1770,10 @@ body.admin{background:#f4f4f6;color:#242426}
   .metric-visitors{padding:0}
   .metric-bot-grid{grid-template-columns:1fr;gap:20px}
   .metric-table{min-width:900px}
+  .visitor-title h2{font-size:19px}
+  .visit-steps li{grid-template-columns:42px minmax(0,1fr);gap:4px 10px}
+  .visit-sec{grid-column:2;color:#8e8e93}
+  .vfact{grid-template-columns:1fr;gap:2px}
   .login-body{padding:16px}
   .login-card{padding:26px 20px}
 }
