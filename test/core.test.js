@@ -1877,7 +1877,16 @@ test('способы оплаты — закрытый список, а пока
   // Касса не ответила — показываем весь список: без него покупателю нечем
   // платить вовсе, а несовпадение поймает сама касса при создании счёта.
   assert.equal(pay.allowed(null).length, pay.METHODS.length);
-  assert.equal(pay.allowed([]).length, pay.METHODS.length);
+  assert.equal(pay.allowed(undefined).length, pay.METHODS.length);
+  // А вот пустой ответ — это именно «у кассы ничего не включено»: одиннадцать
+  // заведомо нерабочих кнопок хуже честного «оплатить сейчас нечем».
+  assert.deepEqual(pay.allowed([]), []);
+
+  // То, что реально включено у боевой кассы, обязано быть в списке — иначе мы
+  // молча спрячем рабочий способ (пересечение чужой код не пропускает).
+  for (const id of ['TO_CARD', 'SBP', 'TO_CARD_TRANSGRAN', 'SBP_TRANSGRAN', 'TRANSGRANCARD_TJS']) {
+    assert.ok(pay.isValid(id), 'способ кассы не описан: ' + id);
+  }
 });
 
 test('подпись вебхука проверяется по тексту значений, а не по разобранным числам', () => {
@@ -2293,19 +2302,46 @@ test('счёт создаётся в минимальных единицах, а
     assert.equal((await croco.invoice(on, '../merchants')).error, 'bad_invoice_id');
     assert.equal(sent, null);
 
-    // Способы: берём только рублёвые, ответ кэшируется.
+    // Способы: берём только рублёвые, ответ кэшируется. Формат — тот, что
+    // РЕАЛЬНО отдаёт касса: группы по валюте с вложенными options. В
+    // документации показан другой, плоский, — его тоже понимаем (ниже).
+    croco.forgetMethods();
+    stub(json({ message: 'Data successfully received', payment_methods: [
+      { id: 6, code: 'RUB', name: 'Россия', options: [
+        { code: 'TO_CARD', name: 'Visa/Mastercard' }, { code: 'SBP', name: 'СБП' },
+        { code: 'TO_CARD_TRANSGRAN', name: 'Card (Cross-border)' }
+      ] },
+      { id: 7, code: 'UZS', name: 'Узбекистан', options: [{ code: 'UZCARD', name: 'UzCard' }] }
+    ] }));
+    const live = await croco.availableOptions(on);
+    assert.deepEqual(live.options, ['TO_CARD', 'SBP', 'TO_CARD_TRANSGRAN'], 'живой формат кассы');
+    sent = null;
+    const cached = await croco.availableOptions(on);
+    assert.equal(cached.cached, true);
+    assert.equal(sent, null, 'повторный запрос уходит не чаще раза в пять минут');
+
+    // Формат из документации — плоский список. Разъехаться они могут в любую
+    // сторону, поэтому оба разбираются одним проходом.
     croco.forgetMethods();
     stub(json({ methods: [
       { currency: 'RUB', payment_option: 'SBP' }, { currency: 'RUB', payment_option: 'TO_CARD' },
       { currency: 'UZS', payment_option: 'TO_CARD' }, { currency: 'RUB', payment_option: 'SBP' }
     ] }));
-    const first = await croco.availableOptions(on);
-    assert.deepEqual(first.options, ['SBP', 'TO_CARD']);
-    sent = null;
-    const cached = await croco.availableOptions(on);
-    assert.equal(cached.cached, true);
-    assert.equal(sent, null, 'повторный запрос уходит не чаще раза в пять минут');
+    assert.deepEqual((await croco.availableOptions(on)).options, ['SBP', 'TO_CARD'], 'формат документации');
     croco.forgetMethods();
+
+    // Реквизиты могут прийти вложенными и под другими именами: на эндпоинте
+    // способов документация уже разошлась с кассой, поэтому счёт разбирается
+    // терпимо.
+    stub(json({ message: 'ok', invoice: {
+      invoice_id: '911c2823-f55b-43b5-9881-d5653107f7dc', state: 'Pending',
+      account: '+7 900 123-45-67', bank: 'Т-Банк', receiver: 'IVAN PETROV', expire_at: '2026-01-15T12:30:00Z'
+    } }));
+    const alt = await croco.createInvoice(on, { amount: 1, method: 'SBP' });
+    assert.equal(alt.ok, true, 'счёт с другими именами полей всё равно разбирается');
+    assert.equal(alt.invoice.requisite, '+7 900 123-45-67');
+    assert.equal(alt.invoice.bank, 'Т-Банк');
+    assert.equal(alt.invoice.state, 'pending');
   } finally {
     if (real) global.fetch = real; else delete global.fetch;
   }
