@@ -225,9 +225,13 @@
         // Логотип берётся из спрайта, вставленного сервером в страницу: ссылка
         // <use> вместо копии разметки, чётко на любом экране и без запросов.
         // Логотипа нет — остаётся название текстом, и раскладка не меняется.
+        // Логотип помечен aria-hidden, а название лежит рядом скрытым текстом:
+        // aria-label на инлайновом SVG читалки поддерживают через раз, а имя
+        // перевозчика — единственное, что отличает варианты друг от друга.
         var mark = m.logoBox
-          ? '<svg class="co-choice-logo" viewBox="' + escapeHtml(m.logoBox) + '" role="img" aria-label="'
-            + escapeHtml(m.name) + '"><use href="#dl-' + escapeHtml(m.id) + '"></use></svg>'
+          ? '<svg class="co-choice-logo" viewBox="' + escapeHtml(m.logoBox) + '" aria-hidden="true">'
+            + '<use href="#dl-' + escapeHtml(m.id) + '"></use></svg>'
+            + '<span class="sr-only">' + escapeHtml(m.name) + '</span>'
           : '<b>' + escapeHtml(m.name) + '</b>';
         return '<label class="co-choice-opt"><input type="radio" name="co-delivery" value="'
           + escapeHtml(m.id) + '"' + (i === 0 ? ' checked' : '') + '>'

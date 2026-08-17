@@ -2206,11 +2206,30 @@ test('логотип перевозчика инлайнится спрайто�
   assert.match(html, /logoBox/);
   assert.match(js, /m\.logoBox/);
   assert.match(js, /<use href="#dl-/);
-  // Логотипа нет — название текстом, раскладка та же. Это и есть текущее
-  // состояние: файлы в public/delivery/ кладутся отдельно.
+  // Логотипа нет — название текстом, раскладка та же.
   assert.match(js, /: '<b>' \+ escapeHtml\(m\.name\) \+ '<\/b>'/);
   for (const m of require('../lib/delivery').METHODS) {
     if (!logos.has(m.id)) assert.ok(html.includes(m.name), 'без логотипа обязано остаться название ' + m.name);
+  }
+  // Имя перевозчика обязано быть скрытым ТЕКСТОМ рядом с логотипом: aria-label на
+  // инлайновом SVG читалки поддерживают через раз, а имя — единственное, что
+  // отличает варианты друг от друга. Сам логотип при этом декоративный.
+  assert.match(js, /aria-hidden="true"/);
+  assert.match(js, /<span class="sr-only">' \+ escapeHtml\(m\.name\)/);
+  assert.doesNotMatch(js, /co-choice-logo[^']*role="img"/, 'на accname у SVG не полагаемся');
+
+  // Установленные логотипы: спрайт собран, оба знака на месте, чужого кода внутри
+  // нет. Проверки условные — файлы можно и убрать, тогда останется текст.
+  const installed = logos.names();
+  if (installed.length) {
+    const sprite = logos.sprite();
+    for (const id of installed) {
+      assert.match(sprite, new RegExp('<symbol id="dl-' + id + '" viewBox="'), 'нет символа ' + id);
+      assert.ok(logos.viewBox(id), 'у ' + id + ' обязан быть viewBox');
+    }
+    assert.doesNotMatch(sprite, /<script|\son[a-z]+=/i);
+    assert.doesNotMatch(sprite, /https?:\/\/(?!www\.w3\.org)/);
+    assert.ok(sprite.length < 12 * 1024, 'спрайт уезжает в каждую страницу оформления — он обязан быть маленьким');
   }
   // Высота фиксирована, ширина по пропорции: вордмарки разной длины, подгонять
   // их под общую ширину значило бы искажать.
