@@ -1816,11 +1816,23 @@ body.admin{background:#f4f4f6;color:#242426}
   padding-top:14px;border-top:1px solid var(--border);margin-top:14px}
 .co-total span{font-size:15px}
 .co-total b{font-size:26px;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
-/* Доводы в колонку: три в ряд в 360 px не встают, а медиазапрос по ширине окна
-   про ширину этой панели ничего не знает (разметку даёт TRUST_BLOCK_COL). */
-.trust-col{grid-template-columns:1fr;margin-top:18px;padding-top:16px}
-.trust-col .trust-item{justify-content:flex-start;padding:5px 0}
-.trust-col .trust-item+.trust-item{border-left:0}
+/* Доводы одной строкой: глиф над текстом, значение и подпись — двумя строками.
+   Строкой «глиф слева, текст справа», как на странице товара, три довода в
+   300 px действительно не встают, но столбиком они забирали 110 px высоты
+   панели и отодвигали сумму. Медиазапрос по ширине окна про ширину этой панели
+   ничего не знает, поэтому раскладку задаёт сам блок (разметку даёт
+   TRUST_BLOCK_COL). Узкое место — 250 px содержимого панели на 1024 px: по
+   83 px на колонку, и в них умещается самое длинное «гарантия». */
+.trust-col{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:18px;padding-top:14px}
+.trust-col .trust-item{flex-direction:column;align-items:center;justify-content:flex-start;
+  gap:7px;padding:2px 4px;text-align:center;font-size:11.5px;line-height:1.3}
+/* Волосяные разделители возвращаются явно: правило блока доверия ниже 800 px
+   переставляет их сверху для страницы товара, а здесь строка остаётся строкой. */
+.trust-col .trust-item+.trust-item{border-left:1px solid var(--border-soft);border-top:0}
+.trust-col .trust-ico{width:21px;height:21px}
+/* Значение — отдельной строкой: иначе «100% оригинал» переносится в разных
+   местах у разных доводов и подписи встают на разной высоте. */
+.trust-col .trust-text b{display:block;font-size:12.5px}
 
 /* Поля формы: подписи те же, что были в правой панели. */
 .co-block .field{margin-bottom:14px}
@@ -1836,7 +1848,20 @@ body.admin{background:#f4f4f6;color:#242426}
    вытягивалась, и кнопка оплаты уезжала за первый экран. На узком экране
    колонки складываются сами. */
 .co-names{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
-@media(max-width:420px){.co-names{grid-template-columns:1fr}}
+@media(max-width:420px){
+  .co-names{grid-template-columns:1fr}
+  /* В две колонки высоту ряда задаёт отступ первого поля, а в столбик
+     «Фамилия» оказывается последней в сетке и правило `.field:last-child`
+     обнуляет ей отступ — следующая подпись прилипала к полю. */
+  .co-names .field:last-child{margin-bottom:14px}
+  /* «Ваш заказ» — одной строкой: в шапке-flex голый текст разрывался посреди
+     названия шага. Ссылке в каталог при нехватке места отдаём свою строку,
+     но у правого края: `auto`-отступ держит её на месте, когда она осталась
+     на строке одна и space-between уже ни на что не влияет. */
+  .co-block-head{flex-wrap:wrap;row-gap:4px}
+  .co-block-title{white-space:nowrap}
+  .co-back{margin-left:auto}
+}
 /* Способ доставки. Плашек нет намеренно, как и в блоке доверия: рамка выбранного
    варианта берёт акцент сайта, остальное — волосяные линии.
    В широкой колонке варианты встают рядом — так их видно одним взглядом, а не

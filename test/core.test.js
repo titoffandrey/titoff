@@ -2191,9 +2191,14 @@ test('оформление разложено на три блока, а сум�
   assert.match(html, /id="checkout-items"/);
   assert.match(html, /id="checkout-form"/);
   assert.match(html, /class="checkout-rail"[\s\S]*id="checkout-side"/);
-  // Доводы в правой панели — из общего TRUST_BLOCK, в колоночном варианте.
+  // Доводы в правой панели — из общего TRUST_BLOCK, в своём варианте: три
+  // колонки, глиф над текстом. Столбиком они забирали 110 px высоты панели.
   assert.match(html, /class="trust trust-col"/);
-  assert.match(css, /\.trust-col\{grid-template-columns:1fr/);
+  assert.match(css, /\.trust-col\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.trust-col \.trust-item\{flex-direction:column/);
+  // Ниже 800 px общий блок доверия переставляет разделители сверху — в узкой
+  // панели строка остаётся строкой, и вертикальную линию нужно вернуть явно.
+  assert.match(css, /\.trust-col \.trust-item\+\.trust-item\{border-left:1px solid/);
 
   // Раскладка через именованные области: только так сумма встаёт МЕЖДУ товарами
   // и формой на телефоне, оставаясь справа на десктопе.
