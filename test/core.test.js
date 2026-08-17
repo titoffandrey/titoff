@@ -1888,16 +1888,23 @@ test('способы оплаты — закрытый список, а пока
   assert.equal(pay.requisiteLabel('SBP'), 'Номер телефона');
   assert.equal(pay.requisiteLabel('QR_NSPK'), 'Ссылка для оплаты');
 
-  // Показываем пересечение с тем, что реально включено у кассы.
-  const some = pay.allowed(['SBP', 'QR_NSPK', 'НЕИЗВЕСТНЫЙ_НАМ']);
+  // Показываем пересечение трёх списков: нашего, кассы и разрешённого владельцем.
+  const some = pay.allowed(['SBP', 'QR_NSPK', 'НЕИЗВЕСТНЫЙ_НАМ'], ['SBP', 'QR_NSPK', 'TO_CARD']);
   assert.deepEqual(some.map(m => m.id), ['SBP', 'QR_NSPK']);
-  // Касса не ответила — показываем весь список: без него покупателю нечем
+  // Владелец скрыл способ — касса его наличие не перебивает.
+  assert.deepEqual(pay.allowed(['SBP', 'TO_CARD'], ['SBP']).map(m => m.id), ['SBP']);
+  // Настройки нет вовсе (установка обновилась со старой версии) — набор по
+  // умолчанию, а не «всё»: иначе на витрине разом появились бы трансграничные.
+  assert.deepEqual(pay.allowed(null, null).map(m => m.id), pay.DEFAULT_IDS);
+  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD']);
+  // Касса не ответила — её условие не применяем: без списка покупателю нечем
   // платить вовсе, а несовпадение поймает сама касса при создании счёта.
-  assert.equal(pay.allowed(null).length, pay.METHODS.length);
-  assert.equal(pay.allowed(undefined).length, pay.METHODS.length);
-  // А вот пустой ответ — это именно «у кассы ничего не включено»: одиннадцать
-  // заведомо нерабочих кнопок хуже честного «оплатить сейчас нечем».
-  assert.deepEqual(pay.allowed([]), []);
+  assert.equal(pay.allowed(null, ['SBP', 'TO_CARD', 'QR_NSPK']).length, 3);
+  // А вот пустой ответ кассы — это «у неё ничего не включено»: заведомо
+  // нерабочие кнопки хуже честного «оплатить сейчас нечем».
+  assert.deepEqual(pay.allowed([], ['SBP', 'TO_CARD']), []);
+  // Владелец снял все галочки — показывать нечего, и это его решение.
+  assert.deepEqual(pay.allowed(['SBP'], []), []);
 
   // То, что реально включено у боевой кассы, обязано быть в списке — иначе мы
   // молча спрячем рабочий способ (пересечение чужой код не пропускает).
@@ -1953,6 +1960,56 @@ test('сырое тело JSON сохраняется для подписи, н�
   // Мегабайты в памяти ради подписи держать незачем.
   const big = '{"a":"' + 'x'.repeat(70 * 1024) + '"}';
   assert.equal(await send(big), undefined);
+});
+
+test('трансграничные способы скрыты по умолчанию и включаются в настройках', () => {
+  const pay = require('../lib/pay-methods');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Свежая установка показывает два способа для России, а не все одиннадцать.
+  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD']);
+  assert.ok(pay.METHODS.length > 2, 'остальные способы никуда не делись — они просто скрыты');
+  for (const m of pay.METHODS) {
+    if (/TRANSGRAN/.test(m.id)) assert.equal(pay.DEFAULT_IDS.includes(m.id), false, 'трансграничный по умолчанию скрыт: ' + m.id);
+  }
+
+  // Галочки в панели: снятые в теле формы отсутствуют, поэтому нужен признак
+  // того, что секция вообще пришла, — иначе «снять все» неотличимо от запроса
+  // без этой секции.
+  const settings = Object.assign(dbCore.defaultSettings(), { payMethods: ['SBP'] });
+  const html = ownerViews.settingsPage(settings, { pendingReviewCount: () => 0 }, null);
+  assert.match(html, /name="payMethodsForm"/);
+  assert.match(html, /name="payMethods" value="SBP" checked/);
+  assert.match(html, /name="payMethods" value="TO_CARD"(?! checked)/);
+  const empty = ownerViews.settingsPage(Object.assign({}, settings, { payMethods: [] }), { pendingReviewCount: () => 0 }, null);
+  assert.match(empty, /Не отмечен ни один способ/);
+
+  // Скрытый способ не должен проходить запросом мимо интерфейса.
+  const start = source.slice(source.indexOf("app.post('/api/pay/crocopay/start'"), source.indexOf("app.get('/api/pay/crocopay/status'"));
+  assert.match(start, /PAY\.allowed\(null, s\.payMethods\)\.some/);
+  assert.match(source, /PAY\.allowed\(r\.ok \? r\.options : null, s\.payMethods\)/);
+});
+
+test('у способа оплаты есть знак, а у СБП — настоящий логотип', () => {
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const pay = require('../lib/pay-methods');
+  const order = { id: 'o1', number: '482913', total: 71990, items: [], contact: 'tg' };
+  const html = render.payPage(ss, order, { origin: '', methods: pay.allowed(null, ['SBP', 'TO_CARD', 'QR_NSPK']) });
+
+  // Логотип СБП — тот же файл, что в подвале: два svg, знак и надпись.
+  assert.match(html, /class="pay-opt-sbp">\s*<svg[\s\S]*?<\/svg>\s*<svg/);
+  // Остальным — волосяные глифы в общем стиле витрины (тот же вес штриха).
+  assert.match(html, /class="pay-opt-glyph"[^>]*stroke-width="1\.2"/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Знак СБП разделяет сегменты обводкой цветом фона. На карточке фон белый,
+  // поэтому и обводка белая, а фон выбранной карточки обязан остаться белым —
+  // иначе зазоры знака проступят полосками.
+  assert.match(css, /\.pay-opt-sbp svg:first-child\{[^}]*stroke:#fff/);
+  assert.match(css, /\.pay-opt:has\(input:checked\)\{background:#fff/);
+  // Радио остаётся настоящим и видимым: :has() поддерживают не все версии
+  // Safari, доходящие до витрины, и выбор обязан читаться без него.
+  assert.doesNotMatch(css, /\.pay-opt input\{[^}]*(display:none|opacity:0)/);
 });
 
 test('черновик не считается заказом, пока не выбран способ оплаты', () => {

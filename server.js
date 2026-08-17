@@ -868,8 +868,13 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   if (order.payment && order.payment.status === 'paid') return res.json({ ok: false, error: 'Заказ уже оплачен' }, 400);
   // Способ оплаты проверяем по своему закрытому списку до запроса: чужое
   // значение касса всё равно отвергнет, а поймать это лучше у себя.
+  // Способ проверяем не только по своему закрытому списку, но и по тому, что
+  // владелец оставил на витрине: скрытый в настройках способ не должен
+  // проходить запросом мимо интерфейса.
   const method = String((req.body && req.body.method) || '');
-  if (!PAY.isValid(method)) return res.json({ ok: false, error: 'Выберите способ оплаты' }, 400);
+  if (!PAY.allowed(null, s.payMethods).some(m => m.id === method)) {
+    return res.json({ ok: false, error: 'Выберите способ оплаты' }, 400);
+  }
 
   // Способ выбран — черновик становится заказом. Именно здесь, ДО обращения к
   // кассе: покупатель уже сказал, чем платит, и если касса откажет (у неё
@@ -957,7 +962,7 @@ app.get('/pay/:id', async (req, res) => {
   let methods = [];
   if (CROCO.enabled(s)) {
     const r = await CROCO.availableOptions(s);
-    methods = PAY.allowed(r.ok ? r.options : null);
+    methods = PAY.allowed(r.ok ? r.options : null, s.payMethods);
   }
   res.send(R.payPage(T.siteSettings(site), order, {
     origin: originOf(req), categories: T.siteCategories(site), methods,
@@ -1282,6 +1287,13 @@ app.post('/owner/settings', (req, res) => {
   patch.crocopayEnabled = req.body.crocopayEnabled !== undefined;
   if (req.body.crocopayClientId !== undefined) patch.crocopayClientId = String(req.body.crocopayClientId).trim().slice(0, 200);
   if (req.body.crocopayClientSecret !== undefined) patch.crocopayClientSecret = String(req.body.crocopayClientSecret).trim().slice(0, 300);
+  // Способы оплаты — галочки, поэтому снятые в теле формы просто отсутствуют.
+  // Скрытое поле payMethodsForm говорит, что секция вообще пришла: без него
+  // снятие ВСЕХ галочек было бы неотличимо от запроса без этой секции.
+  if (req.body.payMethodsForm !== undefined) {
+    const picked = [].concat(req.body.payMethods === undefined ? [] : req.body.payMethods);
+    patch.payMethods = PAY.METHODS.map(m => m.id).filter(id => picked.includes(id));
+  }
   db.saveSettings(patch);
   // Список способов оплаты кэширован под ключи прежней кассы — после смены
   // ключей он бы ещё пять минут отвечал за чужую кассу.
