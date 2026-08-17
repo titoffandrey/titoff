@@ -153,7 +153,7 @@
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note">' + payNote() + ' '
+        + '<p class="form-legal-note">' + payNote()
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
       initAddressSuggest();
@@ -206,10 +206,11 @@
     return !!(page && page.dataset && page.dataset.pay);
   }
   function submitLabel() { return payOnline() ? 'Перейти к оплате' : 'Оформить заказ'; }
+  // Под кнопкой — одна короткая строка и ссылка на политику второй строкой.
+  // Прежнее объяснение про номер карты занимало три строки и читалось как
+  // оправдание: покупателю на этом шаге важно только, чем он платит.
   function payNote() {
-    return payOnline()
-      ? 'Оплата переводом по реквизитам: номер карты на сайте вводить не нужно, магазин его не спрашивает и не получает.'
-      : 'Оплата не онлайн: менеджер свяжется с вами и подтвердит заказ.';
+    return payOnline() ? 'Оплата переводом по реквизитам' : 'Оплата не онлайн: менеджер свяжется с вами';
   }
 
   // Текст отказа по сумме заказа или пустая строка. Заказ вне пределов не

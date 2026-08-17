@@ -1110,9 +1110,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 @keyframes addedPop{0%{transform:scale(1)}38%{transform:scale(1.05)}100%{transform:scale(1)}}
 
 /* ===== Кнопка оформления: подпись слева, сумма справа ===== */
-.btn-checkout{justify-content:space-between;padding-left:22px;padding-right:18px;gap:12px}
-.btn-checkout-sum{font-variant-numeric:tabular-nums;font-weight:600;
-  background:rgba(255,255,255,.18);border-radius:980px;padding:4px 11px;font-size:14px}
+/* Подпись и сумма — рядом по центру, а не по разным краям: на широкой кнопке
+   между ними была пустота, и сумму приходилось искать глазами. */
+.btn-checkout{justify-content:center;padding-inline:20px;gap:11px}
+.btn-checkout-sum{font-variant-numeric:tabular-nums;font-weight:700;
+  background:rgba(255,255,255,.26);border-radius:980px;padding:4px 11px;font-size:15px}
 /* Недоступная кнопка оформления — именно серая, а не выцветшая синяя: общий
    `opacity:.45` на акцентном фоне читается как «кнопка ещё грузится», а не как
    «нажать нельзя». Причина при этом всегда стоит строкой ниже. */
@@ -1952,8 +1954,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-block .req{color:#d92d20}
 /* Кнопка не на всю ширину колонки: растянутая на 870 px синяя полоса выглядит
    тяжелее, чем читается, а правовая подпись под ней рвалась посреди слова. */
-.co-submit{margin-top:2px;max-width:440px;margin-inline:auto;width:100%}
-.co-submit .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.5;text-align:center}
+/* Кнопка не на всю колонку: растянутая синяя полоса выглядит тяжелее, чем
+   читается, а сумма на её краю терялась совсем — теперь подпись и сумма стоят
+   вместе по центру и читаются как одно обещание. */
+.co-submit{margin-top:2px;max-width:360px;margin-inline:auto;width:100%}
+/* Ссылка на политику — своей строкой под короткой подписью про оплату. */
+.co-submit .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.6;text-align:center}
+.co-submit .form-legal-note a{display:block;margin-top:2px}
 .co-submit .form-msg{margin:10px 0 0}
 /* Имя и фамилия — двумя колонками: по отдельной строке на каждое поле форма
    вытягивалась, и кнопка оплаты уезжала за первый экран. На узком экране
