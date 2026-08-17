@@ -2002,6 +2002,32 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-choice-mark{display:flex;align-items:center;min-height:20px}
 .co-choice-logo{display:block;height:19px;width:auto;max-width:118px}
 .co-choice-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
+
+/* Куда доставить: пункт выдачи или курьер. Отдельный ряд под перевозчиком, а не
+   ещё одна пара карточек в том же ряду: перевозчик и способ — разные вопросы, и
+   в общей сетке из четырёх карточек их путали бы.
+   Цена стоит у КАЖДОГО варианта, а не только у выбранного: разница между ПВЗ и
+   курьером — полторы-две сотни, и покупатель должен видеть её до выбора, а не
+   в итоговой сумме. */
+.co-modes{margin:0 0 16px}
+/* Подпись отделяет второй вопрос от первого. На телефоне обе группы встают в
+   один столбик, и без неё это читается как список из четырёх перевозчиков. */
+.co-modes-label{display:block;margin:0 0 7px;font-size:13px;color:var(--muted)}
+.co-modes-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.co-mode{display:flex;align-items:flex-start;gap:10px;padding:10px 13px;cursor:pointer;
+  border:1px solid var(--border);border-radius:13px;transition:border-color .16s,background .16s}
+.co-mode:hover{border-color:#c7c7cc}
+.co-mode:has(input:checked){border-color:var(--accent);background:#fbfbfd}
+.co-mode input{flex:none;width:auto;margin:2px 0 0;accent-color:var(--accent)}
+.co-mode:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.co-mode-text{flex:1;min-width:0;line-height:1.35}
+.co-mode-text b{display:block;font-size:14.5px;font-weight:600}
+.co-mode-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
+/* tabular-nums — чтобы цена не дёргала ширину карточки при смене адреса. */
+.co-mode-price{flex:none;font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Пока адреса нет, считать нечего: в строке сводки стоит подпись, а не «0 ₽» —
+   бесплатную доставку мы не обещаем. */
+.co-line-wait{font-style:normal;color:var(--muted)}
 .order-success .form-msg{margin:4px auto 14px;max-width:34em}
 .checkout-done{background:#fff;border:1px solid var(--border);border-radius:22px;padding:14px}
 

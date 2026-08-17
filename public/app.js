@@ -140,6 +140,7 @@
         + '<div class="co-block">'
         + '<h2 class="co-block-title"><span class="co-step" aria-hidden="true">3</span>Доставка</h2>'
         + deliveryChoiceHtml()
+        + '<div class="co-modes" id="co-modes"></div>'
         + '<div class="field"><label for="co-address">Адрес или пункт выдачи <span class="req">*</span></label>'
         + '<div class="suggest-box">'
         + '<input type="text" id="co-address" maxlength="400" placeholder="Начните вводить — подскажем" autocomplete="off"'
@@ -158,12 +159,22 @@
         + '</div>';
       initAddressSuggest();
       initDeliveryChoice();
+      initAddressQuote();
     }
     renderRail();
-    setText('co-btn-sum', money(Cart.total()));
+    syncSubmit();
+    // Состав корзины меняет и подгонку итога под круглое число, поэтому цену
+    // доставки пересчитываем — но только когда адрес уже введён.
+    if (addressValue()) quoteDelivery(0);
+  }
+
+  // Кнопка оформления: сумма на ней, доступность и причина отказа под ней.
+  // Считается по ИТОГУ с доставкой — платить покупатель будет именно его.
+  function syncSubmit() {
+    setText('co-btn-sum', money(orderTotal()));
     // Сумма вне пределов одной покупки — кнопка гаснет, а причина стоит прямо
     // под ней: серая кнопка без объяснения выглядит как поломка сайта.
-    var overLimit = totalLimitError(Cart.total());
+    var overLimit = totalLimitError(orderTotal());
     var submit = document.getElementById('checkout-submit');
     if (submit) {
       var canOrder = Cart.availableCount() > 0;
@@ -180,6 +191,17 @@
     }
   }
 
+  // Адрес меняет зону, а зона — цену. Слушаем и ввод (с задержкой внутри
+  // quoteDelivery), и потерю фокуса: вставленный из буфера адрес события ввода
+  // тоже даёт, а вот выбор подсказки — нет, его дёргает сам список.
+  function initAddressQuote() {
+    var input = document.getElementById('co-address');
+    if (!input) return;
+    input.addEventListener('input', function () { quoteDelivery(); });
+    input.addEventListener('change', function () { quoteDelivery(0); });
+    input.addEventListener('blur', function () { quoteDelivery(0); });
+  }
+
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
   // возиться с отдельными id ради трёх строк смысла нет.
   function renderRail() {
@@ -190,9 +212,16 @@
     // за 67 990», хотя в цену вошёл один.
     var count = Cart.availableCount();
     var sum = money(Cart.total());
+    // Цена доставки известна только по адресу: до него в строке стоит сам
+    // способ, а не «0 ₽» — обещать бесплатную доставку мы не можем.
+    var price = shipCurrent();
+    var way = [deliveryName(), deliveryModeName().toLowerCase()].filter(Boolean).join(', ');
     side.innerHTML = '<div class="co-line"><span>Товары (' + count + ')</span><span>' + sum + '</span></div>'
-      + '<div class="co-line"><span>Доставка</span><span>' + escapeHtml(deliveryName()) + '</span></div>'
-      + '<div class="co-total"><span>Итого</span><b>' + sum + '</b></div>';
+      + '<div class="co-line"><span>Доставка</span><span>'
+      + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>'
+      + (way ? '<div class="co-line co-line-muted"><span>' + escapeHtml(way)
+        + (price != null && ship.zoneName ? ' · ' + escapeHtml(ship.zoneName) : '') + '</span><span></span></div>' : '')
+      + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
 
   // ===== Оплата и доставка =====
@@ -233,14 +262,35 @@
     var on = document.querySelector('input[name="co-delivery"]:checked');
     return on ? on.value : '';
   }
+  function deliveryMethod(id) {
+    var list = deliveryMethods();
+    for (var i = 0; i < list.length; i++) if (list[i].id === (id || deliveryChoice())) return list[i];
+    return null;
+  }
   function deliveryName() {
-    var id = deliveryChoice(), list = deliveryMethods();
+    var m = deliveryMethod();
+    return m ? m.name : 'выберите способ';
+  }
+  // Куда именно: в пункт выдачи или курьером. Варианты приходят от сервера
+  // вместе со способом — свои в скрипте разъехались бы с серверными так же,
+  // как разъехался бы свой список перевозчиков.
+  function deliveryModes(id) {
+    var m = deliveryMethod(id);
+    return (m && m.modes) || [];
+  }
+  function deliveryModeChoice() {
+    var on = document.querySelector('input[name="co-delivery-mode"]:checked');
+    return on ? on.value : '';
+  }
+  function deliveryModeName() {
+    var list = deliveryModes(), id = deliveryModeChoice();
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
-    return 'выберите способ';
+    return '';
   }
   function addressNote() {
-    var id = deliveryChoice();
-    if (id === 'cdek') return 'Город, улица и дом — или адрес пункта выдачи СДЭК.';
+    var id = deliveryChoice(), courier = deliveryModeChoice() === 'courier';
+    if (courier) return 'Город, улица, дом и квартира — курьер привезёт по этому адресу.';
+    if (id === 'cdek') return 'Адрес пункта выдачи СДЭК — или город и улица, подберём ближайший.';
     if (id === 'ozon') return 'Адрес пункта выдачи или постамата OZON.';
     return 'Укажите адрес доставки или пункт выдачи.';
   }
@@ -269,10 +319,45 @@
       }).join('')
       + '</div>';
   }
-  // Название перевозчика живёт в правой сводке, а подсказка — под адресом в форме,
-  // поэтому обновляем оба места.
+  // Варианты выбранного перевозчика с ценами. Цена стоит у каждого варианта, а
+  // не только у выбранного: «курьером» покупатель выбирает, зная, во что это
+  // обойдётся, а не узнав об этом в итоге.
+  function deliveryModesHtml() {
+    var list = deliveryModes();
+    if (!list.length) return '';
+    var picked = deliveryModeChoice();
+    // Прежний выбор переносится на нового перевозчика: варианты у них одни и те
+    // же, и сбрасывать курьера на ПВЗ при смене СДЭК на OZON незачем.
+    var has = false;
+    for (var j = 0; j < list.length; j++) if (list[j].id === picked) has = true;
+    if (!has) picked = list[0].id;
+    // Подпись обязательна: без неё на телефоне перевозчики и варианты встают в
+    // один столбик из четырёх одинаковых карточек и читаются как один список.
+    return '<span class="co-modes-label">Куда доставить</span>'
+      + '<div class="co-modes-row" role="radiogroup" aria-label="Куда доставить">'
+      + list.map(function (m) {
+        // Цена вариантa приходит с сервера; пока адреса нет — считать нечего, и
+        // вместо цифры стоит прочерк, а не «0 ₽».
+        var price = shipPrice(deliveryChoice(), m.id);
+        return '<label class="co-mode"><input type="radio" name="co-delivery-mode" value="' + escapeHtml(m.id) + '"'
+          + (m.id === picked ? ' checked' : '') + '>'
+          + '<span class="co-mode-text"><b>' + escapeHtml(m.name) + '</b>'
+          + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span>'
+          + '<span class="co-mode-price">' + (price == null ? '—' : money(price)) + '</span></label>';
+      }).join('')
+      + '</div>';
+  }
+  function renderModes() {
+    var box = document.getElementById('co-modes');
+    if (!box) return;
+    box.innerHTML = deliveryModesHtml();
+  }
+  // Название перевозчика живёт в правой сводке, подсказка — под адресом, а
+  // варианты доставки зависят от выбранного перевозчика, поэтому обновляем всё.
   function syncDelivery() {
+    renderModes();
     renderRail();
+    syncSubmit();
     setText('co-address-note', addressNote());
   }
   function initDeliveryChoice() {
@@ -283,6 +368,73 @@
     // первом способе.
     syncDelivery();
     box.addEventListener('change', syncDelivery);
+    var modes = document.getElementById('co-modes');
+    // Смена варианта перевозчика не меняет список вариантов — перерисовывать их
+    // не нужно, достаточно обновить сумму и подсказку под адресом.
+    if (modes) modes.addEventListener('change', function () {
+      renderRail(); syncSubmit(); setText('co-address-note', addressNote());
+    });
+  }
+
+  /* ===== Стоимость доставки =====
+   * Считает сервер (`/api/delivery/quote`) — тем же модулем, которым потом
+   * считает заказ. Своей сетки тарифов у витрины нет и быть не может: цифра в
+   * сводке обязана совпадать с той, что уйдёт в заказ.
+   *
+   * Ответ несёт цены сразу всех способов и вариантов по этому адресу, поэтому
+   * переключение перевозчика или «курьером/в пункт выдачи» не ходит на сервер —
+   * запрос нужен только когда изменился адрес или состав корзины.
+   */
+  var ship = { key: '', prices: null, zoneName: '', pending: false, timer: null };
+
+  function shipPrice(method, mode) {
+    if (!ship.prices || !method || !mode) return null;
+    var byMode = ship.prices[method];
+    var price = byMode && byMode[mode];
+    return typeof price === 'number' ? price : null;
+  }
+  // Цена выбранной доставки или null, пока адрес не введён и считать нечего.
+  function shipCurrent() { return shipPrice(deliveryChoice(), deliveryModeChoice()); }
+  // Итог заказа: товары плюс доставка. Именно по нему проверяется потолок одной
+  // покупки и он же стоит на кнопке — платить покупатель будет эту сумму.
+  function orderTotal() {
+    var price = shipCurrent();
+    return Cart.total() + (price == null ? 0 : price);
+  }
+
+  function addressValue() {
+    var input = document.getElementById('co-address');
+    return input ? input.value.trim() : '';
+  }
+  // Запрос идёт с задержкой: адрес набирают по букве, а цена меняется только с
+  // регионом. Повтор того же запроса не отправляется — ключом служит сам адрес
+  // вместе с суммой товаров (от неё зависит подгонка итога под круглое число).
+  function quoteDelivery(delay) {
+    var address = addressValue();
+    var key = Cart.total() + '|' + address;
+    if (!address) { ship.key = ''; ship.prices = null; ship.zoneName = ''; syncDelivery(); return; }
+    if (key === ship.key || ship.pending && ship.wanted === key) return;
+    clearTimeout(ship.timer);
+    ship.wanted = key;
+    ship.timer = setTimeout(function () {
+      ship.pending = true;
+      fetch('/api/delivery/quote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: address, total: Cart.total() })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          ship.pending = false;
+          if (!d || !d.ok || ship.wanted !== key) return;   // ответ устарел
+          ship.key = key; ship.prices = d.prices || null; ship.zoneName = d.zoneName || '';
+          syncDelivery();
+        })
+        .catch(function () {
+          // Сеть подвела — цену не выдумываем: сводка честно скажет, что она
+          // считается, а сервер посчитает её при оформлении сам.
+          ship.pending = false;
+        });
+    }, delay == null ? 350 : delay);
   }
   // ===== Подсказки адреса (dadata.ru через наш /api/address-suggest) =====
   // Подсказки — помощь, а не условие: если ключ не настроен, запрос не удался или
@@ -325,6 +477,9 @@
       lastQuery = s.value;      // выбранное значение заново не переспрашиваем
       close();
       input.focus();
+      // Выбор из списка не даёт события ввода, а адрес изменился — цену
+      // доставки пересчитываем сразу, без задержки.
+      quoteDelivery(0);
     }
     function ask(q) {
       var my = ++seq;
@@ -1590,9 +1745,13 @@
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите способ доставки'; }
       return;
     }
+    if (!deliveryModeChoice()) {
+      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите, куда доставить: в пункт выдачи или курьером'; }
+      return;
+    }
     // Кнопка при такой сумме уже погашена, но проверяем ещё раз: сумму мог
     // изменить второй открытый таб.
-    var limitError = totalLimitError(Cart.total());
+    var limitError = totalLimitError(orderTotal());
     if (limitError) {
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = limitError; }
       return;
@@ -1607,7 +1766,8 @@
       lastName: val('co-last-name'),
       contact: val('co-contact'),
       address: val('co-address'),
-      delivery: deliveryChoice()
+      delivery: deliveryChoice(),
+      deliveryMode: deliveryModeChoice()
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })

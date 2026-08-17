@@ -10,6 +10,7 @@ const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
 const CROCO = require('./lib/crocopay');
 const DELIVERY = require('./lib/delivery');
+const SHIP = require('./lib/delivery-price');
 const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
@@ -684,6 +685,27 @@ app.post('/api/address-suggest', async (req, res) => {
   res.json({ ok: r.ok, configured: r.reason !== 'not_configured', items: r.items });
 });
 
+/* Стоимость доставки для оформления. Считает ТОТ ЖЕ модуль, что и /api/order,
+ * поэтому цифра в сводке и цифра в заказе совпадают по построению — своя сетка
+ * в скрипте разъехалась бы с серверной, как разъехался бы свой список способов.
+ *
+ * Внешних запросов здесь нет вовсе: зона определяется по строке адреса, тариф
+ * берётся из таблицы. Поэтому запрос дешёвый, и витрина шлёт его на каждую
+ * правку адреса и на каждую смену перевозчика.
+ *
+ * `total` приходит от витрины и на цену товаров не влияет — он нужен только для
+ * подгонки итога под круглое число. Настоящую сумму /api/order считает сам.
+ */
+app.post('/api/delivery/quote', (req, res) => {
+  if (rateLimited(req, 'ship', 120, 60 * 1000)) return res.json({ ok: false }, 429);
+  const goods = Number(req.body && req.body.total);
+  const address = String(req.body && req.body.address || '').slice(0, 400);
+  // Цены отдаём сразу все: покупатель должен видеть, во что обойдётся курьер,
+  // ДО того как выберет его, а переключение способа не должно ходить на сервер.
+  const q = SHIP.quoteAll(address, Number.isFinite(goods) && goods > 0 ? goods : 0);
+  res.json({ ok: true, zone: q.zone, zoneName: q.zoneName, prices: q.prices });
+});
+
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
 // Уведомление менеджеру о новом заказе. Общее для двух путей: заявки без
 // онлайн-оплаты (уходит сразу) и черновика, который стал заказом после выбора
@@ -695,7 +717,8 @@ function notifyNewOrder(order) {
   const lines = (order.items || []).map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
   const msg = `🛒 <b>Новый заказ ${tgEsc(R.orderNo(order.number))}</b>\n🏬 ${tgEsc(order.siteName || site.storeName)}\n`
     + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
-    + (order.delivery ? `🚚 Доставка: ${tgEsc(DELIVERY.nameOf(order.delivery))}\n` : '')
+    + (order.delivery ? `🚚 Доставка: ${tgEsc([DELIVERY.nameOf(order.delivery), DELIVERY.shortModeOf(order.delivery, order.deliveryMode)].filter(Boolean).join(', '))}`
+      + `${order.deliveryPrice ? ` — ${R.money(order.deliveryPrice, ss)}` : ''}\n` : '')
     + (order.address ? `📍 Адрес: ${tgEsc(order.address)}\n` : '')
     + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
     + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
@@ -762,10 +785,6 @@ app.post('/api/order', async (req, res) => {
   }
   if (!items.length) return res.json({ ok: false, error: 'В корзине нет доступных товаров' }, 400);
   if (!Number.isFinite(total) || total > 1e12) return res.json({ ok: false, error: 'Сумма заказа некорректна' }, 400);
-  // Пределы одной покупки (1 000 – 250 000 ₽). Витрина гасит кнопку заранее, но
-  // проверяем и здесь: клиентским данным не верим, как и в цене заказа.
-  const limit = CROCO.limitError(total);
-  if (limit) return res.json({ ok: false, error: limit }, 400);
   const contact = String(req.body.contact || '').trim();
   if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
   // Получатель и доставка обязательны: заказ идёт с предоплатой и уезжает
@@ -778,6 +797,20 @@ app.post('/api/order', async (req, res) => {
   if (!address) return res.json({ ok: false, error: 'Укажите адрес или пункт выдачи' }, 400);
   const delivery = String(req.body.delivery || '').trim();
   if (!DELIVERY.isValid(delivery)) return res.json({ ok: false, error: 'Выберите способ доставки' }, 400);
+  const deliveryMode = String(req.body.deliveryMode || '').trim();
+  if (!DELIVERY.isValidMode(delivery, deliveryMode)) return res.json({ ok: false, error: 'Выберите, куда доставить: в пункт выдачи или курьером' }, 400);
+
+  // Доставку считаем заново по своей сетке тарифов — ровно так же, как цену
+  // товаров. Витрина показывала свою цифру, но она приходит от того же расчёта
+  // (`/api/delivery/quote`), а не из скрипта, поэтому расходиться им не с чего.
+  const ship = SHIP.quote(delivery, deliveryMode, address, total);
+  if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
+  const grandTotal = total + ship.price;
+  // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
+  // покупатель, то есть вместе с доставкой. Витрина гасит кнопку заранее, но
+  // проверяем и здесь: клиентским данным не верим, как и в цене заказа.
+  const limit = CROCO.limitError(grandTotal);
+  if (limit) return res.json({ ok: false, error: limit }, 400);
 
   const visitorId = metrics.visitorId(req) || null;
   const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
@@ -801,7 +834,9 @@ app.post('/api/order', async (req, res) => {
   const order = db.createOrder({
     draft,
     siteId: site.id, siteName: site.storeName, host: db.normHost(req.headers.host),
-    items, total, firstName, lastName, contact, address, delivery, comment: req.body.comment,
+    items, total: grandTotal, itemsTotal: total,
+    firstName, lastName, contact, address, delivery, comment: req.body.comment,
+    deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
     clientCountry: client.country, clientCountryCode: client.countryCode, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
@@ -827,7 +862,11 @@ app.post('/api/order', async (req, res) => {
   // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
   // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
   // её чистит pay.js, когда способ выбран).
-  res.json({ ok: true, id: order.id, number: order.number, total, pay: draft, telegram: 'queued' });
+  res.json({
+    ok: true, id: order.id, number: order.number, total: grandTotal, itemsTotal: total,
+    delivery: { price: ship.price, zone: ship.zone, zoneName: ship.zoneName },
+    pay: draft, telegram: 'queued'
+  });
 });
 
 /* ======================== ОПЛАТА: CrocoPAY (схема H2H) ========================

@@ -2438,9 +2438,14 @@ test('заказ вне пределов одной покупки не офор
   const render_ = js.slice(js.indexOf('var overLimit'), js.indexOf('var overLimit') + 700);
   assert.match(render_, /submit\.disabled = !canOrder \|\| !!overLimit/);
   assert.match(js, /Один заказ — не более/);
+  // Считается предел по ИТОГУ с доставкой: платит покупатель именно его, и
+  // касса проводит тоже его.
+  assert.match(js, /var overLimit = totalLimitError\(orderTotal\(\)\)/);
+  assert.match(js, /var limitError = totalLimitError\(orderTotal\(\)\)/);
   // Сервер проверяет сумму заново — клиентским данным не верим.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const limit = CROCO\.limitError\(total\);[\s\S]{0,120}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
+  assert.match(server, /const limit = CROCO\.limitError\(grandTotal\);[\s\S]{0,200}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
+  assert.match(server, /const grandTotal = total \+ ship\.price;/);
 });
 
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
@@ -2496,6 +2501,213 @@ test('имя, фамилия, адрес и способ доставки обя
   assert.equal(delivery.isValid('почта'), false);
   assert.equal(delivery.nameOf('ozon'), 'OZON');
   assert.equal(delivery.nameOf(''), '', 'заказ без доставки не даёт «undefined»');
+});
+
+test('зона доставки определяется по адресу, а улицы её не сбивают', () => {
+  const Z = require('../lib/delivery-zones');
+
+  assert.equal(Z.zoneFor('г Москва, ул Тверская, д 1'), 'msk');
+  assert.equal(Z.zoneFor('Московская обл, г Химки, ул Ленина, д 5'), 'msk');
+  assert.equal(Z.zoneFor('г Санкт-Петербург, Невский пр-кт, д 100'), 'szfo');
+  assert.equal(Z.zoneFor('Респ Татарстан, г Казань, ул Баумана'), 'pfo');
+  assert.equal(Z.zoneFor('г Краснодар, ул Красная, д 1'), 'yug');
+  assert.equal(Z.zoneFor('Свердловская обл, г Екатеринбург, ул Малышева'), 'ural');
+  assert.equal(Z.zoneFor('660000, Красноярск, пр Мира 10'), 'sfo');
+  assert.equal(Z.zoneFor('г Владивосток, ул Светланская, д 1'), 'dfo');
+
+  // Улица Кирова есть в каждом втором городе, а Ленинградский проспект — в
+  // Москве: по одному только «самому длинному совпадению» такой заказ уезжал бы
+  // в чужую зону. Слово после «ул»/«пр-кт» выбрасывается, а из оставшегося
+  // побеждает самое раннее — регион и город стоят в адресе первыми.
+  assert.equal(Z.zoneFor('г Москва, Ленинградский пр-кт, д 39'), 'msk');
+  assert.equal(Z.zoneFor('Новосибирск, ул. Кирова, 27'), 'sfo');
+  assert.equal(Z.zoneFor('ул Кирова 3, Омск'), 'sfo');
+  assert.equal(Z.zoneFor('Чита, ул Кирова 5'), 'sfo');
+
+  // Одноимённые города и области различаются целиком, а не по общей части.
+  assert.equal(Z.zoneFor('г Нижний Новгород, ул Большая Покровская'), 'pfo');
+  assert.equal(Z.zoneFor('Великий Новгород, ул Ленина'), 'szfo');
+  assert.equal(Z.zoneFor('Ростов-на-Дону, пр Стачки 1'), 'yug');
+  assert.equal(Z.zoneFor('Ярославская обл, г Ростов, ул Мира'), 'cfo');
+
+  // Регион не опознан — не ошибка: покупатель мог написать «ПВЗ у метро».
+  // Тогда действует средний тариф по стране, а не самый дешёвый.
+  assert.equal(Z.zoneFor('ПВЗ у метро'), 'ru');
+  assert.equal(Z.zoneFor(''), 'ru');
+  assert.equal(Z.zoneFor(null), 'ru');
+  assert.equal(Z.isValidZone('msk'), true);
+  assert.equal(Z.isValidZone('европа'), false);
+});
+
+test('сетка тарифов полная, курьер дороже ПВЗ, а итог с доставкой круглый', () => {
+  const Z = require('../lib/delivery-zones');
+  const SHIP = require('../lib/delivery-price');
+  const DELIVERY = require('../lib/delivery');
+  const CROCO = require('../lib/crocopay');
+
+  // Сетка обязана быть полной: пропущенная клетка — это заказ, который нельзя
+  // оформить, потому что доставку не посчитать.
+  for (const m of DELIVERY.METHODS) {
+    for (const mode of m.modes) {
+      for (const z of Z.ZONES) {
+        assert.ok(SHIP.rate(m.id, mode.id, z.id) > 0, `нет тарифа: ${m.id}/${mode.id}/${z.id}`);
+      }
+    }
+    for (const z of Z.ZONES) {
+      assert.ok(SHIP.rate(m.id, 'courier', z.id) > SHIP.rate(m.id, 'pvz', z.id),
+        `курьер обязан быть дороже пункта выдачи: ${m.id}/${z.id}`);
+    }
+    // Отправка из Москвы: чем дальше, тем дороже.
+    assert.ok(SHIP.rate(m.id, 'pvz', 'dfo') > SHIP.rate(m.id, 'pvz', 'msk'));
+    // Зона «регион не опознан» не должна быть самой дешёвой — недобор оплатит магазин.
+    assert.ok(SHIP.rate(m.id, 'pvz', 'ru') > SHIP.rate(m.id, 'pvz', 'msk'));
+  }
+  // Неизвестный способ, вариант или зона — ноль, а не выдуманная цена.
+  assert.equal(SHIP.rate('почта', 'pvz', 'msk'), 0);
+  assert.equal(SHIP.rate('cdek', 'дрон', 'msk'), 0);
+  assert.equal(SHIP.rate('cdek', 'pvz', 'европа'), 0);
+
+  const addresses = ['г Москва, ул Тверская', 'Екатеринбург', 'г Владивосток', 'ПВЗ у метро'];
+  for (const address of addresses) {
+    for (const goods of [1990, 7990, 23250, 67990, 99990, 189990, 249000]) {
+      const all = SHIP.quoteAll(address, goods);
+      for (const m of DELIVERY.METHODS) {
+        for (const mode of m.modes) {
+          const q = SHIP.quote(m.id, mode.id, address, goods);
+          // Витрина и заказ считают ОДНИМ И ТЕМ ЖЕ: quote — это срез quoteAll,
+          // иначе показанная цена разошлась бы с той, что уйдёт в заказ.
+          assert.equal(q.price, all.prices[m.id][mode.id], 'quote и quoteAll обязаны совпадать');
+          assert.ok(q.price > 0);
+          // До сотен итог округляется всегда — окно шире 100 ₽ при любом тарифе.
+          assert.equal((goods + q.price) % 100, 0, `итог не круглый: ${goods} + ${q.price}`);
+          // Округление вверх не выводит заказ за потолок одной покупки: такую
+          // сумму касса не проведёт.
+          assert.ok(goods + q.price <= CROCO.MAX_TOTAL);
+          // Цена держится около тарифа, а не улетает ради круглого числа.
+          assert.ok(Math.abs(q.price - q.base) <= Math.max(150, q.base * 0.3),
+            `цена ушла от тарифа: ${q.price} против ${q.base}`);
+        }
+        // После подгонки курьер тоже обязан остаться дороже: рядом в одном ряду
+        // «курьером дешевле» читалось бы как ошибка витрины.
+        assert.ok(all.prices[m.id].courier > all.prices[m.id].pvz,
+          `подгонка сломала порядок: ${m.id} на ${goods} по адресу «${address}»`);
+      }
+    }
+  }
+
+  // Круглая тысяча — когда попадает: 67 990 + 1 010 = 69 000.
+  assert.equal(SHIP.quote('cdek', 'courier', 'г Владивосток', 67990).price, 1010);
+  assert.equal(SHIP.quote('cdek', 'courier', 'г Владивосток', 67990).total, 69000);
+  // Пустая корзина — чистый тариф, подгонять нечего.
+  assert.equal(SHIP.quote('cdek', 'pvz', 'г Москва', 0).price, SHIP.rate('cdek', 'pvz', 'msk'));
+  // Неизвестный вариант — отказ, а не «доставка бесплатно».
+  assert.equal(SHIP.quote('cdek', 'дрон', 'г Москва', 67990).ok, false);
+  assert.equal(SHIP.quote('cdek', 'дрон', 'г Москва', 67990).price, 0);
+});
+
+test('куда доставить — обязательный выбор, а его цена входит в итог заказа', () => {
+  const DELIVERY = require('../lib/delivery');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ====================== ОПЛАТА'));
+
+  // Варианты есть у каждого перевозчика, и id у них общие: заказ хранит их
+  // навсегда, а название правится свободно.
+  for (const m of DELIVERY.METHODS) {
+    // Пункт выдачи стоит первым: он дешевле, а витрина выбирает заранее первый.
+    assert.deepEqual(m.modes.map(x => x.id), ['pvz', 'courier'], 'варианты доставки: ' + m.id);
+  }
+  assert.equal(DELIVERY.isValidMode('cdek', 'courier'), true);
+  assert.equal(DELIVERY.isValidMode('cdek', 'дрон'), false);
+  assert.equal(DELIVERY.isValidMode('почта', 'pvz'), false);
+  // Названия у перевозчиков свои: у OZON пункт выдачи бывает и постаматом.
+  assert.equal(DELIVERY.findMode('ozon', 'pvz').name, 'В пункт выдачи или постамат');
+  assert.equal(DELIVERY.shortModeOf('ozon', 'courier'), 'курьером');
+  assert.equal(DELIVERY.shortModeOf('', ''), '', 'прежний заказ без варианта не даёт «undefined»');
+
+  // Сервер проверяет вариант сам и до записи заказа.
+  assert.match(route, /DELIVERY\.isValidMode\(delivery, deliveryMode\)/);
+  assert.ok(route.indexOf('Выберите, куда доставить') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
+  // Цена доставки считается на сервере заново — клиентской цифре верим не больше,
+  // чем клиентской цене товара.
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total\)/);
+  assert.match(route, /total: grandTotal, itemsTotal: total/);
+  assert.doesNotMatch(route, /req\.body\.deliveryPrice/, 'цену доставки витрина не присылает');
+
+  // Витрина отправляет вариант и берёт список от сервера, а не держит свой.
+  assert.match(js, /deliveryMode: deliveryModeChoice\(\)/);
+  assert.match(js, /\(m && m\.modes\) \|\| \[\]/);
+  assert.doesNotMatch(js, /id:\s*'pvz'|id:\s*'courier'/, 'варианты не дублируются в скрипте');
+  // Своей сетки тарифов у витрины нет: цену считает сервер тем же модулем, что
+  // и заказ. Числа тарифов в скрипте — это уже расхождение.
+  assert.doesNotMatch(js, /RATES|delivery-price/);
+  assert.match(js, /fetch\('\/api\/delivery\/quote'/);
+  // Ответ несёт цены всех вариантов сразу, поэтому переключение способа не ходит
+  // на сервер, а цена стоит у каждой карточки — до выбора, а не после.
+  assert.match(server, /app\.post\('\/api\/delivery\/quote'/);
+  assert.match(server, /SHIP\.quoteAll\(address/);
+  assert.match(js, /shipPrice\(deliveryChoice\(\), m\.id\)/);
+  assert.match(js, /class="co-mode-price"/);
+  assert.match(css, /\.co-mode-price\{[^}]*tabular-nums/);
+  assert.match(css, /\.co-modes-row\{display:grid/);
+  // Вопрос «куда доставить» подписан: на телефоне обе группы встают в один
+  // столбик, и без подписи это читается как список из четырёх перевозчиков.
+  assert.match(js, /class="co-modes-label">Куда доставить/);
+  assert.match(css, /\.co-modes-label\{/);
+
+  // В сводке доставка стоит отдельной строкой, а итог считается вместе с ней.
+  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 1400);
+  assert.match(rail, /Доставка/);
+  assert.match(rail, /money\(orderTotal\(\)\)/);
+  // Пока адреса нет, цену не выдумываем и «бесплатно» не обещаем.
+  assert.match(rail, /price == null \? '<i class="co-line-wait">по адресу/);
+
+  // Разметка страницы несёт варианты вместе со способом — одним списком.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  for (const m of DELIVERY.METHODS) for (const mode of m.modes) {
+    assert.ok(html.includes(mode.name), `в разметке нет варианта ${m.id}/${mode.id}`);
+  }
+  // Сетка тарифов наружу не выходит: на витрине только цены посчитанного заказа.
+  const SHIP = require('../lib/delivery-price');
+  assert.doesNotMatch(html, new RegExp('data-delivery="[^"]*' + SHIP.RATES.cdek.pvz.dfo));
+});
+
+test('вариант, цена и зона доставки хранятся в заказе, а старые заявки читаются как были', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-ship-'));
+  const fresh = freshDb(dir);
+  const order = fresh.createOrder({
+    items: [], itemsTotal: 67990, total: 68700, contact: 'tg', firstName: 'Иван', lastName: 'Петров',
+    delivery: 'ozon', deliveryMode: 'courier', deliveryPrice: 710, deliveryZone: 'dfo', address: 'г Владивосток'
+  });
+  assert.equal(order.deliveryMode, 'courier');
+  assert.equal(order.deliveryPrice, 710);
+  assert.equal(order.deliveryZone, 'dfo');
+  // total — то, что платит покупатель; itemsTotal — только товары.
+  assert.equal(order.total, 68700);
+  assert.equal(order.itemsTotal, 67990);
+
+  // Чужие значения в заказ не попадают.
+  const junk = fresh.createOrder({ items: [], total: 1000, contact: 'tg', delivery: 'cdek', deliveryMode: 'дрон', deliveryZone: 'европа' });
+  assert.equal(junk.deliveryMode, '');
+  assert.equal(junk.deliveryZone, '');
+  assert.equal(junk.deliveryPrice, 0);
+  // Вариант без способа тоже пустой: `pvz` без перевозчика ничего не значит.
+  assert.equal(fresh.createOrder({ items: [], total: 1000, contact: 'tg', deliveryMode: 'pvz' }).deliveryMode, '');
+  // Прежняя заявка: доставки нет вовсе, а суммы совпадают.
+  const old = fresh.createOrder({ items: [], total: 4500, contact: 'tg' });
+  assert.equal(old.deliveryPrice, 0);
+  assert.equal(old.itemsTotal, 4500);
+
+  // В панелях видно, куда и почём: без цены итог не сходится с суммой позиций.
+  const line = render.orderClient(order, { money: { currency: '₽' } });
+  // money() ставит перед валютой неразрывный пробел, поэтому сверяем через \s.
+  assert.match(line, /OZON, курьером · 710\s₽ · г Владивосток/);
+  // У прежней заявки строка остаётся прежней — ни «undefined», ни «0 ₽».
+  const oldLine = render.orderClient({ delivery: 'cdek', address: 'Москва' }, { money: { currency: '₽' } });
+  assert.match(oldLine, /СДЭК · Москва/);
+  assert.doesNotMatch(oldLine, /undefined|0 ₽/);
 });
 
 test('имя с фамилией собираются в customerName, а старые заказы читаются как были', () => {
@@ -2814,8 +3026,13 @@ test('оформление разложено на три блока, а сум�
   const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 900);
   assert.doesNotMatch(rail, /co-first-name|co-last-name|co-contact|co-address|checkout-submit/);
   assert.match(rail, /Cart\.availableCount\(\)/, 'число товаров обязано совпадать с суммой рядом');
-  // Смена перевозчика обновляет и сумму справа, и подсказку под адресом.
-  assert.match(js, /function syncDelivery\(\) \{\s*renderRail\(\);\s*setText\('co-address-note'/);
+  // Смена перевозчика обновляет варианты доставки (у них своя цена), сумму
+  // справа, кнопку с итогом и подсказку под адресом.
+  const sync = js.slice(js.indexOf('function syncDelivery'), js.indexOf('function syncDelivery') + 260);
+  assert.match(sync, /renderModes\(\)/);
+  assert.match(sync, /renderRail\(\)/);
+  assert.match(sync, /syncSubmit\(\)/);
+  assert.match(sync, /setText\('co-address-note'/);
 });
 
 test('логотип перевозчика инлайнится спрайтом, а без файла остаётся текст', () => {
