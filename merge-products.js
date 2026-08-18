@@ -68,11 +68,6 @@ for (const { keep, remove } of MERGES) {
   const photos = (gone.images || []).filter(src2 => !(db.getProduct(keep).images || []).includes(src2));
   console.log(`✓ ${gone.name} → ${live.name}: отзывов покупателей ${real.length}, демо ${reviews.length - real.length} (не переносим), фото ${photos.length}`);
 
-  // Оверрайды удаляемой карточки исчезнут вместе с ней — предупреждаем, чтобы
-  // владелец проверил цену объединённого товара на этих сайтах.
-  const affected = db.getSites().filter(s => s.overrides && s.overrides[remove]).map(s => s.storeName || s.id);
-  if (affected.length) console.log(`  ! своя цена/видимость на сайтах: ${affected.join(', ')} — проверьте их после слияния`);
-
   if (apply) {
     db.moveReviews(remove, keep, r => !isDemoReview(r));
     if (photos.length) {

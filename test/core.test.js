@@ -12,11 +12,9 @@ const auth = require('../lib/auth');
 const deals = require('../lib/deals');
 const dbCore = require('../lib/db');
 const render = require('../lib/render');
-const ownerViews = require('../lib/owner-views');
-const siteViews = require('../lib/site-views');
+const adminViews = require('../lib/admin-views');
 const analyticsView = require('../lib/analytics-view');
 const variants = require('../lib/variants');
-const tenancy = require('../lib/tenancy');
 const images = require('../lib/images');
 const clientIcons = require('../lib/client-icons');
 const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, sessionsOf, MAX_HITS } = require('../lib/analytics');
@@ -58,6 +56,10 @@ function response() {
   };
 }
 
+// Настройки магазина для панели и витрины: панель красится акцентным цветом и
+// подписывает деньги валютой, поэтому фейку без них верить нельзя.
+const SETTINGS = { storeName: 'Магазин', tagline: 'Слоган', accentColor: '#1d1d1f', currency: '₽', currencyPosition: 'after', adminUsername: 'admin' };
+
 // Отдельный экземпляр lib/db поверх своего каталога данных: путь читается один раз
 // при загрузке модуля, поэтому кэш require сбрасывается вокруг подмены переменной.
 // Основной dbCore из шапки файла при этом остаётся прежним.
@@ -82,17 +84,17 @@ test('пароли проверяются синхронно и асинхрон
   assert.equal(await auth.verifyPasswordAsync('секрет', 'сломанный-хеш'), false);
 });
 
-test('утилита безопасно сбрасывает пароль владельца во внешнем хранилище', t => {
+test('утилита безопасно сбрасывает пароль панели во внешнем хранилище', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-password-reset-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const script = path.join(__dirname, '..', 'scripts', 'reset-owner-password.js');
+  const script = path.join(__dirname, '..', 'scripts', 'reset-admin-password.js');
   execFileSync(process.execPath, [script], {
     input: 'новый-надёжный-пароль', encoding: 'utf8',
-    env: Object.assign({}, process.env, { STORE_DATA_DIR: dir, OWNER_USERNAME: 'new-owner' })
+    env: Object.assign({}, process.env, { STORE_DATA_DIR: dir, ADMIN_USERNAME: 'new-admin' })
   });
   const stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-  assert.equal(stored.ownerUsername, 'new-owner');
-  assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.ownerPasswordHash), true);
+  assert.equal(stored.adminUsername, 'new-admin');
+  assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
 });
 
 test('скидка применяется только при корректной активной цене', () => {
@@ -195,12 +197,6 @@ test('хосты нормализуются вместе с IPv4, IPv6 и пор
   assert.equal(dbCore.normHost('www.Example.com:443'), 'example.com');
   assert.equal(dbCore.normHost('[::1]:3000'), '::1');
   assert.equal(dbCore.normHost('::1'), '::1');
-  const sites = [
-    { id: 'one', hosts: ['www.Example.com', 'shop.test'] },
-    { id: 'two', hosts: ['other.test'] }
-  ];
-  assert.deepEqual(dbCore.findHostConflicts('example.com, new.test', null, sites), ['example.com']);
-  assert.deepEqual(dbCore.findHostConflicts('example.com', 'one', sites), []);
 });
 
 test('битый URL и cookie не завершают обработчик', async () => {
@@ -268,10 +264,10 @@ test('POST из другого origin отклоняется до обработ
 
 test('privacy-браузер может отправить формы входа со скрытым Origin', async () => {
   const app = new App({ secret: 'test', forceHttps: true });
-  app.post('/owner/login', (req, res) => res.json({ ok: true }));
+  app.post('/admin/login', (req, res) => res.json({ ok: true }));
 
   const res = response();
-  await app.handle(request('/owner/login', {
+  await app.handle(request('/admin/login', {
     method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
     headers: { host: 'shop.test', origin: 'null', 'content-type': 'application/json' }
   }), res);
@@ -282,10 +278,10 @@ test('privacy-браузер может отправить формы входа
 test('явный cross-site Origin не проходит даже на форме входа', async () => {
   const app = new App({ secret: 'test', forceHttps: true });
   let calls = 0;
-  app.post('/owner/login', (req, res) => { calls++; res.json({ ok: true }); });
+  app.post('/admin/login', (req, res) => { calls++; res.json({ ok: true }); });
 
   const res = response();
-  await app.handle(request('/owner/login', {
+  await app.handle(request('/admin/login', {
     method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
     headers: {
       host: 'shop.test', origin: 'https://evil.test', 'sec-fetch-site': 'cross-site',
@@ -299,7 +295,7 @@ test('явный cross-site Origin не проходит даже на форм�
 
 test('скрытый Origin внутри панели требует подписанную авторизованную сессию', async () => {
   const app = new App({ secret: 'test', forceHttps: true });
-  app.get('/authorize', (req, res) => { req.session.owner = 'signed-owner-stamp'; res.json({ ok: true }); });
+  app.get('/authorize', (req, res) => { req.session.admin = 'signed-admin-stamp'; res.json({ ok: true }); });
   app.post('/private-change', (req, res) => res.json({ ok: true }));
 
   const authRes = response();
@@ -453,7 +449,7 @@ test('Content-Type разбирается без учёта регистра, а
 });
 
 test('рендер экранирует категорию, валюту и CSS-цвет', () => {
-  const db = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const db = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const payload = '</script><script>globalThis.pwned=1</script>';
   const html = render.homePage({
     storeName: 'Тест', tagline: '', accentColor: 'red;display:none',
@@ -516,15 +512,15 @@ test('метрика считает визиты пакетно, различа�
     cpuCores: 8, deviceMemory: 8, connection: '4g', utmSource: '', utmMedium: '', utmCampaign: 'summer'
   });
 
-  analytics.recordPageView({ id, siteId: 'shop', path: '/product/test?q=secret', host: 'shop.test', referrer: 'https://google.com/search?q=x', context: { ip: '8.8.8.8', device: phone.device, model: phone.model, os: phone.os, browser: phone.browser, screen: '1179×2556', utmSource: 'telegram', utmCampaign: 'summer' } });
+  analytics.recordPageView({ id, path: '/product/test?q=secret', host: 'shop.test', referrer: 'https://google.com/search?q=x', context: { ip: '8.8.8.8', device: phone.device, model: phone.model, os: phone.os, browser: phone.browser, screen: '1179×2556', utmSource: 'telegram', utmCampaign: 'summer' } });
   analytics.findVisitor(id).lastSeen = Date.now() - 60000;
-  analytics.heartbeat({ id, siteId: 'shop', path: '/product/test', context: {} });
-  analytics.markOrder(id, { id: 'order1', number: 'ORD-0001', siteId: 'shop', createdAt: Date.now() });
-  analytics.recordPageView({ id: 'b'.repeat(32), siteId: 'shop', path: '/', requestedPath: '/', context: { isBot: true, botName: 'Googlebot' } });
-  analytics.recordPageView({ id: 'c'.repeat(32), siteId: 'shop', path: '/404', requestedPath: '/wp-admin.php', is404: true, context: {} });
-  analytics.recordPageView({ id: 'd'.repeat(32), siteId: 'shop', path: '/', provisional: true, context: { device: 'Компьютер', browser: 'Chrome 150', os: 'Windows 10/11' } });
+  analytics.heartbeat({ id, path: '/product/test', context: {} });
+  analytics.markOrder(id, { id: 'order1', number: 'ORD-0001', createdAt: Date.now() });
+  analytics.recordPageView({ id: 'b'.repeat(32), path: '/', requestedPath: '/', context: { isBot: true, botName: 'Googlebot' } });
+  analytics.recordPageView({ id: 'c'.repeat(32), path: '/404', requestedPath: '/wp-admin.php', is404: true, context: {} });
+  analytics.recordPageView({ id: 'd'.repeat(32), path: '/', provisional: true, context: { device: 'Компьютер', browser: 'Chrome 150', os: 'Windows 10/11' } });
   analytics.findVisitor('d'.repeat(32)).lastSeen = Date.now() - 3 * 60 * 1000;
-  const report = analytics.snapshot({ siteId: 'shop', days: 7 });
+  const report = analytics.snapshot({ days: 7 });
   assert.equal(report.unique, 1);
   assert.equal(report.visits, 1);
   assert.equal(report.pageViews, 1);
@@ -549,19 +545,15 @@ test('метрика безопасно считает специальные к
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
   analytics.recordPageView({
-    id: 'e'.repeat(32), siteId: 'shop', path: '/',
+    id: 'e'.repeat(32), path: '/',
     context: { device: 'Компьютер', browser: 'Тест', os: 'Тест', utmCampaign: '__proto__' }
   });
-  const report = analytics.snapshot({ siteId: 'shop', days: 1 });
+  const report = analytics.snapshot({ days: 1 });
   assert.deepEqual(report.campaigns, [{ label: '__proto__', value: 1 }]);
 });
 
 test('раздел метрики защищён панелью и показывает понятные показатели', () => {
-  const fakeDb = {
-    getSites: () => [{ id: 'shop', storeName: 'Магазин', hosts: ['shop.test'] }],
-    getProducts: () => [{ id: 'p1', name: 'iPhone' }],
-    pendingReviewCount: () => 0
-  };
+  const fakeDb = { getProducts: () => [{ id: 'p1', name: 'iPhone' }], pendingReviewCount: () => 0 };
   const snapshot = {
     generatedAt: Date.now(), days: 7, online: 1, unique: 12, visits: 15,
     pageViews: 42, orders: 2, conversion: 16.7,
@@ -572,12 +564,12 @@ test('раздел метрики защищён панелью и показы�
     campaigns: [{ label: 'telegram · summer', value: 2 }], visitors: [],
     bots: { hits: 70, notFound: 68, agents: [{ label: 'Неизвестный сканер / 404', value: 68 }], paths: [{ label: '/wp-admin', value: 20 }] }
   };
-  const html = ownerViews.analyticsPage(fakeDb, snapshot, 'shop');
+  const html = adminViews.analyticsPage(SETTINGS, fakeDb, snapshot);
   assert.match(html, /Метрика/);
   assert.match(html, /Онлайн сейчас/);
   assert.match(html, /Популярные страницы/);
   assert.match(html, /iPhone/);
-  assert.match(html, /Все домены/);
+  assert.doesNotMatch(html, /Все домены/, 'выбора домена больше нет');
   assert.match(html, /Среднее время/);
   assert.match(html, /UTM-кампании/);
   assert.match(html, /Операционные системы/);
@@ -609,15 +601,55 @@ test('старая загрязнённая метрика мигрирует н
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.writeFileSync(path.join(dir, 'analytics.json'), JSON.stringify({
     version: 1,
-    visitors: [{ id: 'e'.repeat(32), siteId: 'shop', lastSeen: Date.now(), visits: 50, pageViews: 100 }],
-    daily: { old: { siteId: 'shop', date: '2026-07-27', visits: 50, pageViews: 100 } },
+    visitors: [{ id: 'e'.repeat(32), lastSeen: Date.now(), visits: 50, pageViews: 100 }],
+    daily: { old: { date: '2026-07-27', visits: 50, pageViews: 100 } },
     geoCache: {}, geoUsage: { date: '', count: 0 }
   }));
   const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
-  const report = analytics.snapshot({ siteId: 'shop', days: 1 });
-  assert.equal(analytics.data.version, 2);
+  const report = analytics.snapshot({ days: 1 });
+  assert.equal(analytics.data.version, 3);
   assert.equal(report.unique, 0);
   assert.equal(report.pageViews, 0);
+});
+
+test('суточные сводки прежних доменов складываются, а не пропадают', t => {
+  // До переезда сводки лежали под ключом «домен|дата». Домен теперь один, и
+  // строки за одну дату надо сложить: иначе метрика за прошлые дни исчезнет из
+  // отчёта, хотя на диске она цела.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-single-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const today = require('../lib/analytics').dayKey(Date.now());
+  fs.writeFileSync(path.join(dir, 'analytics.json'), JSON.stringify({
+    version: 2,
+    visitors: [
+      { id: 'a'.repeat(32), siteId: 'one', lastSeen: Date.now(), clientConfirmed: true, visits: 2, pageViews: 3 },
+      { id: 'b'.repeat(32), siteId: 'two', lastSeen: Date.now(), clientConfirmed: true, visits: 1, pageViews: 1 }
+    ],
+    daily: {
+      ['one|' + today]: { siteId: 'one', date: today, visitors: ['a'.repeat(32)], orderVisitors: [], visits: 2, pageViews: 3, orders: 1, activeSeconds: 30, pages: { '/': 3 }, sources: {}, devices: {}, browsers: {}, systems: {}, campaigns: {} },
+      ['two|' + today]: { siteId: 'two', date: today, visitors: ['b'.repeat(32)], orderVisitors: [], visits: 1, pageViews: 1, orders: 0, activeSeconds: 10, pages: { '/': 1, '/checkout': 1 }, sources: {}, devices: {}, browsers: {}, systems: {}, campaigns: {} }
+    },
+    botDaily: {
+      ['one|' + today]: { siteId: 'one', date: today, hits: 5, notFound: 2, agents: { 'Googlebot': 5 }, paths: {} },
+      ['two|' + today]: { siteId: 'two', date: today, hits: 3, notFound: 1, agents: { 'Googlebot': 3 }, paths: {} }
+    },
+    geoCache: {}, geoUsage: { date: '', count: 0 }
+  }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  assert.equal(analytics.data.version, 3);
+  assert.deepEqual(Object.keys(analytics.data.daily), [today], 'ключ теперь дата, а не «домен|дата»');
+  assert.equal(analytics.data.visitors.every(v => v.siteId === undefined), true);
+
+  const report = analytics.snapshot({ days: 1 });
+  assert.equal(report.visits, 3);
+  assert.equal(report.pageViews, 4);
+  assert.equal(report.orders, 1);
+  assert.equal(report.unique, 2, 'посетители обоих доменов теперь одни');
+  assert.equal(report.activeSeconds, 40);
+  assert.deepEqual(report.pages.find(x => x.label === '/'), { label: '/', value: 4 });
+  assert.equal(report.bots.hits, 8);
+  assert.equal(report.bots.notFound, 3);
+  assert.deepEqual(report.bots.agents, [{ label: 'Googlebot', value: 8 }]);
 });
 
 test('хронология посетителя пишется просмотрами, а время идёт открытой странице', t => {
@@ -625,11 +657,11 @@ test('хронология посетителя пишется просмотр�
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
   const id = 'a'.repeat(32);
-  analytics.recordPageView({ id, siteId: 'shop', path: '/', context: { ip: '8.8.8.8', device: 'Телефон', os: 'iOS 26.0' } });
-  analytics.recordPageView({ id, siteId: 'shop', path: '/product/p1', context: {} });
+  analytics.recordPageView({ id, path: '/', context: { ip: '8.8.8.8', device: 'Телефон', os: 'iOS 26.0' } });
+  analytics.recordPageView({ id, path: '/product/p1', context: {} });
   const v = analytics.findVisitor(id);
   v.lastSeen = Date.now() - 30000;
-  analytics.heartbeat({ id, siteId: 'shop', path: '/product/p1', context: {} });
+  analytics.heartbeat({ id, path: '/product/p1', context: {} });
 
   assert.deepEqual(v.hits.map(h => h.p), ['/', '/product/p1']);
   // Секунды heartbeat уходят той странице, что открыта сейчас, а не первой.
@@ -644,14 +676,14 @@ test('хронология посетителя пишется просмотр�
 
   // Разрыв больше получаса — новый визит, свежие визиты идут первыми.
   v.lastSessionAt = Date.now() - 40 * 60 * 1000;
-  analytics.recordPageView({ id, siteId: 'shop', path: '/checkout', context: {} });
+  analytics.recordPageView({ id, path: '/checkout', context: {} });
   const two = sessionsOf(v);
   assert.equal(two.length, 2);
   assert.equal(two[0].hits[0].p, '/checkout');
   assert.equal(v.visits, 2);
 
   // Потолок: файл пишется целиком, и хронология не должна расти без предела.
-  for (let i = 0; i < 80; i++) analytics.recordPageView({ id, siteId: 'shop', path: '/product/p' + i, context: {} });
+  for (let i = 0; i < 80; i++) analytics.recordPageView({ id, path: '/product/p' + i, context: {} });
   assert.equal(v.hits.length, MAX_HITS);
   assert.equal(v.hits[v.hits.length - 1].p, '/product/p79', 'вытесняются самые старые');
 });
@@ -689,8 +721,8 @@ test('в строке заказа видно, откуда клиент, а а�
     clientCity: 'Москва', clientCountry: 'Россия', clientIsp: 'MTS',
     clientDevice: 'Телефон', clientModel: 'iPhone', clientOs: 'iOS 26.0', clientBrowser: 'Safari 26', items: []
   };
-  const html = render.orderClient(order, { metricsBase: '/owner/analytics/visitor/' });
-  assert.match(html, /href="\/owner\/analytics\/visitor\/a{32}"/);
+  const html = render.orderClient(order, { metricsBase: '/admin/analytics/visitor/' });
+  assert.match(html, /href="\/admin\/analytics\/visitor\/a{32}"/);
   assert.match(html, /🇷🇺/, 'флаг находится по названию страны — кода у прежних заявок нет');
   assert.match(html, /class="cico/, 'устройство, система и браузер — значками');
   assert.match(html, /iOS 26\.0/);
@@ -705,17 +737,17 @@ test('в строке заказа видно, откуда клиент, а а�
   const old = Object.assign({}, order, { visitorId: null });
   assert.match(render.orderClient(old, { metricsBase: '/admin/analytics/visitor/' }), /href="\/admin\/analytics\/visitor\/85\.140\.7\.212"/);
 
-  // Обе панели передают свою базу, иначе ссылка ведёт в чужую панель.
+  // Базу адреса даёт панель: разметка строки общая, и без параметра ссылка
+  // осталась бы без адреса вовсе.
   const list = [order];
-  const db = { getOrders: () => list, visibleOrders: () => list, ordersForSite: () => list, getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0 };
-  assert.match(ownerViews.ordersList(db, null, 1), /\/owner\/analytics\/visitor\//);
-  assert.match(siteViews.ordersList(db, dbCore.defaultSite(), null, 1), /\/admin\/analytics\/visitor\//);
+  const db = { getOrders: () => list, visibleOrders: () => list, getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0 };
+  assert.match(adminViews.ordersList(SETTINGS, db, null, 1), /\/admin\/analytics\/visitor\//);
 });
 
 test('карточка посетителя показывает визиты, страницы и время на каждой', () => {
   const now = Date.now();
   const visitor = {
-    id: 'a'.repeat(32), siteId: 'shop', firstSeen: now - 40 * 86400000, lastSeen: now - 5 * 60000,
+    id: 'a'.repeat(32), firstSeen: now - 40 * 86400000, lastSeen: now - 5 * 60000,
     visits: 3, pageViews: 9, activeSeconds: 900, ip: '85.140.7.212', isp: 'MTS',
     city: 'Москва', country: 'Россия', countryCode: 'RU',
     device: 'Телефон', model: 'iPhone', os: 'iOS 26.0', browser: 'Safari 26',
@@ -723,8 +755,8 @@ test('карточка посетителя показывает визиты, �
     hits: [{ p: '/', t: now - 600000, s: 20, v: 1 }, { p: '/product/p1', t: now - 580000, s: 245 }]
   };
   const html = analyticsView.visitorPage(visitor, {
-    products: { p1: 'iPhone 17 Pro Max' }, backHref: '/owner/analytics', ordersHref: '/owner/orders',
-    visitorBase: '/owner/analytics/visitor/', now,
+    products: { p1: 'iPhone 17 Pro Max' }, backHref: '/admin/analytics', ordersHref: '/admin/orders',
+    visitorBase: '/admin/analytics/visitor/', now,
     orders: [{ id: 'o1', number: '482913', total: 121990, createdAt: now }]
   });
   assert.match(html, /Визит №3/, 'нумерация идёт от общего счётчика визитов');
@@ -734,10 +766,10 @@ test('карточка посетителя показывает визиты, �
   assert.match(html, /🇷🇺/);
   assert.match(html, /yandex\.ru/);
   assert.match(html, /№482913/, 'заказы этого посетителя рядом с историей');
-  assert.match(html, /href="\/owner\/analytics"/, 'возврат ко всей метрике');
+  assert.match(html, /href="\/admin\/analytics"/, 'возврат ко всей метрике');
 
   // Посетителя могло вытеснить сроком хранения — это не ошибка, а понятный ответ.
-  assert.match(analyticsView.visitorMissing('85.140.7.212', { backHref: '/owner/analytics' }), /История не найдена/);
+  assert.match(analyticsView.visitorMissing('85.140.7.212', { backHref: '/admin/analytics' }), /История не найдена/);
 });
 
 test('длинные названия городов не перекрывают числа в метрике', () => {
@@ -749,16 +781,16 @@ test('длинные названия городов не перекрывают
 test('каталог не показывает технический счётчик товаров', () => {
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [] };
-  const db = { getProducts: () => [product], categories: () => ['Категория'], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const db = { getProducts: () => [product], visibleProducts: () => [product], categories: () => ['Категория'], visibleCategories: () => ['Категория'], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage(settings, db, { category: '', q: '', origin: '' });
   assert.doesNotMatch(html, />\s*1 товаров\s*</);
 });
 
 test('формы не содержат галочек, а отзыв требует последовательные отдельные согласия', () => {
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
-  const html = render.productPage(settings, db, product, null, { origin: '' });
+  const html = render.productPage(settings, db, product, { origin: '' });
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const orderRoute = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* =========================== ПАНЕЛЬ ВЛАДЕЛЬЦА'));
@@ -837,8 +869,8 @@ test('привязка к чипу переживает сохранение ф�
       ] }
     ]
   };
-  const db = { categories: () => [], pendingReviewCount: () => 0, getProducts: () => [product] };
-  const form = ownerViews.productForm(db, product);
+  const db = { categories: () => [], visibleCategories: () => [], pendingReviewCount: () => 0, getProducts: () => [product], visibleProducts: () => [product] };
+  const form = adminViews.productForm(SETTINGS, db, product);
   const textarea = id => {
     const m = new RegExp('<textarea[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)</textarea>').exec(form);
     return m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
@@ -897,12 +929,12 @@ test('добавление в корзину сразу уводит в корз
 
 test('зачёркнутая цена пересчитывается вместе с вариантом', () => {
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = {
     id: 'p1', name: 'Товар', category: 'Категория', price: 50000, oldPrice: 60000,
     inStock: true, images: [], colors: [], storages: [{ label: '128 ГБ', add: 0 }, { label: '1 ТБ', add: 40000 }]
   };
-  const html = render.productPage(settings, db, product, null, { origin: '' });
+  const html = render.productPage(settings, db, product, { origin: '' });
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   // Скрипт правит старую цену по id и берёт базу сравнения с кнопки: разъедется
   // разметка с app.js — рядом с ценой сборки снова повиснет цена базовой.
@@ -913,7 +945,7 @@ test('зачёркнутая цена пересчитывается вмест�
   assert.match(js, /getElementById\('product-save'\)/);
   assert.match(js, /baseCompare \+ \(total - basePrice\)/);
   // Зачёркивать нечего — атрибут нулевой, и скрипт ничего не трогает.
-  const plain = render.productPage(settings, db, Object.assign({}, product, { oldPrice: 0 }), null, { origin: '' });
+  const plain = render.productPage(settings, db, Object.assign({}, product, { oldPrice: 0 }), { origin: '' });
   assert.doesNotMatch(plain, /id="product-old-price"/);
   assert.match(plain, /data-base-compare="0"/);
 });
@@ -976,7 +1008,7 @@ test('шапка сворачивается при прокрутке, а Telegr
 
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
   assert.equal((html.match(/class="pay /g) || []).length, 4);
   assert.match(html, /class="pay pay-mc"[^>]*>[\s\S]*?<span class="sr-only">Mastercard<\/span>/);
@@ -990,7 +1022,7 @@ test('в подвале есть знаки оплаты, а на телефон
 
 test('на телефоне слоган стоит в одну строку, а его длину считает сервер', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const tagline = 'Оригинальная техника Apple с гарантией';
   const html = render.homePage({ storeName: 'Тест', tagline, currency: '₽' }, fakeDb, {});
 
@@ -1014,7 +1046,7 @@ test('на телефоне слоган стоит в одну строку, а
 
 test('правовые ссылки в подвале тоже помещаются в строку', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
   const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
   assert.match(mobile, /\.footer-links\{[^}]*grid-template-columns:repeat\(2,auto\)[^}]*font-size:min\(12px,calc\(\(100vw - 46px\)\/32\.9\)\)/);
@@ -1069,7 +1101,7 @@ test('гарантия и возврат — две отдельные стра�
 test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: 'Оригинальная техника', currency: '₽' }, fakeDb, {});
 
   // Сдвиг в CSS обязан совпадать с числом копий: при -50 % на четырёх копиях
@@ -1095,8 +1127,8 @@ test('бегущая строка преимуществ едет ровно н�
 });
 
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
-  const fakeDb = { categories: () => ['AirPods'], pendingReviewCount: () => 0 };
-  const html = ownerViews.productForm(fakeDb, null);
+  const fakeDb = { categories: () => ['AirPods'], visibleCategories: () => ['AirPods'], pendingReviewCount: () => 0 };
+  const html = adminViews.productForm(SETTINGS, fakeDb, null);
   assert.match(html, /class="specs-input"/);
   assert.match(html, /class="a-form-grid product-options-grid"/);
   assert.match(html, /class="photo-upload-progress"/);
@@ -1215,18 +1247,82 @@ test('доп. характеристики обязательны к выбор�
   assert.equal(variants.variantMissing({ colors: [], storages: [], bands: [] }, {}), false);
 });
 
-test('доплата за доп. характеристику масштабируется множителем сайта', () => {
-  const product = { id: 'p', name: 'Товар', price: 1000, storages: [], colors: [],
-    options: [{ name: 'Связь', hint: 'подсказка', values: [
-      { label: 'Wi-Fi', add: 0 }, { label: 'Wi-Fi + Cellular', add: 200 }] }] };
-  const view = tenancy.viewFor(product, { priceMultiplier: 1.5, overrides: {} }, { avg: 0, count: 0 });
-  assert.equal(view.price, 1500);
-  assert.equal(view.options[0].values[1].add, 300);
-  assert.equal(view.options[0].hint, 'подсказка');
+test('переезд на один магазин переносит домен в общие настройки, не меняя витрину', t => {
+  // Главное правило переноса: витрина обязана выглядеть так же, как выглядела.
+  // Поэтому множитель домена и его ручные цены вбиваются в сам товар, а не
+  // «берутся из каталога заново».
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-single-site-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const write = (name, data) => fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data));
+  write('settings', {
+    storeName: 'Старое', sessionSecret: 'x'.repeat(48),
+    adminUsername: 'admin', adminPasswordHash: auth.hashPassword('слабый-от-домена'),
+    ownerUsername: 'chief', ownerPasswordHash: auth.hashPassword('пароль-владельца')
+  });
+  write('products', [
+    { id: 'a', name: 'A', category: 'C', price: 1000, oldPrice: 1200, hotDeal: true, hotDealPrice: 900,
+      storages: [{ label: '1 ТБ', add: 100 }], colors: [], bands: [],
+      options: [{ name: 'Связь', hint: 'подсказка', values: [{ label: 'Wi-Fi', add: 0 }, { label: 'Cellular', add: 200 }] }] },
+    { id: 'b', name: 'B', category: 'C', price: 500, storages: [], colors: [], bands: [], options: [] },
+    { id: 'c', name: 'C', category: 'C', price: 700, storages: [], colors: [], bands: [], options: [] }
+  ]);
+  write('reviews', [
+    { id: 'r1', productId: 'a', rating: 5, status: 'approved', createdAt: 1 },
+    { id: 'r2', productId: 'a', rating: 1, status: 'approved', createdAt: 2 }
+  ]);
+  write('orders', [{ id: 'o1', number: '1', siteId: 'live', createdAt: Date.now(), items: [], total: 1 }]);
+  write('sites', [
+    { id: 'dead', hosts: [], storeName: 'Заброшенный', priceMultiplier: 3, overrides: {}, hiddenReviews: [] },
+    { id: 'live', hosts: ['shop.test', 'www.shop.test'], storeName: 'Живой', tagline: 'слоган',
+      accentColor: '#ff2d55', logoText: '{Ж}ивой', telegramBotToken: 'бот', notifyReviews: false,
+      priceMultiplier: 1.5, overrides: { b: { price: 444 }, c: { enabled: false } }, hiddenReviews: ['r2'] }
+  ]);
+
+  const store = freshDb(dir);
+  const report = store.ensureSeeded();
+  assert.equal(report.site, 'Живой', 'выигрывает домен, на котором шла торговля');
+  assert.deepEqual(report.hosts, ['shop.test'], 'www — то же имя, в отчёте оно одно');
+  assert.deepEqual(report.dropped, ['Заброшенный']);
+
+  const settings = store.getSettings();
+  assert.equal(settings.storeName, 'Живой');
+  assert.equal(settings.accentColor, '#ff2d55');
+  assert.equal(settings.logoText, '{Ж}ивой');
+  assert.equal(settings.notifyReviews, false, 'снятая галочка переезжает снятой');
+  // Полный доступ был у владельца — его учётка и становится единственной.
+  // Пароль от урезанной админки домена права получить не должен.
+  assert.equal(settings.adminUsername, 'chief');
+  assert.ok(auth.verifyPassword('пароль-владельца', settings.adminPasswordHash));
+  assert.ok(!auth.verifyPassword('слабый-от-домена', settings.adminPasswordHash));
+  assert.equal(settings.ownerPasswordHash, undefined, 'вторая учётка из файла убрана');
+
+  const byId = Object.fromEntries(store.getProducts().map(p => [p.id, p]));
+  assert.equal(byId.a.price, 1500, 'множитель вбит в базовую цену');
+  assert.equal(byId.a.oldPrice, 1800);
+  assert.equal(byId.a.hotDealPrice, 1350);
+  assert.equal(byId.a.storages[0].add, 150, 'доплата за память масштабируется так же');
+  assert.equal(byId.a.options[0].values[1].add, 300);
+  assert.equal(byId.a.options[0].hint, 'подсказка', 'остальные поля не теряются');
+  assert.equal(byId.b.price, 444, 'ручная цена домена становится базовой');
+  assert.equal(byId.b.hotDeal, false, 'у ручной цены акции не было и не появится');
+  assert.equal(byId.c.visible, false, 'снятая на домене видимость стала флагом товара');
+  assert.equal(store.visibleProducts().length, 2);
+
+  // Скрытый на домене отзыв возвращается в модерацию: удалять нельзя, а
+  // показывать — значит вернуть на витрину то, что убрали руками.
+  const reviews = Object.fromEntries(store.getReviews().map(r => [r.id, r.status]));
+  assert.deepEqual(reviews, { r1: 'approved', r2: 'pending' });
+
+  // Файл не удалён, а сохранён: другой копии прежних настроек нет.
+  assert.ok(fs.existsSync(path.join(dir, 'sites.migrated.json')));
+  assert.ok(!fs.existsSync(path.join(dir, 'sites.json')));
+  // Повторный запуск ничего не пересчитывает второй раз.
+  assert.equal(freshDb(dir).ensureSeeded(), null);
+  assert.equal(freshDb(dir).getProducts().find(p => p.id === 'a').price, 1500);
 });
 
 test('страница товара показывает доп. характеристики и прячет несовместимые значения', () => {
-  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = {
     id: 'pad', name: 'iPad', category: 'iPad', price: 100000, inStock: true, images: [], colors: [],
     storages: [{ label: '256 ГБ', add: 0 }, { label: '2 ТБ', add: 80000 }],
@@ -1235,7 +1331,7 @@ test('страница товара показывает доп. характе�
       { label: 'Нанотекстурное стекло', add: 15000, forStorage: ['2 ТБ'] }
     ] }]
   };
-  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
   assert.match(html, /id="options"/);
   assert.match(html, /Выберите, какое стекло вам подходит/);
   // страница открывается на 256 ГБ, поэтому нанотекстура скрыта уже сервером
@@ -1290,7 +1386,7 @@ test('доливка из каталога сохраняет id товара, �
   assert.equal(fresh.createProduct({ id: 'iphone-15-pro', name: 'iPhone 15 Pro', price: 1 }).id, 'iphone-15-pro');
   // Занятый id второму товару не достаётся — иначе getProduct вернул бы чужую карточку.
   assert.notEqual(fresh.createProduct({ id: 'iphone-16', name: 'Дубль', price: 1 }).id, 'iphone-16');
-  // «order» и «new» заняты адресами /owner/products/*, остальное — просто мусор.
+  // «order» и «new» заняты адресами /admin/products/*, остальное — просто мусор.
   for (const bad of ['order', 'new', 'Не Слаг', '../../etc', 'A'.repeat(80), '', null, undefined]) {
     assert.match(fresh.createProduct({ id: bad, name: 'Товар ' + bad, price: 1 }).id, /^[0-9a-f]{8,}$/);
   }
@@ -1353,7 +1449,8 @@ test('главная показывает товары в порядке кат�
     { id: 'p2', name: 'Второй', category: 'A', price: 20, inStock: true, images: [] }
   ];
   const db = {
-    getProducts: () => products, categories: () => ['A'],
+    getProducts: () => products, visibleProducts: () => products, isVisible: p => p.visible !== false,
+    categories: () => ['A'], visibleCategories: () => ['A'],
     ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 0
   };
   const home = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, db, {});
@@ -1365,32 +1462,53 @@ test('главная показывает товары в порядке кат�
 
   // В панели порядок правится перетаскиванием строки и стрелками, а крайние
   // стрелки погашены — иначе владелец жмёт кнопку, которая ничего не делает.
-  const list = ownerViews.productsList(db);
+  const list = adminViews.productsList(SETTINGS, db);
   assert.match(list, /<tbody id="product-order" data-order="\[&quot;p2&quot;,&quot;p1&quot;\]"/);
-  assert.match(list, /<tr data-id="p2" draggable="true">/);
+  assert.match(list, /<tr data-id="p2" draggable="true"/);
   assert.match(list, /class="a-move a-move-up" aria-label="Переместить «Второй» выше" disabled/);
   assert.match(list, /class="a-move a-move-down" aria-label="Переместить «Первый» ниже" disabled/);
   assert.match(list, /product-order\.js/);
   // Скрипт шлёт весь список целиком — сервер принимает только перестановку
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'product-order.js'), 'utf8');
-  assert.match(js, /'\/owner\/products\/order'/);
+  assert.match(js, /'\/admin\/products\/order'/);
   assert.match(js, /restore\(previous\)/);
 
-  // Побеждает первый совпавший маршрут, а «/owner/products/:id» подходит и под
-  // «/owner/products/order». Если регистрацию переставить, запрос порядка уйдёт
+  // Побеждает первый совпавший маршрут, а «/admin/products/:id» подходит и под
+  // «/admin/products/order». Если регистрацию переставить, запрос порядка уйдёт
   // в сохранение товара — поэтому очередь закреплена здесь.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const orderRoute = server.indexOf(`app.post('/owner/products/order'`);
-  const saveRoute = server.indexOf(`app.post('/owner/products/:id'`);
+  const orderRoute = server.indexOf(`app.post('/admin/products/order'`);
+  const saveRoute = server.indexOf(`app.post('/admin/products/:id'`);
   assert.ok(orderRoute > -1 && saveRoute > -1, 'маршруты на месте');
   assert.ok(orderRoute < saveRoute, 'порядок товаров регистрируется раньше сохранения товара');
 });
 
-test('нулевая или некорректная ручная цена не превращает товар в бесплатный', () => {
-  const product = { id: 'p', price: 1000 };
-  assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 0 } } }), 2000);
-  assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 'abc' } } }), 2000);
-  assert.equal(tenancy.sitePriceOf(product, { priceMultiplier: 2, overrides: { p: { price: 1500 } } }), 1500);
+test('скрытый товар пропадает с витрины целиком, а не «нет в наличии»', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-visible-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'products.json'), '[]');
+  fs.writeFileSync(path.join(dir, 'reviews.json'), '[]');
+  const store = freshDb(dir);
+  store.ensureSeeded();
+  const shown = store.createProduct({ id: 'shown', name: 'Виден', category: 'A', price: 100 });
+  const hidden = store.createProduct({ id: 'hidden', name: 'Скрыт', category: 'B', price: 100, visible: false });
+
+  // Поля нет — товар виден: старые данные и catalog.js читаются без изменений.
+  assert.equal(store.isVisible({ id: 'x' }), true);
+  assert.equal(store.isVisible(shown), true);
+  assert.equal(store.isVisible(hidden), false);
+  assert.deepEqual(store.visibleProducts().map(p => p.id), ['shown']);
+  assert.equal(store.visibleProduct('hidden'), null, 'скрытый не открывается и по прямой ссылке');
+  assert.ok(store.getProduct('hidden'), 'но в каталоге панели он на месте');
+  // Пустой раздел в меню и лишний адрес в карте сайта тоже не остаются.
+  assert.deepEqual(store.visibleCategories(), ['A']);
+  assert.deepEqual(store.categories().sort(), ['A', 'B']);
+
+  // Частичное обновление (маршрут загрузки фото) видимость не затирает.
+  store.updateProduct('hidden', { images: [] });
+  assert.equal(store.getProduct('hidden').visible, false);
+  store.updateProduct('hidden', { visible: true });
+  assert.equal(store.visibleProducts().length, 2);
 });
 
 test('наличие учитывает совместимость ремешка, а карточка требует выбрать вариант', () => {
@@ -1406,7 +1524,7 @@ test('наличие учитывает совместимость ремешк�
   assert.equal(render.colorAvailable(watch, watch.colors[1]), true);
 
   const fakeDb = {
-    getProducts: () => [watch], categories: () => ['Watch'],
+    getProducts: () => [watch], visibleProducts: () => [watch], categories: () => ['Watch'], visibleCategories: () => ['Watch'],
     ratingFor: () => ({ avg: 0, count: 0 })
   };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
@@ -1418,10 +1536,10 @@ test('наличие учитывает совместимость ремешк�
 test('счётчик отзывов склоняется по-русски', () => {
   const db = {
     reviewsForProduct: () => [{ id: 'r1', author: 'Тест', rating: 5, text: '', status: 'approved', createdAt: Date.now() }],
-    ratingFor: () => ({ avg: 5, count: 1 }), categories: () => []
+    ratingFor: () => ({ avg: 5, count: 1 }), categories: () => [], visibleCategories: () => []
   };
   const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
-  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
   assert.match(html, /1 отзыв/);
   assert.doesNotMatch(html, /1 отзывов/);
   assert.match(html, /class="qty-input" aria-label="Количество"/);
@@ -1435,11 +1553,11 @@ test('отзывы листаются страницами, а свой неод
     id: 'r' + i, author: 'Автор ' + i, rating: (i % 5) + 1, text: 'x'.repeat(i + 1),
     status: 'approved', createdAt: 1000 + i
   }));
-  const db = { reviewsForProduct: () => many, ratingFor: () => ({ avg: 4, count: many.length }), categories: () => [] };
+  const db = { reviewsForProduct: () => many, ratingFor: () => ({ avg: 4, count: many.length }), categories: () => [], visibleCategories: () => [] };
   const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
   const count = html => (html.match(/class="review"/g) || []).length;
 
-  const first = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, {});
+  const first = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
   assert.equal(count(first), per, 'на странице только одна порция');
   assert.match(first, /rev-page" href="[^"]*rpage=2#reviews" data-page="2"/);
   assert.match(first, /Отзывы 1–8 из 26/);
@@ -1447,19 +1565,19 @@ test('отзывы листаются страницами, а свой неод
   assert.match(first, /rev-page rev-arrow rev-off/);
   assert.match(first, /<span class="rev-page rev-cur" aria-current="page">1<\/span>/);
   // Без JS сортировка и страница приходят из адреса, а не из состояния браузера.
-  const third = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { reviewSort: 'new', reviewPage: 3 });
+  const third = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, { reviewSort: 'new', reviewPage: 3 });
   assert.equal(count(third), per);
   assert.match(third, /rev-page rev-arrow" href="[^"]*rpage=2#reviews" rel="prev"/);
   assert.match(third, /rev-page rev-arrow" href="[^"]*rpage=4#reviews" rel="next"/);
   assert.match(third, /class="sort-btn active"[^>]*data-sort="new"/);
   // Номер страницы приходит из запроса, поэтому мусор и выход за край не должны падать.
-  const beyond = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { reviewSort: 'нет', reviewPage: '999' });
+  const beyond = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, { reviewSort: 'нет', reviewPage: '999' });
   assert.equal(count(beyond), 2);
   assert.match(beyond, /<span class="rev-page rev-cur" aria-current="page">4<\/span>/);
   assert.doesNotMatch(beyond, /rpage=5/);
 
   const own = { id: 'own', author: 'Я', rating: 1, text: 'мой', status: 'pending', createdAt: 5 };
-  const mine = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, null, { ownReviews: [own] });
+  const mine = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, { ownReviews: [own] });
   const ownAt = mine.indexOf('reviews-own');
   assert.ok(ownAt > -1 && ownAt < mine.indexOf('id="reviews-list"'), 'свой отзыв выше общего списка');
   assert.equal(count(mine), per + 1);
@@ -1475,45 +1593,38 @@ test('списки отзывов в панелях листаются, а не 
   }));
   const db = {
     getReviews: () => many, getProducts: () => [{ id: 'p', name: 'Товар' }],
-    pendingReviewCount: () => 0, getSites: () => []
+    pendingReviewCount: () => 0
   };
-  const site = { id: 's', storeName: 'Магазин', hiddenReviews: [], accentColor: '#000' };
   const rows = html => (html.match(/class="review-cell"/g) || []).length;
 
-  const ownerFirst = ownerViews.reviewsList(db, null, null, 1);
-  assert.equal(rows(ownerFirst), per, 'владелец видит одну страницу');
-  assert.match(ownerFirst, /href="\/owner\/reviews\?status=all&amp;page=2"/);
-  const ownerLast = ownerViews.reviewsList(db, null, null, 4);
-  assert.equal(rows(ownerLast), 7, 'на последней странице остаток');
-
-  const adminFirst = siteViews.reviewsPage(db, site, null, 1);
-  assert.equal(rows(adminFirst), per, 'админка сайта тоже листает');
-  assert.match(adminFirst, /href="\/admin\/reviews\?page=2"/);
+  const first = adminViews.reviewsList(SETTINGS, db, null, null, 1);
+  assert.equal(rows(first), per, 'на странице ровно один срез');
+  assert.match(first, /href="\/admin\/reviews\?status=all&amp;page=2"/);
+  const last = adminViews.reviewsList(SETTINGS, db, null, null, 4);
+  assert.equal(rows(last), 7, 'на последней странице остаток');
   // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
-  assert.equal(rows(siteViews.reviewsPage(db, site, null, '999')), 7);
-  assert.equal(rows(siteViews.reviewsPage(db, site, null, 'абв')), per);
-
-  // Сохранение видимости применяется к отзывам страницы, поэтому их id уходят в форму.
-  const ids = (adminFirst.match(/name="pageIds" value="([^"]*)"/) || [])[1].split(',');
-  assert.equal(ids.length, per);
-  assert.equal(ids[0], 'r0');
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, null, '999')), 7);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, null, 'абв')), per);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, null, -5)), per);
 });
 
-test('сохранение видимости не трогает отзывы с других страниц', () => {
-  // Форма несёт только свою страницу. Старое «скрыть всё, у чего нет галочки»
-  // со страницами спрятало бы весь остальной список одним нажатием «Сохранить».
-  const applyVisibility = (hiddenBefore, pageIds, body) => {
-    const hidden = new Set(hiddenBefore);
-    for (const id of pageIds) {
-      if (body['show_' + id] === undefined) hidden.add(id); else hidden.delete(id);
-    }
-    return [...hidden];
-  };
-  // На странице r1..r3: r2 сняли с публикации, r1 и r3 оставили видимыми.
-  const result = applyVisibility(['r9', 'r2'], ['r1', 'r2', 'r3'], { show_r1: 'on', show_r3: 'on' });
-  assert.ok(result.includes('r9'), 'скрытый отзыв с другой страницы остался скрытым');
-  assert.ok(result.includes('r2'), 'снятая галочка скрывает отзыв');
-  assert.ok(!result.includes('r1') && !result.includes('r3'), 'отмеченные остаются видимыми');
+test('опубликованный отзыв снимается с витрины, а не только удаляется', () => {
+  // Прятать отзыв в админке домена было больше негде и не от кого, но убрать
+  // неудачный со страницы товара по-прежнему нужно — а удаление слишком грубо:
+  // отзыв покупателя восстановить неоткуда.
+  const reviews = [
+    { id: 'ok', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 2, photos: [] },
+    { id: 'wait', productId: 'p', author: 'Б', rating: 4, text: 'т', status: 'pending', createdAt: 1, photos: [] }
+  ];
+  const db = { getReviews: () => reviews, getProducts: () => [{ id: 'p', name: 'Товар' }], pendingReviewCount: () => 1 };
+  const html = adminViews.reviewsList(SETTINGS, db, null, null, 1);
+  assert.match(html, /action="\/admin\/reviews\/wait\/approve"/, 'у ожидающего — «Одобрить»');
+  assert.match(html, /action="\/admin\/reviews\/ok\/hide"/, 'у опубликованного — «Снять с витрины»');
+
+  // Маршрут возвращает отзыв в очередь модерации, а не удаляет его.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.post('/admin/reviews/:id/hide'"));
+  assert.match(route.slice(0, 300), /setReviewStatus\(req\.params\.id, 'pending'\)/);
 });
 
 test('индекс отзывов даёт те же оценки, что прямой пересчёт', () => {
@@ -1582,14 +1693,14 @@ test('срез отзывов сортирует и режет одинаков�
   assert.equal(render.reviewsSlice([], 'new', 5).from, 0);
 });
 
-test('подписи полей админки связаны с элементами форм', () => {
-  const login = ownerViews.loginPage(null);
-  assert.match(login, /<label for="owner-login">Логин<\/label><input id="owner-login"/);
-  const page = ownerViews.settingsPage({ ownerUsername: 'owner' }, { pendingReviewCount: () => 0 });
-  assert.match(page, /<label for="owner-field-1">Логин<\/label><input[^>]*id="owner-field-1"/);
-  assert.match(page, /<label for="owner-field-2">Новый пароль/);
-  const siteLogin = siteViews.loginPage({ storeName: 'Тест', accentColor: '#0071e3' }, null);
-  assert.match(siteLogin, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
+test('подписи полей панели связаны с элементами форм', () => {
+  const login = adminViews.loginPage({ storeName: 'Тест' }, null);
+  assert.match(login, /<label for="admin-login">Логин<\/label><input id="admin-login"/);
+  assert.match(login, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
+  const page = adminViews.settingsPage({ storeName: 'Тест', adminUsername: 'admin' }, { pendingReviewCount: () => 0 });
+  const named = page.match(/<label for="(admin-field-\d+)">Название магазина[^<]*<\/label><input[^>]*id="\1"/);
+  assert.ok(named, 'подпись «Название магазина» не связана со своим полем');
+  assert.match(page, /<label for="admin-field-\d+">Слоган<\/label><input/);
 });
 
 test('HEAD обслуживается обработчиком GET, а не уходит в 404', async () => {
@@ -1619,18 +1730,90 @@ test('поле формы с именем из прототипа остаётс
   assert.equal(seen.name, 'обычное');
 });
 
+test('панель одна: /owner уводит на /admin, а прав меньше не бывает', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Прежняя панель владельца жила на /owner, и её адреса остались в закладках.
+  assert.match(source, /if \(\/\^\\\/owner\(\?:\\\/\|\$\)\/\.test\([\s\S]*?\) return res\.redirect\('\/admin'\)/,
+    'адреса прежней панели обязаны уводить на новую, а не в 404');
+
+  // Ни одного маршрута прежней панели и ни одной второй учётной записи.
+  assert.equal(/app\.(get|post)\('\/owner/.test(source), false, 'маршруты /owner должны быть сняты целиком');
+  assert.equal(/ownerPasswordHash|ownerUsername/.test(source), false, 'вторая учётка ушла вместе с панелью');
+  assert.equal(/\/admin\/catalog|setSiteOverrides|siteAdmin/.test(source), false, 'урезанная админка домена ушла тоже');
+
+  // Все разделы панели закрыты одним guard: пропущенный открыл бы каталог всем.
+  const panel = source.slice(source.indexOf('/* =========================== ПАНЕЛЬ'));
+  const routes = [...panel.matchAll(/app\.(get|post)\('(\/admin[^']*)'/g)];
+  assert.ok(routes.length > 15, 'маршруты панели не найдены — проверьте разметку блока');
+  const open = new Set(['GET /admin/login', 'POST /admin/login', 'POST /admin/logout']);
+  for (const found of routes) {
+    const name = found[1].toUpperCase() + ' ' + found[2];
+    if (open.has(name)) continue;
+    const body = panel.slice(found.index, found.index + 500);
+    assert.match(body, /guardAdmin\(req, res\)|guardApi\(req, res\)/, 'раздел без проверки входа: ' + name);
+  }
+
+  // Маркер сессии завязан на текущие логин и хеш: смена реквизитов обязана
+  // разлогинивать все открытые сессии сама.
+  assert.match(source, /function authStamp\(username, passwordHash\)/);
+  assert.match(source, /req\.session\.admin === authStamp\(s\.adminUsername, s\.adminPasswordHash\)/);
+});
+
+test('домен нигде не выбирается приложением — его задаёт прокси', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  // Под новый домен арендуется свой VPS со своей копией. Приложение host не
+  // разбирает вовсе — иначе перенос на другое имя снова стал бы правкой данных.
+  assert.equal(/siteOf\(|resolveSite|getSiteByHost|ALLOW_SITE_QUERY|previewSite/.test(source), false);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'lib', 'tenancy.js')), false);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'lib', 'site-views.js')), false);
+  // Ни один файл проекта больше не читает список сайтов.
+  const files = ['server.js', 'seed-data.js', 'seed.js', 'sync-prices.js', 'merge-products.js', 'add-novinki.js']
+    .concat(fs.readdirSync(path.join(__dirname, '..', 'lib')).map(f => path.join('lib', f)));
+  for (const file of files) {
+    const text = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    assert.equal(/db\.getSites\(|db\.getSite\(|saveSites\(/.test(text), false, 'список сайтов ещё читается: ' + file);
+  }
+});
+
+test('заказ и отзыв больше не помечаются доменом, а прежние читаются как были', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-no-site-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'products.json'), '[]');
+  fs.writeFileSync(path.join(dir, 'reviews.json'), '[]');
+  const store = freshDb(dir);
+  store.ensureSeeded();
+
+  // Чужое поле в заявку не попадает: писать в неё домен больше нечему.
+  const order = store.createOrder({ items: [], total: 100, contact: 'tg', host: 'shop.test', siteId: 'x', siteName: 'X' });
+  assert.equal(order.siteId, undefined);
+  assert.equal(order.siteName, undefined);
+  assert.equal(order.host, 'shop.test', 'каким именем открыли магазин — по-прежнему пишем');
+  const review = store.createReview({ productId: 'p', author: 'А', rating: 5, siteId: 'x', siteName: 'X' });
+  assert.equal(review.siteId, undefined);
+  assert.equal(review.siteName, undefined);
+
+  // А прежние заявки со своим siteId читаются и показываются как были.
+  const list = store.getOrders();
+  list.push({ id: 'old', number: '1', siteId: 'site-a', siteName: 'Первый', total: 5, items: [], createdAt: Date.now() });
+  fs.writeFileSync(path.join(dir, 'orders.json'), JSON.stringify(list));
+  const again = freshDb(dir);
+  assert.equal(again.visibleOrders().length, 2, 'заявки прежних доменов остаются в списке');
+});
+
 test('оформление, поиск и 404 закрыты от индексации, каталог — открыт', () => {
   const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽' };
-  const fakeDb = { getProducts: () => [], categories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   assert.match(render.checkoutPage(settings, {}), /<meta name="robots" content="noindex,follow">/);
   assert.match(render.homePage(settings, fakeDb, { q: 'iphone' }), /content="noindex,follow"/);
   assert.match(render.homePage(settings, fakeDb, { q: '', noindex: true }), /content="noindex,follow"/);
   assert.match(render.homePage(settings, fakeDb, {}), /content="index,follow">/);
   assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /content="noindex,follow">/);
 
+  const macs = [{ id: 'mac', name: 'Mac', category: 'Mac', price: 100, inStock: true }];
   const categoryDb = {
-    getProducts: () => [{ id: 'mac', name: 'Mac', category: 'Mac', price: 100, inStock: true }],
-    categories: () => ['Mac'], ratingFor: () => ({ avg: 0, count: 0 })
+    getProducts: () => macs, visibleProducts: () => macs,
+    categories: () => ['Mac'], visibleCategories: () => ['Mac'], ratingFor: () => ({ avg: 0, count: 0 })
   };
   const category = render.homePage(settings, categoryDb, { category: 'Mac', origin: 'https://shop.test' });
   assert.match(category, /content="index,follow"/);
@@ -1645,19 +1828,24 @@ test('оформление, поиск и 404 закрыты от индекса
   assert.doesNotMatch(notFound, /class="card/);
 });
 
-test('админка сайта отдаёт закрытое правило :root', () => {
-  const site = { id: 's', storeName: 'Магазин', accentColor: '#123456', hosts: [] };
-  for (const html of [siteViews.loginPage(site, null), siteViews.dashboard(fakeSiteDb(), site)]) {
+test('панель отдаёт закрытое правило :root и красится акцентом магазина', () => {
+  const settings = { storeName: 'Магазин', accentColor: '#123456' };
+  for (const html of [adminViews.loginPage(settings, null), adminViews.dashboard(settings, fakePanelDb())]) {
     const style = html.match(/<style>([^<]*)<\/style>/);
     assert.ok(style, 'нет блока стилей');
     assert.equal(style[1], ':root{--accent:#123456}');
+    // Панель не для поисковика: её адреса попадали в выдачу через страницу входа.
+    assert.match(html, /<meta name="robots" content="noindex, nofollow">/);
   }
+  // Чужой цвет в атрибут не уедет: cssColor пропускает только #rgb и #rrggbb.
+  const bad = adminViews.loginPage({ storeName: 'Т', accentColor: 'red;}body{display:none' }, null);
+  assert.equal(bad.match(/<style>([^<]*)<\/style>/)[1], ':root{--accent:#1d1d1f}');
 });
 
-function fakeSiteDb() {
+function fakePanelDb() {
   return {
-    ordersForSite: () => [], visibleOrders: () => [], getProducts: () => [], getReviews: () => [],
-    getSites: () => [], ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 0
+    visibleOrders: () => [], getProducts: () => [], visibleProducts: () => [], getReviews: () => [],
+    ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 0
   };
 }
 
@@ -1680,7 +1868,7 @@ test('подпись корпуса на фото ремешка читаетс�
   // attr() берёт атрибут элемента, к которому прикреплён ::after
   assert.match(css, /\.img-chip-media\[data-case\]::after\{content:attr\(data-case\)/);
   const product = { id: 'p1', images: ['a.webp'], imageColors: { 'a.webp': 'Чёрный титан' }, colors: [{ name: 'Чёрный титан', hex: '#111111' }], bands: [], storages: [] };
-  const html = ownerViews.productForm({ categories: () => [], pendingReviewCount: () => 0 }, product);
+  const html = adminViews.productForm(SETTINGS, { categories: () => [], visibleCategories: () => [], pendingReviewCount: () => 0 }, product);
   assert.match(html, /<div class="img-chip-media" data-case="Чёрный титан">/);
 });
 
@@ -1698,13 +1886,10 @@ test('строка заказа: свой столбец у каждого во�
     items: Array.from({ length: 6 }, (_, i) => ({ name: 'Товар ' + (i + 1), price: 100, qty: 1 }))
   };
   const db = {
-    getOrders: () => [long], visibleOrders: () => [long], ordersForSite: () => [long],
-    getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0
+    getOrders: () => [long], visibleOrders: () => [long],
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   };
-  const panels = {
-    'владелец': ownerViews.ordersList(db, null, 1),
-    'админка сайта': siteViews.ordersList(db, dbCore.defaultSite(), null, 1)
-  };
+  const panels = { 'панель': adminViews.ordersList(SETTINGS, db, null, 1) };
   for (const [name, html] of Object.entries(panels)) {
     // Состояние оплаты, способ и сумма — три разных вопроса и три столбца.
     // В одной ячейке они читались как одно целое.
@@ -1746,13 +1931,10 @@ test('боковое меню панелей прячется, а разделы
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
   const db = {
-    getProducts: () => [], getSites: () => [], visibleOrders: () => [], ordersForSite: () => [],
-    getOrders: () => [], pendingReviewCount: () => 0, categories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+    getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [],
+    getOrders: () => [], pendingReviewCount: () => 0, categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
   };
-  const panels = {
-    'владелец': [ownerViews.dashboard(db), 7],
-    'админка сайта': [siteViews.dashboard(db, dbCore.defaultSite()), 6]
-  };
+  const panels = { 'панель': [adminViews.dashboard(SETTINGS, db), 6] };
   for (const [name, [html, navItems]] of Object.entries(panels)) {
     assert.match(html, /id="a-nav-toggle"/, 'нет кнопки меню: ' + name);
     assert.match(html, /<aside class="a-sidebar" id="a-sidebar">/, name);
@@ -1790,82 +1972,72 @@ test('списки заказов в панелях листаются, а не 
   // поток около 100 мс — всё это время витрина не отвечала никому.
   const per = render.ADMIN_PER_PAGE;
   const many = Array.from({ length: per * 3 + 7 }, (_, i) => ({
-    id: 'o' + i, number: String(500000 + i), siteId: 's', siteName: 'Магазин',
+    id: 'o' + i, number: String(500000 + i), siteName: 'Магазин',
     items: [{ id: 'p', name: 'Товар', price: 100, qty: 1 }], total: 100,
     customerName: 'Клиент ' + i, contact: '@u' + i, status: 'new', createdAt: 2000 - i
   }));
   const db = {
-    getOrders: () => many, visibleOrders: () => many, ordersForSite: () => many, getSites: () => [],
-    getProducts: () => [], pendingReviewCount: () => 0
+    getOrders: () => many, visibleOrders: () => many,
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   };
-  const site = { id: 's', storeName: 'Магазин', accentColor: '#000', currency: '₽', hosts: [] };
   const rows = html => (html.match(/<tr id="order-/g) || []).length;
 
-  const ownerFirst = ownerViews.ordersList(db, null, 1);
-  assert.equal(rows(ownerFirst), per, 'владелец видит одну страницу');
-  assert.match(ownerFirst, /href="\/owner\/orders\?page=2"/);
-  assert.equal(rows(ownerViews.ordersList(db, null, 4)), 7, 'на последней странице остаток');
-
-  const adminFirst = siteViews.ordersList(db, site, null, 1);
-  assert.equal(rows(adminFirst), per, 'админка сайта тоже листает');
-  assert.match(adminFirst, /href="\/admin\/orders\?page=2"/);
+  const first = adminViews.ordersList(SETTINGS, db, null, 1);
+  assert.equal(rows(first), per, 'на странице ровно один срез');
+  assert.match(first, /href="\/admin\/orders\?page=2"/);
+  assert.equal(rows(adminViews.ordersList(SETTINGS, db, null, 4)), 7, 'на последней странице остаток');
 
   // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
-  assert.equal(rows(siteViews.ordersList(db, site, null, '999')), 7);
-  assert.equal(rows(siteViews.ordersList(db, site, null, 'абв')), per);
-  assert.equal(rows(siteViews.ordersList(db, site, null, -5)), per);
+  assert.equal(rows(adminViews.ordersList(SETTINGS, db, null, '999')), 7);
+  assert.equal(rows(adminViews.ordersList(SETTINGS, db, null, 'абв')), per);
+  assert.equal(rows(adminViews.ordersList(SETTINGS, db, null, -5)), per);
 
   // Порядок файла сохраняется: свежие заявки остаются на первой странице.
-  assert.ok(ownerFirst.indexOf('№500000') > -1, 'самый свежий заказ на первой странице');
-  assert.equal(ownerFirst.indexOf('№500150'), -1, 'заказы других страниц сюда не попадают');
+  assert.ok(first.indexOf('№500000') > -1, 'самый свежий заказ на первой странице');
+  assert.equal(first.indexOf('№500150'), -1, 'заказы других страниц сюда не попадают');
 
   // Действие над строкой возвращает на ту же страницу, а не в начало списка.
-  const page3 = ownerViews.ordersList(db, null, 3);
+  const page3 = adminViews.ordersList(SETTINGS, db, null, 3);
   assert.match(page3, /<input type="hidden" name="page" value="3">/);
 });
 
-test('нечисловая цена в админке сайта не проходит молча', () => {
-  // Хранилище такую цену и раньше отбрасывало, но администратор видел
-  // «Цены и видимость сохранены»: товар уходил на базовую цену, а прежняя
-  // ручная цена пропадала. Теперь это ошибка формы с подсветкой строки.
-  const products = [
-    { id: 'p1', name: 'Товар один', category: 'К', price: 1000, images: [] },
-    { id: 'p2', name: 'Товар два', category: 'К', price: 2000, images: [] }
-  ];
-  const db = { getProducts: () => products, getReviews: () => [], approvedTotals: () => new Map() };
-  const site = { id: 's', storeName: 'М', accentColor: '#000', currency: '₽', currencyPosition: 'after',
-    priceMultiplier: 1, overrides: { p1: { price: 900 } }, hiddenReviews: [], hosts: [] };
+test('форма настроек возвращает введённое, а не молча теряет правку', () => {
+  // Прежде эту ловушку ловила админка домена: администратор писал «99 990» с
+  // пробелом, видел «сохранено» — и терял прежнее значение. Настройки магазина
+  // теперь одни, и правило то же: не сохранили — покажи, что было введено.
+  const db = { pendingReviewCount: () => 0 };
+  const saved = { storeName: 'Магазин', tagline: 'старый', accentColor: '#0071e3', adminUsername: 'admin' };
+  const plain = adminViews.settingsPage(saved, db, null);
+  assert.match(plain, /name="tagline" value="старый"/);
+  assert.doesNotMatch(plain, /class="a-flash err"/);
 
-  // Обычный показ: сохранённая цена в поле, ошибок нет.
-  const plain = siteViews.catalogPage(db, site, null);
-  assert.match(plain, /name="price_p1"[^>]*value="900"/);
-  assert.doesNotMatch(plain, /row-error/);
-
-  // Форма с ошибкой: введённое не теряется, строка подсвечена, подпись объясняет.
-  const draft = { 'enabled_p1': 'on', 'enabled_p2': 'on', 'price_p1': '99 990', 'price_p2': '2500' };
-  const failed = siteViews.catalogPage(db, site, 'Не сохранено', { flashType: 'err', draft, badPrices: ['p1'] });
-  assert.match(failed, /value="99 990"/, 'введённое значение потеряно');
-  assert.match(failed, /value="2500"/, 'корректное значение соседа тоже должно вернуться');
-  assert.match(failed, /<tr class="row-error">/);
-  assert.match(failed, /Введите число больше нуля/);
+  const draft = { storeName: '', tagline: 'новый слоган', contactPhone: '+7 900' };
+  const failed = adminViews.settingsPage(saved, db, 'Укажите название магазина', 'err', { draft });
+  assert.match(failed, /name="tagline" value="новый слоган"/, 'введённое значение потеряно');
+  assert.match(failed, /name="contactPhone" value="\+7 900"/);
   assert.match(failed, /class="a-flash err"/);
 
-  // Снятая галочка «показывать» из черновика тоже должна вернуться снятой.
-  const hidden = siteViews.catalogPage(db, site, 'Не сохранено', { draft: { 'price_p1': 'abc' }, badPrices: ['p1'] });
-  assert.doesNotMatch(hidden, /name="enabled_p1" checked/);
-
-  // Подсветку рисует CSS — без правил она была бы невидимой.
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(css, /\.price-inp\.has-error/);
-  assert.match(css, /tr\.row-error/);
+  // Снятая галочка приходит не значением, а ОТСУТСТВИЕМ поля. Если при возврате
+  // с ошибкой искать её в сохранённых настройках, она снова отметится — и
+  // второе «Сохранить» молча вернёт то, что админ только что снял.
+  const on = { notifyReviews: true, crocopayEnabled: true, payMethods: ['SBP', 'TO_CARD'] };
+  const off = adminViews.settingsPage(Object.assign({}, saved, on), db, 'Ошибка', 'err',
+    { draft: { storeName: 'Магазин' } });
+  assert.doesNotMatch(off, /name="notifyReviews" checked/, 'снятая «уведомлять об отзывах» вернулась отмеченной');
+  assert.doesNotMatch(off, /name="crocopayEnabled" checked/, 'снятая галочка кассы вернулась отмеченной');
+  assert.doesNotMatch(off, /name="payMethods" value="SBP" checked/, 'снятый способ оплаты вернулся отмеченным');
+  // А отмеченное в черновике — остаётся отмеченным, даже если в настройках снято.
+  const back = adminViews.settingsPage(saved, db, 'Ошибка', 'err',
+    { draft: { storeName: 'Магазин', notifyReviews: 'on', crocopayEnabled: 'on', payMethods: 'SBP' } });
+  assert.match(back, /name="notifyReviews" checked/);
+  assert.match(back, /name="crocopayEnabled" checked/);
+  assert.match(back, /name="payMethods" value="SBP" checked/);
 
   // Маршрут обязан отклонять такую отправку, а не сохранять её.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = source.slice(source.indexOf("app.post('/admin/catalog'"), source.indexOf("app.get('/admin/reviews'"));
-  assert.match(route, /badPrices\.push\(p\.id\)/);
-  assert.match(route, /if \(badPrices\.length\)/);
-  assert.ok(route.indexOf('if (badPrices.length)') < route.indexOf('db.setSiteOverrides'),
-    'проверка обязана идти до записи');
+  const route = source.slice(source.indexOf("app.post('/admin/settings'"));
+  assert.match(route.slice(0, 900), /if \(!String\(req\.body\.storeName \|\| ''\)\.trim\(\)\) return fail/);
+  assert.ok(route.indexOf('return fail') < route.indexOf('db.saveSettings'), 'проверка обязана идти до записи');
 });
 
 test('смена коллекции ремешков сбрасывает размер, а не тащит чужой', () => {
@@ -1895,10 +2067,10 @@ test('модерация отзыва возвращает на ту же стр
   const many = Array.from({ length: per * 3 }, (_, i) => ({
     id: 'r' + i, productId: 'p', author: 'Автор ' + i, rating: 5, text: 'т', status: 'pending', createdAt: 2000 - i
   }));
-  const db = { getReviews: () => many, getProducts: () => [], pendingReviewCount: () => many.length };
+  const db = { getReviews: () => many, getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => many.length };
 
-  const page3 = ownerViews.reviewsList(db, 'pending', null, 3);
-  const forms = page3.match(/<form method="post" action="\/owner\/reviews\/[^"]+\/(approve|delete)">([\s\S]*?)<\/form>/g) || [];
+  const page3 = adminViews.reviewsList(SETTINGS, db, 'pending', null, 3);
+  const forms = page3.match(/<form method="post" action="\/admin\/reviews\/[^"]+\/(approve|delete)">([\s\S]*?)<\/form>/g) || [];
   assert.ok(forms.length >= 2, 'на странице есть формы одобрения и удаления');
   for (const form of forms) {
     assert.match(form, /name="page" value="3"/, 'форма не несёт номер страницы');
@@ -1913,54 +2085,32 @@ test('модерация отзыва возвращает на ту же стр
   assert.ok(from > -1 && to > from, 'reviewsBackUrl не найдена в server.js');
   const build = new Function('const REVIEW_TABS = ["all","pending","approved"];'
     + source.slice(from, to + 3) + ' return reviewsBackUrl;')();
-  assert.equal(build({ status: 'pending', page: '3' }, 'Готово'), '/owner/reviews?status=pending&page=3&flash=' + encodeURIComponent('Готово'));
-  assert.equal(build({ status: 'all', page: '1' }), '/owner/reviews');
-  assert.equal(build({ status: 'нет-такой', page: 'абв' }), '/owner/reviews');
-  assert.equal(build({ status: 'approved', page: -7 }), '/owner/reviews?status=approved');
+  assert.equal(build({ status: 'pending', page: '3' }, 'Готово'), '/admin/reviews?status=pending&page=3&flash=' + encodeURIComponent('Готово'));
+  assert.equal(build({ status: 'all', page: '1' }), '/admin/reviews');
+  assert.equal(build({ status: 'нет-такой', page: 'абв' }), '/admin/reviews');
+  assert.equal(build({ status: 'approved', page: -7 }), '/admin/reviews?status=approved');
   // Маршруты обязаны пользоваться именно им, а не фиксированным адресом.
   assert.match(source, /approve[\s\S]{0,120}reviewsBackUrl\(req\.body/);
   assert.match(source, /deleteReview\(req\.params\.id\); res\.redirect\(reviewsBackUrl\(req\.body/);
 });
 
-test('оценка товара считается только когда её спрашивают', () => {
-  // /api/cart и /api/order строят до 100 представлений на запрос и рейтинг не
-  // показывают вовсе: раньше на каждое впустую пробегался список отзывов товара.
-  let ratingReads = 0;
-  const reviews = Array.from({ length: 50 }, (_, i) => ({
-    id: 'r' + i, productId: 'p', rating: 4, status: 'approved', createdAt: i
-  }));
-  const product = { id: 'p', name: 'Товар', price: 100, category: 'К', colors: [], storages: [], bands: [] };
-  const site = { id: 's', storeName: 'М', priceMultiplier: 1, overrides: {}, hiddenReviews: ['r0'] };
-  const spy = new Proxy(dbCore, {
-    get(target, key) {
-      if (key === 'getProducts') return () => [product];
-      if (key === 'getProduct') return id => (id === 'p' ? product : null);
-      if (key === 'reviewsForProduct') { ratingReads++; return () => reviews; }
-      return target[key];
-    }
-  });
-  const isolated = requireWithDb(spy);
-  const view = isolated.siteProductView(site, 'p');
-  assert.equal(ratingReads, 0, 'построение представления не трогает отзывы');
-  assert.equal(view.price, 100);
-  // но значение по-прежнему верное, когда его действительно читают
-  assert.deepEqual(view._rating, { avg: 4, count: 49 });
-  assert.ok(ratingReads > 0, 'при обращении оценка всё-таки считается');
-  assert.deepEqual(view._rating, { avg: 4, count: 49 }, 'повторное чтение отдаёт то же самое');
+test('оценка товара в каталоге читается из индекса, а не пересчётом отзывов', () => {
+  // На главной десятки карточек. Раньше оценку считал viewFor() — по разу на
+  // товар, полным проходом по его отзывам; теперь это готовая пара из индекса.
+  const reviews = Array.from({ length: 49 }, (_, i) => ({ id: 'r' + i, productId: 'p', rating: 4, status: 'approved', createdAt: i }));
+  let ratingCalls = 0, listCalls = 0;
+  const db = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['К'], visibleCategories: () => ['К'],
+    reviewsForProduct: () => { listCalls++; return reviews; },
+    ratingFor: () => { ratingCalls++; return { avg: 4, count: 49 }; }
+  };
+  const product = { id: 'p', name: 'Товар', category: 'К', price: 100, inStock: true, images: [], colors: [], storages: [], bands: [], options: [] };
+  const html = render.homePage({ storeName: 'Тест', currency: '₽' }, db, {});
+  assert.match(html, /★|4/);
+  assert.equal(ratingCalls, 1, 'на карточку — ровно одно обращение к индексу');
+  assert.equal(listCalls, 0, 'список отзывов товара каталогу не нужен вовсе');
 });
-
-// tenancy держит ссылку на lib/db, поэтому подменяем её через кэш require.
-function requireWithDb(fakeDb) {
-  const dbKey = require.resolve('../lib/db');
-  const tenancyKey = require.resolve('../lib/tenancy');
-  const realDb = require.cache[dbKey];
-  require.cache[dbKey] = { id: dbKey, filename: dbKey, loaded: true, exports: fakeDb };
-  delete require.cache[tenancyKey];
-  const fresh = require('../lib/tenancy');
-  delete require.cache[tenancyKey];
-  if (realDb) require.cache[dbKey] = realDb; else delete require.cache[dbKey];
-  return fresh;
-}
 
 test('карточки посетителей метрики ищутся по индексу и он не расходится с массивом', () => {
   // findVisitor звали на каждый просмотр, heartbeat и заявку. Перебор массива
@@ -1970,7 +2120,7 @@ test('карточки посетителей метрики ищутся по �
     const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 1e9 });
     const ids = Array.from({ length: 5 }, (_, i) => String(i).repeat(32));
     for (const id of ids) {
-      metrics.recordPageView({ id, siteId: 's', path: '/', host: 'x.ru', context: { device: 'Компьютер' } });
+      metrics.recordPageView({ id, path: '/', host: 'x.ru', context: { device: 'Компьютер' } });
     }
     assert.equal(metrics.byId.size, metrics.data.visitors.length);
     assert.equal(metrics.findVisitor(ids[2]).id, ids[2]);
@@ -2112,7 +2262,7 @@ test('неоплаченный счёт напоминает о себе на в
   const remind = { id: 'a1b2', number: '482913', total: 68200, expiresAt: Date.now() + 9 * 60 * 1000 };
   const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
   const db = {
-    getProducts: () => [product], categories: () => ['Категория'],
+    getProducts: () => [product], visibleProducts: () => [product], categories: () => ['Категория'], visibleCategories: () => ['Категория'],
     ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
   };
 
@@ -2121,7 +2271,7 @@ test('неоплаченный счёт напоминает о себе на в
   // о заказе просто забудет.
   const pages = {
     'главная': render.homePage(ss, db, { category: '', q: '', origin: '', payRemind: remind }, null),
-    'товар': render.productPage(ss, db, product, null, { origin: '', payRemind: remind }),
+    'товар': render.productPage(ss, db, product, { origin: '', payRemind: remind }),
     'оформление': render.checkoutPage(ss, { origin: '', payRemind: remind }),
     'политика': render.privacyPage(ss, { origin: '', payRemind: remind }),
     'гарантия': render.warrantyPage(ss, { origin: '', payRemind: remind }),
@@ -2154,7 +2304,15 @@ test('неоплаченный счёт напоминает о себе на в
   assert.match(fn, /order\.draft/, 'черновик заказом ещё не стал');
   assert.match(fn, /pay\.status !== 'pending'/);
   assert.match(fn, /pay\.expiresAt <= now/, 'у сгоревшего счёта реквизиты уже чужие');
-  assert.match(fn, /order\.siteId !== site\.id/, 'заказ другого магазина показывать нельзя');
+
+  // Напоминание собирает pageOpts() — одна обвязка на все страницы витрины.
+  // Раньше поле протаскивалось в каждый layout() поимённо, и забытая страница
+  // молча оставалась без него.
+  assert.match(fn, /function pageOpts\(req, extra\)/);
+  assert.match(fn, /payRemind: payRemind\(req\)/);
+  const routes = server.slice(server.indexOf('function pageOpts('), server.indexOf('/* =========================== ПАНЕЛЬ'));
+  assert.equal(/payRemind:/.test(routes.replace(/payRemind: payRemind\(req\)/, '').replace('payRemind: null', '')), false,
+    'страницы витрины не должны собирать напоминание сами — только через pageOpts()');
 
   // Витрина повторяет напоминание в корзине и сама убирает его, когда счёт сгорел.
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
@@ -2224,9 +2382,21 @@ test('ключи кассы не попадают на витрину, а при
     crocopayClientId: 'ГДЕ-ТО-КЛЮЧ', crocopayClientSecret: 'СЕКРЕТ-КАССЫ'
   }), { origin: '', payOnline: true });
   assert.doesNotMatch(keys, /ГДЕ-ТО-КЛЮЧ|СЕКРЕТ-КАССЫ/);
-  // siteSettings собирается поимённо — платёжных полей там быть не должно.
-  const site = Object.assign(dbCore.defaultSite(), { crocopayClientSecret: 'СЕКРЕТ-КАССЫ' });
-  assert.doesNotMatch(JSON.stringify(tenancy.siteSettings(site)), /СЕКРЕТ-КАССЫ|crocopay/i);
+  // Настройки теперь одни на всё, и в шаблон витрины уходит тот же объект —
+  // значит ни один ключ не должен попадать в разметку ни одной страницы.
+  const secret = Object.assign({}, ss, {
+    dadataToken: 'КЛЮЧ-ПОДСКАЗОК', crocopayClientId: 'ГДЕ-ТО-КЛЮЧ', crocopayClientSecret: 'СЕКРЕТ-КАССЫ',
+    telegramBotToken: 'ТОКЕН-БОТА', adminPasswordHash: 'ХЕШ', sessionSecret: 'СЕКРЕТ-СЕССИИ'
+  });
+  const pages = [
+    render.homePage(secret, { getProducts: () => [], visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) }, {}),
+    render.checkoutPage(secret, { origin: '', payOnline: true }),
+    render.privacyPage(secret, {}), render.warrantyPage(secret, {}), render.returnsPage(secret, {}),
+    render.notFoundPage(secret, {})
+  ];
+  for (const html of pages) {
+    assert.doesNotMatch(html, /КЛЮЧ-ПОДСКАЗОК|ГДЕ-ТО-КЛЮЧ|СЕКРЕТ-КАССЫ|ТОКЕН-БОТА|ХЕШ|СЕКРЕТ-СЕССИИ/);
+  }
 });
 
 test('способы оплаты — закрытый список, а показываем только включённые у кассы', () => {
@@ -2336,11 +2506,11 @@ test('трансграничные способы скрыты по умолча
   // того, что секция вообще пришла, — иначе «снять все» неотличимо от запроса
   // без этой секции.
   const settings = Object.assign(dbCore.defaultSettings(), { payMethods: ['SBP'] });
-  const html = ownerViews.settingsPage(settings, { pendingReviewCount: () => 0 }, null);
+  const html = adminViews.settingsPage(settings, { pendingReviewCount: () => 0 }, null);
   assert.match(html, /name="payMethodsForm"/);
   assert.match(html, /name="payMethods" value="SBP" checked/);
   assert.match(html, /name="payMethods" value="TO_CARD"(?! checked)/);
-  const empty = ownerViews.settingsPage(Object.assign({}, settings, { payMethods: [] }), { pendingReviewCount: () => 0 }, null);
+  const empty = adminViews.settingsPage(Object.assign({}, settings, { payMethods: [] }), { pendingReviewCount: () => 0 }, null);
   assert.match(empty, /Не отмечен ни один способ/);
 
   // Скрытый способ не должен проходить запросом мимо интерфейса.
@@ -2383,7 +2553,6 @@ test('черновик не считается заказом, пока не в�
 
   // В панелях черновика нет: покупатель мог просто заглянуть на страницу оплаты.
   assert.deepEqual(fresh.visibleOrders().map(o => o.id), [real.id]);
-  assert.equal(fresh.ordersForSite(null).some(o => o.id === draft.id), false);
   // Но сам он записан: на него вешается счёт, и по id его надо находить.
   assert.equal(fresh.getOrder(draft.id).id, draft.id);
   assert.equal(fresh.getOrders().length, 2, 'внутренний список отдаёт всё — иначе запись стёрла бы черновики');
@@ -2469,9 +2638,8 @@ test('номер заказа везде пишется как «Заказ №�
 
   // Панели и витрина берут ту же функцию, иначе где-то останется голое число.
   const list = [{ id: 'o1', number: '482913', createdAt: Date.now(), status: 'new', contact: 'tg', total: 100, items: [] }];
-  const db = { getOrders: () => list, visibleOrders: () => list, ordersForSite: () => list, getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0 };
-  assert.match(ownerViews.ordersList(db, null, 1), /<b>№482913<\/b>/);
-  assert.match(siteViews.ordersList(db, dbCore.defaultSite(), null, 1), /<b>№482913<\/b>/);
+  const db = { getOrders: () => list, visibleOrders: () => list, getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0 };
+  assert.match(adminViews.ordersList(SETTINGS, db, null, 1), /<b>№482913<\/b>/);
   assert.match(js, /function orderNo\(number\)/);
   assert.doesNotMatch(js, /<span>Номер заказа<\/span>/);
 });
@@ -2603,14 +2771,14 @@ test('витрина уводит на свою страницу оплаты т
 test('сборка дороже потолка недоступна, а количество упирается в него же', () => {
   const CROCO = require('../lib/crocopay');
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [] };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const base = { id: 'p1', name: 'Товар', category: 'К', inStock: true, images: [], colors: [], bands: [] };
 
   // Товар, у которого даже стартовая сборка дороже потолка, купить нельзя —
   // значит и на витрине он «Нет в наличии», а не кнопка, ведущая в отказ.
   const pricey = Object.assign({}, base, { price: CROCO.MAX_TOTAL + 10, storages: [], options: [] });
   assert.equal(render.sellable(pricey), false);
-  assert.match(render.productPage(ss, db, pricey, null, { origin: '' }), /Нет в наличии/);
+  assert.match(render.productPage(ss, db, pricey, { origin: '' }), /Нет в наличии/);
   const fine = Object.assign({}, base, { price: 100000, storages: [], options: [] });
   assert.equal(render.sellable(fine), true);
 
@@ -2621,7 +2789,7 @@ test('сборка дороже потолка недоступна, а коли
     storages: [{ label: '1 ТБ', add: 0 }, { label: '8 ТБ', add: 100000 }],
     options: [{ name: 'Чип', values: [{ label: 'M5', add: 0 }, { label: 'M5 Max', add: 90000 }] }]
   });
-  const html = render.productPage(ss, db, mac, null, { origin: '' });
+  const html = render.productPage(ss, db, mac, { origin: '' });
   const btn = label => (html.match(new RegExp('<button[^>]*>(?:(?!</button>).)*' + label + '(?:(?!</button>).)*</button>', 's')) || [''])[0];
   assert.doesNotMatch(btn('1 ТБ'), /disabled/, 'базовая конфигурация доступна');
   assert.match(btn('8 ТБ'), /disabled/, '200 000 + 100 000 не влезает в потолок');
@@ -3057,8 +3225,8 @@ test('имя с фамилией собираются в customerName, а ста
 
   // В панелях видно способ доставки, а комментарий старых заявок — по-прежнему.
   const list = [order, { id: 'o9', number: 'ORD-9', createdAt: Date.now(), status: 'new', contact: 'tg', total: 1, items: [], comment: 'позвоните вечером' }];
-  const db = { getOrders: () => list, visibleOrders: () => list, ordersForSite: () => list, getSites: () => [], pendingReviewCount: () => 0 };
-  for (const html of [ownerViews.ordersList(db, null, 1), siteViews.ordersList(db, dbCore.defaultSite(), null, 1)]) {
+  const db = { getOrders: () => list, visibleOrders: () => list, getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0 };
+  for (const html of [adminViews.ordersList(SETTINGS, db, null, 1)]) {
     assert.match(html, /СДЭК/);
     assert.match(html, /Иван Петров/);
     assert.match(html, /позвоните вечером/);
@@ -3158,11 +3326,10 @@ test('состояние оплаты видно в обеих панелях и
   }
 
   const db = {
-    getOrders: () => [paid, bad], visibleOrders: () => [paid, bad], ordersForSite: () => [paid, bad], getSites: () => [], pendingReviewCount: () => 0
+    getOrders: () => [paid, bad], visibleOrders: () => [paid, bad],
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   };
-  const ownerHtml = ownerViews.ordersList(db, null, 1);
-  const siteHtml = siteViews.ordersList(db, dbCore.defaultSite(), null, 1);
-  for (const html of [ownerHtml, siteHtml]) {
+  for (const html of [adminViews.ordersList(SETTINGS, db, null, 1)]) {
     assert.match(html, /pay-ok/);
     assert.match(html, /pay-warn/);
     // Ручной статус заказа с панелей убран: рядом с настоящим состоянием оплаты
@@ -3298,12 +3465,12 @@ test('счёт создаётся в минимальных единицах, а
   }
 });
 
-test('в настройках владельца есть касса, а ключи не утекают в разметку витрины', () => {
+test('в настройках есть касса, а ключи не утекают в разметку витрины', () => {
   const settings = Object.assign(dbCore.defaultSettings(), {
     crocopayEnabled: true, crocopayClientId: 'ID-КАССЫ', crocopayClientSecret: ''
   });
   const db = { pendingReviewCount: () => 0 };
-  const html = ownerViews.settingsPage(settings, db, null);
+  const html = adminViews.settingsPage(settings, db, null);
   assert.match(html, /name="crocopayEnabled"[^>]*checked/);
   assert.match(html, /name="crocopayClientId"/);
   assert.match(html, /name="crocopayClientSecret"/);
@@ -3311,13 +3478,13 @@ test('в настройках владельца есть касса, а клю�
   assert.doesNotMatch(html, /name="crocopayCurrency"/);
   // Включено без ключей — на витрине оплаты нет, и владелец обязан это увидеть.
   assert.match(html, /Оплата включена, но ключи кассы не заданы/);
-  const full = ownerViews.settingsPage(Object.assign({}, settings, { crocopayClientSecret: 'СЕКРЕТ' }), db, null);
+  const full = adminViews.settingsPage(Object.assign({}, settings, { crocopayClientSecret: 'СЕКРЕТ' }), db, null);
   assert.doesNotMatch(full, /Оплата включена, но ключи кассы не заданы/);
 
   // Маршрут сохранения: галочка снимается отсутствием поля, а кэш способов
   // сбрасывается — он собран под ключи прежней кассы.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = source.slice(source.indexOf("app.post('/owner/settings'"), source.indexOf('/* =========================== АДМИНКА САЙТА'));
+  const route = source.slice(source.indexOf("app.post('/admin/settings'"));
   assert.match(route, /patch\.crocopayEnabled = req\.body\.crocopayEnabled !== undefined/);
   assert.match(route, /CROCO\.forgetMethods\(\)/);
 });

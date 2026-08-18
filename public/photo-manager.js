@@ -145,7 +145,7 @@
   // счётчики «сколько фото у этой пары ремешок+корпус» живут в редакторе ремешков
   function refreshBandCounts() { if (window.bandUploadsRefresh) window.bandUploadsRefresh(); }
   function post(url, data) {
-    return fetch('/owner/products/' + encodeURIComponent(pid) + url, {
+    return fetch('/admin/products/' + encodeURIComponent(pid) + url, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
     }).then(function (r) { return r.json(); });
@@ -206,7 +206,7 @@
 
       var xhr = new XMLHttpRequest();
       activeUpload = xhr;
-      xhr.open('POST', '/owner/products/' + encodeURIComponent(pid) + '/images/add');
+      xhr.open('POST', '/admin/products/' + encodeURIComponent(pid) + '/images/add');
       xhr.upload.addEventListener('progress', function (e) {
         if (generation !== uploadGeneration) return;
         if (!e.lengthComputable) return;

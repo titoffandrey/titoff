@@ -26,19 +26,18 @@ const byName = new Map(live.map(p => [p.name, p]));
 
 // hotDealUntil намеренно не переносим: в catalog.js это `now + 4 * DAY`,
 // то есть каждый прогон сдвигал бы конец акции вперёд на четыре дня от
-// сегодняшнего числа. Срок задаёт владелец в панели, скрипт правит только суммы.
+// сегодняшнего числа. Срок задаётся в панели, скрипт правит только суммы.
 const money = (x) => (Number(x) > 0 ? Math.round(Number(x)) : 0);
 const rub = (x) => (money(x) ? money(x).toLocaleString('ru-RU') + ' ₽' : '—');
 
 let changed = 0, missing = 0, skipped = 0;
-const overridden = [], stale = [];
-const sites = db.getSites();
+const stale = [];
 
 for (const src of catalog.products) {
   const cur = byId.get(src.id) || byName.get(src.name);
   if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
 
-  // Цену по акции переносим только там, где владелец акцию не выключал: у
+  // Цену по акции переносим только там, где акцию не выключали: у
   // выключенной товар живёт по базовой цене, и вписывать ей сумму из catalog.js
   // значит воскрешать снятую скидку. А у включённой сумму поправить обязательно —
   // иначе после снижения базовой цены «скидка» окажется дороже товара.
@@ -63,16 +62,6 @@ for (const src of catalog.products) {
 
   console.log(`✓ ${cur.name}: ` + diff.map(k => `${k} ${rub(now[k])} → ${rub(next[k])}`).join(', '));
 
-  // Сайт с ручной ценой новую базовую не увидит вовсе (sitePriceOf в tenancy.js),
-  // поэтому о таких предупреждаем отдельно — молчком это выглядит как «скрипт
-  // отработал, а на витрине старая цена».
-  for (const site of sites) {
-    const ov = (site.overrides || {})[cur.id];
-    if (ov && ov.price !== '' && ov.price != null && Number(ov.price) > 0) {
-      overridden.push(`${site.storeName || site.id}: ${cur.name} — ${rub(ov.price)}`);
-    }
-  }
-
   if (apply) db.updateProduct(cur.id, { price: next.price, oldPrice: next.oldPrice || null, hotDealPrice: next.hotDealPrice || null });
   changed++;
 }
@@ -83,11 +72,6 @@ console.log(`\n${apply ? 'Обновлено' : 'Будет обновлено'}
 if (stale.length) {
   console.log('\nУ этих товаров лежит цена выключенной акции выше новой базовой — включать её в панели нельзя, сначала поправить сумму:');
   for (const line of stale) console.log('  • ' + line);
-}
-if (overridden.length) {
-  console.log('\nУ этих сайтов цена задана вручную — базовая на них не подействует:');
-  for (const line of overridden) console.log('  • ' + line);
-  console.log('Править их в /admin/catalog нужного магазина.');
 }
 if (!apply && changed) console.log('Это был предпросмотр. Чтобы записать: node sync-prices.js --apply');
 if (apply && changed) console.log('Доплаты за память и SIM едут отдельно: node sync-options.js --apply');

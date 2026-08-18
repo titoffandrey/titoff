@@ -51,7 +51,7 @@ function placeByCatalog(ids) {
 
 if (added.length) {
   const order = placeByCatalog(added);
-  if (!db.reorderProducts(order)) console.log('! порядок карточек не изменён — поправьте вручную в /owner/products');
+  if (!db.reorderProducts(order)) console.log('! порядок карточек не изменён — поправьте вручную в /admin/products');
 }
 
 console.log(`\nГотово. Добавлено товаров: ${added.length}. Всего товаров в каталоге: ${db.getProducts().length}.`);

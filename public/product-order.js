@@ -49,7 +49,7 @@
     busy = true;
     body.classList.add('is-busy');
     repaint();
-    fetch('/owner/products/order', {
+    fetch('/admin/products/order', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: next })
     })

@@ -243,7 +243,7 @@
       if (xhr.status >= 200 && xhr.status < 400) {
         activeXhr = null; activeState = null;
         setProgress(state.field, 100, 'Готово', 'done');
-        window.location.href = xhr.responseURL || '/owner/products';
+        window.location.href = xhr.responseURL || '/admin/products';
         return;
       }
       resetSubmit(false);
