@@ -1592,6 +1592,10 @@ a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-thumb img{width:100%;height:100%;object-fit:cover}
 .rv-thumb-cap{color:var(--muted);font-size:10px;font-weight:700}
 .rv-thumb-more{color:var(--muted);font-size:12px;font-weight:650}
+/* Вложения сверх шестого лежат в разметке ссылками без картинок — просмотрщику
+   нужен весь список, иначе с седьмого кадра листать некуда. Показывать их не
+   надо, а `hidden` из браузерной таблицы не перебьёт `display:flex` выше. */
+.rv-thumb[hidden]{display:none}
 /* Треугольник поверх кадра: иначе первый кадр ролика не отличить от фото. */
 .rv-thumb.is-video::after{content:"";position:absolute;width:0;height:0;margin-left:3px;
   border:6px solid transparent;border-left:10px solid rgba(255,255,255,.95);
@@ -1627,16 +1631,24 @@ a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-form-sub{display:block;margin-bottom:9px;font-size:13px;font-weight:650}
 .rv-files{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px}
 /* Удаление вложения — галочка, а не кнопка со скриптом: форма работает и там,
-   где скрипты панели не загрузились, и удаляется всё одним сохранением. */
-.rv-file{position:relative;display:flex;flex-direction:column;gap:4px;cursor:pointer}
+   где скрипты панели не загрузились, и удаляется всё одним сохранением.
+   Плитка не обёрнута в <label> целиком: клик по снимку открывает просмотрщик,
+   а к удалению помечает только крестик и подпись под ним. */
+.rv-file{position:relative;display:flex;flex-direction:column;gap:4px}
 .rv-file input{position:absolute;width:1px;height:1px;opacity:0}
 .rv-file-body{position:relative;display:flex;aspect-ratio:1/1;align-items:center;justify-content:center;
   overflow:hidden;border:1px solid var(--border-soft);border-radius:12px;background:var(--bg2);
   transition:opacity .14s,filter .14s}
 .rv-file-body img{width:100%;height:100%;object-fit:cover}
-.rv-file-x{position:absolute;top:4px;right:4px;display:flex;width:20px;height:20px;align-items:center;
-  justify-content:center;border-radius:50%;background:rgba(20,20,22,.55);color:#fff;font-size:11px;line-height:1}
-.rv-file-cap{color:var(--muted);font-size:11px;text-align:center}
+/* Ролик в форме правки узнаётся так же, как в списке, — треугольником поверх кадра. */
+.rv-file-body[data-kind="video"]::after{content:"";position:absolute;width:0;height:0;margin-left:4px;
+  border:8px solid transparent;border-left:13px solid rgba(255,255,255,.95);
+  filter:drop-shadow(0 0 3px rgba(0,0,0,.55))}
+.rv-file-x{position:absolute;top:4px;right:4px;display:flex;width:22px;height:22px;align-items:center;
+  justify-content:center;border-radius:50%;background:rgba(20,20,22,.55);color:#fff;font-size:11px;
+  line-height:1;cursor:pointer;transition:background .14s}
+.rv-file-x:hover{background:rgba(20,20,22,.8)}
+.rv-file-cap{color:var(--muted);font-size:11px;text-align:center;cursor:pointer}
 .rv-file-cap i{font-style:normal}
 .rv-gone{display:none;color:#d70015;font-weight:650}
 .rv-file input:checked ~ .rv-file-body{opacity:.42;filter:grayscale(1)}

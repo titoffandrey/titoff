@@ -1653,6 +1653,47 @@ test('раздел отзывов открывается очередью мод
   assert.match(page, /name="product" value="p"/);
 });
 
+test('вложения в панели открываются той же галереей, что и на витрине', () => {
+  // Раньше клик по снимку в панели просто открывал файл в новой вкладке: чтобы
+  // посмотреть все вложения отзыва, приходилось открывать их по одному.
+  const rv = {
+    id: 'r1', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 1,
+    videos: ['v1.mp4'], photos: ['p1.webp', 'p2.webp', 'p3.webp', 'p4.webp', 'p5.webp', 'p6.webp', 'p7.webp'],
+    previews: { 'v1.mp4': 'v1-p.webp', 'p1.webp': 'p1-t.webp' }
+  };
+  const db = {
+    getReviews: () => [rv], getProducts: () => [{ id: 'p', name: 'Товар' }],
+    reviewStats: () => new Map([['p', { total: 1, approved: 1, pending: 0, avg: 5 }]]),
+    pendingReviewCount: () => 0
+  };
+  const list = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
+  const group = list.slice(list.indexOf('<div class="rv-thumbs"'), list.indexOf('</div>', list.indexOf('<div class="rv-thumbs"')));
+  assert.match(group, /<div class="rv-thumbs" data-media>/, 'группу просмотрщик ищет по data-media');
+  // Порядок тот же, что на витрине: видео первым, нумерация сквозная.
+  const kinds = (group.match(/data-kind="(photo|video)"/g) || []).map(s => s.slice(11, -1));
+  assert.equal(kinds[0], 'video');
+  assert.equal(kinds.length, 8, 'в галерее все вложения, а не только показанные');
+  // В ленте — лёгкое превью, полный файл только в просмотрщике.
+  assert.match(group, /<img src="\/uploads\/v1-p\.webp"/);
+  assert.match(group, /href="\/uploads\/v1\.mp4"/);
+  // Сверх шестого — ссылки без картинок и скрытые: грузить полсотни превью ради
+  // строки списка незачем, но листать галерею должно быть куда.
+  assert.equal((group.match(/<img /g) || []).length, 6, 'картинок ровно шесть');
+  assert.match(group, /class="rv-thumb rv-thumb-more"[^>]*>\+2</);
+  assert.match(group, /<a class="rv-thumb" href="\/uploads\/p7\.webp"[^>]* hidden /);
+  // hidden обязан побеждать display:flex — иначе скрытые ссылки видно.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.rv-thumb\[hidden\]\{display:none\}/);
+
+  // В форме правки клик по снимку открывает просмотр, а помечает к удалению
+  // только крестик: обёрнутая в <label> плитка делала бы и то и другое разом.
+  const form = adminViews.reviewForm(SETTINGS, Object.assign({}, db, { getProducts: () => [{ id: 'p', name: 'Товар' }] }), rv, { back: {} });
+  assert.match(form, /<div class="rv-files" data-media>/);
+  assert.match(form, /<a class="rv-file-body" href="\/uploads\/v1\.mp4" data-kind="video"/);
+  assert.match(form, /<label class="rv-file-x" for="drop-0"/);
+  assert.equal(/<label class="rv-file"/.test(form), false, 'плитка целиком не должна быть меткой');
+});
+
 test('форма правки отзыва меняет всё, что видит покупатель', () => {
   const rv = {
     id: 'r1', productId: 'p', author: 'Ирина', rating: 4, text: 'Хороший телефон',
@@ -3949,12 +3990,23 @@ test('фото и видео отзыва листаются одной гале
   assert.match(light, /href="\/uploads\/v1\.mp4"/);
   assert.match(light, /width="320" height="320"/, 'размеры нужны, чтобы лента не прыгала при загрузке');
 
-  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  assert.match(js, /initReviewLightbox\(\);/, 'просмотрщик должен подключаться при загрузке');
+  // Просмотрщик живёт отдельным файлом: тот же нужен в панели отзывов, а
+  // витринный app.js панель не грузит. Копия разъехалась бы с оригиналом.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'media-lightbox.js'), 'utf8');
   assert.match(js, /e\.key === 'Escape'[^]{0,40}lbClose/, 'Esc обязан закрывать просмотр');
   assert.match(js, /ArrowLeft[^]{0,60}lbGo\(-1\)/, 'стрелки листают');
   // Уходя с кадра, ролик обязан замолчать — иначе звук идёт из закрытого просмотра.
   assert.match(js, /function lbClose\(\)[^]{0,220}pause\(\)/);
+  // Разметку он опознаёт по атрибутам, а не по классам витрины: те же атрибуты
+  // ставит и панель.
+  assert.match(js, /var GROUP = '\[data-media\]'/);
+  assert.match(js, /var ITEM = 'a\[data-kind\]'/);
+  assert.match(card, /class="review-media" data-media/);
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.equal(/function lbBuild|initReviewLightbox/.test(app), false, 'второй копии просмотрщика быть не должно');
+  // Обе страницы обязаны его подключать — иначе галерея есть только у одной.
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8'), /static\/media-lightbox\.js/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'), /static\/media-lightbox\.js/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /body\.lb-open\{overflow:hidden\}/, 'фон под просмотром не должен прокручиваться');
@@ -3971,13 +4023,14 @@ test('перевозчик у привезённых отзывов раздан
 });
 
 test('медиа не отдаётся в один клик и просмотрщик собран иконками', () => {
-  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'media-lightbox.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
   // Перетаскивание и правая кнопка на картинках и видео перехватываются.
-  assert.match(js, /initMediaGuard\(\);/);
-  assert.match(js, /'contextmenu'[^]{0,200}preventDefault/);
-  assert.match(js, /'dragstart'[^]{0,200}preventDefault/);
+  assert.match(app, /initMediaGuard\(\);/);
+  assert.match(app, /'contextmenu'[^]{0,200}preventDefault/);
+  assert.match(app, /'dragstart'[^]{0,200}preventDefault/);
   // У плеера не должно быть кнопки скачивания.
   assert.match(js, /controlsList[^]{0,30}nodownload/);
 
