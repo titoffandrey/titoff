@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const db = require('../lib/db');
 const IMG = require('../lib/images');
 const DATES = require('../lib/review-dates');
+const PREV = require('../lib/review-previews');
 
 const args = process.argv.slice(2);
 const file = args.find(a => !a.startsWith('--'));
@@ -231,12 +232,17 @@ async function fetchTo(url, dest, tries) {
       }
     }
 
+    // Лёгкие превью сразу при заливке: иначе первая же страница отзывов
+    // потянет полноразмерные снимки и метаданные каждого ролика.
+    const prep = await PREV.buildPreviews(db.UPLOAD_DIR, { photos, videos }, { clean: true });
+
     db.createReview({
       productId,
       author: rv.author || 'Покупатель',
       rating: rv.rating || 5,
       text: rv.text || '',
       photos, videos,
+      previews: prep.previews,
       config: ourConfig(rv),
       delivery: deliveryFor(rv),
       source: bundle.source || 'ozon',

@@ -3777,9 +3777,20 @@ test('фото и видео отзыва листаются одной гале
   // Ссылки настоящие: без скрипта клик открывает файл, как раньше.
   assert.match(card, /<a class="rv-item rv-video" href="\/uploads\/v1\.mp4"/);
   assert.match(card, /<a class="rv-item rv-photo" href="\/uploads\/p1\.webp"/);
-  // Обложек у роликов нет, поэтому кадром служит сам <video>.
-  assert.match(card, /<video src="\/uploads\/v1\.mp4#t=0\.1" preload="metadata" muted playsinline>/);
+  // Кадра у ролика нет — тогда кадром служит сам <video>, ломаться тут нельзя.
+  assert.match(card, /<video src="\/uploads\/v1\.mp4#t=0\.1" preload="metadata" muted playsinline/);
   assert.match(card, /<span class="rv-play"/);
+
+  // А когда кадр есть — в ленте лёгкая картинка, полный файл только в просмотрщике.
+  const light = render.reviewCard(Object.assign({}, rv, {
+    previews: { 'v1.mp4': 'v1-p.webp', 'p1.webp': 'p1-t.webp', 'p2.webp': 'p2-t.webp' }
+  }));
+  assert.match(light, /<img src="\/uploads\/v1-p\.webp"[^>]*loading="lazy"/);
+  assert.match(light, /<img src="\/uploads\/p1-t\.webp"/);
+  assert.doesNotMatch(light, /<video/, 'при готовом кадре видео в ленте не грузится');
+  // Ссылка ведёт на полный файл: его открывает просмотрщик.
+  assert.match(light, /href="\/uploads\/v1\.mp4"/);
+  assert.match(light, /width="320" height="320"/, 'размеры нужны, чтобы лента не прыгала при загрузке');
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(js, /initReviewLightbox\(\);/, 'просмотрщик должен подключаться при загрузке');
@@ -3800,4 +3811,26 @@ test('перевозчик у привезённых отзывов раздан
   // Название цвета должно быть нашим, а не с площадки.
   assert.match(src, /COLOR_ALIASES/);
   assert.match(src, /ourColors\.some/, 'цвет берётся только тот, что есть у товара');
+});
+
+test('медиа не отдаётся в один клик и просмотрщик собран иконками', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  // Перетаскивание и правая кнопка на картинках и видео перехватываются.
+  assert.match(js, /initMediaGuard\(\);/);
+  assert.match(js, /'contextmenu'[^]{0,200}preventDefault/);
+  assert.match(js, /'dragstart'[^]{0,200}preventDefault/);
+  // У плеера не должно быть кнопки скачивания.
+  assert.match(js, /controlsList[^]{0,30}nodownload/);
+
+  // Иконки — SVG. Текстовые глифы (× ‹ ›) берутся из системного шрифта, сидят
+  // в круге по-разному и выглядят криво — из-за этого кнопки и были кривыми.
+  assert.doesNotMatch(js, /&times;|&#8249;|&#8250;/, 'текстовые глифы в кнопках просмотрщика');
+  assert.match(js, /<svg viewBox="0 0 24 24"/);
+  assert.match(css, /\.lb-btn\{[^}]*place-items:center/, 'иконка обязана стоять по центру кнопки');
+
+  // На телефоне стрелки уходят вниз и становятся крупнее: поверх кадра по ним
+  // не попасть пальцем, а сам кадр они закрывают.
+  assert.match(css, /@media\(max-width:640px\)\{[^]*\.lb-btn\{width:48px/);
 });

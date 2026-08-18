@@ -1018,6 +1018,30 @@
     }, { rootMargin: '100px' }).observe(ticker);
   }
 
+  /* Медиа не отдаём «в один клик»: ни перетаскиванием, ни правой кнопкой, ни
+     кнопкой скачивания в плеере. Полностью закрыть картинку от сохранения
+     нельзя — она всё равно приходит в браузер, — но случайное «сохранить как»
+     этим отсекается. */
+  function guardMedia(node) {
+    if (!node) return;
+    node.setAttribute('draggable', 'false');
+    node.addEventListener('dragstart', function (e) { e.preventDefault(); });
+    node.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  }
+
+  function initMediaGuard() {
+    document.addEventListener('contextmenu', function (e) {
+      var t = e.target;
+      if (t && (t.tagName === 'IMG' || t.tagName === 'VIDEO' || (t.closest && t.closest('.rv-item, .gallery, .lb')))) {
+        e.preventDefault();
+      }
+    });
+    document.addEventListener('dragstart', function (e) {
+      var t = e.target;
+      if (t && (t.tagName === 'IMG' || t.tagName === 'VIDEO')) e.preventDefault();
+    });
+  }
+
   /* ====== Просмотр медиа отзыва ======
      Одна галерея на отзыв: фото и видео листаются подряд, чтобы, открыв снимок,
      не пришлось закрывать просмотр ради ролика. Разметка ссылок настоящая —
@@ -1033,16 +1057,24 @@
     el.setAttribute('aria-modal', 'true');
     el.setAttribute('aria-label', 'Просмотр вложений отзыва');
     el.hidden = true;
+    var svg = function (d) {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        + '<path d="' + d + '" fill="none" stroke="currentColor" stroke-width="2"'
+        + ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    };
     el.innerHTML =
-      '<button type="button" class="lb-close" aria-label="Закрыть">&times;</button>'
-      + '<button type="button" class="lb-nav lb-prev" aria-label="Предыдущее">&#8249;</button>'
+      '<div class="lb-bar">'
+      + '<span class="lb-count" id="lb-count"></span>'
+      + '<button type="button" class="lb-btn lb-close" aria-label="Закрыть">' + svg('M6 6l12 12M18 6L6 18') + '</button>'
+      + '</div>'
+      + '<button type="button" class="lb-btn lb-nav lb-prev" aria-label="Предыдущее вложение">' + svg('M15 5l-7 7 7 7') + '</button>'
       + '<div class="lb-stage" id="lb-stage"></div>'
-      + '<button type="button" class="lb-nav lb-next" aria-label="Следующее">&#8250;</button>'
-      + '<div class="lb-count" id="lb-count"></div>';
+      + '<button type="button" class="lb-btn lb-nav lb-next" aria-label="Следующее вложение">' + svg('M9 5l7 7-7 7') + '</button>';
     document.body.appendChild(el);
     el.addEventListener('click', function (e) {
-      // Клик по фону закрывает, по самому кадру — нет.
-      if (e.target === el) lbClose();
+      // Закрываем кликом мимо кадра: и по фону, и по пустому месту вокруг него.
+      // Сам кадр и кнопки клик не закрывает — иначе пауза видео закрывала бы просмотр.
+      if (e.target === el || e.target.id === 'lb-stage') lbClose();
     });
     el.querySelector('.lb-close').addEventListener('click', lbClose);
     el.querySelector('.lb-prev').addEventListener('click', function () { lbGo(-1); });
@@ -1070,19 +1102,21 @@
       node.autoplay = true;
       node.playsInline = true;
       node.setAttribute('playsinline', '');
+      node.setAttribute('controlsList', 'nodownload noplaybackrate');
+      node.disablePictureInPicture = true;
     } else {
       node = document.createElement('img');
       node.src = item.src;
       node.alt = 'Вложение к отзыву';
     }
     node.className = 'lb-media';
+    guardMedia(node);
     stage.appendChild(node);
     var many = lbItems.length > 1;
     el.querySelector('.lb-prev').hidden = !many;
     el.querySelector('.lb-next').hidden = !many;
     var count = el.querySelector('#lb-count');
-    count.hidden = !many;
-    count.textContent = (lbIndex + 1) + ' / ' + lbItems.length;
+    count.textContent = many ? (lbIndex + 1) + ' / ' + lbItems.length : '';
   }
 
   function lbGo(step) {
@@ -1170,6 +1204,7 @@
     initCompactHeader();
     initHeroTicker();
     initReviewLightbox();
+    initMediaGuard();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
