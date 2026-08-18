@@ -2086,6 +2086,18 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .pay-qr-link{flex:1;min-width:200px}
 .pay-hint,.pay-why{margin:16px 0 0;color:var(--muted);font-size:13.5px;line-height:1.5}
 .pay-why{margin:0 0 16px;color:var(--text)}
+/* «ПЕРЕВЕДИТЕ ТОЧНУЮ СУММУ» — единственное требование этой страницы, которое
+   нельзя не выполнить: у P2P-процессинга перевод сходится с заказом по сумме, и
+   лишний рубль означает разбор вручную. Поэтому строка вынесена из абзаца
+   отдельной строкой, набрана прописными и красным — тем же #b42318, которым на
+   витрине набрано «Осталось несколько штук».
+   Прописные делает CSS, а не сам текст: скринридер читает исходную строку как
+   обычное предложение, а без стилей она остаётся читаемой. */
+.pay-exact{display:block;margin-bottom:3px;font-weight:700;font-size:14px;letter-spacing:.01em;
+  text-transform:uppercase;color:#b42318}
+/* Отмены счёта у кассы нет вовсе (три эндпоинта: создать, статус, способы),
+   поэтому вместо кнопки-обманки — строка о том, что счёт гаснет сам. */
+.pay-mini{margin:12px 0 0;font-size:12.5px;color:var(--muted);line-height:1.45}
 .pay-timer{margin:14px 0 0;font-size:13.5px;color:var(--muted)}
 .pay-timer b{color:var(--text);font-variant-numeric:tabular-nums}
 /* Строка состояния живёт постоянно, а не появляется при ответе: иначе блок

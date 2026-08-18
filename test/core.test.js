@@ -1965,6 +1965,49 @@ test('отказ кассы объяснён покупателю, а «нет �
   assert.match(start, /console\.error\('crocopay invoice:'[^)]*способ[^)]*сумма/);
 });
 
+test('страница оплаты: точная сумма выделена, подписи без рода, отмены счёта нет', () => {
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const order = {
+    id: 'a1b2', number: '482913', total: 68200, createdAt: Date.now(), items: [],
+    payment: {
+      provider: 'crocopay', status: 'pending', method: 'SBP', invoiceId: '11111111-2222-3333-4444-555555555555',
+      requisite: '79104693811', bank: 'Т-Банк', owner: 'Иванов Иван', expiresAt: Date.now() + 10 * 60 * 1000
+    }
+  };
+  const html = render.payPage(ss, order, { origin: '' });
+
+  // Точная сумма — единственное требование страницы, которое нельзя не
+  // выполнить: у P2P перевод сходится с заказом по сумме.
+  assert.match(html, /<b class="pay-exact">Переведите точную сумму<\/b>/);
+  assert.match(css, /\.pay-exact\{[^}]*text-transform:uppercase/);
+  assert.match(css, /\.pay-exact\{[^}]*font-weight:700/);
+  assert.match(css, /\.pay-exact\{[^}]*color:#b42318/);
+  // Прописные делает CSS, а не сам текст: скринридер читает исходную строку как
+  // обычное предложение, а без стилей она остаётся читаемой.
+  assert.doesNotMatch(html, /ПЕРЕВЕДИТЕ ТОЧНУЮ СУММУ/);
+
+  // Покупатель бывает и женщиной: «Я оплатил — проверить» на кнопке быть не
+  // должно. Ищем в самой карточке оплаты, а не во всей странице: в общей
+  // разметке есть «которые вы указали» — это вежливое «вы», а не мужской род.
+  assert.match(html, /id="pay-recheck">Проверить перевод</);
+  const card = html.slice(html.indexOf('pay-invoice'), html.indexOf('Отменять счёт'));
+  for (const gendered of [/оплатил(?![аи])/, /перевёл/, /выбрал(?![аи])/, /готов(?![аы])/]) {
+    assert.doesNotMatch(card, gendered, 'на странице оплаты мужской род: ' + gendered);
+  }
+  // И длинного тире в подписи кнопки тоже нет — оно там только мешало.
+  assert.doesNotMatch(card, /<button[^>]*id="pay-recheck">[^<]*—/);
+
+  // Отмены счёта у кассы нет вовсе — в H2H всего три эндпоинта (создать,
+  // статус, способы). Кнопки-обманки поэтому не рисуем: покупатель нажал бы
+  // «Отменить», а счёт остался бы оплачиваемым. Вместо неё — строка о том, что
+  // счёт гаснет сам.
+  assert.match(html, /Отменять счёт не нужно/);
+  assert.doesNotMatch(html, /id="pay-cancel"|Отменить (счёт|платёж|оплату)/);
+  const croco = fs.readFileSync(path.join(__dirname, '..', 'lib', 'crocopay.js'), 'utf8');
+  assert.doesNotMatch(croco, /\/cancel|\/void|\/refund/, 'у кассы нет отмены — выдумывать эндпоинт нельзя');
+});
+
 test('единицы суммы вебхука угадываются, а недоплата не проходит ни в каких', () => {
   const croco = require('../lib/crocopay');
   // Ожидаем 239 990 ₽. Касса вправе прислать и рубли, и копейки — документация
