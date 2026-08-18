@@ -3829,8 +3829,11 @@ test('в отзыве видно сборку покупателя и перев
   const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
   const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
 
-  assert.match(html, /<div class="review-config">Серебристый · 256 ГБ · Две eSIM<\/div>/);
+  assert.match(html, /<span class="review-config">Серебристый · 256 ГБ · Две eSIM<\/span>/);
   assert.match(html, /class="rv-ship"[^>]*Доставка: OZON/);
+  // Сборка, дата и перевозчик — одной серой строкой, а не тремя рядами: по
+  // отдельности они не значат почти ничего, а высоту карточки съедали.
+  assert.match(html, /<div class="review-meta"><time[^>]*>[^<]*<\/time><span class="review-sep"/);
   // Логотип берётся из того же спрайта, что и на оформлении, и спрайт на странице есть.
   assert.match(html, /<use href="#dl-ozon">/);
   assert.match(html, /<symbol id="dl-ozon"/);
@@ -3841,7 +3844,7 @@ test('в отзыве видно сборку покупателя и перев
 
   // Серым и мелким — это уточнение к отзыву, а не его содержание.
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(css, /\.review-config\{[^}]*color:var\(--muted\)/);
+  assert.match(css, /\.review-meta\{[^}]*color:var\(--muted\)/);
 
   // Чужой перевозчик в разметку не попадает: только из закрытого списка.
   const alien = render.reviewCard(Object.assign({}, rv, { delivery: '"><script>' }));
@@ -3849,32 +3852,56 @@ test('в отзыве видно сборку покупателя и перев
   assert.doesNotMatch(alien, /rv-ship/);
 });
 
-test('отзывы с видео идут по передним страницам и никогда не подряд', () => {
+test('покупатель снова может приложить фото к отзыву', () => {
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
+  const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
+  assert.match(html, /<input type="file" id="rv-photos" name="photos" accept="image\/\*" multiple>/);
+  assert.match(html, new RegExp('До ' + render.REVIEW_PHOTOS_MAX + ' снимков'));
+
+  // Предел с витрины свой и меньше панельного: здесь грузит кто угодно, а один
+  // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.post('/api/reviews'"));
+  assert.match(route.slice(0, 1600), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
+  // Превью делаем сразу: в ленте показывается оно, полный файл — в просмотрщике.
+  assert.match(route.slice(0, 1600), /previews: await reviewPreviews\(photos\)/);
+});
+
+test('в порядке «Новые» сверху свежее, а отзывы с вложениями идут первыми', () => {
   const mk = (i, kind) => ({
     id: 'r' + i, author: 'A' + i, rating: 5, status: 'approved', createdAt: 10000 - i, text: 't',
     videos: kind === 'v' ? ['v' + i + '.mp4'] : [],
     photos: kind === 'p' ? ['p' + i + '.webp'] : []
   });
-  // Видео лежат в самом хвосте по дате — без раскладки они попали бы на последнюю страницу.
+  // Вложения лежат в хвосте по дате: без подъёма они попали бы на последнюю страницу.
   const list = [];
-  for (let i = 0; i < 40; i++) list.push(mk(i, 'p'));
-  for (let i = 40; i < 46; i++) list.push(mk(i, 'v'));
+  for (let i = 0; i < 40; i++) list.push(mk(i, 'none'));
+  for (let i = 40; i < 44; i++) list.push(mk(i, 'p'));
+  for (let i = 44; i < 46; i++) list.push(mk(i, 'v'));
 
   const sorted = render.sortReviews(list, 'new');
-  const kinds = sorted.map(r => (r.videos.length ? 'v' : 'o'));
-  assert.doesNotMatch(kinds.join(''), /vv/, 'два видео подряд');
-
-  const per = render.REVIEWS_PER_PAGE;
-  const onFirst = kinds.slice(0, per).filter(k => k === 'v').length;
-  assert.ok(onFirst >= 2, 'на первой странице должно быть несколько видео, а не одно');
-  // Все шесть видео укладываются в первые страницы, а не тонут в конце ленты.
-  const lastVideo = kinds.lastIndexOf('v');
-  assert.ok(lastVideo < per * 3, 'видео должны быть на передних страницах, а не в хвосте');
   assert.equal(sorted.length, list.length, 'ни один отзыв не потерялся');
+  const media = sorted.map(r => (r.videos.length || r.photos.length) ? 'm' : 'o').join('');
+  assert.match(media, /^m+o+$/, 'сначала все отзывы с вложениями, потом все остальные');
 
-  // Выбрал сортировку по оценке — значит просил оценки, и видео их не переставляет.
+  // Внутри каждой группы порядок остаётся по дате — сортировка называется
+  // «Новые», и свежее обязано быть выше. Прежняя раскладка «видео на каждое
+  // третье место» тасовала ленту целиком, и это правило ломала.
+  const dates = sorted.map(r => r.createdAt);
+  const withMedia = dates.slice(0, 6), rest = dates.slice(6);
+  assert.deepEqual(withMedia, withMedia.slice().sort((a, b) => b - a), 'вложения идут от свежих к старым');
+  assert.deepEqual(rest, rest.slice().sort((a, b) => b - a), 'остальные тоже');
+  assert.equal(sorted[0].id, 'r40', 'первым — самый свежий отзыв с вложением');
+
+  // Видео от фото не отделяется: иначе свежий отзыв с фотографиями встал бы
+  // позади годовалых роликов, и «Новые» снова перестали бы быть новыми.
+  assert.equal(sorted[0].videos.length, 0);
+
+  // Выбрал сортировку по оценке — значит просил оценки, и вложения их не переставляют.
   const byHigh = render.sortReviews(list, 'high');
   assert.equal(byHigh.length, list.length);
+  assert.equal(byHigh[0].id, 'r0', 'при равных оценках сверху всё равно самый свежий');
 });
 
 test('даты привезённых отзывов сдвигаются к сегодня и сдвиг не накапливается', () => {

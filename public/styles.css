@@ -183,23 +183,29 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .specs td:first-child{color:var(--muted);width:45%}
 
 /* ===== Отзывы ===== */
-.reviews-list{display:flex;flex-direction:column;gap:14px;margin-bottom:18px}
+.reviews-list{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
 .review{background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px}
-.review-top{display:flex;justify-content:space-between;gap:10px;align-items:center}
-.review-author{font-weight:600}
-.review-date{color:var(--muted);font-size:13px}
-.review-stars{margin:4px 0 8px}
-.review-text{margin:0;color:#333}
-/* Сборка, которую купил автор отзыва: уточнение, а не содержание — поэтому мелко и серым. */
-.review-config{margin-top:6px;font-size:13px;line-height:1.35;color:var(--muted)}
-/* Подпись доставки с логотипом перевозчика. Высота знака фиксирована, ширина по
-   viewBox: подгонять разные вордмарки под общую ширину значило бы их искажать. */
-.rv-ship{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--muted)}
-.rv-ship-logo{height:14px;width:auto;display:block;opacity:.75}
+/* Шапка: кружок с буквой, имя со звёздами и одна серая строка мелочей.
+   Дата, сборка и перевозчик раньше занимали три отдельных ряда и съедали
+   половину высоты карточки, хотя все вместе весят меньше одной строки текста. */
+.review-head{display:flex;align-items:flex-start;gap:10px}
+.review-ava{display:flex;flex:none;width:34px;height:34px;align-items:center;justify-content:center;
+  border-radius:50%;background:var(--bg2);color:#6e6e73;font-size:14px;font-weight:650;line-height:1}
+.review-who{flex:1;min-width:0}
+.review-name{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px}
+.review-author{font-weight:620;overflow-wrap:anywhere}
+.review-meta{margin-top:2px;color:var(--muted);font-size:12.5px;line-height:1.45}
+.review-sep{margin:0 6px;color:#c7c7cc}
+/* Логотип перевозчика: высота фиксирована, ширина по viewBox — подгонять разные
+   вордмарки под общую ширину значило бы их искажать. Знак мелкий намеренно: в
+   строке мелочей он подпись, а не бренд-блок. */
+.rv-ship{display:inline-flex;align-items:center;vertical-align:-2px}
+.rv-ship-logo{display:block;height:11px;width:auto;opacity:.7}
 .rv-ship-name{font-weight:600;letter-spacing:.01em}
 /* Фото и видео отзыва одной лентой: их листают в общей галерее. */
-.review-media{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-.rv-item{position:relative;display:block;width:92px;height:92px;border-radius:10px;overflow:hidden;background:var(--bg2);flex:0 0 auto}
+.review-text{margin:8px 0 0;color:#333}
+.review-media{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+.rv-item{position:relative;display:block;width:88px;height:88px;border-radius:10px;overflow:hidden;background:var(--bg2);flex:0 0 auto}
 .rv-item img,.rv-item video{width:100%;height:100%;object-fit:cover;display:block;
   -webkit-user-select:none;user-select:none;-webkit-user-drag:none;pointer-events:none}
 .rv-item video{background:#000}
@@ -208,7 +214,14 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
   background:rgba(0,0,0,.55);pointer-events:none}
 .rv-play::after{content:"";position:absolute;left:11px;top:9px;border-style:solid;border-width:6px 0 6px 10px;
   border-color:transparent transparent transparent #fff}
-@media(max-width:520px){.rv-item{width:78px;height:78px}}
+@media(max-width:520px){
+  .rv-item{width:74px;height:74px}
+  .review{padding:13px 14px}
+  .review-ava{width:30px;height:30px;font-size:13px}
+  /* Имя и звёзды на узком экране встают в столбик сами — переносить строку
+     мелочей туда же нельзя, она и так последняя. */
+  .review-meta{font-size:12px}
+}
 
 /* Просмотр вложений отзыва */
 /* Строка сетки задана ЯВНО (minmax(0,1fr)), а не оставлена на auto: иначе она
@@ -1302,12 +1315,24 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .rating-num{font-size:48px}
 .reviews-toolbar{margin:18px 0 14px}
 .sort-btn{min-height:36px;padding:7px 12px;border-radius:10px}
-.review{padding:20px;border-color:var(--border-soft);border-radius:var(--radius-sm);box-shadow:0 1px 2px rgba(17,17,26,.025)}
-.review-text{font-size:15px;line-height:1.6}
+.review{padding:15px 17px;border-color:var(--border-soft);border-radius:16px;box-shadow:0 1px 2px rgba(17,17,26,.025);
+  transition:border-color .16s,box-shadow .18s}
+.review:hover{border-color:#e2e2e7;box-shadow:0 1px 3px rgba(17,17,26,.05)}
+.review-author{font-size:14.5px;letter-spacing:-.01em}
+.review-name .stars{font-size:12.5px}
+.review-text{font-size:14.5px;line-height:1.55}
 .review-form-wrap{max-width:760px;margin-top:34px;padding:26px;border:1px solid var(--border-soft);background:var(--surface-soft)}
 .review-form-wrap h3{margin-bottom:22px;font-size:24px}
 .rate-star{transition:color .1s,transform .1s}
 .rate-star:hover{transform:scale(1.08)}
+/* Выбор фото к отзыву. Родная кнопка браузера выглядит чужой рядом с полями
+   формы, поэтому красим только её (::file-selector-button) — сам ввод остаётся
+   обычным, и там, где псевдоэлемент не поддержан, всё работает как раньше. */
+.review-form-wrap input[type=file]{display:block;width:100%;color:var(--muted);font-size:13.5px}
+.review-form-wrap input[type=file]::file-selector-button{margin-right:10px;padding:9px 15px;border:1px solid var(--border);
+  border-radius:11px;background:#fff;color:var(--text);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  transition:background .14s,border-color .14s}
+.review-form-wrap input[type=file]::file-selector-button:hover{background:var(--bg2);border-color:#c7c7cc}
 .form-legal-note{margin:12px 0 16px;color:var(--muted);font-size:12px;line-height:1.5}
 .form-legal-note a{color:var(--text);text-decoration:underline;text-decoration-color:#b7b7bd;text-underline-offset:3px}
 .form-legal-note a:hover{text-decoration-color:currentColor}
@@ -2345,7 +2370,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Подсказки адреса: список привязан к самому полю, а не ко всему блоку —
    иначе он уезжал бы вниз на высоту подписи под полем. */
 .suggest-box{position:relative}
-.field-note{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.4}
+/* display:block обязателен: подпись — <span>, и рядом с полем, которое не
+   тянется на всю ширину (файловый ввод), она иначе прилипает к нему сбоку и
+   обтекает кнопку «Выбрать файлы». Отступ сверху и так задан как у блока. */
+.field-note{display:block;margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.4}
 /* Чего не хватает в адресе — подписью под полем, а не алой рамкой: адрес
    дописывают на ходу, и красное поле под каждой второй буквой читалось бы как
    поломка формы. Правило обязано стоять ПОСЛЕ `.field-note`: специфичность у

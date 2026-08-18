@@ -608,9 +608,13 @@ app.post('/api/reviews', async (req, res) => {
   // NaN < 1 и NaN > 5 оба ложны — отзыв проходил проверку и молча получал 5 звёзд.
   const rating = Number(req.body.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
+  // Снимки покупателя: предел свой, меньше панельного — здесь грузит кто угодно,
+  // а один файл может весить до 6 МБ. Превью делаем сразу, как и в панели: в
+  // ленте показывается именно оно, полный файл — только в просмотрщике.
+  const photos = await optimizeUploads(req.filesFor('photos').slice(0, R.REVIEW_PHOTOS_MAX), 1400);
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating, text: req.body.text,
-    photos: await optimizeUploads(req.filesFor('photos'), 1400), status: 'pending',
+    photos, previews: await reviewPreviews(photos), status: 'pending',
     privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION,
     publicationConsentAt: Date.now(), publicationConsentVersion: R.PRIVACY_VERSION
   });
