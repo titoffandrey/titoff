@@ -211,9 +211,13 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 @media(max-width:520px){.rv-item{width:78px;height:78px}}
 
 /* Просмотр вложений отзыва */
+/* Строка сетки задана ЯВНО (minmax(0,1fr)), а не оставлена на auto: иначе она
+   растягивается под натуральный размер снимка, max-height:100% у кадра
+   перестаёт действовать, картинка уезжает за нижний край, а стрелки —
+   центрированные в этой переросшей строке — сползают вниз. */
 .lb{position:fixed;inset:0;z-index:120;display:grid;grid-template-columns:64px 1fr 64px;
-  align-items:center;background:rgba(10,10,12,.94);-webkit-backdrop-filter:saturate(120%) blur(2px);
-  backdrop-filter:saturate(120%) blur(2px)}
+  grid-template-rows:minmax(0,1fr);align-items:center;background:rgba(10,10,12,.94);
+  -webkit-backdrop-filter:saturate(120%) blur(2px);backdrop-filter:saturate(120%) blur(2px)}
 .lb[hidden]{display:none}
 body.lb-open{overflow:hidden}
 /* Верхняя панель: счётчик слева, закрытие справа — на одной линии и на одной
@@ -237,15 +241,17 @@ body.lb-open{overflow:hidden}
    обрезается и не уезжает. */
 .lb-prev{justify-self:center;grid-column:1}
 .lb-next{justify-self:center;grid-column:3}
+/* min-height/min-width: 0 — без них элемент сетки не может стать меньше своего
+   содержимого, и высокий снимок снова распирал бы просмотрщик. */
 .lb-stage{grid-column:2;display:flex;align-items:center;justify-content:center;
-  height:100%;padding:64px 8px 24px;box-sizing:border-box}
-.lb-media{max-width:100%;max-height:100%;width:auto;height:auto;display:block;border-radius:10px;
+  height:100%;min-height:0;min-width:0;padding:64px 8px 24px;box-sizing:border-box}
+.lb-media{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;border-radius:10px;
   background:#000;-webkit-user-select:none;user-select:none;-webkit-user-drag:none;
   box-shadow:0 20px 60px rgba(0,0,0,.5)}
 /* На телефоне кадр занимает всю ширину, а стрелки уходят вниз — под большой
    палец и мимо самого снимка. Сетка из трёх колонок там не нужна. */
 @media(max-width:640px){
-  .lb{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  .lb{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
   .lb-stage{grid-column:1;padding:60px 8px 8px}
   .lb-prev,.lb-next{grid-column:1;grid-row:2;justify-self:auto;margin:0 0 18px}
   .lb-prev{justify-self:start;margin-left:22px}
