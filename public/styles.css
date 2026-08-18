@@ -1365,16 +1365,39 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-brand span{margin-top:4px;font-size:11px;letter-spacing:.02em}
 .a-nav{gap:4px;padding:14px 12px}
 .a-nav-item{min-height:44px;padding:10px 13px;border-radius:12px;font-size:14px;font-weight:560;transition:background .16s,color .16s,transform .12s}
+/* Значок раздела: тот же холст 24×24 и та же волосяная обводка, что у значков
+   посетителя и глифов витрины — вес штриха во всём проекте один. */
+.a-nav-ico{width:19px;height:19px;flex:none;opacity:.75}
+.a-nav-item.active .a-nav-ico{opacity:1}
+.a-nav-item span{flex:1;min-width:0}
 .a-nav-item:hover{background:#f3f3f5}
 .a-nav-item:active{transform:scale(.98)}
 .a-nav-item.active{background:#242426;color:#fff;box-shadow:0 6px 16px rgba(17,17,26,.12)}
 .a-nav-foot{padding:12px;border-color:var(--border-soft)}
 .a-logout{min-height:42px;border-color:var(--border);border-radius:12px;background:#fff;font-weight:600}
 .a-main{min-height:100dvh}
-.a-topbar{height:74px;padding:0 28px;border-color:var(--border-soft);background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
-.a-topbar h1{font-size:24px;letter-spacing:-.035em}
-.a-content{width:100%;max-width:1120px;padding:28px}
+.a-topbar{height:66px;padding:0 24px;border-color:var(--border-soft);background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+.a-topbar h1{font-size:23px;letter-spacing:-.035em}
+.a-content{width:100%;max-width:1120px;padding:22px 24px}
 .a-content-wide{max-width:1500px}
+
+/* ===== Боковое меню прячется =====
+   Колонка занимает четверть ширины, а нужна раз в несколько минут: на каталоге,
+   заказах и метрике это место дороже отдать таблице. Прячется классом на <html>
+   (public/admin-ui.js), поэтому выбор переживает переходы между разделами.
+   Ширина, а не display:none, — чтобы уход был плавным; содержимое при этом
+   раздаётся шире, до полутора тысяч пикселей. */
+.a-sidebar{transition:width .18s ease,opacity .16s ease}
+.nav-off .a-sidebar{width:0;min-width:0;opacity:0;overflow:hidden;border-right:0;pointer-events:none}
+.nav-off .a-content{max-width:1500px}
+.a-nav-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;
+  margin-left:-6px;border:1px solid transparent;border-radius:11px;background:none;color:var(--muted);cursor:pointer;
+  transition:background .14s,color .14s,border-color .14s}
+.a-nav-toggle svg{width:20px;height:20px}
+.a-nav-toggle:hover{background:#f2f2f5;color:var(--text)}
+.a-nav-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.a-topbar{gap:10px}
+.a-topbar h1{flex:1;min-width:0}
 .a-flash{margin:20px 28px 0;padding:13px 16px;border-radius:13px}
 .a-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:24px}
 .a-stat{min-height:122px;padding:20px;border-color:var(--border-soft);border-radius:18px;box-shadow:0 1px 2px rgba(17,17,26,.025);transition:transform .16s,box-shadow .18s,border-color .18s}
@@ -1811,6 +1834,45 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-nav{order:3;flex:none;display:flex;width:100%;padding:0 10px 9px;gap:4px;border-top:1px solid var(--border-soft);overflow-x:auto;flex-flow:row nowrap;scrollbar-width:none}
   .a-nav::-webkit-scrollbar{display:none}
   .a-nav-item{flex:none;min-height:40px;padding:8px 12px;white-space:nowrap}
+  .a-nav-item span{flex:none}
+  /* На телефоне колонки нет — прячется сама лента разделов, а строка с брендом и
+     выходом остаётся: по ней видно, где ты, и есть чем вернуть меню. */
+  .nav-off .a-sidebar{width:100%;min-width:0;opacity:1;overflow:visible;pointer-events:auto}
+  .nav-off .a-nav{display:none}
+  .nav-off .a-sidebar{border-bottom:1px solid var(--border-soft)}
+  /* Кнопка меню остаётся в потоке шапки. Вынести её из него нельзя: у `.a-topbar`
+     есть backdrop-filter, а он делает элемент опорным для position:fixed — кнопка
+     садилась поверх заголовка страницы. */
+  .a-nav-toggle{width:38px;height:38px;margin-left:-4px;border-color:var(--border-soft)}
+
+  /* Заказы на телефоне — карточками, а не таблицей в семь столбцов: в узкую
+     ленту такая таблица не влезает никак, и её приходилось листать вбок,
+     теряя из виду и номер, и сумму. Сетка 2 колонки: слева читаемое, справа
+     деньги. */
+  /* Спецификация выше, чем у общего `.a-table{min-width:620px}` ниже в этом же
+     блоке: карточкам ширина в 620 px не нужна, они и режутся ею по краю. */
+  .a-table.a-orders{min-width:0;display:block}
+  .a-orders thead{display:none}
+  .a-orders tbody,.a-orders tr,.a-orders td{display:block}
+  .a-orders tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;
+    padding:13px 14px;margin-bottom:10px;border:1px solid var(--border-soft);border-radius:15px}
+  .a-orders td{border:0;padding:0}
+  .a-orders .o-num{grid-column:1;grid-row:1}
+  .a-orders .o-num b{display:inline}
+  .a-orders .o-num .small{display:inline;margin-left:7px}
+  .a-orders .o-sum{grid-column:2;grid-row:1;text-align:right}
+  .a-orders .o-client,.a-orders .o-items{grid-column:1/-1;max-width:none;min-width:0}
+  .a-orders .o-client{margin-top:4px}
+  .a-orders .o-state{grid-column:1;margin-top:4px}
+  .a-orders .o-pay{grid-column:2;margin-top:4px;text-align:right}
+  .a-orders .o-note{max-width:none}
+  /* width:1% с десктопа в сетке сжимает ячейку в ниточку — на карточке строка
+     удаления идёт во всю ширину, кнопка прижата вправо. */
+  .a-orders .o-act{grid-column:1/-1;width:auto;margin-top:6px;padding-top:9px;
+    border-top:1px solid var(--border-soft);text-align:right}
+  .a-orders .o-act form{display:flex;justify-content:flex-end}
+  .edit-switch:checked ~ .a-orders .o-act{display:block}
+  .a-orders td:empty{display:none}
   .a-main{min-height:auto}
   .a-topbar{position:static;min-height:62px;height:auto;padding:12px 16px;flex-wrap:nowrap}
   .a-topbar h1{min-width:0;overflow:hidden;font-size:21px;white-space:nowrap;text-overflow:ellipsis}

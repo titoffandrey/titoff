@@ -1742,6 +1742,48 @@ test('строка заказа: свой столбец у каждого во�
   assert.match(css, /\.a-orders td\{[^}]*vertical-align:middle/);
 });
 
+test('боковое меню панелей прячется, а разделы подписаны значками', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  const db = {
+    getProducts: () => [], getSites: () => [], visibleOrders: () => [], ordersForSite: () => [],
+    getOrders: () => [], pendingReviewCount: () => 0, categories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  const panels = {
+    'владелец': [ownerViews.dashboard(db), 7],
+    'админка сайта': [siteViews.dashboard(db, dbCore.defaultSite()), 6]
+  };
+  for (const [name, [html, navItems]] of Object.entries(panels)) {
+    assert.match(html, /id="a-nav-toggle"/, 'нет кнопки меню: ' + name);
+    assert.match(html, /<aside class="a-sidebar" id="a-sidebar">/, name);
+    assert.match(html, /admin-ui\.js/, name);
+    // Состояние применяется ДО первой отрисовки: иначе меню моргало бы открытым
+    // на каждой странице у того, кто его спрятал.
+    assert.match(html, /localStorage\.getItem\('admin_nav_off'\)==='1'\)document\.documentElement\.classList\.add\('nav-off'\)/, name);
+    assert.ok(html.indexOf('admin_nav_off') < html.indexOf('<body'), 'скрипт состояния обязан идти до <body>: ' + name);
+    // У каждого раздела свой значок — раздел опознаётся по нему быстрее, чем по слову.
+    assert.equal((html.match(/class="a-nav-ico"/g) || []).length, navItems, 'значки не у всех разделов: ' + name);
+  }
+  // Незнакомый ключ не ломает разметку: подпись раздела остаётся и без значка.
+  assert.equal(render.adminIcon('выдумка'), '');
+  assert.equal(render.adminIcon(''), '');
+  assert.match(render.adminIcon('orders'), /<svg class="a-nav-ico"/);
+
+  // Спрятанное меню отдаёт место содержимому, а не оставляет пустую колонку.
+  assert.match(css, /\.nav-off \.a-sidebar\{width:0/);
+  assert.match(css, /\.nav-off \.a-content\{max-width:1500px\}/);
+  // Выбор переживает переходы между разделами.
+  assert.match(js, /localStorage\.setItem\(KEY, hidden\(\) \? '1' : '0'\)/);
+  assert.match(js, /classList\.toggle\('nav-off'\)/);
+
+  // На телефоне прячется сама лента разделов, а строка бренда остаётся: по ней
+  // видно, где ты, и есть чем вернуть меню.
+  assert.match(css, /\.nav-off \.a-nav\{display:none\}/);
+  // Заказы на телефоне — карточками: таблица в семь столбцов в ленту не влезает.
+  assert.match(css, /\.a-table\.a-orders\{min-width:0;display:block\}/);
+  assert.match(css, /\.a-orders thead\{display:none\}/);
+});
+
 test('списки заказов в панелях листаются, а не выгружаются целиком', () => {
   // Та же ловушка, что была у отзывов: заказы не удаляются сами, список растёт
   // без предела. На 3000 заявок страница весила 2,8 МБ и держала единственный
