@@ -3868,9 +3868,8 @@ test('покупатель снова может приложить фото к 
   assert.match(route.slice(0, 1600), /previews: await reviewPreviews\(photos\)/);
 });
 
-test('в порядке «Новые» даты идут строго по убыванию, а вложения — в конце ленты', () => {
+test('в порядке «Новые» лента идёт строго по дате и ничем не переставляется', () => {
   const per = render.REVIEWS_PER_PAGE;
-  // Через одного: свежий без вложений, следующий с фото или видео.
   const list = Array.from({ length: per * 3 }, (_, i) => ({
     id: 'r' + i, author: 'A' + i, rating: 5, status: 'approved', createdAt: 10000 - i, text: 't',
     videos: i % 4 === 3 ? ['v' + i + '.mp4'] : [],
@@ -3879,27 +3878,50 @@ test('в порядке «Новые» даты идут строго по уб�
 
   const sorted = render.sortReviews(list, 'new');
   assert.equal(sorted.length, list.length, 'ни один отзыв не потерялся');
+  // Ни подъёма вложений, ни раскладки видео: на витрине это сразу видно —
+  // отзыв за 8 августа над отзывом за 18-е читается как сбой. Наверх отзывы с
+  // фото и видео выводит не сортировка, а раздача дат (lib/review-dates.js).
+  assert.deepEqual(sorted.map(r => r.id), list.map(r => r.id));
+  const dates = sorted.map(r => r.createdAt);
+  assert.deepEqual(dates, dates.slice().sort((a, b) => b - a));
 
-  // Сначала все обычные, потом все с вложениями.
-  const marks = sorted.map(r => (r.videos.length || r.photos.length) ? 'm' : 'o').join('');
-  assert.match(marks, /^o+m+$/, 'вложения обязаны идти после текстовых');
-
-  // Внутри каждой группы — строго по убыванию даты. Сортировка называется
-  // «Новые»: отзыв за 8 августа над отзывом за 18-е читается как сбой витрины,
-  // и ровно это делала прежняя раскладка, тасовавшая ленту поверх даты.
-  const plain = sorted.filter(r => !r.videos.length && !r.photos.length).map(r => r.createdAt);
-  const media = sorted.filter(r => r.videos.length || r.photos.length).map(r => r.createdAt);
-  assert.deepEqual(plain, plain.slice().sort((a, b) => b - a));
-  assert.deepEqual(media, media.slice().sort((a, b) => b - a));
-  assert.equal(sorted[0].id, 'r0', 'первым — самый свежий отзыв');
-  // Первая страница целиком без вложений и строго по дате.
-  const first = sorted.slice(0, per).map(r => r.createdAt);
-  assert.deepEqual(first, first.slice().sort((a, b) => b - a));
-
-  // Выбрал сортировку по оценке — значит просил оценки, и вложения их не переставляют.
   const byHigh = render.sortReviews(list, 'high');
   assert.equal(byHigh.length, list.length);
   assert.equal(byHigh[0].id, 'r0', 'при равных оценках сверху всё равно самый свежий');
+});
+
+test('свежие даты достаются отзывам с фото и видео', () => {
+  const dates = require('../lib/review-dates');
+  const day = 24 * 60 * 60 * 1000;
+  const now = 1000 * day;
+  // Даты в источнике: у отзывов с вложениями они самые старые.
+  const list = [
+    { id: 'a', productId: 'p', sourceDate: 900 * day, createdAt: 900 * day },
+    { id: 'b', productId: 'p', sourceDate: 880 * day, createdAt: 880 * day },
+    { id: 'c', productId: 'p', sourceDate: 860 * day, createdAt: 860 * day, photos: ['x.webp'] },
+    { id: 'd', productId: 'p', sourceDate: 840 * day, createdAt: 840 * day, videos: ['v.mp4'] }
+  ];
+  const plan = dates.plannedDates(list, now);
+  for (const rv of list) if (plan.has(rv.id)) rv.createdAt = plan.get(rv.id);
+  const order = list.slice().sort((x, y) => y.createdAt - x.createdAt).map(r => r.id);
+  assert.deepEqual(order, ['c', 'd', 'a', 'b'], 'сверху вложения, внутри группы — по исходной дате');
+  // Набор дат прежний: меняется только то, кому какая досталась.
+  assert.deepEqual(list.map(r => r.createdAt).sort(), [900, 880, 860, 840].map(d => d * day + (now - 900 * day)).sort());
+  assert.equal(Math.max.apply(null, list.map(r => r.createdAt)), now, 'самый свежий — сегодняшний');
+
+  // Повторный прогон ничего не меняет: раздача зависит только от исходных дат
+  // и вложений, а не от текущего createdAt.
+  assert.equal(dates.plannedDates(list, now).size, 0);
+
+  // Даты разных товаров не перемешиваются: у нового iPhone лента начиналась бы
+  // датами прошлогодней модели.
+  const two = [
+    { id: 'x1', productId: 'p1', sourceDate: 900 * day, createdAt: 0 },
+    { id: 'x2', productId: 'p2', sourceDate: 500 * day, createdAt: 0, photos: ['y.webp'] }
+  ];
+  const plan2 = dates.plannedDates(two, now);
+  assert.equal(plan2.get('x1'), now);
+  assert.equal(plan2.get('x2'), now - 400 * day, 'товар со своей датой её и получил');
 });
 
 test('даты привезённых отзывов сдвигаются к сегодня и сдвиг не накапливается', () => {
