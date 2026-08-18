@@ -45,7 +45,7 @@ const app = new App({
 });
 
 app.static('/static', path.join(__dirname, 'public'));
-app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'] });
+app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.m4v', '.mov'] });
 
 const settings = () => db.getSettings();
 const PRICE_MAX = 1e12;

@@ -3700,3 +3700,50 @@ test('даты привезённых отзывов сдвигаются к с�
   // На следующий день сдвигается ровно на сутки, а не на двое.
   assert.equal(dates.plannedDates(list, now + day).get('a'), now + day);
 });
+
+test('видео из отзыва отдаётся и режется по диапазонам байтов', async () => {
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uploads-'));
+  const name = 'rv-test.mp4';
+  fs.writeFileSync(path.join(dir, name), Buffer.alloc(5000, 7));
+
+  const app = new App({ secret: 'test' });
+  app.static('/uploads', dir, { extensions: ['.webp', '.mp4'] });
+
+  // HEAD: заголовки те же, что у GET, но поток в поддельный ответ не пишется.
+  const call = async range => {
+    const headers = range ? { range } : {};
+    const res = response();
+    await app.handle(request('/uploads/' + name, { method: 'HEAD', headers }), res);
+    return res;
+  };
+
+  const whole = await call();
+  assert.equal(whole.statusCode, 200);
+  assert.equal(whole.headers['content-type'], 'video/mp4');
+  // Без этого заголовка плеер даже не попробует запросить кусок.
+  assert.equal(whole.headers['accept-ranges'], 'bytes');
+
+  // Safari без поддержки диапазонов не проигрывает <video> вовсе.
+  const part = await call('bytes=100-199');
+  assert.equal(part.statusCode, 206);
+  assert.equal(part.headers['content-range'], 'bytes 100-199/5000');
+  assert.equal(part.headers['content-length'], 100);
+
+  assert.equal((await call('bytes=-50')).headers['content-range'], 'bytes 4950-4999/5000');
+  assert.equal((await call('bytes=4990-')).headers['content-range'], 'bytes 4990-4999/5000');
+
+  // Запрос за пределами файла — 416, а не пустой ответ с кодом 206.
+  const bad = await call('bytes=9000-9100');
+  assert.equal(bad.statusCode, 416);
+  assert.equal(bad.headers['content-range'], 'bytes */5000');
+
+  // Чужой формат — не повод ломаться: отдаём файл целиком.
+  assert.equal((await call('items=1-2')).statusCode, 200);
+
+  // Расширение видео должно быть разрешено и в самой витрине.
+  const srv = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(srv, /app\.static\('\/uploads'[^)]*'\.mp4'/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
