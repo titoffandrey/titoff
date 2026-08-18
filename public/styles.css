@@ -138,10 +138,11 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .rating-summary{display:inline-flex;align-items:center;gap:8px;font-size:14px;margin-bottom:14px}
 .rating-summary b{font-size:15px}
 .product-price{font-size:26px;font-weight:600;margin:8px 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-/* Выгода — залитая плашка, а не бледная подложка: рядом с крупной ценой светло
-   зелёный текст на светло-зелёном фоне терялся совсем. Белым по #0b7a37
-   контраст 5.4:1 — читается и на 11px в карточке каталога. */
-.save{background:#0b7a37;color:#fff;font-size:13px;font-weight:700;padding:3px 8px;border-radius:8px;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Выгода — розовый текст того же цвета, что и цена со скидкой, и без подложки:
+   так это устроено у Ozon. Прежняя залитая зелёная плашка была решением для
+   зелёной же цены; рядом с розовой ценой два залитых пятна разного цвета
+   тянули внимание друг у друга. Контраст #f1117e на белом — 4.6:1. */
+.save{color:#f1117e;font-size:13px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .product-short{color:#333;margin:0 0 18px}
 /* Подпись наличия ПОД кнопкой покупки. Зелёная — обычная, красная — «осталось
    несколько штук»: это предупреждение, и оранжевый рядом с крупной кнопкой читался
@@ -809,7 +810,9 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .option-opts{display:flex;flex-wrap:wrap;gap:8px}
 .option-opt{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left}
 .option-opt .opt-add{font-size:11.5px;font-weight:400;color:var(--muted)}
-.option-opt.active .opt-add{color:inherit;opacity:.82}
+/* Внутри выбранной (тёмной) кнопки текст чисто белый — и название, и подпись
+   доплаты. Прежние .82 прозрачности превращали 11,5 px в серое по тёмному. */
+.option-opt.active .opt-add,.option-opt.active .opt-note{color:#fff;opacity:1}
 /* hidden обязан побеждать display:flex — иначе видно значение, которого с
    выбранной конфигурацией не бывает (нанотекстура на 256 ГБ). */
 .option-opt[hidden]{display:none}
@@ -1202,15 +1205,13 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    карточке. Розовый занят только ценой и процентом при ней. */
 .price-sale .price-now{color:#f1117e}
 /* Старая цена и процент — одна группа, чтобы на узкой карточке они переезжали
-   на вторую строку вместе. Процент — просто розовый текст рядом с зачёркнутой
-   ценой, без плашки: залитая плашка рядом с розовой ценой спорила бы с ней.
-   На странице товара плашка осталась зелёной — там она стоит одна. */
+   на вторую строку вместе. */
 .price-was{display:inline-flex;align-items:baseline;gap:0}
 .card-price .old-price{position:relative;margin-left:4px;font-size:14px;font-weight:600;line-height:20px;color:#99a3ae;text-decoration:none;font-variant-numeric:tabular-nums}
 /* Черта зачёркивания — псевдоэлемент с наклоном в 3°, а не text-decoration:
    ровная линия поверх цифр читается как опечатка, наклонная — как пометка. */
 .card-price .old-price::before{content:"";position:absolute;left:0;top:calc(50% - 1px);width:100%;height:1px;background:#99a3ae;transform:rotate(-3deg)}
-.card-price .save{margin-left:4px;padding:0;border-radius:0;background:none;color:#f1117e;font-size:14px;font-weight:600;line-height:20px;letter-spacing:0}
+.card-price .save{margin-left:4px;font-size:14px;line-height:20px;letter-spacing:0}
 .card-add{padding:10px 13px 13px}
 /* «Пилюля», как у остальных кнопок витрины: прежние 13px выбивались из общего
    языка. Высота срезана только на десктопе — в @media(max-width:800px) она
@@ -1268,50 +1269,74 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Страница товара */
 .breadcrumb{display:flex;gap:7px;align-items:center;padding:22px 0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .breadcrumb span{overflow:hidden;text-overflow:ellipsis}
-.product{grid-template-columns:minmax(0,1.05fr) minmax(380px,.95fr);gap:64px;padding:16px 0 34px}
-.product-gallery{position:sticky;top:128px}
+/* Кадр ужат: он занимал больше половины первого экрана, хотя решение принимают
+   по правой колонке — цене, вариантам и кнопке. Колонки поменялись местами по
+   весу, а `max-width` держит снимок в разумном размере и на широких мониторах,
+   где одних долей мало. */
+.product{grid-template-columns:minmax(0,.88fr) minmax(390px,1.12fr);gap:46px;padding:12px 0 26px}
+.product-gallery{position:sticky;top:128px;max-width:520px}
 .gallery-main{border:1px solid var(--border-soft);border-radius:30px;background:linear-gradient(155deg,#f7f8fa,#edf0f5);box-shadow:0 1px 2px rgba(17,17,26,.03);touch-action:pan-y}
 .gallery-main img,.gallery-main .ph{padding:3%;transition:opacity .16s ease}
 /* Первый экран сжат намеренно: строка категории убрана (она же стоит в
    хлебных крошках выше), а отступы между названием, ценой и рядами выбора
    уменьшены — у товара с пятью группами вариантов кнопка покупки иначе уезжает
    за первый экран. */
-.product-info{padding:10px 0 0}
-.product-name{max-width:620px;margin:0 0 9px;font-size:clamp(32px,3.7vw,48px);line-height:1.04;letter-spacing:-.052em}
-.rating-summary{min-height:24px;margin-bottom:13px;padding:2px 0}
-.deal-banner{display:flex;width:max-content;max-width:100%;margin:0 0 14px;padding:8px 11px;border:0;border-radius:10px;background:#fff0ed;color:#b42318;font-size:13px}
-.product-price{margin:0 0 13px;font-size:clamp(27px,2.8vw,36px);font-weight:730;letter-spacing:-.045em}
+.product-info{padding:2px 0 0}
+.product-name{max-width:620px;margin:0 0 6px;font-size:clamp(28px,3vw,40px);line-height:1.05;letter-spacing:-.048em}
+/* Строка отзывов — та же, что в карточке каталога: звезда, оценка, пузырёк и
+   число словом. Кегль чуть крупнее — здесь она стоит под именем товара. */
+.rating-summary{gap:0;min-height:20px;margin-bottom:10px;padding:0;color:rgba(0,26,51,.6)}
+.rating-summary .rt-star{width:18px;height:18px}
+.rating-summary b{margin-left:3px;font-size:14px;font-weight:600;color:#070707}
+.rating-summary .rt-bubble{width:18px;height:18px;margin-left:5px}
+.rating-summary .rating-count{padding-left:3px;font-size:13px}
+.deal-banner{display:flex;width:max-content;max-width:100%;margin:0 0 10px;padding:6px 10px;border:0;border-radius:10px;background:#fff0ed;color:#b42318;font-size:13px}
+.product-price{gap:8px;margin:0 0 10px;font-size:clamp(25px,2.4vw,32px);font-weight:730;letter-spacing:-.045em}
+.product-price .save{font-size:16px}
 /* На странице товара старая цена была 15px и терялась под чертой. Крупнее,
    темнее и с тонкой линией — сумму видно, а зачёркнутость по-прежнему читается. */
-.product-price .old-price{margin-left:0;font-size:21px;color:#6e6e73;letter-spacing:-.03em;text-decoration-thickness:1.5px;text-decoration-color:rgba(110,110,115,.55)}
-.save{padding:6px 10px;border-radius:10px;font-size:14px}
-.product-short{max-width:580px;margin-bottom:17px;color:#48484a;font-size:16.5px;line-height:1.5}
+.product-price .old-price{margin-left:0;font-size:19px;color:#6e6e73;letter-spacing:-.03em;text-decoration-thickness:1.5px;text-decoration-color:rgba(110,110,115,.55)}
+.product-short{max-width:580px;margin-bottom:13px;color:#48484a;font-size:15.5px;line-height:1.48}
 /* Ряды выбора. Сжато против прежнего: у Mac групп бывает пять сразу (чип, ОЗУ,
    накопитель, стекло, связь), и на старых отступах кнопка покупки уезжала за
    первый экран — покупатель не видел ни цены, ни кнопки одновременно. Высота
    нажатия оставлена 40px, на телефоне ниже возвращается 44px. */
-.variant-group{margin:11px 0}
-.variant-label{margin-bottom:6px;font-size:12.5px}
-.swatches{gap:9px}
-.swatch{width:32px;height:32px;border-radius:50%}
-.storage-opts{gap:7px}
-.storage-opt,.option-opt{min-height:40px;padding:6px 13px;border-radius:11px;font-weight:600;font-size:13.5px}
+.variant-group{margin:9px 0}
+.variant-label{margin-bottom:5px;font-size:12.5px}
+.swatches{gap:8px}
+.swatch{width:30px;height:30px;border-radius:50%}
+.storage-opts{gap:6px}
+.storage-opt,.option-opt{min-height:38px;padding:5px 12px;border-radius:11px;font-weight:600;font-size:13.5px}
+/* Выбранная кнопка: тёмная подложка и ВЕСЬ текст внутри чисто белый. Подпись
+   доплаты раньше гасилась до .82 прозрачности — на 11,5 px это уже серое по
+   тёмному, и «без доплаты» читалось хуже самой цены. Нечитаемая подпись у
+   выбранного варианта — худшее место для экономии на контрасте. */
 .storage-opt.active,.option-opt.active{background:var(--text);border-color:var(--text);color:#fff}
-.option-opt{justify-content:center;padding-block:5px}
-.option-groups{gap:13px}
-.variant-hint{margin:0 0 7px;font-size:12.5px}
-.buy-row{gap:12px;margin-top:20px;flex-wrap:nowrap}
-.qty{height:50px;flex:none;border-color:var(--border);background:#fff}
-.qty-btn,.qty-input{height:48px}
-.qty-btn{width:44px}
-.qty-input{width:42px}
+.storage-opt.active .opt-name,.option-opt.active .opt-name{color:#fff}
+/* У невыбранных кнопок подпись тоже темнее прежнего --muted (#6e6e73 → #48484a):
+   она несёт цену, а не пояснение, и терялась на белом. */
+.option-opt .opt-add,.storage-opt .opt-note,.option-opt .opt-note{color:#48484a}
+.option-opt{justify-content:center;padding-block:4px}
+.option-groups{gap:10px}
+.variant-hint{margin:0 0 6px;font-size:12.5px}
+.buy-row{gap:11px;margin-top:16px;flex-wrap:nowrap}
+.qty{height:46px;flex:none;border-color:var(--border);background:#fff}
+.qty-btn,.qty-input{height:44px}
+.qty-btn{width:42px}
+.qty-input{width:40px}
 .buy-row .add-to-cart{flex:1;max-width:310px}
-.trust{margin-top:18px}
+.trust{margin-top:14px}
 .section>.prose{max-width:900px;padding:24px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface-soft);font-size:16px;line-height:1.7}
+/* Характеристики ужаты против образца apple.com (там глиф 35 px и текст
+   17px/1.47). У Apple это отдельная страница с воздухом, у нас — блок под
+   товаром, где строк бывает за десяток, и в прежних размерах он растягивался
+   на два экрана. Вес штриха у глифов от размера не меняется. */
 .spec-section{border-top:1px solid var(--border-soft)}
-.spec-h{font-size:clamp(28px,3vw,38px)}
-.spec-grid{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 44px}
-.spec-item{padding:12px 0;border-bottom:1px solid var(--border-soft)}
+.spec-h{font-size:clamp(22px,2.2vw,28px);margin-bottom:16px}
+.spec-grid{max-width:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 36px}
+.spec-item{gap:11px;padding:8px 0;border-bottom:1px solid var(--border-soft)}
+.spec-ico,.spec-ico svg{width:28px;height:28px;max-height:28px}
+.spec-txt{padding-top:2px;font-size:15px;line-height:1.44;letter-spacing:-.018em}
 .g-arrow{width:42px;height:42px;background:rgba(255,255,255,.92);color:var(--text);border-color:rgba(17,17,26,.06);box-shadow:0 3px 14px rgba(17,17,26,.09)}
 .g-arrow svg{width:17px;height:17px}
 .g-prev{left:6px}.g-next{right:6px}

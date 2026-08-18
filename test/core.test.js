@@ -964,11 +964,12 @@ test('старую цену видно, а стрелки галереи не л
   assert.match(css, /\.old-price\{[^}]*text-decoration-thickness:1px/, 'линия зачёркивания снова толстая');
   assert.match(oldPrice, /text-decoration-color:rgba/, 'линия должна быть светлее цифр');
 
-  // Процент выгоды — залитая плашка с белым текстом (контраст 5.4:1), а не
-  // светло-зелёный текст на светло-зелёном фоне.
+  // Процент выгоды — розовый текст того же цвета, что и цена со скидкой, и без
+  // подложки: так у Ozon, и так одинаково на витрине и на странице товара.
+  // Прежняя залитая зелёная плашка была решением для зелёной же цены.
   const save = rule('\\.save');
-  assert.match(save, /background:#0b7a37/);
-  assert.match(save, /color:#fff/);
+  assert.match(save, /color:#f1117e/);
+  assert.doesNotMatch(css, /\.save\{[^}]*background/, 'к проценту вернулась подложка');
   assert.doesNotMatch(css, /\.save\{[^}]*color:#18794e/, 'вернулся бледный вариант плашки');
 
   // Стрелки прижаты к краю кадра: товар вписан в 92 % квадрата, и на прежних
@@ -1014,15 +1015,36 @@ test('карточка каталога: строка отзывов, розов
   assert.match(sale, /position:absolute/);
   assert.match(sale, /background:#f1117e/);
   // Цена со скидкой и процент при ней — одного цвета с плашкой; процент без
-  // подложки, иначе две залитые плашки в карточке спорят друг с другом
+  // подложки, иначе две залитые плашки в карточке спорят друг с другом.
+  // Правило одно на всю витрину: и в карточке, и на странице товара.
   assert.match(rule('\\.price-sale \\.price-now'), /color:#f1117e/);
-  assert.match(rule('\\.card-price \\.save'), /color:#f1117e/);
-  assert.match(rule('\\.card-price \\.save'), /background:none/);
-  // На странице товара плашка процента осталась залитой зелёной — там она одна
-  assert.match(rule('\\.save'), /background:#0b7a37/);
+  assert.match(rule('\\.save'), /color:#f1117e/);
   // Черта старой цены — наклонный псевдоэлемент, а не text-decoration
   assert.match(rule('\\.card-price \\.old-price::before'), /transform:rotate\(-3deg\)/);
   assert.match(rule('\\.rt-star'), /color:#ffa800/);
+});
+
+test('страница товара: строка отзывов как в карточке, белый текст в выбранной кнопке', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, images: [], colors: [], storages: [] };
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 4.9, count: 1225 }), categories: () => [], visibleCategories: () => [] };
+  const html = render.productPage(settings, db, product, { origin: '' });
+
+  // Та же строка, что в карточке каталога: звезда, оценка, пузырёк, число словом
+  assert.match(html, /class="rating-summary">[\s\S]*?class="rt-star"[\s\S]*?<b>4\.9<\/b>[\s\S]*?class="rt-bubble"/);
+  assert.match(html, /class="rating-count">1\s225 отзывов<\/span>/);
+  assert.doesNotMatch(html, /class="rating-summary">\s*<span class="stars"/, 'в шапку товара вернулись пять звёзд');
+
+  const rule = name => [...css.matchAll(new RegExp(name + '\\s*\\{([^}]*)\\}', 'g'))].map(m => m[1]).join(';');
+  // Внутри выбранной (тёмной) кнопки весь текст чисто белый: подпись доплаты
+  // гасилась до .82 прозрачности и на 11,5px читалась серым по тёмному.
+  const activeSub = rule('\\.option-opt\\.active \\.opt-add,\\.option-opt\\.active \\.opt-note');
+  assert.match(activeSub, /color:#fff/);
+  assert.match(activeSub, /opacity:1/);
+  assert.doesNotMatch(css, /\.option-opt\.active \.opt-add\{[^}]*opacity:\.8/, 'подпись в кнопке снова полупрозрачная');
+  // Кадр ограничен по ширине: он занимал больше половины первого экрана
+  assert.match(rule('\\.product-gallery'), /max-width:520px/);
 });
 
 test('в карточке нет категории и отметок, а ссылок на товар две — снимок и название', () => {
