@@ -1602,6 +1602,19 @@ body.admin{background:#f4f4f6;color:#242426}
    остаётся читаемой, а не превращается в предупреждение. Цвет — тот же
    оранжевый #bf4800, которым на витрине подписана «Новинка»: акцент у магазина
    свой и в 11px мог бы не читаться. */
+/* Вкладки слева, сортировка справа — одной строкой. Двумя рядами они занимали
+   бы две строки на ровном месте, а на телефоне и так встают друг под другом. */
+.a-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 20px;margin-bottom:16px}
+.a-toolbar .a-tabs{margin-bottom:0}
+.a-sorts{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.a-sorts>.muted{margin-right:2px}
+/* Кнопки сортировки мельче вкладок: вкладка отвечает «что показываем», а
+   сортировка — только «в каком порядке», и спорить между собой они не должны. */
+.a-sort{padding:6px 11px;border:1px solid var(--border-soft);border-radius:10px;background:#fff;
+  color:var(--muted);font-size:12.5px;line-height:1.4;white-space:nowrap;transition:border-color .14s,color .14s}
+.a-sort:hover{border-color:#c7c7cc;color:var(--text)}
+.a-sort.active{border-color:var(--text);background:var(--text);color:#fff}
+
 .rv-list{display:flex;flex-direction:column;gap:10px}
 .rv-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:6px 16px;align-items:center;
   padding:13px 15px;border:1px solid var(--border-soft);border-radius:15px;background:#fff;
@@ -2088,6 +2101,20 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
   .a-orders td:empty{display:none}
+
+  /* Вкладки и сортировка встают друг под другом, обе ленты прокручиваются
+     вбок — три кнопки сортировки в 375 px в одну строку с «Сортировка:» не
+     помещаются никак. */
+  .a-toolbar{display:block}
+  /* Обе ленты — по строке и прокручиваются вбок. Вкладки иначе переносятся на
+     вторую строку («Все» уезжает под «Опубликованные»), и один список занимает
+     три строки вместе с сортировкой. */
+  .a-toolbar .a-tabs{margin-bottom:10px;flex-wrap:nowrap}
+  .a-toolbar .a-tab{flex:none}
+  .a-sorts{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .a-sorts::-webkit-scrollbar{display:none}
+  .a-sorts>.muted{flex:none}
+  .a-sort{flex:none;min-height:34px;display:inline-flex;align-items:center}
 
   /* Отзывы: кнопки уходят под строку и делят ширину поровну — колонкой справа
      они забирали бы половину узкого экрана у самого отзыва. */

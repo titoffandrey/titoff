@@ -87,7 +87,7 @@ const pageQuery = (value) => {
 const REVIEW_TABS = ['pending', 'approved', 'all'];
 const backFrom = (src) => ({
   status: String((src && src.tab) || ''), page: src && src.page,
-  product: String((src && src.product) || '')
+  sort: String((src && src.sort) || ''), product: String((src && src.product) || '')
 });
 const reviewsBackUrl = (body, flash, anchor) => {
   const product = String((body && body.product) || '');
@@ -99,6 +99,10 @@ const reviewsBackUrl = (body, flash, anchor) => {
   // лента товара — на «Все». В адрес пишем только отличие от неё, чтобы ссылки
   // не обрастали мусором.
   if (REVIEW_TABS.includes(status) && status !== (known ? 'all' : 'pending')) params.push('status=' + status);
+  // Сортировка возвращается вместе со страницей и вкладкой: разобрав низкие
+  // оценки, админ после каждого действия оказывался бы снова в «Новых».
+  const sort = String((body && body.sort) || '');
+  if (R.REVIEW_SORTS.some(([key]) => key === sort) && sort !== R.REVIEW_SORTS[0][0]) params.push('sort=' + sort);
   const n = Math.floor(Number(body && body.page));
   if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
   if (flash) params.push('flash=' + encodeURIComponent(flash));
@@ -1348,7 +1352,7 @@ async function reviewPreviews(files) {
   for (const f of files) { const thumb = await IMG.makeThumb(db.UPLOAD_DIR, f); if (thumb) out[f] = thumb; }
   return out;
 }
-app.get('/admin/reviews', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewsList(settings(), db, req.query.status, req.query.flash, req.query.page)); });
+app.get('/admin/reviews', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewsList(settings(), db, req.query.status, req.query.flash, req.query.page, req.query.sort)); });
 app.get('/admin/reviews/new', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewForm(settings(), db, null, { productId: req.query.productId })); });
 app.post('/admin/reviews/new', async (req, res) => {
   if (!guardAdmin(req, res)) return;
@@ -1369,7 +1373,7 @@ app.get('/admin/reviews/product/:productId', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const p = db.getProduct(req.params.productId);
   if (!p) return res.redirect('/admin/reviews');
-  res.send(A.productReviews(settings(), db, p, req.query.status, req.query.flash, req.query.page));
+  res.send(A.productReviews(settings(), db, p, req.query.status, req.query.flash, req.query.page, req.query.sort));
 });
 app.get('/admin/reviews/:id/edit', (req, res) => {
   if (!guardAdmin(req, res)) return;

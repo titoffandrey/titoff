@@ -1600,7 +1600,7 @@ test('списки отзывов в панелях листаются, а не 
 
   const first = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
   assert.equal(rows(first), per, 'на странице ровно один срез');
-  assert.match(first, /href="\/admin\/reviews\?status=all&amp;page=2"/);
+  assert.match(first, /href="\/admin\/reviews\?status=all&amp;sort=new&amp;page=2"/);
   const last = adminViews.reviewsList(SETTINGS, db, 'all', null, 4);
   assert.equal(rows(last), 7, 'на последней странице остаток');
   // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
@@ -1613,7 +1613,7 @@ test('списки отзывов в панелях листаются, а не 
   const one = Object.assign({}, db, { reviewsForProduct: () => many, ratingFor: () => ({ avg: 5, count: many.length }) });
   const page2 = adminViews.productReviews(SETTINGS, one, { id: 'p', name: 'Товар' }, 'all', null, 2);
   assert.equal(rows(page2), per);
-  assert.match(page2, /href="\/admin\/reviews\/product\/p\?status=all&amp;page=3"/);
+  assert.match(page2, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=new&amp;page=3"/);
 });
 
 test('раздел отзывов открывается очередью модерации, и она подкрашена', () => {
@@ -1692,6 +1692,41 @@ test('вложения в панели открываются той же гал
   assert.match(form, /<a class="rv-file-body" href="\/uploads\/v1\.mp4" data-kind="video"/);
   assert.match(form, /<label class="rv-file-x" for="drop-0"/);
   assert.equal(/<label class="rv-file"/.test(form), false, 'плитка целиком не должна быть меткой');
+});
+
+test('в панели отзывы сортируются теми же тремя способами, что на витрине', () => {
+  const reviews = [
+    { id: 'a', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 3 },
+    { id: 'b', productId: 'p', author: 'Б', rating: 2, text: 'т', status: 'approved', createdAt: 2 },
+    { id: 'c', productId: 'p', author: 'В', rating: 4, text: 'т', status: 'approved', createdAt: 1 }
+  ];
+  const db = {
+    getReviews: () => reviews, reviewsForProduct: () => reviews,
+    getProducts: () => [{ id: 'p', name: 'Товар' }], ratingFor: () => ({ avg: 4, count: 3 }),
+    reviewStats: () => new Map([['p', { total: 3, approved: 3, pending: 0, avg: 4 }]]),
+    pendingReviewCount: () => 0
+  };
+  const ids = html => [...html.matchAll(/id="rv-([a-z])"/g)].map(m => m[1]);
+
+  // Подписи берутся из того же REVIEW_SORTS, что и на витрине: «Новые» в панели
+  // и «Новые» на витрине обязаны означать одно и то же.
+  const page = adminViews.reviewsList(SETTINGS, db, 'all', null, 1, null);
+  for (const [key, label] of render.REVIEW_SORTS) {
+    assert.ok(page.includes('sort=' + key), 'нет ссылки на сортировку ' + key);
+    assert.ok(page.includes('>' + label + '</a>'), 'нет подписи ' + label);
+  }
+  assert.deepEqual(ids(page), ['a', 'b', 'c'], 'по умолчанию — свежие сверху');
+  assert.deepEqual(ids(adminViews.reviewsList(SETTINGS, db, 'all', null, 1, 'low')), ['b', 'c', 'a']);
+  assert.deepEqual(ids(adminViews.reviewsList(SETTINGS, db, 'all', null, 1, 'high')), ['a', 'c', 'b']);
+  // Мусор в адресе приводится к порядку по умолчанию, а не роняет страницу.
+  assert.deepEqual(ids(adminViews.reviewsList(SETTINGS, db, 'all', null, 1, 'абв')), ['a', 'b', 'c']);
+
+  // То же самое в ленте товара, и выбранная сортировка уезжает в формы действий,
+  // чтобы после «Одобрить» не вернуться в «Новые».
+  const one = adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1, 'low');
+  assert.deepEqual(ids(one), ['b', 'c', 'a']);
+  assert.match(one, /name="sort" value="low"/);
+  assert.match(one, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=high"/);
 });
 
 test('форма правки отзыва меняет всё, что видит покупатель', () => {
@@ -2213,8 +2248,9 @@ test('модерация отзыва возвращает на ту же стр
   const from = source.indexOf('const reviewsBackUrl =');
   const to = source.indexOf('\n};', from);
   assert.ok(from > -1 && to > from, 'reviewsBackUrl не найдена в server.js');
-  const build = new Function('db', 'const REVIEW_TABS = ["pending","approved","all"];'
-    + source.slice(from, to + 3) + ' return reviewsBackUrl;')({ getProduct: id => id === 'p' ? { id: 'p' } : null });
+  const build = new Function('db', 'R', 'const REVIEW_TABS = ["pending","approved","all"];'
+    + source.slice(from, to + 3) + ' return reviewsBackUrl;')(
+    { getProduct: id => id === 'p' ? { id: 'p' } : null }, render);
   assert.equal(build({ tab: 'approved', page: '3' }, 'Готово'), '/admin/reviews?status=approved&page=3&flash=' + encodeURIComponent('Готово'));
   // Вкладка по умолчанию у страниц разная: очередь открывается на «На модерации»,
   // лента товара — на «Все». В адрес пишем только отличие от неё.
@@ -2226,6 +2262,11 @@ test('модерация отзыва возвращает на ту же стр
   assert.equal(build({ tab: 'pending', page: '1', product: 'p' }), '/admin/reviews/product/p?status=pending');
   // Товара нет — возврат в общий список, а не на страницу, которой не существует.
   assert.equal(build({ tab: 'all', page: '1', product: 'нет' }), '/admin/reviews?status=all');
+  // Сортировка возвращается тоже: разобрав низкие оценки, админ после каждого
+  // действия оказывался бы снова в «Новых». По умолчанию её в адресе нет.
+  assert.equal(build({ tab: 'all', sort: 'low', page: '1' }), '/admin/reviews?status=all&sort=low');
+  assert.equal(build({ tab: 'all', sort: 'new', page: '1' }), '/admin/reviews?status=all');
+  assert.equal(build({ tab: 'all', sort: 'мусор', page: '1' }), '/admin/reviews?status=all');
   // Маршруты обязаны пользоваться именно им, а не фиксированным адресом.
   assert.match(source, /approve[\s\S]{0,120}reviewsBackUrl\(req\.body/);
   assert.match(source, /deleteReview\(req\.params\.id\); res\.redirect\(reviewsBackUrl\(req\.body/);
