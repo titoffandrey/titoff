@@ -3868,7 +3868,7 @@ test('покупатель снова может приложить фото к 
   assert.match(route.slice(0, 1600), /previews: await reviewPreviews\(photos\)/);
 });
 
-test('в порядке «Новые» сверху свежее, а вложения — вверху своей страницы', () => {
+test('в порядке «Новые» даты идут строго по убыванию, а вложения — в конце ленты', () => {
   const per = render.REVIEWS_PER_PAGE;
   // Через одного: свежий без вложений, следующий с фото или видео.
   const list = Array.from({ length: per * 3 }, (_, i) => ({
@@ -3880,30 +3880,21 @@ test('в порядке «Новые» сверху свежее, а вложе�
   const sorted = render.sortReviews(list, 'new');
   assert.equal(sorted.length, list.length, 'ни один отзыв не потерялся');
 
-  // Какие отзывы попадут на страницу — решает только дата: страница остаётся
-  // ровно той же, что при чистой сортировке по дате. Иначе «Новые» перестают
-  // быть новыми: на боевых данных строгий подъём вложений отправил бы самый
-  // свежий отзыв за сегодня на 77-ю страницу.
-  for (let p = 0; p < 3; p++) {
-    const got = sorted.slice(p * per, (p + 1) * per).map(r => r.id).sort();
-    const want = list.slice(p * per, (p + 1) * per).map(r => r.id).sort();
-    assert.deepEqual(got, want, 'состав страницы ' + (p + 1) + ' изменился');
-  }
+  // Сначала все обычные, потом все с вложениями.
+  const marks = sorted.map(r => (r.videos.length || r.photos.length) ? 'm' : 'o').join('');
+  assert.match(marks, /^o+m+$/, 'вложения обязаны идти после текстовых');
 
-  // А внутри страницы вложения идут первыми, и в каждой группе — от свежих.
-  for (let p = 0; p < 3; p++) {
-    const page = sorted.slice(p * per, (p + 1) * per);
-    const marks = page.map(r => (r.videos.length || r.photos.length) ? 'm' : 'o').join('');
-    assert.match(marks, /^m+o+$/, 'на странице ' + (p + 1) + ' вложения не подняты');
-    const media = page.filter(r => r.videos.length || r.photos.length).map(r => r.createdAt);
-    const plain = page.filter(r => !r.videos.length && !r.photos.length).map(r => r.createdAt);
-    assert.deepEqual(media, media.slice().sort((a, b) => b - a), 'вложения идут от свежих к старым');
-    assert.deepEqual(plain, plain.slice().sort((a, b) => b - a), 'остальные тоже');
-  }
-
-  // Видео от фото не отделяется: иначе свежий отзыв с фотографиями встал бы
-  // позади роликов постарше уже внутри страницы.
-  assert.equal(sorted[0].photos.length, 1, 'первым — самое свежее вложение, а не первое видео');
+  // Внутри каждой группы — строго по убыванию даты. Сортировка называется
+  // «Новые»: отзыв за 8 августа над отзывом за 18-е читается как сбой витрины,
+  // и ровно это делала прежняя раскладка, тасовавшая ленту поверх даты.
+  const plain = sorted.filter(r => !r.videos.length && !r.photos.length).map(r => r.createdAt);
+  const media = sorted.filter(r => r.videos.length || r.photos.length).map(r => r.createdAt);
+  assert.deepEqual(plain, plain.slice().sort((a, b) => b - a));
+  assert.deepEqual(media, media.slice().sort((a, b) => b - a));
+  assert.equal(sorted[0].id, 'r0', 'первым — самый свежий отзыв');
+  // Первая страница целиком без вложений и строго по дате.
+  const first = sorted.slice(0, per).map(r => r.createdAt);
+  assert.deepEqual(first, first.slice().sort((a, b) => b - a));
 
   // Выбрал сортировку по оценке — значит просил оценки, и вложения их не переставляют.
   const byHigh = render.sortReviews(list, 'high');
