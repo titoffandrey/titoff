@@ -16,6 +16,7 @@ const CROCO = require('./lib/crocopay');
 const DELIVERY = require('./lib/delivery');
 const SHIP = require('./lib/delivery-price');
 const ADDRESS = require('./lib/address');
+const PICKUP = require('./lib/pickup');
 const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
@@ -729,6 +730,34 @@ app.post('/api/delivery/quote', (req, res) => {
   res.json({ ok: true, valid: true, error: '', zone: q.zone, zoneName: q.zoneName, prices: q.prices });
 });
 
+/* Ближайшие пункты выдачи по адресу покупателя. Отдельным запросом, а не вместе
+ * с ценой: цена нужна на каждую правку адреса, а список пунктов — только когда
+ * выбран вариант «в пункт выдачи», и меняется он ещё и при смене перевозчика.
+ *
+ * Наружу этот запрос не ходит НИКУДА: база пунктов лежит на диске и обновляется
+ * ночью (lib/pickup.js). Поэтому адрес покупателя не уезжает ни в какой чужой
+ * сервис ради подсказки, а ответ считается за сотые доли миллисекунды.
+ *
+ * Координаты приходят от подсказки dadata.ru, которую покупатель выбрал сам;
+ * без них ищем по названию города — тогда расстояние не показываем вовсе.
+ */
+app.post('/api/delivery/points', (req, res) => {
+  if (rateLimited(req, 'points', 120, 60 * 1000)) return res.json({ ok: false, items: [] }, 429);
+  const method = String(req.body && req.body.method || '');
+  // Чужой перевозчик — пустой список, а не ошибка: список способов на витрине
+  // мог устареть, и оформление из-за этого падать не должно.
+  if (!DELIVERY.isValid(method)) return res.json({ ok: true, items: [] });
+  const items = PICKUP.nearest(method, {
+    address: String(req.body && req.body.address || '').slice(0, 400),
+    lat: Number(req.body && req.body.lat),
+    lon: Number(req.body && req.body.lon)
+  });
+  // `ready` отделяет «у нас нет списка этого перевозчика» от «рядом ничего не
+  // нашлось». Без него покупателю OZON, чьей базы у нас пока нет вовсе, витрина
+  // сообщала бы, что пунктов рядом нет, — а это неправда.
+  res.json({ ok: true, ready: PICKUP.has(method), items });
+});
+
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
 // Уведомление менеджеру о новом заказе. Общее для двух путей: заявки без
 // онлайн-оплаты (уходит сразу) и черновика, который стал заказом после выбора
@@ -741,7 +770,7 @@ function notifyNewOrder(order) {
     + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
     + (order.delivery ? `🚚 Доставка: ${tgEsc([DELIVERY.nameOf(order.delivery), DELIVERY.shortModeOf(order.delivery, order.deliveryMode)].filter(Boolean).join(', '))}`
       + `${order.deliveryPrice ? ` — ${R.money(order.deliveryPrice, ss)}` : ''}\n` : '')
-    + (order.address ? `📍 Адрес: ${tgEsc(order.address)}\n` : '')
+    + (order.address ? `📍 Адрес: ${order.pickupCode ? tgEsc(order.pickupCode) + ' — ' : ''}${tgEsc(order.address)}\n` : '')
     + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
     + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
     + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
@@ -814,16 +843,23 @@ app.post('/api/order', async (req, res) => {
   const lastName = String(req.body.lastName || '').trim();
   if (!firstName) return res.json({ ok: false, error: 'Укажите имя получателя' }, 400);
   if (!lastName) return res.json({ ok: false, error: 'Укажите фамилию получателя' }, 400);
-  const address = String(req.body.address || '').trim();
+  const delivery = String(req.body.delivery || '').trim();
+  if (!DELIVERY.isValid(delivery)) return res.json({ ok: false, error: 'Выберите способ доставки' }, 400);
+  const deliveryMode = String(req.body.deliveryMode || '').trim();
+  if (!DELIVERY.isValidMode(delivery, deliveryMode)) return res.json({ ok: false, error: 'Выберите, куда доставить: в пункт выдачи или курьером' }, 400);
+  /* Выбранный пункт выдачи. Код приходит от витрины, а АДРЕС БЕРЁТСЯ ИЗ БАЗЫ —
+   * клиентской строке верим не больше, чем клиентской цене: иначе в заказ уехал
+   * бы код одного пункта с адресом другого. Не нашёлся код (база обновилась, и
+   * пункт закрыли) — это не отказ: адрес покупателя всё равно с ним, а пункт
+   * менеджер уточнит. Курьеру пункт ни к чему, поэтому берём его только у «pvz».
+   */
+  const point = deliveryMode === 'pvz' ? PICKUP.findPoint(delivery, req.body.pickupCode) : null;
+  const address = point ? PICKUP.addressOf(point) : String(req.body.address || '').trim();
   if (!address) return res.json({ ok: false, error: 'Укажите адрес или пункт выдачи' }, 400);
   // Адрес обязан быть полным: населённый пункт, улица и дом. По «Екатеринбургу»
   // нельзя ни оформить накладную, ни посчитать доставку, а заказ уже оплачен.
   const addressCheck = ADDRESS.checkAddress(address);
   if (!addressCheck.ok) return res.json({ ok: false, error: addressCheck.error }, 400);
-  const delivery = String(req.body.delivery || '').trim();
-  if (!DELIVERY.isValid(delivery)) return res.json({ ok: false, error: 'Выберите способ доставки' }, 400);
-  const deliveryMode = String(req.body.deliveryMode || '').trim();
-  if (!DELIVERY.isValidMode(delivery, deliveryMode)) return res.json({ ok: false, error: 'Выберите, куда доставить: в пункт выдачи или курьером' }, 400);
 
   // Доставку считаем заново по своей сетке тарифов — ровно так же, как цену
   // товаров. Витрина показывала свою цифру, но она приходит от того же расчёта
@@ -862,6 +898,9 @@ app.post('/api/order', async (req, res) => {
     items, total: grandTotal, itemsTotal: total,
     firstName, lastName, contact, address, delivery, comment: req.body.comment,
     deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
+    // Код пункта выдачи — то, по чему менеджер оформляет накладную: адрес у
+    // перевозчика может быть записан иначе, а код у пункта один.
+    pickupCode: point ? point.code : '',
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
     clientCountry: client.country, clientCountryCode: client.countryCode, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
@@ -1489,6 +1528,15 @@ const httpServer = app.listen(PORT, HOST, () => {
   if (auth.verifyPassword('admin', s.adminPasswordHash)) {
     console.warn(`\n  ВНИМАНИЕ: у панели демонстрационный пароль (admin / admin).`);
     console.warn('  Смените его в /admin/settings до публикации сайта или задайте ADMIN_PASSWORD при первом запуске.');
+  }
+  // База пунктов выдачи — единственное, чьё отсутствие ничем себя не проявляет:
+  // оформление работает как раньше, просто ближайшие пункты не предлагаются.
+  // Ровно та же грабля, что с ImageMagick, поэтому говорим об этом вслух.
+  const pickupNote = PICKUP.staleNote();
+  if (pickupNote) console.warn(`\n  ВНИМАНИЕ: ${pickupNote}`);
+  else {
+    const ps = PICKUP.stats();
+    console.log(`  Пункты выдачи: ${Object.entries(ps.byCarrier).map(([k, n]) => `${k} ${n}`).join(', ')}`);
   }
   console.log('');
 });

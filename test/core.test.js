@@ -75,6 +75,20 @@ function freshDb(dir) {
   return fresh;
 }
 
+// То же самое для базы пунктов выдачи: lib/pickup берёт путь у lib/db, поэтому
+// подменять надо обоих разом, иначе пункты искались бы в рабочем каталоге.
+function freshPickup(dir) {
+  const keys = [require.resolve('../lib/db'), require.resolve('../lib/pickup')];
+  const previous = process.env.STORE_DATA_DIR;
+  process.env.STORE_DATA_DIR = dir;
+  for (const k of keys) delete require.cache[k];
+  const fresh = require('../lib/pickup');
+  for (const k of keys) delete require.cache[k];
+  if (previous === undefined) delete process.env.STORE_DATA_DIR;
+  else process.env.STORE_DATA_DIR = previous;
+  return fresh;
+}
+
 test('пароли проверяются синхронно и асинхронно', async () => {
   const stored = auth.hashPassword('секрет');
   assert.equal(auth.verifyPassword('секрет', stored), true);
@@ -3504,6 +3518,221 @@ test('способ доставки заперт, пока адрес не по�
   // На отправке решаем только по свежему разбору — иначе дописанный в последний
   // момент адрес отвергался бы по прошлому ответу.
   assert.match(js, /ship\.address === val\('co-address'\) && !ship\.valid && ship\.error/);
+});
+
+/* ====================== Ближайшие пункты выдачи ====================== */
+
+// Кусочек базы вместо настоящей: скачивать список перевозчика в тесте нельзя,
+// а всё, что проверяется ниже, от размера базы не зависит.
+function seedPickup(dir, points) {
+  const PICKUP = freshPickup(dir);
+  PICKUP.save({ version: PICKUP.VERSION, updatedAt: Date.now(), sources: {}, points });
+  return PICKUP;
+}
+const PICKUP_SAMPLE = [
+  { carrier: 'cdek', code: 'YEKB97', region: 'Свердловская область', city: 'Екатеринбург', short: 'ул. Малышева, 53', lat: 56.8362, lon: 60.6155, type: 'postamat', hours: 'Пн-Вс 10:00-20:00' },
+  { carrier: 'cdek', code: 'YEKB121', region: 'Свердловская область', city: 'Екатеринбург', short: 'ул. Белинского, 54', lat: 56.8309, lon: 60.6205, type: 'pvz', hours: 'Пн-Пт 10:00-21:00' },
+  { carrier: 'cdek', code: 'NSK376', region: 'Новосибирская область', city: 'Новосибирск', short: 'ул. Колхидская, 6', lat: 54.9866, lon: 82.8158, type: 'pvz', hours: '' },
+  { carrier: 'cdek', code: 'NN12', region: 'Нижегородская область', city: 'Нижний Новгород', short: 'пр-т Ленина, 9', lat: 56.2565, lon: 43.8636, type: 'pvz', hours: '' }
+];
+
+test('пункт выдачи ищется по координатам, а без них — по названию города', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickup-'));
+  const PICKUP = seedPickup(dir, PICKUP_SAMPLE);
+  const ADDRESS = require('../lib/address');
+
+  // Координаты — главный путь: их отдаёт подсказка dadata.ru вместе с адресом.
+  const near = PICKUP.nearest('cdek', { lat: 56.836094, lon: 60.614637 });
+  assert.equal(near.length, 2);
+  assert.equal(near[0].code, 'YEKB97', 'первым обязан идти ближайший');
+  assert.ok(near[0].km < near[1].km, 'список отсортирован по расстоянию');
+  assert.equal(near[0].postamat, true, 'постамат отличается от пункта выдачи');
+
+  // Адрес пункта ОБЯЗАН проходить проверку полноты: иначе покупатель выберет
+  // пункт, а оформление откажет — и виноват будет магазин, а не данные.
+  for (const p of near) assert.equal(ADDRESS.checkAddress(p.address).ok, true, 'неполный адрес пункта: ' + p.address);
+  // Регион в строке нужен зоне доставки: без него Екатеринбург уехал бы в «ru»
+  // со средним тарифом по стране.
+  const Z = require('../lib/delivery-zones');
+  assert.equal(Z.zoneFor(near[0].address), 'ural');
+  assert.match(near[0].address, /^Свердловская область, Екатеринбург, /);
+  // А в списке регион не нужен — покупатель и так смотрит на пункты рядом с собой.
+  assert.equal(near[0].title, 'Екатеринбург, ул. Малышева, 53');
+
+  // Далёкое место — пусто, а не «ближайший пункт в 900 км».
+  assert.equal(PICKUP.nearest('cdek', { lat: 53.5, lon: 107.7 }).length, 0);
+
+  // Без координат ищем по городу, и расстояние тогда НЕ показываем: считать его
+  // от центра города и подписывать «от вас» было бы враньём.
+  const byCity = PICKUP.nearest('cdek', { address: 'Новосибирск, ул Ленина, 10' });
+  assert.equal(byCity.length, 1);
+  assert.equal(byCity[0].code, 'NSK376');
+  assert.equal(byCity[0].km, null);
+  // Название в два слова не должно рассыпаться на «Новгород».
+  assert.equal(PICKUP.nearest('cdek', { address: 'Нижний Новгород, ул Большая Покровская, 1' })[0].code, 'NN12');
+  // Улица выбрасывается вместе с маркером — иначе «ул. Кирова» находила бы
+  // посёлок Кирова в другой области. Города нет — предлагать нечего.
+  assert.equal(PICKUP.nearest('cdek', { address: 'ул Кирова, 5' }).length, 0);
+  // Перевозчика в базе нет вовсе — это не ошибка и не пустой город.
+  assert.equal(PICKUP.nearest('ozon', { lat: 56.836, lon: 60.614 }).length, 0);
+  assert.equal(PICKUP.has('ozon'), false);
+  assert.equal(PICKUP.has('cdek'), true);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('база пунктов не найдена — оформление работает, но сервер об этом говорит', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickup-empty-'));
+  const PICKUP = freshPickup(dir);
+  // Молчаливое «фича просто не работает» — ровно та грабля, что была с
+  // ImageMagick, поэтому пустая база обязана быть слышной.
+  assert.match(PICKUP.staleNote(), /пуста/);
+  assert.equal(PICKUP.nearest('cdek', { lat: 55.75, lon: 37.61 }).length, 0);
+  assert.equal(PICKUP.findPoint('cdek', 'MSK1'), null);
+
+  // Устаревшая база тоже: пункты открываются и закрываются постоянно.
+  PICKUP.save({ version: 1, updatedAt: Date.now() - 90 * 86400000, sources: {}, points: PICKUP_SAMPLE });
+  assert.match(PICKUP.staleNote(), /обновлялась 90 дн/);
+  PICKUP.save({ version: 1, updatedAt: Date.now(), sources: {}, points: PICKUP_SAMPLE });
+  assert.equal(PICKUP.staleNote(), '');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('адрес пункта выдачи в заказе берётся из базы, а не от браузера', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickup-order-'));
+  const PICKUP = seedPickup(dir, PICKUP_SAMPLE);
+
+  // Код есть в базе — адрес и зона считаются по нему, что бы ни прислал браузер.
+  const point = PICKUP.findPoint('cdek', 'YEKB121');
+  assert.ok(point);
+  assert.equal(PICKUP.addressOf(point), 'Свердловская область, Екатеринбург, ул. Белинского, 54');
+  assert.equal(PICKUP.findPoint('cdek', 'нет-такого'), null);
+  // Чужой перевозчик по коду не находится: пункты СДЭК не годятся для OZON.
+  assert.equal(PICKUP.findPoint('ozon', 'YEKB121'), null);
+
+  // Маршрут заказа обязан брать адрес из базы и делать это ДО проверки полноты:
+  // иначе в заказ уехал бы код одного пункта с адресом другого.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ====================== ОПЛАТА'));
+  assert.match(route, /PICKUP\.findPoint\(delivery, req\.body\.pickupCode\)/);
+  assert.match(route, /point \? PICKUP\.addressOf\(point\) : String\(req\.body\.address/);
+  assert.ok(route.indexOf('PICKUP.addressOf(point)') < route.indexOf('ADDRESS.checkAddress(address)'),
+    'адрес пункта обязан подставляться до проверки полноты');
+  // Пункт берётся только у «в пункт выдачи»: курьеру он ни к чему.
+  assert.match(route, /deliveryMode === 'pvz' \? PICKUP\.findPoint/);
+
+  // Хранилище отсеивает мусор в коде, но существование пункта проверяет маршрут:
+  // lib/db не может требовать lib/pickup — вышло бы кольцо require.
+  const fresh = freshDb(dir);
+  const order = fresh.createOrder({
+    items: [], total: 68500, contact: 'tg', firstName: 'Иван', lastName: 'Петров',
+    delivery: 'cdek', deliveryMode: 'pvz', address: 'Свердловская область, Екатеринбург, ул. Белинского, 54',
+    pickupCode: 'YEKB121'
+  });
+  assert.equal(order.pickupCode, 'YEKB121');
+  const junk = fresh.createOrder({ items: [], total: 1000, contact: 'tg', pickupCode: '<script>alert(1)</script>' });
+  assert.equal(junk.pickupCode, '');
+  // Прежние заявки читаются как были: поля нет — значит пункт не выбирали.
+  const old = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
+  assert.equal(old.pickupCode, '');
+
+  // Код виден в панелях рядом с адресом: накладную менеджер оформляет по нему.
+  const line = render.orderDelivery(order);
+  assert.match(line, /YEKB121/);
+  assert.match(line, /ул\. Белинского, 54/);
+  assert.doesNotMatch(render.orderDelivery(old), /o-pvz/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('список пунктов витрина берёт у сервера и ничего про них не решает', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Ни расстояний, ни сортировки, ни своей базы у витрины нет — только показ.
+  assert.doesNotMatch(js, /6371|Math\.atan2/, 'расстояние считает сервер, а не витрина');
+  assert.match(js, /fetch\('\/api\/delivery\/points'/);
+  // Список нужен только выбравшему пункт выдачи и только по разобранному адресу.
+  assert.match(js, /deliveryModeChoice\(\) === 'pvz' && ship\.valid/);
+
+  // Выбор пункта отменяется, когда адрес перестаёт быть его адресом: правка
+  // руками, выбор подсказки и смена перевозчика.
+  assert.match(js, /input\.addEventListener\('input', function \(\) \{ dropPickup\(\); setGeo\(null, null\); quoteDelivery\(\); \}\)/);
+  assert.match(js, /box\.addEventListener\('change', function \(\) \{ dropPickup\(\); syncDelivery\(\); \}\)/);
+  // Уход на курьера возвращает адрес самого покупателя: адрес пункта для курьера
+  // не адрес доставки, а мусор.
+  assert.match(js, /if \(deliveryModeChoice\(\) !== 'pvz'\) restoreTypedAddress\(\)/);
+  assert.match(js, /function restoreTypedAddress/);
+
+  // «Рядом ничего нет» и «списка этого перевозчика у нас нет» — разные ответы.
+  assert.match(server, /ready: PICKUP\.has\(method\)/);
+  assert.match(js, /!pickup\.ready \|\| !pickup\.done/);
+
+  // Код уезжает в заказ, а адрес пункта — нет: его подставит сервер.
+  assert.match(js, /pickupCode: pickup\.code/);
+
+  // Строки с волосяной линией, а не пять карточек с рамками: карточка выделяет
+  // выбор из двух-трёх равных, а здесь перечень адресов.
+  assert.match(css, /\.co-point\+\.co-point\{border-top:1px solid var\(--border\)\}/);
+  assert.match(css, /\.co-point-km\{[^}]*tabular-nums/);
+});
+
+test('координаты для поиска пунктов приходят от подсказки адреса, а не от геокодера', () => {
+  const { suggestAddress } = require('../lib/dadata');
+  const dadata = fs.readFileSync(path.join(__dirname, '..', 'lib', 'dadata.js'), 'utf8');
+  // Точный ответ (дом, ближайший дом, улица) отдаёт координаты; «город целиком»
+  // — нет: «пункт в 400 м» от центра города означал бы не то, что прочитают.
+  assert.match(dadata, /GEO_EXACT = new Set\(\['0', '1', '2'\]\)/);
+  assert.match(dadata, /GEO_EXACT\.has\(String\(d\.qc_geo\)\)/);
+  // Своего геокодера в проекте нет и заводить его не нужно.
+  const files = fs.readdirSync(path.join(__dirname, '..', 'lib')).map(f => fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8')).join('\n');
+  assert.doesNotMatch(files, /nominatim|openstreetmap\.org/i, 'внешний геокодер не нужен: координаты уже приходят с подсказкой');
+  assert.equal(typeof suggestAddress, 'function');
+});
+
+test('разбор официального списка СДЭК отсеивает всё, что нельзя показать', () => {
+  const SYNC = require('../scripts/sync-pickup-points.js');
+  const xml = '<?xml version="1.0"?><PvzList>'
+    + '<Pvz Code="YEKB121" Status="ACTIVE" countryCodeIso="RU" RegionName="Свердловская область" City="Екатеринбург"'
+    + ' Address="ул. Белинского, 54" WorkTime="Пн-Пт 10:00-21:00" coordX="60.6205" coordY="56.8309" Type="PVZ" IsHandout="true"/>'
+    + '<Pvz Code="MSK9" Status="ACTIVE" countryCodeIso="RU" RegionName="Москва" City="Москва"'
+    + ' Address="б-р. Чистопрудный, 13с1" coordX="37.64" coordY="55.76" Type="POSTAMAT" IsHandout="true"/>'
+    // Зарубежные пункты приходят даже на запрос по России — магазин туда не возит.
+    + '<Pvz Code="BAKU1" Status="ACTIVE" countryCodeIso="AZ" RegionName="Баку" City="Баку"'
+    + ' Address="ул. Мамедова, 1" coordX="49.8" coordY="40.4" Type="PVZ" IsHandout="true"/>'
+    // Только приём отправлений: везти туда покупателя нельзя.
+    + '<Pvz Code="X1" Status="ACTIVE" countryCodeIso="RU" RegionName="Тверская область" City="Тверь"'
+    + ' Address="ул. Мира, 3" coordX="35.9" coordY="56.8" Type="PVZ" IsHandout="false"/>'
+    // Адрес без номера дома — покупатель выбрал бы, а оформление отказало.
+    + '<Pvz Code="X2" Status="ACTIVE" countryCodeIso="RU" RegionName="Тверская область" City="Тверь"'
+    + ' Address="ул. Нусрета Мамедова, -" coordX="35.9" coordY="56.8" Type="PVZ" IsHandout="true"/>'
+    + '<Pvz Code="X3" Status="CLOSED" countryCodeIso="RU" RegionName="Тверская область" City="Тверь"'
+    + ' Address="ул. Мира, 5" coordX="35.9" coordY="56.8" Type="PVZ" IsHandout="true"/>'
+    + '<Pvz Code="YEKB121" Status="ACTIVE" countryCodeIso="RU" RegionName="Свердловская область" City="Екатеринбург"'
+    + ' Address="ул. Белинского, 54" coordX="60.6205" coordY="56.8309" Type="PVZ" IsHandout="true"/>'
+    + '</PvzList>';
+  const { points, skipped } = SYNC.parseCdek(xml);
+  assert.deepEqual(points.map(p => p.code), ['YEKB121', 'MSK9']);
+  assert.equal(skipped.abroad, 1);
+  assert.equal(skipped.noHandout, 1);
+  assert.equal(skipped.badAddress, 1);
+  assert.equal(skipped.inactive, 1);
+  assert.equal(skipped.dupes, 1);
+  // coordX — долгота, coordY — широта. Перепутать их значит отправить всех
+  // покупателей в другое полушарие.
+  assert.equal(points[0].lat, 56.8309);
+  assert.equal(points[0].lon, 60.6205);
+  assert.equal(points[1].type, 'postamat');
+  // Слитное строение — обычная московская запись, и раньше она отвергалась.
+  const ADDRESS = require('../lib/address');
+  assert.equal(ADDRESS.checkAddress('Москва, б-р. Чистопрудный, 13с1').ok, true);
+  assert.equal(ADDRESS.checkAddress('Москва, ул. Автозаводская, 23Ак2').ok, true);
+  // А порядковое название улицы номером дома по-прежнему не считается.
+  assert.equal(ADDRESS.checkAddress('Москва, 1-я Тверская-Ямская улица').ok, false);
+  // Обрезанный ответ чужого сервиса не должен стирать рабочую базу.
+  assert.ok(SYNC.MIN_POINTS >= 1000);
 });
 
 test('вариант, цена и зона доставки хранятся в заказе, а старые заявки читаются как были', () => {

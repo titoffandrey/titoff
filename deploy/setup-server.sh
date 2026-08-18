@@ -119,6 +119,18 @@ say 'Ежедневное обновление дат демо-отзывов'
 CRON="20 1 * * * { date -Is; STORE_DATA_DIR=$DATA_DIR NODE_BIN=/usr/local/bin/node $PROJECT/scripts/refresh-demo-reviews.sh; } >> /home/$USER_NAME/demo-reviews.log 2>&1"
 sudo -u "$USER_NAME" -H bash -lc "(crontab -l 2>/dev/null | grep -v refresh-demo-reviews.sh; echo '$CRON') | crontab -"
 
+say 'База пунктов выдачи и её ежедневное обновление'
+# Отдельным заданием, а не вместе с отзывами: здесь ходят в чужой сервис по сети,
+# и его недоступность не должна ронять обновление дат отзывов.
+# Первый прогон делаем сразу — иначе на свежем сервере ближайшие пункты не
+# предлагались бы до первой ночи, и понять почему было бы неоткуда.
+CRON_PVZ="40 2 * * * { date -Is; cd $PROJECT && STORE_DATA_DIR=$DATA_DIR /usr/local/bin/node scripts/sync-pickup-points.js --apply; } >> /home/$USER_NAME/pickup-points.log 2>&1"
+sudo -u "$USER_NAME" -H bash -lc "(crontab -l 2>/dev/null | grep -v sync-pickup-points.js; echo '$CRON_PVZ') | crontab -"
+# Списка может не быть (нет сети, сервис недоступен) — это не повод обрывать
+# установку: витрина работает и без подсказки ближайших пунктов.
+sudo -u "$USER_NAME" -H bash -lc "cd $PROJECT && STORE_DATA_DIR=$DATA_DIR /usr/local/bin/node scripts/sync-pickup-points.js --apply" \
+  || echo 'список пунктов выдачи не скачался — обновится ночью по cron'
+
 say 'Проверка'
 sleep 2
 CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/" || echo '000')

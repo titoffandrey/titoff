@@ -2452,6 +2452,28 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-mode-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
 /* tabular-nums — чтобы цена не дёргала ширину карточки при смене адреса. */
 .co-mode-price{flex:none;font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Ближайшие пункты выдачи — СТРОКИ С ВОЛОСЯНОЙ ЛИНИЕЙ, а не пять карточек с
+   рамками, как у перевозчиков и вариантов выше. Карточка выделяет выбор из
+   двух-трёх равных вариантов; здесь же это перечень адресов, и пять рамок
+   подряд под уже обведёнными карточками дали бы рамку в рамке на треть экрана.
+   Тот же приём, что у списка товаров на этой же странице. */
+.co-points{margin:0 0 16px}
+.co-point-list{border:1px solid var(--border);border-radius:13px;overflow:hidden}
+.co-point{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer;transition:background .16s}
+.co-point+.co-point{border-top:1px solid var(--border)}
+.co-point:hover,.co-point.is-picked{background:#fbfbfd}
+.co-point input{flex:none;width:auto;margin:0;accent-color:var(--accent)}
+/* Отступ внутрь: у списка `overflow:hidden`, и обводка снаружи обрезалась бы. */
+.co-point:focus-within{outline:2px solid var(--accent);outline-offset:-2px}
+.co-point-text{flex:1;min-width:0;line-height:1.35}
+.co-point-text b{display:block;font-size:14px;font-weight:600}
+.co-point-text i{display:block;margin-top:1px;font-style:normal;font-size:12px;color:var(--muted)}
+/* Постамат — это не то же самое, что пункт выдачи: там никто не поможет и не
+   даст примерить. Подпись мелкая и приглушённая: это уточнение, а не отметка. */
+.co-point-kind{margin-left:6px;padding:1px 5px;border:1px solid var(--border);border-radius:6px;
+  font-size:11px;font-weight:500;color:var(--muted);vertical-align:1px}
+.co-point-km{flex:none;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.co-points-note{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
 /* Пока адреса нет, считать нечего: в строке сводки стоит подпись, а не «0 ₽» —
    бесплатную доставку мы не обещаем. */
 .co-line-wait{font-style:normal;color:var(--muted)}

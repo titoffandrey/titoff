@@ -152,6 +152,7 @@
         + '<span class="co-modes-label">Способ доставки</span>'
         + deliveryChoiceHtml()
         + '<div class="co-modes" id="co-modes"></div>'
+        + '<div class="co-points" id="co-points" hidden></div>'
         + '<p class="co-ways-note" id="co-ways-note">Укажите адрес — от него зависят сроки и стоимость доставки.</p>'
         + '</div>'
         + '</div>'
@@ -203,7 +204,9 @@
   function initAddressQuote() {
     var input = document.getElementById('co-address');
     if (!input) return;
-    input.addEventListener('input', function () { quoteDelivery(); });
+    // Правка руками отменяет и выбранный пункт, и координаты подсказки: адрес
+    // стал другим, и относиться к прежнему дому они больше не могут.
+    input.addEventListener('input', function () { dropPickup(); setGeo(null, null); quoteDelivery(); });
     input.addEventListener('change', function () { quoteDelivery(0); });
     input.addEventListener('blur', function () { quoteDelivery(0); });
   }
@@ -393,6 +396,7 @@
     renderRail();
     syncSubmit();
     syncAddressNote();
+    loadPoints();
   }
   function initDeliveryChoice() {
     var box = document.querySelector('.co-choice');
@@ -401,12 +405,148 @@
     // строка «Доставка» в итогах показывала «выберите способ» при уже выбранном
     // первом способе.
     syncDelivery();
-    box.addEventListener('change', syncDelivery);
+    // Пункты выдачи у перевозчиков свои, поэтому смена перевозчика — это и новый
+    // список: syncDelivery перезапросит его сам.
+    box.addEventListener('change', function () { dropPickup(); syncDelivery(); });
     var modes = document.getElementById('co-modes');
     // Смена варианта перевозчика не меняет список вариантов — перерисовывать их
-    // не нужно, достаточно обновить сумму и подсказку под адресом.
+    // не нужно, достаточно обновить сумму и подсказку под адресом. А вот пункты
+    // выдачи нужны только у «в пункт выдачи», и при уходе на курьера в поле
+    // адреса надо вернуть адрес самого покупателя.
     if (modes) modes.addEventListener('change', function () {
-      renderRail(); syncSubmit(); syncAddressNote();
+      if (deliveryModeChoice() !== 'pvz') restoreTypedAddress();
+      renderRail(); syncSubmit(); syncAddressNote(); loadPoints();
+    });
+    initPointsChoice();
+  }
+
+  /* ===== Ближайшие пункты выдачи =====
+   * Покупатель ввёл адрес — под вариантом «в пункт выдачи» появляются ближайшие
+   * пункты выбранного перевозчика. Выбранный подставляется в то же поле адреса,
+   * а его код уходит в заказ: по коду менеджер оформляет накладную.
+   *
+   * Список считает СЕРВЕР по своей базе (lib/pickup.js) — наружу при этом не
+   * уходит ни одного запроса, как и при расчёте цены доставки. Витрина ничего
+   * про пункты не решает: ни расстояний, ни сортировки здесь нет.
+   *
+   * Ничего не нашлось, база пуста, сеть подвела — оформление не страдает: блок
+   * просто не показывается, а адрес пункта покупатель пишет руками, как раньше.
+   */
+  var pickup = { key: '', wanted: '', items: [], ready: false, done: false, pending: false, code: '', typed: '', geo: null };
+
+  // Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
+  // нет и не нужно. Правка поля руками их обесценивает: адрес уже другой.
+  function setGeo(lat, lon) {
+    pickup.geo = (typeof lat === 'number' && typeof lon === 'number') ? { lat: lat, lon: lon } : null;
+  }
+  // Выбор пункта снимается всегда, когда адрес перестаёт быть его адресом:
+  // иначе в заказ уехал бы код одного пункта с адресом другого. Сервер это
+  // перепроверяет, но и витрине показывать выбранным чужой пункт незачем.
+  function dropPickup() { pickup.code = ''; }
+
+  // Куда покупатель просил везти до того, как выбрал пункт выдачи. При уходе на
+  // курьера адрес пункта в поле — это не адрес доставки, а мусор.
+  function restoreTypedAddress() {
+    if (!pickup.code || !pickup.typed) return;
+    var input = document.getElementById('co-address');
+    if (!input) return;
+    input.value = pickup.typed;
+    dropPickup(); setGeo(null, null);
+    quoteDelivery(0);
+  }
+
+  function pointsBox() { return document.getElementById('co-points'); }
+  // Список нужен только выбравшему пункт выдачи и только по разобранному адресу:
+  // до него сервер всё равно ничего не найдёт.
+  function pointsWanted() { return !!deliveryChoice() && deliveryModeChoice() === 'pvz' && ship.valid; }
+
+  function loadPoints() {
+    var box = pointsBox();
+    if (!box) return;
+    if (!pointsWanted()) { box.hidden = true; return; }
+    var key = deliveryChoice() + '|' + addressValue()
+      + '|' + (pickup.geo ? pickup.geo.lat + ',' + pickup.geo.lon : '');
+    if (key === pickup.key) { renderPoints(); return; }
+    if (pickup.pending && pickup.wanted === key) return;
+    pickup.wanted = key; pickup.pending = true;
+    var body = { method: deliveryChoice(), address: addressValue() };
+    if (pickup.geo) { body.lat = pickup.geo.lat; body.lon = pickup.geo.lon; }
+    fetch('/api/delivery/points', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        pickup.pending = false;
+        if (!d || !d.ok || pickup.wanted !== key) return;      // ответ устарел
+        pickup.key = key; pickup.items = d.items || []; pickup.ready = !!d.ready; pickup.done = true;
+        renderPoints();
+      })
+      .catch(function () {
+        // Сеть подвела — списка просто не будет. Адрес пункта покупатель впишет
+        // руками, и заказ от этого не пострадает.
+        pickup.pending = false;
+      });
+  }
+
+  // Расстояние словами. Метры до километра — «420 м» понятнее, чем «0,42 км».
+  function pointDistance(km) {
+    if (km == null) return '';
+    if (km < 1) return Math.round(km * 1000) + ' м';
+    return (Math.round(km * 10) / 10).toLocaleString('ru-RU') + ' км';
+  }
+
+  function renderPoints() {
+    var box = pointsBox();
+    if (!box) return;
+    // База этого перевозчика у нас есть, но рядом пусто — так и говорим. Базы
+    // нет вовсе (`ready: false`) — молчим: «пунктов рядом нет» было бы неправдой.
+    if (!pointsWanted() || !pickup.ready || !pickup.done) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!pickup.items.length) {
+      box.innerHTML = '<p class="co-points-note">Рядом с этим адресом пунктов не нашлось.'
+        + ' Впишите адрес нужного пункта в поле выше.</p>';
+      return;
+    }
+    box.innerHTML = '<span class="co-modes-label">Ближайшие пункты выдачи</span>'
+      + '<div class="co-point-list" role="radiogroup" aria-label="Ближайшие пункты выдачи">'
+      + pickup.items.map(function (p) {
+        var km = pointDistance(p.km);
+        return '<label class="co-point' + (p.code === pickup.code ? ' is-picked' : '') + '">'
+          + '<input type="radio" name="co-pickup" value="' + escapeHtml(p.code) + '"'
+          + (p.code === pickup.code ? ' checked' : '') + '>'
+          + '<span class="co-point-text"><b>' + escapeHtml(p.title)
+          + (p.postamat ? '<span class="co-point-kind">постамат</span>' : '') + '</b>'
+          + (p.hours ? '<i>' + escapeHtml(p.hours) + '</i>' : '') + '</span>'
+          + (km ? '<span class="co-point-km">' + escapeHtml(km) + '</span>' : '')
+          + '</label>';
+      }).join('')
+      + '</div>'
+      + '<p class="co-points-note">Не нашли нужный пункт? Впишите его адрес в поле выше.</p>';
+  }
+
+  // Выбор пункта — это смена адреса доставки, поэтому дальше всё идёт обычным
+  // путём: пересчёт зоны, цены и итога делает тот же quoteDelivery.
+  function initPointsChoice() {
+    var box = pointsBox();
+    if (!box) return;
+    box.addEventListener('change', function (e) {
+      var input = e.target;
+      if (!input || input.name !== 'co-pickup') return;
+      var picked = null;
+      for (var i = 0; i < pickup.items.length; i++) if (pickup.items[i].code === input.value) picked = pickup.items[i];
+      if (!picked) return;
+      var field = document.getElementById('co-address');
+      if (!field) return;
+      // Свой адрес запоминаем один раз — при первом выборе пункта: со второго в
+      // поле уже стоит адрес прежнего пункта, и он не покупателя.
+      if (!pickup.code) pickup.typed = field.value.trim();
+      field.value = picked.address;
+      pickup.code = picked.code;
+      // Дальше считаем от самого пункта: подсказка dadata.ru относилась к
+      // прежнему адресу, а он только что сменился.
+      setGeo(picked.lat, picked.lon);
+      quoteDelivery(0);
+      renderPoints();
     });
   }
 
@@ -523,6 +663,11 @@
       lastQuery = s.value;      // выбранное значение заново не переспрашиваем
       close();
       input.focus();
+      // Координаты дома приходят вместе с подсказкой — по ним ищутся ближайшие
+      // пункты выдачи. У неточной подсказки (город целиком) их нет вовсе, и
+      // поиск уйдёт по названию города.
+      dropPickup();
+      setGeo(s.lat, s.lon);
       // Выбор из списка не даёт события ввода, а адрес изменился — цену
       // доставки пересчитываем сразу, без задержки.
       quoteDelivery(0);
@@ -1902,7 +2047,10 @@
       contact: val('co-contact'),
       address: val('co-address'),
       delivery: deliveryChoice(),
-      deliveryMode: deliveryModeChoice()
+      deliveryMode: deliveryModeChoice(),
+      // Код выбранного пункта выдачи. Адрес к нему сервер подставит сам из своей
+      // базы — присланной строке он не верит так же, как не верит цене.
+      pickupCode: pickup.code
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })
