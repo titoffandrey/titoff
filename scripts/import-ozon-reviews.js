@@ -48,10 +48,14 @@ if (!product) {
   process.exit(1);
 }
 
-// Цвет из подписи сборки: «Серебристый · 256 ГБ · Две eSIM» → «Серебристый».
-// По нему считается лимит видео — ровно так же, как при скачивании.
-function colorOf(config) {
-  return String(config || '').split('·')[0].trim().toLowerCase() || 'без цвета';
+// Цвет, по которому считается лимит видео. В пакете он приходит отдельным полем
+// и уже сведён к настоящему цвету (Silver, Deep Blue, Cosmic Orange): подписи
+// площадки дробят один цвет на «серебристый» и «серебристый-серый металлик»,
+// и лимит раздваивался бы вместе с ними. Поля нет — берём начало сборки.
+function colorOf(rv) {
+  const own = String((rv && rv.color) || '').trim().toLowerCase();
+  if (own) return own;
+  return String((rv && rv.config) || '').split('·')[0].trim().toLowerCase() || 'без цвета';
 }
 
 const EXT_OK = new Set(['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.m4v', '.mov']);
@@ -96,7 +100,7 @@ async function fetchTo(url, dest, tries) {
   const byColor = new Map();
   let videosPlanned = 0;
   for (const rv of list) {
-    const color = colorOf(rv.config);
+    const color = colorOf(rv);
     const taken = byColor.get(color) || 0;
     if (rv.videos && rv.videos.length && taken < VIDEOS_PER_COLOR) {
       byColor.set(color, taken + 1);
