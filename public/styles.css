@@ -197,11 +197,42 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .rv-ship{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--muted)}
 .rv-ship-logo{height:14px;width:auto;display:block;opacity:.75}
 .rv-ship-name{font-weight:600;letter-spacing:.01em}
-.review-videos{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
-/* Кадр вертикальный: ролики снимают телефоном. Ширину держим небольшой, чтобы
-   видео не выдавливало текст отзыва с первого экрана. */
-.review-video{width:180px;max-width:100%;aspect-ratio:9/16;background:#000;border-radius:12px;display:block;object-fit:cover}
-@media(max-width:520px){.review-video{width:140px}}
+/* Фото и видео отзыва одной лентой: их листают в общей галерее. */
+.review-media{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.rv-item{position:relative;display:block;width:92px;height:92px;border-radius:10px;overflow:hidden;background:var(--bg2);flex:0 0 auto}
+.rv-item img,.rv-item video{width:100%;height:100%;object-fit:cover;display:block}
+.rv-item video{background:#000}
+/* Значок «это видео»: без него первый кадр не отличить от фотографии. */
+.rv-play{position:absolute;left:50%;top:50%;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;
+  background:rgba(0,0,0,.55);pointer-events:none}
+.rv-play::after{content:"";position:absolute;left:11px;top:9px;border-style:solid;border-width:6px 0 6px 10px;
+  border-color:transparent transparent transparent #fff}
+@media(max-width:520px){.rv-item{width:78px;height:78px}}
+
+/* Просмотр вложений отзыва */
+.lb{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.9);padding:56px 16px}
+.lb[hidden]{display:none}
+body.lb-open{overflow:hidden}
+.lb-stage{max-width:min(1100px,100%);max-height:100%;display:flex;align-items:center;justify-content:center}
+.lb-media{max-width:100%;max-height:calc(100vh - 112px);display:block;border-radius:8px;background:#000}
+.lb-close{position:absolute;top:12px;right:14px;width:42px;height:42px;border:0;border-radius:50%;cursor:pointer;
+  background:rgba(255,255,255,.14);color:#fff;font-size:26px;line-height:1}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border:0;border-radius:50%;
+  cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-size:30px;line-height:1}
+.lb-prev{left:12px}
+.lb-next{right:12px}
+.lb-close:hover,.lb-nav:hover{background:rgba(255,255,255,.26)}
+.lb-close:focus-visible,.lb-nav:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.lb-count{position:absolute;bottom:16px;left:0;right:0;text-align:center;color:rgba(255,255,255,.8);font-size:13px;
+  font-variant-numeric:tabular-nums}
+/* На телефоне стрелки прижимаются к краям, иначе они лежат поверх кадра. */
+@media(max-width:520px){
+  .lb{padding:52px 6px}
+  .lb-nav{width:40px;height:40px;font-size:26px}
+  .lb-prev{left:2px}
+  .lb-next{right:2px}
+}
 .review-photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .review-photos img{width:74px;height:74px;object-fit:cover;border-radius:10px;border:1px solid var(--border)}
 .review-form-wrap{background:var(--bg2);border-radius:var(--radius);padding:20px;max-width:640px}

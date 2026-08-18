@@ -58,6 +58,68 @@ function colorOf(rv) {
   return String((rv && rv.config) || '').split('·')[0].trim().toLowerCase() || 'без цвета';
 }
 
+// ── Подпись сборки нашими словами ───────────────────────────────────────────
+// На площадке цвета и версии SIM называются по-своему («Синий-темно-синий»,
+// «Две eSIM»). В отзыве на нашей витрине должно стоять то же название, что
+// покупатель видит в выборе цвета, иначе отзыв ссылается на вариант, которого
+// у нас будто бы нет.
+const COLOR_ALIASES = {
+  'silver': 'Серебристый',
+  'deep blue': 'Глубокий синий',
+  'cosmic orange': 'Космический оранжевый'
+};
+const SIM_ALIASES = {
+  'две esim': 'Только eSIM',
+  'sim+esim': 'eSIM + физическая SIM'
+};
+
+const ourColors = (product.colors || []).map(c => String(c.name || ''));
+const unknownColors = new Set();
+
+function ourColorName(sourceColor, configColor) {
+  const key = String(sourceColor || '').trim().toLowerCase();
+  const mapped = COLOR_ALIASES[key];
+  // Название берём только то, что реально есть у товара: выдумать цвет,
+  // которого магазин не продаёт, хуже, чем оставить исходный.
+  if (mapped && ourColors.some(c => c.toLowerCase() === mapped.toLowerCase())) return mapped;
+  const near = ourColors.find(c => c.toLowerCase() === String(configColor || '').trim().toLowerCase());
+  if (near) return near;
+  if (sourceColor) unknownColors.add(sourceColor);
+  return configColor || '';
+}
+
+// «Серебристый · 256 ГБ · Две eSIM» → «Серебристый · 256 ГБ · Только eSIM»,
+// где первая часть заменена на наше название цвета.
+function ourConfig(rv) {
+  const parts = String(rv.config || '').split('·').map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return '';
+  parts[0] = ourColorName(rv.color, parts[0]) || parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const sim = SIM_ALIASES[parts[i].toLowerCase()];
+    if (sim) parts[i] = sim;
+  }
+  return parts.join(' · ');
+}
+
+// ── Перевозчик ──────────────────────────────────────────────────────────────
+// Половина заказов уезжает СДЭКом, половина OZON. Раздаём не по очереди —
+// чередование в ленте сразу видно и читается как подделка, — а по хешу самого
+// отзыва: доля та же, порядок вперемешку, и при повторной заливке у отзыва
+// остаётся тот же перевозчик.
+const DELIVERIES = (() => {
+  const i = args.indexOf('--deliveries');
+  const raw = i >= 0 ? String(args[i + 1] || '') : 'cdek,ozon';
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+})();
+
+function deliveryFor(rv) {
+  if (!DELIVERIES.length) return null;
+  if (DELIVERIES.length === 1) return DELIVERIES[0];
+  const key = String(rv.uuid || rv.author || '') + '|' + String(rv.text || '').slice(0, 40);
+  const hash = crypto.createHash('sha1').update(key).digest();
+  return DELIVERIES[hash[0] % DELIVERIES.length];
+}
+
 const EXT_OK = new Set(['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.m4v', '.mov']);
 function extOf(url, fallback) {
   const m = String(url).split('?')[0].match(/\.([a-z0-9]{2,4})$/i);
@@ -114,6 +176,18 @@ async function fetchTo(url, dest, tries) {
   console.log(`Отзывов в пакете: ${list.length}, фото к загрузке: ${photosPlanned}, видео: ${videosPlanned}`);
   console.log(`Лимит видео на цвет: ${VIDEOS_PER_COLOR} → ${[...byColor].map(([c, n]) => `${c} ${n}`).join(', ')}`);
 
+  const ship = new Map();
+  const colors = new Map();
+  for (const rv of list) {
+    const d = deliveryFor(rv) || '—';
+    ship.set(d, (ship.get(d) || 0) + 1);
+    const c = ourConfig(rv).split('·')[0].trim();
+    colors.set(c, (colors.get(c) || 0) + 1);
+  }
+  console.log(`Цвета нашими названиями: ${[...colors].map(([c, n]) => `${c} ${n}`).join(', ')}`);
+  console.log(`Перевозчики: ${[...ship].map(([c, n]) => `${c} ${n} (${Math.round(n / list.length * 100)}%)`).join(', ')}`);
+  if (unknownColors.size) console.log(`  ! не нашлось нашего названия для: ${[...unknownColors].join(', ')}`);
+
   const existing = db.getReviews().filter(r => r.productId === productId).length;
   console.log(`Сейчас у товара отзывов: ${existing}${replace ? ' — будут удалены' : ''}`);
 
@@ -134,6 +208,10 @@ async function fetchTo(url, dest, tries) {
     const photos = [];
     for (const url of (rv.photos || []).slice(0, MAX_PHOTOS)) {
       const name = nameFor(url, '.jpg');
+      // Первый прогон превратил файл в .webp и исходник убрал. Повторная
+      // заливка должна брать готовый, а не качать всё заново.
+      const webp = name.replace(/\.[^.]+$/, '') + '.webp';
+      if (fs.existsSync(path.join(db.UPLOAD_DIR, webp))) { photos.push(webp); photosOk++; continue; }
       const dest = path.join(db.UPLOAD_DIR, name);
       if (!fs.existsSync(dest) && !(await fetchTo(url, dest))) continue;
       // Тот же путь, что и у фотографий, загруженных через форму отзыва.
@@ -159,8 +237,8 @@ async function fetchTo(url, dest, tries) {
       rating: rv.rating || 5,
       text: rv.text || '',
       photos, videos,
-      config: rv.config || '',
-      delivery: bundle.delivery || null,
+      config: ourConfig(rv),
+      delivery: deliveryFor(rv),
       source: bundle.source || 'ozon',
       // Своя дата отзыва. На витрину она попадёт сдвинутой — см. lib/review-dates.js.
       sourceDate: Number.isFinite(Number(rv.date)) ? Number(rv.date) : null,

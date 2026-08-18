@@ -3621,7 +3621,7 @@ test('у отзыва одна общая оценка: признаков «д�
   assert.doesNotMatch(css, /\.asp-chip|\.aspect-row|\.aspects\{/, 'остались стили признаков');
 });
 
-test('в отзыве видно сборку покупателя и перевозчика, а видео играется на месте', () => {
+test('в отзыве видно сборку покупателя и перевозчика, а медиа идёт одной лентой', () => {
   const rv = {
     id: 'r1', author: 'Пётр', rating: 5, text: 'Отлично', status: 'approved', createdAt: 1000,
     config: 'Серебристый · 256 ГБ · Две eSIM', delivery: 'ozon',
@@ -3636,7 +3636,9 @@ test('в отзыве видно сборку покупателя и перев
   // Логотип берётся из того же спрайта, что и на оформлении, и спрайт на странице есть.
   assert.match(html, /<use href="#dl-ozon">/);
   assert.match(html, /<symbol id="dl-ozon"/);
-  assert.match(html, /<video class="review-video" src="\/uploads\/v\.mp4" controls/);
+  // Фото и видео — одной лентой: их листают в общей галерее.
+  assert.match(html, /<a class="rv-item rv-video" href="\/uploads\/v\.mp4" data-kind="video" data-i="0"/);
+  assert.match(html, /<a class="rv-item rv-photo" href="\/uploads\/a\.webp" data-kind="photo" data-i="1"/);
   assert.match(html, /data-video="1"/);
 
   // Серым и мелким — это уточнение к отзыву, а не его содержание.
@@ -3758,4 +3760,44 @@ test('ночная пересборка демо-отзывов обходит �
     'генератор должен получать отфильтрованный список товаров');
   assert.doesNotMatch(src, /generateDemoReviews\(products/,
     'полный список товаров вернул бы демо-отзывы обратно');
+});
+
+test('фото и видео отзыва листаются одной галереей', () => {
+  const rv = { id: 'r1', author: 'А', rating: 5, text: 't', status: 'approved', createdAt: 1,
+    photos: ['p1.webp', 'p2.webp'], videos: ['v1.mp4'] };
+  const card = render.reviewCard(rv);
+
+  // Один блок на все вложения, а не отдельные «фото» и «видео»: открыв снимок,
+  // посетитель должен долистать до ролика, не закрывая просмотр.
+  assert.equal((card.match(/class="review-media"/g) || []).length, 1);
+  assert.doesNotMatch(card, /review-photos|review-videos/);
+  const order = (card.match(/data-kind="(photo|video)"/g) || []).map(s => s.slice(11, -1));
+  assert.deepEqual(order, ['video', 'photo', 'photo'], 'видео идёт первым, нумерация сквозная');
+
+  // Ссылки настоящие: без скрипта клик открывает файл, как раньше.
+  assert.match(card, /<a class="rv-item rv-video" href="\/uploads\/v1\.mp4"/);
+  assert.match(card, /<a class="rv-item rv-photo" href="\/uploads\/p1\.webp"/);
+  // Обложек у роликов нет, поэтому кадром служит сам <video>.
+  assert.match(card, /<video src="\/uploads\/v1\.mp4#t=0\.1" preload="metadata" muted playsinline>/);
+  assert.match(card, /<span class="rv-play"/);
+
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(js, /initReviewLightbox\(\);/, 'просмотрщик должен подключаться при загрузке');
+  assert.match(js, /e\.key === 'Escape'[^]{0,40}lbClose/, 'Esc обязан закрывать просмотр');
+  assert.match(js, /ArrowLeft[^]{0,60}lbGo\(-1\)/, 'стрелки листают');
+  // Уходя с кадра, ролик обязан замолчать — иначе звук идёт из закрытого просмотра.
+  assert.match(js, /function lbClose\(\)[^]{0,220}pause\(\)/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /body\.lb-open\{overflow:hidden\}/, 'фон под просмотром не должен прокручиваться');
+});
+
+test('перевозчик у привезённых отзывов раздан вперемешку, а не по очереди', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-ozon-reviews.js'), 'utf8');
+  // Чередование в ленте сразу видно и читается как подделка.
+  assert.match(src, /createHash\('sha1'\)\.update\(key\)/, 'перевозчик выбирается по хешу отзыва');
+  assert.doesNotMatch(src, /index % DELIVERIES\.length|i % 2/, 'раздача по очереди');
+  // Название цвета должно быть нашим, а не с площадки.
+  assert.match(src, /COLOR_ALIASES/);
+  assert.match(src, /ourColors\.some/, 'цвет берётся только тот, что есть у товара');
 });
