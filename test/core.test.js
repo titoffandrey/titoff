@@ -3857,7 +3857,9 @@ test('покупатель снова может приложить фото к 
   const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
   const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
   assert.match(html, /<input type="file" id="rv-photos" name="photos" accept="image\/\*" multiple>/);
-  assert.match(html, new RegExp('До ' + render.REVIEW_PHOTOS_MAX + ' снимков'));
+  // Предел стоит прямо в подписи поля: отдельной строкой-подсказкой под ним он
+  // добавлял форме ряд на ровном месте.
+  assert.match(html, new RegExp('<label for="rv-photos">Фото <span class="rf-sub">до ' + render.REVIEW_PHOTOS_MAX));
 
   // Предел с витрины свой и меньше панельного: здесь грузит кто угодно, а один
   // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
@@ -3866,6 +3868,28 @@ test('покупатель снова может приложить фото к 
   assert.match(route.slice(0, 1600), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
   // Превью делаем сразу: в ленте показывается оно, полный файл — в просмотрщике.
   assert.match(route.slice(0, 1600), /previews: await reviewPreviews\(photos\)/);
+});
+
+test('форма отзыва идёт во всю ширину и в три ряда', () => {
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
+  const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
+  // Оценка, имя и фото стоят рядом, текст и кнопка — во всю ширину.
+  assert.match(html, /<form id="review-form" class="rf-grid"/);
+  for (const cls of ['rf-rate', 'rf-name', 'rf-photos', 'rf-text', 'rf-send']) {
+    assert.ok(html.includes('class="field ' + cls + '"') || html.includes('class="' + cls + '"'), 'нет блока ' + cls);
+  }
+  // Длинного объяснения про согласия больше нет — они и так спрашиваются
+  // отдельными окнами сразу после нажатия кнопки.
+  assert.equal(/После нажатия кнопки мы отдельно попросим/.test(html), false);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Ширину блок больше ничем не режет: половина страницы пустовала.
+  for (const rule of css.match(/\.review-form-wrap\{[^}]*\}/g) || []) {
+    assert.equal(/max-width/.test(rule), false, 'у формы отзыва снова появился предел ширины: ' + rule);
+  }
+  // На телефоне три поля в ряд не встают — там один столбец и широкая кнопка.
+  assert.match(css, /@media\(max-width:800px\)\{[^]*\.rf-grid\{grid-template-columns:minmax\(0,1fr\)/);
 });
 
 test('в порядке «Новые» лента идёт строго по дате и ничем не переставляется', () => {

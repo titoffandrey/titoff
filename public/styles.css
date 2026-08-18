@@ -274,7 +274,7 @@ body.lb-open{overflow:hidden}
 }
 .review-photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .review-photos img{width:74px;height:74px;object-fit:cover;border-radius:10px;border:1px solid var(--border)}
-.review-form-wrap{background:var(--bg2);border-radius:var(--radius);padding:20px;max-width:640px}
+.review-form-wrap{background:var(--bg2);border-radius:var(--radius);padding:20px}
 .rate-input{display:inline-flex;gap:4px;font-size:30px;line-height:1}
 .rate-star{background:none;border:none;cursor:pointer;color:#d2d2d7;padding:0;transition:color .1s;font-size:30px}
 .rate-star.on{color:var(--gold)}
@@ -1321,8 +1321,23 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .review-author{font-size:14.5px;letter-spacing:-.01em}
 .review-name .stars{font-size:12.5px}
 .review-text{font-size:14.5px;line-height:1.55}
-.review-form-wrap{max-width:760px;margin-top:34px;padding:26px;border:1px solid var(--border-soft);background:var(--surface-soft)}
-.review-form-wrap h3{margin-bottom:22px;font-size:24px}
+/* Форма отзыва — во всю ширину раздела и в три ряда: оценка, имя и фото стоят
+   рядом, под ними текст, внизу кнопка. Пятью полями в столбик она занимала
+   полтора экрана, а половина ширины страницы при этом пустовала. */
+.review-form-wrap{margin-top:28px;padding:22px 24px;border:1px solid var(--border-soft);background:var(--surface-soft)}
+.review-form-wrap h3{margin-bottom:16px;font-size:22px}
+.rf-grid{display:grid;grid-template-columns:max-content minmax(220px,1fr) minmax(210px,.8fr);gap:14px 24px;align-items:start}
+.rf-grid>*{min-width:0}
+.rf-grid .field{margin:0}
+.rf-text,.rf-send,.rf-grid .form-msg{grid-column:1/-1}
+/* Уточнение прямо в подписи поля — отдельной строкой-подсказкой под ним оно
+   добавляло форме ряд на ровном месте. */
+.rf-sub{margin-left:6px;color:var(--muted);font-size:12px;font-weight:400}
+.rf-rate .rate-input{height:44px;align-items:center}
+.rf-text textarea{min-height:88px}
+.rf-send{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap}
+.rf-send .btn{min-width:210px}
+.rf-send .form-legal-note{margin:0}
 .rate-star{transition:color .1s,transform .1s}
 .rate-star:hover{transform:scale(1.08)}
 /* Выбор фото к отзыву. Родная кнопка браузера выглядит чужой рядом с полями
@@ -1929,7 +1944,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .trust-item{padding:8px 0}
   .spec-grid{grid-template-columns:1fr;gap:4px}
   .spec-item{padding:10px 0}
-  .review-form-wrap{padding:20px}
+  .review-form-wrap{padding:18px 16px}
+  .review-form-wrap h3{margin-bottom:14px;font-size:20px}
+  /* В узкую ленту три поля рядом не встают: столбиком, кнопка во всю ширину. */
+  .rf-grid{grid-template-columns:minmax(0,1fr);gap:13px}
+  .rf-send{align-items:stretch;flex-direction:column;gap:10px}
+  .rf-send .btn{width:100%;min-width:0;min-height:48px}
+  .rf-send .form-legal-note{text-align:center}
   .review-consent-overlay{align-items:flex-end;padding:0}
   .review-consent-dialog{width:100%;padding:25px 20px calc(20px + env(safe-area-inset-bottom));border-width:1px 0 0;border-radius:24px 24px 0 0}
   .review-consent-dialog h2{font-size:25px}
