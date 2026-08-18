@@ -1025,6 +1025,39 @@ test('карточка каталога: строка отзывов, розов
   assert.match(rule('\\.rt-star'), /color:#ffa800/);
 });
 
+test('в карточке нет категории и отметок, а ссылок на товар две — снимок и название', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, badge: 'Новинка', inStock: true, images: [] };
+  const db = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['Категория'], visibleCategories: () => ['Категория'],
+    ratingFor: () => ({ avg: 0, count: 0 }),
+  };
+  const html = render.homePage(settings, db, { category: '', q: '', origin: '' });
+  const card = html.slice(html.indexOf('<article class="card'), html.indexOf('</article>'));
+
+  // Строки над названием нет вовсе — ни категории, ни отметки. Отметка не
+  // возвращается даже из старых данных: поля больше нет ни в форме, ни в БД.
+  assert.doesNotMatch(card, /card-cat|card-flag/, 'строка категории и отметок вернулась');
+  assert.doesNotMatch(card, /Новинка/, 'отметка товара всё ещё попадает на витрину');
+  const admin = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
+  assert.doesNotMatch(admin, /name="badge"/, 'поле отметки вернулось в форму товара');
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'lib', 'db.js'), 'utf8'), /badge:/, 'отметка вернулась в хранилище');
+
+  // Две ссылки на товар: снимок (без имени и фокуса) и название
+  assert.match(card, /<a class="card-media-link" href="\/product\/p1" tabindex="-1" aria-hidden="true">/);
+  assert.match(card, /<a class="card-name" href="\/product\/p1">Товар<\/a>/);
+  assert.doesNotMatch(card, /card-link/, 'вернулась общая ссылка на всё тело карточки');
+
+  // Карточка неподвижна: ни подъёма, ни наплыва снимка при наведении
+  assert.doesNotMatch(css, /\.card:hover\{/, 'карточка снова двигается при наведении');
+  assert.doesNotMatch(css, /\.card:active\{/);
+  assert.doesNotMatch(css, /\.card:hover \.card-media img/);
+  // Название — ссылка, и при наведении меняется только цвет, как у Ozon
+  assert.match(css, /\.card-name:hover\{color:#0050e0\}/);
+});
+
 test('после заказа показывается понятное адаптивное подтверждение', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');

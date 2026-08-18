@@ -1153,7 +1153,7 @@ app.get('/admin/analytics/visitor/:key', (req, res) => {
 // одинаковых объекта стояли в двух маршрутах и успевали разойтись.
 function productFields(req) {
   return {
-    name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice, badge: req.body.badge,
+    name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice,
     inStock: req.body.inStock !== undefined, visible: req.body.visible !== undefined, stockLevel: req.body.stockLevel,
     shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),

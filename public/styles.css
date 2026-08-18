@@ -100,16 +100,14 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 
 /* ===== Сетка товаров ===== */
 .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:transform .12s ease, box-shadow .15s ease}
-.card-link{display:flex;flex-direction:column;flex:1;color:inherit;text-decoration:none}
-.card-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lg)}
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+.card-media-link{display:block;color:inherit;text-decoration:none}
 .card-media{position:relative;aspect-ratio:1/1;background:var(--bg2);display:flex;align-items:center;justify-content:center}
 .card-media img,.card-media .ph{width:100%;height:100%;object-fit:contain}
 .card-media img{padding:0}
 .card-body{padding:12px 14px 4px;flex:1}
-.card-cat{font-size:12px;color:var(--muted)}
-.card-name{font-size:15px;font-weight:600;margin:2px 0 6px;letter-spacing:-.01em}
+.card-name{display:block;font-size:15px;font-weight:600;margin:2px 0 6px;letter-spacing:-.01em;color:inherit;text-decoration:none}
+.card-name:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .card-rating{display:flex;align-items:center;gap:6px;min-height:20px;font-size:13px;color:var(--muted)}
 .card-rating-empty{font-size:12px}
 .rating-count{font-size:12px}
@@ -733,11 +731,8 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .section-head h2,.deals-title{letter-spacing:-.025em;font-weight:660}
 
 /* карточки-плитки */
-.card{border:1px solid #ececf0;border-radius:var(--radius);box-shadow:var(--shadow);transition:transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s}
-.card:hover{box-shadow:var(--shadow-lg)}
-.card:active{transform:scale(.98)}
+.card{border:1px solid #ececf0;border-radius:var(--radius);box-shadow:var(--shadow)}
 .card-media{background:linear-gradient(160deg,#f4f6fa 0%,#e8ecf2 100%)}
-.card-cat{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:#9c9ca4;font-weight:600}
 .card-name{font-size:15px;font-weight:600;letter-spacing:-.012em;line-height:1.32;margin:3px 0 8px}
 .card-price{font-size:17px;font-weight:680;letter-spacing:-.02em}
 .old-price{font-size:13px}
@@ -1168,25 +1163,24 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .section-head-center{justify-content:center;text-align:center}
 .section-head>.muted{padding-bottom:3px;font-size:14px;white-space:nowrap}
 .grid{gap:16px}
-.card{border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:#fff;isolation:isolate;transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease,border-color .2s ease}
-.card:hover{border-color:#d9d9de;box-shadow:var(--shadow-lg);transform:translateY(-4px)}
-.card:active{transform:scale(.99)}
+/* Карточка неподвижна: ни подъёма, ни тени, ни наплыва снимка при наведении.
+   Всё это было сделано, когда ссылкой была вся карточка целиком — движение
+   показывало, что она нажимается. Теперь нажимаются снимок и название, и
+   дёргаться от одного проезда мышью по сетке карточке незачем. */
+.card{border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:#fff;isolation:isolate}
 .card-media{aspect-ratio:1/1;background:#f5f5f7;overflow:hidden;isolation:isolate}
 .card-media img{mix-blend-mode:darken}
-.card-media img,.card-media .ph{transition:transform .35s cubic-bezier(.2,.8,.2,1)}
-.card:hover .card-media img,.card:hover .card-media .ph{transform:scale(1.025)}
 .card-body{padding:12px 13px 3px}
-.card-cat{margin-bottom:4px;color:#8e8e93;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
-/* Отметка товара занимает слот категории: тот же кегль, вес и трекинг, разница
-   только в цвете. Поэтому строка над названием у всех карточек одной высоты, а
-   на снимке не лежит ничего. Оранжевый — тот же, каким Apple подписывает
-   «Новинка» на светлом фоне: читается при любом акценте магазина. */
-.card-flag{color:#bf4800}
-.card-flag-out{color:#8e8e93}
-/* Распроданное видно и по снимку: подпись сверху и кнопка внизу легко
-   проскакивают мимо взгляда, а фото — первое, что читается в карточке. */
+/* Строки категории и отметок («Хит», «Новинка») над названием больше нет.
+   Категория повторяла раздел, в котором покупатель и так стоит, а отметки
+   раздавались руками и на витрине читались рекламой. Распроданное видно по
+   погашенному снимку и по кнопке — подпись поверх карточки для этого не нужна. */
 .card-out .card-media img,.card-out .card-media .ph{opacity:.5;filter:grayscale(.7)}
-.card-name{display:-webkit-box;min-height:0;margin:0 0 4px;overflow:hidden;font-size:14px;font-weight:650;line-height:1.29;letter-spacing:-.014em;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+/* Название — ссылка на товар, вторая после снимка. Цвет при наведении тот же,
+   что у Ozon (#0050e0), и меняется только он: подчёркивание в две строки с
+   обрезкой по -webkit-line-clamp обрывается на середине буквы. */
+.card-name{display:-webkit-box;min-height:0;margin:0 0 4px;overflow:hidden;font-size:14px;font-weight:650;line-height:1.29;letter-spacing:-.014em;-webkit-box-orient:vertical;-webkit-line-clamp:2;color:#070707;text-decoration:none;transition:color .12s ease}
+.card-name:hover{color:#0050e0}
 
 /* ===== Строка отзывов и цена — по образцу карточки Ozon =====
    Одна звезда с оценкой, пузырёк и число отзывов словом; ниже цена, старая
@@ -1937,10 +1931,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .section-head h2{font-size:28px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
   .card{border-radius:19px}
-  .card:hover{transform:none;box-shadow:var(--shadow)}
   .card-media{aspect-ratio:1/1}
   .card-body{padding:10px 10px 2px}
-  .card-cat{margin-bottom:3px;font-size:9.5px}
   .card-name{min-height:0;margin-bottom:5px;font-size:13px;line-height:1.28}
   .card-rating{min-height:14px}
   .rt-star,.rt-bubble{width:14px;height:14px}
@@ -2213,10 +2205,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}
   .grid{gap:9px}
-  /* На узком экране карточка — половина ширины, и длинная отметка вроде «Выбор
-     покупателей» разрывалась на две строки. Чуть плотнее трекинг — и она снова
-     в одну, а с ней и категория. */
-  .card-cat{font-size:9px;letter-spacing:.045em}
   .card-body{padding-inline:10px}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{font-size:13px}
@@ -2251,7 +2239,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 }
 
 @media(hover:none){
-  .card:hover,.a-stat:hover{transform:none}
+  .a-stat:hover{transform:none}
   .img-del,.img-main{opacity:1;transform:scale(1)}
 }
 @media(prefers-reduced-motion:reduce){
