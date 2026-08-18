@@ -3599,3 +3599,104 @@ test('логотип перевозчика инлайнится спрайто�
   // Спрайта нет, пока нет ни одного файла — лишнего узла в разметке не будет.
   if (!logos.names().length) assert.equal(logos.sprite(), '');
 });
+
+// ─── Отзывы с площадки: сборка покупателя, доставка, видео, даты ─────────────
+
+test('у отзыва одна общая оценка: признаков «доставка/сервис/цена» нет нигде', () => {
+  const rv = { id: 'r1', author: 'Вера', rating: 5, text: 'Хорошо', status: 'approved', createdAt: 1000,
+    aspects: { delivery: 5, service: 4, price: 5 } };
+  const db = { reviewsForProduct: () => [rv], ratingFor: () => ({ avg: 5, count: 1 }), categories: () => [], visibleCategories: () => [] };
+  const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
+
+  // Ни плашек в карточке, ни средних в сводке, ни полей в форме отзыва.
+  assert.doesNotMatch(html, /asp-chip|review-aspects/, 'плашки признаков в карточке');
+  assert.doesNotMatch(html, /Цена\/качество|🎧|Обслуживание/, 'средние по признакам в сводке');
+  assert.doesNotMatch(html, /aspect_(delivery|service|price)/, 'поля признаков в форме отзыва');
+  // Общая оценка и разбивка по звёздам при этом на месте.
+  assert.match(html, /rating-big/);
+  assert.match(html, /rbar-fill/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.doesNotMatch(css, /\.asp-chip|\.aspect-row|\.aspects\{/, 'остались стили признаков');
+});
+
+test('в отзыве видно сборку покупателя и перевозчика, а видео играется на месте', () => {
+  const rv = {
+    id: 'r1', author: 'Пётр', rating: 5, text: 'Отлично', status: 'approved', createdAt: 1000,
+    config: 'Серебристый · 256 ГБ · Две eSIM', delivery: 'ozon',
+    photos: ['a.webp'], videos: ['v.mp4']
+  };
+  const db = { reviewsForProduct: () => [rv], ratingFor: () => ({ avg: 5, count: 1 }), categories: () => [], visibleCategories: () => [] };
+  const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
+  const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
+
+  assert.match(html, /<div class="review-config">Серебристый · 256 ГБ · Две eSIM<\/div>/);
+  assert.match(html, /class="rv-ship"[^>]*Доставка: OZON/);
+  // Логотип берётся из того же спрайта, что и на оформлении, и спрайт на странице есть.
+  assert.match(html, /<use href="#dl-ozon">/);
+  assert.match(html, /<symbol id="dl-ozon"/);
+  assert.match(html, /<video class="review-video" src="\/uploads\/v\.mp4" controls/);
+  assert.match(html, /data-video="1"/);
+
+  // Серым и мелким — это уточнение к отзыву, а не его содержание.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.review-config\{[^}]*color:var\(--muted\)/);
+
+  // Чужой перевозчик в разметку не попадает: только из закрытого списка.
+  const alien = render.reviewCard(Object.assign({}, rv, { delivery: '"><script>' }));
+  assert.doesNotMatch(alien, /<script>/);
+  assert.doesNotMatch(alien, /rv-ship/);
+});
+
+test('отзывы с видео идут по передним страницам и никогда не подряд', () => {
+  const mk = (i, kind) => ({
+    id: 'r' + i, author: 'A' + i, rating: 5, status: 'approved', createdAt: 10000 - i, text: 't',
+    videos: kind === 'v' ? ['v' + i + '.mp4'] : [],
+    photos: kind === 'p' ? ['p' + i + '.webp'] : []
+  });
+  // Видео лежат в самом хвосте по дате — без раскладки они попали бы на последнюю страницу.
+  const list = [];
+  for (let i = 0; i < 40; i++) list.push(mk(i, 'p'));
+  for (let i = 40; i < 46; i++) list.push(mk(i, 'v'));
+
+  const sorted = render.sortReviews(list, 'new');
+  const kinds = sorted.map(r => (r.videos.length ? 'v' : 'o'));
+  assert.doesNotMatch(kinds.join(''), /vv/, 'два видео подряд');
+
+  const per = render.REVIEWS_PER_PAGE;
+  const onFirst = kinds.slice(0, per).filter(k => k === 'v').length;
+  assert.ok(onFirst >= 2, 'на первой странице должно быть несколько видео, а не одно');
+  // Все шесть видео укладываются в первые страницы, а не тонут в конце ленты.
+  const lastVideo = kinds.lastIndexOf('v');
+  assert.ok(lastVideo < per * 3, 'видео должны быть на передних страницах, а не в хвосте');
+  assert.equal(sorted.length, list.length, 'ни один отзыв не потерялся');
+
+  // Выбрал сортировку по оценке — значит просил оценки, и видео их не переставляет.
+  const byHigh = render.sortReviews(list, 'high');
+  assert.equal(byHigh.length, list.length);
+});
+
+test('даты привезённых отзывов сдвигаются к сегодня и сдвиг не накапливается', () => {
+  const dates = require('../lib/review-dates');
+  const day = 24 * 60 * 60 * 1000;
+  const list = [
+    { id: 'a', sourceDate: 1000 * day, createdAt: 1000 * day },
+    { id: 'b', sourceDate: 990 * day, createdAt: 990 * day },
+    { id: 'c', sourceDate: 900 * day, createdAt: 900 * day },
+    { id: 'd', createdAt: 5 }                       // обычный отзыв покупателя — не трогаем
+  ];
+  const now = 1200 * day;
+  const plan = dates.plannedDates(list, now);
+  assert.equal(plan.get('a'), now, 'самый свежий становится сегодняшним');
+  assert.equal(plan.get('b'), now - 10 * day, 'расстояния между отзывами сохраняются');
+  assert.equal(plan.get('c'), now - 100 * day);
+  assert.ok(!plan.has('d'), 'отзыв без исходной даты не трогается');
+
+  // Повторный прогон в тот же момент ничего не меняет: сдвиг считается от
+  // исходной даты, а не от текущей, иначе лента каждый день уезжала бы вперёд.
+  for (const rv of list) if (plan.has(rv.id)) rv.createdAt = plan.get(rv.id);
+  assert.equal(dates.plannedDates(list, now).size, 0);
+  // На следующий день сдвигается ровно на сутки, а не на двое.
+  assert.equal(dates.plannedDates(list, now + day).get('a'), now + day);
+});

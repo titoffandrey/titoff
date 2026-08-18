@@ -590,13 +590,9 @@ app.post('/api/reviews', async (req, res) => {
   // NaN < 1 и NaN > 5 оба ложны — отзыв проходил проверку и молча получал 5 звёзд.
   const rating = Number(req.body.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
-  const clamp5 = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; };
-  const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
-    ? { delivery: clamp5(req.body.aspect_delivery), service: clamp5(req.body.aspect_service), price: clamp5(req.body.aspect_price) }
-    : null;
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating, text: req.body.text,
-    photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'pending',
+    photos: await optimizeUploads(req.filesFor('photos'), 1400), status: 'pending',
     privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION,
     publicationConsentAt: Date.now(), publicationConsentVersion: R.PRIVACY_VERSION
   });
@@ -1327,10 +1323,7 @@ app.post('/admin/reviews/new', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const p = db.getProduct(req.body.productId); if (!p) return res.redirect('/admin/reviews');
   let createdAt = Date.now(); if (req.body.date) { const t = Date.parse(req.body.date); if (!isNaN(t)) createdAt = t; }
-  const c5 = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null; };
-  const aspects = (req.body.aspect_delivery || req.body.aspect_service || req.body.aspect_price)
-    ? { delivery: c5(req.body.aspect_delivery), service: c5(req.body.aspect_service), price: c5(req.body.aspect_price) } : null;
-  db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), aspects, status: 'approved', createdAt });
+  db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), status: 'approved', createdAt });
   res.redirect('/admin/reviews?flash=' + encodeURIComponent('Отзыв опубликован'));
 });
 app.post('/admin/reviews/:id/approve', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'approved'); res.redirect(reviewsBackUrl(req.body, 'Отзыв опубликован')); });

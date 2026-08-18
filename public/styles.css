@@ -190,6 +190,18 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .review-date{color:var(--muted);font-size:13px}
 .review-stars{margin:4px 0 8px}
 .review-text{margin:0;color:#333}
+/* Сборка, которую купил автор отзыва: уточнение, а не содержание — поэтому мелко и серым. */
+.review-config{margin-top:6px;font-size:13px;line-height:1.35;color:var(--muted)}
+/* Подпись доставки с логотипом перевозчика. Высота знака фиксирована, ширина по
+   viewBox: подгонять разные вордмарки под общую ширину значило бы их искажать. */
+.rv-ship{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--muted)}
+.rv-ship-logo{height:14px;width:auto;display:block;opacity:.75}
+.rv-ship-name{font-weight:600;letter-spacing:.01em}
+.review-videos{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+/* Кадр вертикальный: ролики снимают телефоном. Ширину держим небольшой, чтобы
+   видео не выдавливало текст отзыва с первого экрана. */
+.review-video{width:180px;max-width:100%;aspect-ratio:9/16;background:#000;border-radius:12px;display:block;object-fit:cover}
+@media(max-width:520px){.review-video{width:140px}}
 .review-photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .review-photos img{width:74px;height:74px;object-fit:cover;border-radius:10px;border:1px solid var(--border)}
 .review-form-wrap{background:var(--bg2);border-radius:var(--radius);padding:20px;max-width:640px}
@@ -823,9 +835,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .rbar-num{width:26px;text-align:right}
 .rbar-track{flex:1;height:8px;background:#e4e4e9;border-radius:6px;overflow:hidden}
 .rbar-fill{height:100%;background:var(--gold);border-radius:6px}
-.aspects{display:flex;flex-direction:column;gap:8px;min-width:150px}
-.asp{display:flex;justify-content:space-between;gap:14px;font-size:14px}
-.asp b{color:var(--text)}
 .reviews-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .sort-btn{display:inline-block;padding:6px 12px;border:1px solid var(--border);border-radius:20px;background:#fff;cursor:pointer;
   font-size:13px;color:var(--text);font-family:inherit;text-decoration:none;line-height:1.35}
@@ -849,16 +858,9 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .rev-off{opacity:.28;pointer-events:none}
 .rev-gap{padding:0 2px;color:var(--muted);font-size:14px;user-select:none}
 .reviews-shown{font-variant-numeric:tabular-nums}
-.review-aspects{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.asp-chip{font-size:12px;color:var(--muted);background:var(--bg2);border-radius:8px;padding:3px 8px}
-.aspect-inputs{display:flex;flex-direction:column;gap:8px;margin:8px 0 14px}
-.aspect-row{display:flex;align-items:center;gap:12px;font-size:14px}
-.aspect-row>span{min-width:110px;color:var(--muted)}
-.rate-input.rate-sm .rate-star{font-size:20px}
 @media(max-width:560px){
   .rating-overview{gap:16px;padding:14px}
   .rating-num{font-size:36px}
-  .aspect-row>span{min-width:92px}
 }
 
 /* ===== Галерея как на apple.com: стрелки-круги + точки, без миниатюр ===== */
@@ -1942,9 +1944,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .product-price{font-size:30px}
   .deal-banner{font-size:12px}
   .product .buy-row{margin-inline:-13px;padding-inline:13px}
-  .aspect-row{gap:7px}
-  .aspect-row>span{min-width:84px;font-size:12px}
-  .rate-input.rate-sm .rate-star{font-size:19px}
   .a-cards{grid-template-columns:1fr 1fr}
   .a-stat{min-height:98px;padding:14px;font-size:13px}
   .a-stat-num{font-size:27px}
