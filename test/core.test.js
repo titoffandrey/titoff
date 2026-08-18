@@ -1932,6 +1932,39 @@ test('оплата выключена по умолчанию и не включ
   assert.equal(croco.toMinor(99990), 9999000);
 });
 
+test('отказ кассы объяснён покупателю, а «нет реквизитов» — не поломка', () => {
+  const croco = require('../lib/crocopay');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Штатный отказ P2P-процессинга: пул карт конечен, и на конкретную сумму
+  // свободной может не быть. Лечится другим способом (у СБП пул свой) или
+  // повтором — ровно это покупателю и говорим, а не «не удалось».
+  const noReq = croco.startError('Requisites not found');
+  assert.match(noReq, /нет свободных реквизитов/i);
+  assert.match(noReq, /другой способ|через пару минут/i);
+  assert.equal(croco.startError('REQUISITE_NOT_FOUND'), noReq);
+
+  assert.match(croco.startError('payment_option is not enabled'), /способ оплаты сейчас недоступен/i);
+  assert.match(croco.startError('timeout'), /не отвечает/i);
+  // Незнакомый ответ кассы наружу не показываем — он покупателю ничего не
+  // объясняет, — но говорим, что заказ сохранён: он и правда настоящий.
+  const unknown = croco.startError('Internal server error #42');
+  assert.doesNotMatch(unknown, /Internal|#42/);
+  assert.match(unknown, /заказ уже сохранён/i);
+  assert.equal(croco.startError(''), unknown);
+  assert.equal(croco.startError(null), unknown);
+
+  // Маршрут берёт текст оттуда же: разбор чужих ответов живёт рядом с остальным
+  // знанием об их API, а не размазан по server.js.
+  const start = server.slice(server.indexOf("app.post('/api/pay/crocopay/start'"), server.indexOf("app.get('/api/pay/crocopay/status'"));
+  assert.match(start, /CROCO\.startError\(r\.error\)/);
+  // Заказ при отказе кассы остаётся настоящим — иначе покупатель оформит второй.
+  assert.match(start, /placed: true/);
+  // В логе — способ и сумма: по одной строке «Requisites not found» не понять,
+  // на чём именно споткнулась касса.
+  assert.match(start, /console\.error\('crocopay invoice:'[^)]*способ[^)]*сумма/);
+});
+
 test('единицы суммы вебхука угадываются, а недоплата не проходит ни в каких', () => {
   const croco = require('../lib/crocopay');
   // Ожидаем 239 990 ₽. Касса вправе прислать и рубли, и копейки — документация

@@ -975,13 +975,14 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
     callbackUrl: originOf(req) + '/api/pay/crocopay/callback?order=' + encodeURIComponent(id) + '&token=' + started.payment.token
   });
   if (!r.ok) {
-    console.error('crocopay invoice:', r.error);
-    // Ошибку кассы показываем как есть только для «способ недоступен»: остальные
-    // тексты платёжки покупателю ничего не объясняют.
-    const known = /payment_option|not enabled|not supported/i.test(String(r.error || ''));
+    // В логе — способ и сумма: без них по одной строке «Requisites not found»
+    // не понять, на чём именно споткнулась касса.
+    console.error('crocopay invoice:', r.error, '| способ', method, '| сумма', order.total, '| заказ', R.orderNo(order.number));
+    // Текст для покупателя собирает lib/crocopay.js: разбор чужих английских
+    // ответов — знание об их API, и живёт оно рядом с остальным.
     // `placed` — заказ уже настоящий, даже если счёт не вышел. Витрине это нужно,
     // чтобы очистить корзину: иначе покупатель оформит второй такой же.
-    return res.json({ ok: false, placed: true, error: known ? 'Этот способ оплаты сейчас недоступен — выберите другой' : 'Не удалось выставить счёт' }, 502);
+    return res.json({ ok: false, placed: true, error: CROCO.startError(r.error) }, 502);
   }
   // Способ пишем тот, что ВЕРНУЛА касса: на запрос TO_CARD она вправе выдать
   // TO_CARD_TRANSGRAN, и подпись реквизита должна соответствовать выданному.
