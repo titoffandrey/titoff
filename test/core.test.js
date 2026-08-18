@@ -1684,6 +1684,64 @@ test('подпись корпуса на фото ремешка читаетс�
   assert.match(html, /<div class="img-chip-media" data-case="Чёрный титан">/);
 });
 
+test('строка заказа: свой столбец у каждого вопроса, длинное — под раскрытием', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const long = {
+    id: 'o1', number: '482913', createdAt: Date.now(), status: 'new',
+    customerName: 'Анна Смирнова', contact: '@anna', total: 420940,
+    delivery: 'cdek', deliveryMode: 'pvz', deliveryPrice: 510,
+    address: 'Краснодарский край, Брюховецкий р-н, ст-ца Новоджерелиевская, тер Автодорога, 28-й км, зд 1',
+    clientCity: 'Берлин', clientCountry: 'Германия', clientCountryCode: 'DE',
+    clientDevice: 'Компьютер', clientOs: 'macOS 10', clientBrowser: 'Firefox 140',
+    clientIp: '85.140.7.212', clientIsp: 'Vodafone', visitorId: 'a'.repeat(32),
+    payment: { status: 'paid', method: 'SBP' },
+    items: Array.from({ length: 6 }, (_, i) => ({ name: 'Товар ' + (i + 1), price: 100, qty: 1 }))
+  };
+  const db = {
+    getOrders: () => [long], visibleOrders: () => [long], ordersForSite: () => [long],
+    getSites: () => [], getProducts: () => [], pendingReviewCount: () => 0
+  };
+  const panels = {
+    'владелец': ownerViews.ordersList(db, null, 1),
+    'админка сайта': siteViews.ordersList(db, dbCore.defaultSite(), null, 1)
+  };
+  for (const [name, html] of Object.entries(panels)) {
+    // Состояние оплаты, способ и сумма — три разных вопроса и три столбца.
+    // В одной ячейке они читались как одно целое.
+    assert.match(html, /<th>Статус<\/th>/, name);
+    assert.match(html, /<th>Оплата<\/th>/, name);
+    assert.match(html, /<td class="o-state">/, name);
+    assert.match(html, /<td class="o-pay">/, name);
+    assert.match(html, /<td class="o-sum"><b>/, name);
+    // Сумма в своей ячейке одна: значок состояния к ней больше не приписан.
+    const sumCell = html.slice(html.indexOf('<td class="o-sum">'), html.indexOf('</td>', html.indexOf('<td class="o-sum">')));
+    assert.doesNotMatch(sumCell, /pay-tag|СБП/, 'в ячейке суммы только сумма: ' + name);
+    // Клиент раскрывается: адрес пункта выдачи бывает длиннее всей строки.
+    assert.match(html, /<details class="o-who"><summary>Анна Смирнова · @anna<\/summary>/, name);
+    // Длинный заказ сворачивается после трёх позиций.
+    assert.match(html, /class="o-rest"><summary>ещё 3 позиции<\/summary>/, name);
+    // Свёртки «Откуда зашёл» больше нет: строка значков и есть ссылка в метрику,
+    // а IP с провайдером лежат там же, в карточке посетителя.
+    assert.doesNotMatch(html, /Откуда зашёл|o-tech/, name);
+    // Удаление доступно только в режиме правки, но сама форма в разметке есть.
+    assert.match(html, /id="orders-edit" class="edit-switch/, name);
+    assert.match(html, /orders\/o1\/delete/, name);
+  }
+
+  // Раскрывать нечего — стрелки нет: у заявки без адреса и техники она открывала
+  // бы пустоту.
+  assert.doesNotMatch(render.orderClient({ customerName: 'Старый', contact: 'tg' }), /<details/);
+  // Короткий заказ не сворачивается вовсе.
+  assert.doesNotMatch(render.orderItems({ items: [{ name: 'Товар', qty: 1 }] }), /<details/);
+
+  // Столбец действий скрыт, пока не нажата «Изменить»: «✕» у каждой строки —
+  // это удаление заказа в один промах мыши. Переключатель — чистый CSS.
+  assert.match(css, /\.a-orders \.o-act\{display:none/);
+  assert.match(css, /\.edit-switch:checked ~ \.a-orders \.o-act\{display:table-cell\}/);
+  // Всё в строке выровнено по центру, а не прижато к верхней границе.
+  assert.match(css, /\.a-orders td\{[^}]*vertical-align:middle/);
+});
+
 test('списки заказов в панелях листаются, а не выгружаются целиком', () => {
   // Та же ловушка, что была у отзывов: заказы не удаляются сами, список растёт
   // без предела. На 3000 заявок страница весила 2,8 МБ и держала единственный
@@ -3038,21 +3096,24 @@ test('оплаченным заказ на странице называется
 test('состояние оплаты видно в обеих панелях и не путается со статусом заказа', () => {
   const paid = { id: 'o1', number: 'ORD-1', createdAt: Date.now(), status: 'new', contact: 'tg', total: 100, items: [], payment: { status: 'paid', note: '' } };
   const bad = Object.assign({}, paid, { payment: { status: 'mismatch', note: 'Пришло 100, ожидали 10000' } });
-  assert.match(render.paymentBadge(paid), /pay-ok/);
-  assert.match(render.paymentBadge(bad), /pay-warn/);
-  assert.match(render.paymentBadge(bad), /ожидали 10000/);
-  assert.match(render.paymentBadge({ payment: { status: 'pending' } }), /pay-wait/);
+  assert.match(render.orderStatus(paid), /pay-ok/);
+  assert.match(render.orderStatus(bad), /pay-warn/);
+  assert.match(render.orderStatus(bad), /ожидали 10000/);
+  assert.match(render.orderStatus({ payment: { status: 'pending' } }), /pay-wait/);
   // Состояния, которых в схеме Express не было вовсе: касса отдаёт настоящий
   // статус счёта, и «истёк» больше не выглядит как «ждём оплату».
-  assert.match(render.paymentBadge({ payment: { status: 'expired' } }), /pay-off/);
-  assert.match(render.paymentBadge({ payment: { status: 'cancelled' } }), /pay-off/);
-  assert.match(render.paymentBadge({ payment: { status: 'failed' } }), /pay-warn/);
-  // Способ оплаты подписан рядом — по нему менеджер понимает, куда шёл перевод.
-  assert.match(render.paymentBadge({ payment: { status: 'paid', method: 'SBP' } }), /СБП/);
-  // Заказ без оплаты (и любой прежний) не рисует ничего.
-  assert.equal(render.paymentBadge({ payment: null }), '');
-  assert.equal(render.paymentBadge({}), '');
-  assert.equal(render.paymentBadge({ payment: { status: 'выдумка' } }), '');
+  assert.match(render.orderStatus({ payment: { status: 'expired' } }), /pay-off/);
+  assert.match(render.orderStatus({ payment: { status: 'cancelled' } }), /pay-off/);
+  assert.match(render.orderStatus({ payment: { status: 'failed' } }), /pay-warn/);
+  // Способ оплаты — свой столбец, а не приписка к состоянию: «сколько», «чем» и
+  // «дошло ли» — разные вопросы, и в одной ячейке они читались как одно целое.
+  assert.match(render.orderPayMethod({ payment: { status: 'paid', method: 'SBP' } }), /СБП/);
+  assert.doesNotMatch(render.orderStatus({ payment: { status: 'paid', method: 'SBP' } }), /СБП/);
+  // Заказ без оплаты (и любой прежний) даёт прочерк, а не пустую ячейку.
+  for (const empty of [{ payment: null }, {}, { payment: { status: 'выдумка' } }]) {
+    assert.match(render.orderStatus(empty), /—/);
+    assert.match(render.orderPayMethod(empty), /—/);
+  }
 
   const db = {
     getOrders: () => [paid, bad], visibleOrders: () => [paid, bad], ordersForSite: () => [paid, bad], getSites: () => [], pendingReviewCount: () => 0

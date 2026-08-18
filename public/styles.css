@@ -1402,38 +1402,68 @@ body.admin{background:#f4f4f6;color:#242426}
 .pay-method-check i{display:block;font-style:normal;font-size:11.5px;color:var(--muted);margin-top:1px}
 
 /* ===== Список заказов =====
-   Строка заказа несёт много мелочей: имя, контакт, доставку, адрес, состав,
-   город, устройство, IP. Раскиданные по отдельным строкам, они растягивали
-   каждую заявку на треть экрана, и десяток заказов уже не помещался целиком.
-   Здесь всё сжато: пары «имя · контакт» и «доставка · адрес» в одну строку,
-   а технические поля свёрнуты в <details>. */
-.a-orders td{padding:11px;vertical-align:top;line-height:1.4}
+   Каждая заявка несёт много мелочей: имя, контакт, доставку, адрес, состав,
+   город, устройство. Развёрнутые целиком, они растягивали строку на треть
+   экрана — десяток заказов уже не помещался.
+   Поэтому: у каждого вопроса свой столбец (состояние оплаты, способ и сумма
+   больше не лежат в одной ячейке), длинное — под раскрытием, и всё в строке
+   выровнено по центру, а не прижато к её верхней границе. */
+.a-orders td{padding:12px 11px;vertical-align:middle;line-height:1.4}
+.a-orders th{vertical-align:middle}
 .a-orders .o-num{white-space:nowrap}
 .a-orders .o-num b{display:block;font-size:14.5px}
 .a-orders .o-num .small{display:block;font-size:11.5px;line-height:1.5}
-.a-orders .o-client{min-width:210px;max-width:320px}
-.a-orders .o-who{font-weight:600;overflow-wrap:anywhere}
-/* Доставка и адрес — приглушённые: в строке они подсказка, а не заголовок. */
-.a-orders .o-line{margin-top:3px;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
-.a-orders .o-items{max-width:300px}
+.a-orders .o-client{min-width:190px;max-width:265px}
+.a-orders .o-items{min-width:210px;max-width:330px}
 .a-orders .o-items-list{font-size:12.5px;color:#48484a}
 .a-orders .o-items-list div+div{margin-top:4px}
+.a-orders .o-state{width:1%;white-space:nowrap}
+.a-orders .o-pay{width:1%;white-space:nowrap;font-size:12.5px;color:#48484a}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
 .a-orders .o-sum b{font-size:14.5px;font-variant-numeric:tabular-nums}
-.a-orders .o-sum .pay-tag{margin-left:auto}
-.a-orders .o-act{width:1%;text-align:right}
-/* Технические поля нужны редко — при разборе спорного заказа. Свёрнуты
-   средствами браузера: ни строчки скрипта, и в закрытом виде это одна строка
-   вместо четырёх. */
-.o-tech{margin-top:4px}
-.o-tech summary{color:#8e8e93;font-size:11.5px;cursor:pointer;list-style:none;width:fit-content}
-.o-tech summary::-webkit-details-marker{display:none}
-.o-tech summary::before{content:"▸ ";display:inline-block;transition:transform .12s}
-.o-tech[open] summary::before{content:"▾ "}
-.o-tech summary:hover{color:var(--text)}
-.o-tech div{color:#737378;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
-.o-ip{color:#0b6bcb;text-decoration:underline;text-decoration-color:rgba(11,107,203,.35);text-underline-offset:2px}
-.o-ip:hover{text-decoration-color:currentColor}
+.a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
+
+/* Клиент: открыто «имя · контакт», остальное — по клику. Адрес пункта выдачи
+   бывает длиннее всей остальной строки, и заказ разрастался из-за него одного. */
+.a-orders .o-who{font-weight:600;overflow-wrap:anywhere}
+/* Стрелка прижата к правому краю ячейки, а не идёт за текстом: у длинного
+   контакта она переносилась на свою строку и висела там одна. */
+.a-orders .o-who summary{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  cursor:pointer;list-style:none;border-radius:8px;padding:2px 5px;margin:-2px -5px;transition:background .12s}
+.a-orders .o-who summary::-webkit-details-marker{display:none}
+.a-orders .o-who summary::after{content:"▸";flex:none;color:#a1a1a6;font-weight:400;transition:transform .12s}
+.a-orders .o-who[open] summary::after{transform:rotate(90deg)}
+.a-orders .o-who summary:hover{background:#f2f2f5}
+.a-orders .o-who summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.a-orders .o-who-body{margin-top:5px;font-weight:400}
+/* Доставка и адрес — приглушённые: в строке они подсказка, а не заголовок. */
+.a-orders .o-line{margin-top:3px;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+
+/* Длинный заказ: три позиции видно всегда, остальные — по клику. */
+.o-rest{margin-top:4px}
+.o-rest summary{color:#8e8e93;font-size:11.5px;cursor:pointer;list-style:none;width:fit-content}
+.o-rest summary::-webkit-details-marker{display:none}
+.o-rest summary::before{content:"▸ ";display:inline-block}
+.o-rest[open] summary::before{content:"▾ "}
+.o-rest summary:hover{color:var(--text)}
+.o-rest div{margin-top:4px}
+
+/* Режим правки: пока он выключен, столбца с удалением нет вовсе. «✕» у каждой
+   строки — это удаление заказа в один промах мыши, а список открывают, чтобы
+   читать, а не чистить. Переключатель — скрытый чекбокс, поэтому ни строчки
+   скрипта: правило `:checked ~ table` показывает столбец. */
+.a-panel-edit{justify-content:flex-end}
+.edit-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;
+  border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12.5px;cursor:pointer;
+  transition:border-color .12s,color .12s,background .12s;user-select:none}
+.edit-btn:hover{border-color:#c7c7cc;color:var(--text)}
+.edit-on{display:none}
+.edit-switch:checked ~ .a-panel-edit .edit-btn{border-color:var(--text);color:var(--text);background:#f5f5f7}
+.edit-switch:checked ~ .a-panel-edit .edit-off{display:none}
+.edit-switch:checked ~ .a-panel-edit .edit-on{display:inline}
+.edit-switch:focus-visible ~ .a-panel-edit .edit-btn{outline:2px solid var(--accent);outline-offset:2px}
+.a-orders .o-act{display:none;width:1%;text-align:right}
+.edit-switch:checked ~ .a-orders .o-act{display:table-cell}
 
 /* Значки клиента: флаг страны, устройство, система, браузер. Одной строкой и
    открыто, а не в свёртке: с одного взгляда видно, кто и с чего зашёл.
