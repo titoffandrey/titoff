@@ -2008,6 +2008,69 @@ test('страница оплаты: точная сумма выделена, �
   assert.doesNotMatch(croco, /\/cancel|\/void|\/refund/, 'у кассы нет отмены — выдумывать эндпоинт нельзя');
 });
 
+test('неоплаченный счёт напоминает о себе на всей витрине и в корзине', () => {
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const remind = { id: 'a1b2', number: '482913', total: 68200, expiresAt: Date.now() + 9 * 60 * 1000 };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
+  const db = {
+    getProducts: () => [product], categories: () => ['Категория'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+
+  // Полоса обязана быть на КАЖДОЙ странице витрины: покупатель возвращается не
+  // обязательно на главную, а товары из корзины уже уехали в заказ — без неё он
+  // о заказе просто забудет.
+  const pages = {
+    'главная': render.homePage(ss, db, { category: '', q: '', origin: '', payRemind: remind }, null),
+    'товар': render.productPage(ss, db, product, null, { origin: '', payRemind: remind }),
+    'оформление': render.checkoutPage(ss, { origin: '', payRemind: remind }),
+    'политика': render.privacyPage(ss, { origin: '', payRemind: remind }),
+    'гарантия': render.warrantyPage(ss, { origin: '', payRemind: remind }),
+    'возврат': render.returnsPage(ss, { origin: '', payRemind: remind }),
+    'не найдено': render.notFoundPage(ss, { origin: '', payRemind: remind })
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    assert.match(html, /id="pay-remind"/, 'нет напоминания на странице: ' + name);
+    assert.match(html, /№482913/, 'нет номера заказа: ' + name);
+    assert.match(html, /href="\/pay\/a1b2"/, 'некуда вернуться: ' + name);
+    assert.ok(html.includes('68 200'.replace(' ', ' ')) || /68\s200/.test(html), 'нет суммы: ' + name);
+  }
+  // Без напоминания страницы остаются прежними — полоса не появляется из ниоткуда.
+  assert.doesNotMatch(render.homePage(ss, db, { category: '', q: '', origin: '' }, null), /id="pay-remind"/);
+
+  // На самой странице оплаты полосы нет: она и есть напоминание.
+  const order = {
+    id: 'a1b2', number: '482913', total: 68200, createdAt: Date.now(), items: [],
+    payment: {
+      provider: 'crocopay', status: 'pending', method: 'SBP', invoiceId: '11111111-2222-3333-4444-555555555555',
+      requisite: '79104693811', bank: 'Т-Банк', owner: 'Иванов Иван', expiresAt: remind.expiresAt
+    }
+  };
+  assert.doesNotMatch(render.payPage(ss, order, { origin: '' }), /id="pay-remind"/);
+
+  // Сервер отдаёт напоминание только про СВОЙ и только про действующий счёт.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const fn = server.slice(server.indexOf('function payRemind('), server.indexOf('app.get(\'/product/:id\''));
+  assert.match(fn, /req\.session && req\.session\.myOrders/, 'ключ — та же подписанная сессия, что у /pay/:id');
+  assert.match(fn, /order\.draft/, 'черновик заказом ещё не стал');
+  assert.match(fn, /pay\.status !== 'pending'/);
+  assert.match(fn, /pay\.expiresAt <= now/, 'у сгоревшего счёта реквизиты уже чужие');
+  assert.match(fn, /order\.siteId !== site\.id/, 'заказ другого магазина показывать нельзя');
+
+  // Витрина повторяет напоминание в корзине и сама убирает его, когда счёт сгорел.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(js, /payRemindCard\(\) \|\| '<div class="cart-empty">/, 'в пустой корзине напоминание вместо «пусто»');
+  assert.match(js, /wrap\.innerHTML = payRemindCard\(\) \+ this\.items/, 'и первой строкой при непустой корзине');
+  assert.match(js, /box\.remove\(\)/);
+  assert.match(js, /setInterval\(syncPayRemind/);
+  assert.match(css, /\.pay-remind\{/);
+  assert.match(css, /\.cart-remind\{/);
+  // На телефоне полоса обязана ужиматься: она стоит над первым экраном.
+  assert.match(css, /\.pay-remind-no\{display:none\}/);
+  assert.match(css, /\.pay-remind-go-short\{display:inline\}/);
+});
+
 test('единицы суммы вебхука угадываются, а недоплата не проходит ни в каких', () => {
   const croco = require('../lib/crocopay');
   // Ожидаем 239 990 ₽. Касса вправе прислать и рубли, и копейки — документация

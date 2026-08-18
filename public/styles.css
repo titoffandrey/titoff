@@ -50,6 +50,29 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 /* ===== Шапка ===== */
 .site-header{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--border)}
 .header-row{display:flex;align-items:center;gap:12px;height:56px}
+/* Полоса «заказ ждёт оплаты» — сразу под шапкой, на всех страницах витрины.
+   Не липкая: заказ ждёт минуты, а не вечность, и держать полосу перед глазами
+   всю прокрутку значило бы отнимать первый экран у товара. Тёплый фон, а не
+   красный: это напоминание, а не ошибка. */
+.pay-remind{background:#fff7ed;border-bottom:1px solid #f2ddc4}
+.pay-remind-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0}
+.pay-remind-text{font-size:14px;line-height:1.35}
+.pay-remind-text b{font-weight:600}
+.pay-remind-left{color:var(--muted)}
+.pay-remind-go{flex:none}
+.pay-remind-go-short{display:none}
+/* На телефоне полоса обязана уложиться в две строки: она стоит над первым
+   экраном, и четыре строки съедали витрину. Номер заказа прячем — он всё равно
+   есть на самой странице оплаты, — а подпись кнопки укорачиваем, тем же
+   приёмом, что «Продолжить покупки» / «В каталог» на оформлении. */
+@media(max-width:640px){
+  .pay-remind-row{gap:10px;padding:8px 0}
+  .pay-remind-text{font-size:13px;line-height:1.3}
+  .pay-remind-no{display:none}
+  .pay-remind-left-long{display:none}
+  .pay-remind-go-full{display:none}
+  .pay-remind-go-short{display:inline}
+}
 .logo{font-size:23px;font-weight:600;letter-spacing:-.02em;margin-right:auto}
 .icon-btn{background:none;border:none;color:var(--text);padding:6px;cursor:pointer;display:inline-flex;position:relative;border-radius:10px}
 .icon-btn:hover{background:var(--bg2)}
@@ -219,6 +242,16 @@ body.cart-open .cart-drawer{transform:translateX(0)}
 .cart-head h2{margin:0;font-size:20px}
 .cart-items{flex:1;overflow-y:auto;padding:8px 16px}
 .cart-empty{color:var(--muted);text-align:center;padding:50px 0}
+/* Напоминание о неоплаченном счёте в корзине. Стоит первой строкой и в пустой
+   корзине заменяет «Корзина пуста»: у того, кто не оплатил, товары не пропали,
+   а уехали в заказ, и «пусто» читалось бы как потеря выбора. */
+.cart-remind{display:block;margin:10px 0 4px;padding:12px 14px;border-radius:14px;
+  background:#fff7ed;border:1px solid #f2ddc4;color:var(--text);text-decoration:none}
+.cart-remind:hover{border-color:#e7c9a6}
+.cart-remind-top{display:block;font-size:13px;color:#8a5a20}
+.cart-remind-sum{display:block;margin-top:2px;font-size:20px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.cart-remind-left{display:block;margin-top:2px;font-size:12.5px;color:var(--muted)}
+.cart-remind-go{display:block;margin-top:8px;font-size:14px;font-weight:600;color:var(--accent)}
 .cart-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
 .cart-item-media{width:56px;height:56px;border-radius:10px;background:var(--bg2);flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .cart-item-media img,.cart-item-media svg{width:100%;height:100%;object-fit:contain;padding:4px}

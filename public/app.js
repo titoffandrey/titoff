@@ -567,6 +567,60 @@
     input.addEventListener('blur', function () { setTimeout(close, 120); });
   }
 
+  /* ===== Напоминание о неоплаченном счёте =====
+   * Полосу под шапкой рисует сервер (`payRemindBar` в lib/render.js) — только он
+   * знает, что счёт ещё живой, и только он отличает свой заказ от чужого.
+   * Скрипт делает две вещи: дописывает обратный отсчёт и повторяет напоминание
+   * в корзине — туда покупатель заглядывает первым делом, а товаров там уже нет,
+   * они уехали в заказ.
+   */
+  function payRemindBox() { return document.getElementById('pay-remind'); }
+  function payRemindLeft() {
+    var box = payRemindBox();
+    var until = box ? Number(box.dataset.until) : 0;
+    return until ? until - Date.now() : 0;
+  }
+  // Сколько осталось словами. Секунды не показываем: тикающие «14:59» на каждой
+  // странице отвлекают сильнее, чем помогают, а точность тут ни на что не влияет.
+  function payRemindMin() {
+    var ms = payRemindLeft();
+    if (ms <= 0) return '';
+    var min = Math.floor(ms / 60000);
+    return min < 1 ? 'меньше минуты' : min + ' ' + plural(min, 'минуту', 'минуты', 'минут');
+  }
+  // Карточка в корзине. Пусто, когда напоминать не о чем, — вызывающий просто
+  // подставляет её первой строкой.
+  function payRemindCard() {
+    var box = payRemindBox();
+    if (!box || payRemindLeft() <= 0) return '';
+    var left = payRemindMin();
+    return '<a class="cart-remind" href="' + escapeHtml(box.dataset.href || '#') + '">'
+      + '<span class="cart-remind-top">Заказ ' + escapeHtml(box.dataset.no || '') + ' ждёт оплаты</span>'
+      + '<span class="cart-remind-sum">' + escapeHtml(box.dataset.sum || '') + '</span>'
+      + (left ? '<span class="cart-remind-left">реквизиты действительны ещё ' + escapeHtml(left) + '</span>' : '')
+      + '<span class="cart-remind-go">Продолжить оплату →</span></a>';
+  }
+  function syncPayRemind() {
+    var box = payRemindBox();
+    if (!box) return;
+    // Счёт сгорел прямо на открытой странице — напоминание обязано исчезнуть:
+    // реквизиты по нему уже чужие. Страницу при этом не трогаем, покупатель
+    // мог быть занят чем-то другим.
+    if (payRemindLeft() <= 0) {
+      box.remove();
+      if (window.Cart && Cart.render) Cart.render();
+      return;
+    }
+    // Меняем только само число: разметку строки держит сервер, а срок тикает.
+    setText('pay-remind-min', payRemindMin());
+    var left = document.getElementById('pay-remind-left');
+    if (left) left.hidden = false;
+  }
+  if (payRemindBox()) {
+    syncPayRemind();
+    setInterval(syncPayRemind, 20000);
+  }
+
   function setText(id, text) { var el = document.getElementById(id); if (el) el.textContent = text; }
   function plural(n, one, few, many) {
     var a = Math.abs(n) % 100, b = a % 10;
@@ -715,11 +769,14 @@
       var cartTitle = document.querySelector('#cart-drawer .cart-head h2');
       if (cartTitle) cartTitle.textContent = 'Корзина';
       if (!this.items.length) {
-        wrap.innerHTML = '<div class="cart-empty">Корзина пуста</div>';
+        // Пустая корзина у того, кто не оплатил счёт, — это не «ничего нет», а
+        // «товары уже в заказе». Про заказ и напоминаем: иначе корзина выглядит
+        // так, будто выбор пропал.
+        wrap.innerHTML = payRemindCard() || '<div class="cart-empty">Корзина пуста</div>';
         foot.innerHTML = '';
         return;
       }
-      wrap.innerHTML = this.items.map(function (i) {
+      wrap.innerHTML = payRemindCard() + this.items.map(function (i) {
         var k = escapeHtml(itemKey(i));
         // Подпись варианта обязательна: /api/cart возвращает базовое название
         // товара, и без неё двое часов с разными ремешками выглядели в корзине

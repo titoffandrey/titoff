@@ -424,8 +424,37 @@ if (sweep.unref) sweep.unref();
 app.get('/', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/');
-  res.send(R.homePage(T.siteSettings(site), db, { category: req.query.category, q: req.query.q, origin: originOf(req) }, site));
+  res.send(R.homePage(T.siteSettings(site), db, { category: req.query.category, q: req.query.q, origin: originOf(req), payRemind: payRemind(req, site) }, site));
 });
+
+/* Неоплаченный счёт, о котором стоит напомнить на любой странице витрины.
+ *
+ * Покупатель со страницы оплаты уходит легко, а товары к этому моменту уже
+ * уехали в заказ и из корзины пропали — сама корзина о нём не напомнит.
+ *
+ * Ключ — та же подписанная cookie-сессия, что у /pay/:id: чужой заказ так не
+ * покажешь. Список `myOrders` идёт от свежего к старым, поэтому первый
+ * подходящий и есть нужный.
+ *
+ * Напоминаем только про ДЕЙСТВУЮЩИЙ счёт: у сгоревшего реквизиты уже чужие, а
+ * «заказ ждёт оплаты» на оплаченном или отменённом — прямая ошибка. Поэтому
+ * условие ровно то же, что у `live` на самой странице оплаты.
+ */
+function payRemind(req, site) {
+  const ids = Array.isArray(req.session && req.session.myOrders) ? req.session.myOrders : [];
+  if (!ids.length) return null;
+  const now = Date.now();
+  for (const id of ids) {
+    const order = db.getOrder(String(id || ''));
+    if (!order || order.draft) continue;                       // черновик заказом ещё не стал
+    if (site && order.siteId && order.siteId !== site.id) continue;   // заказ другого магазина
+    const pay = order.payment;
+    if (!pay || pay.status !== 'pending' || !pay.invoiceId || !pay.requisite) continue;
+    if (!pay.expiresAt || pay.expiresAt <= now) continue;
+    return { id: order.id, number: order.number, total: order.total, expiresAt: pay.expiresAt };
+  }
+  return null;
+}
 
 app.get('/product/:id', (req, res) => {
   const site = siteOf(req);
@@ -433,7 +462,7 @@ app.get('/product/:id', (req, res) => {
   if (!view) {
     trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url });
     return res.send(R.notFoundPage(T.siteSettings(site), {
-      origin: originOf(req), categories: T.siteCategories(site)
+      origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site)
     }), 404);
   }
   trackPage(req, res, site, '/product/' + view.id);
@@ -445,7 +474,7 @@ app.get('/product/:id', (req, res) => {
     ? db.reviewsForProduct(view.id, false).filter(rv => rv.status !== 'approved' && mine.includes(rv.id))
     : [];
   res.send(R.productPage(T.siteSettings(site), db, view, site, {
-    origin: originOf(req), ownReviews,
+    origin: originOf(req), ownReviews, payRemind: payRemind(req, site),
     // Без JS «Показать ещё» — обычная ссылка на следующую страницу отзывов.
     reviewSort: req.query.rsort, reviewPage: req.query.rpage
   }));
@@ -455,38 +484,39 @@ app.get('/checkout', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/checkout');
   res.send(R.checkoutPage(T.siteSettings(site), {
-    origin: originOf(req), categories: T.siteCategories(site), payOnline: CROCO.enabled(settings())
+    origin: originOf(req), categories: T.siteCategories(site), payOnline: CROCO.enabled(settings()),
+    payRemind: payRemind(req, site)
   }));
 });
 
 app.get('/privacy', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/privacy');
-  res.send(R.privacyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+  res.send(R.privacyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site) }));
 });
 
 app.get('/personal-data-consent', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/personal-data-consent');
-  res.send(R.personalDataConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+  res.send(R.personalDataConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site) }));
 });
 
 app.get('/personal-data-publication-consent', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/personal-data-publication-consent');
-  res.send(R.publicationConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+  res.send(R.publicationConsentPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site) }));
 });
 
 app.get('/warranty', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/warranty');
-  res.send(R.warrantyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+  res.send(R.warrantyPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site) }));
 });
 
 app.get('/returns', (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/returns');
-  res.send(R.returnsPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }));
+  res.send(R.returnsPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site) }));
 });
 
 // Собственная метрика запускается автоматически при первом открытии страницы.
@@ -1022,7 +1052,7 @@ app.get('/api/pay/crocopay/status', async (req, res) => {
 app.get('/pay/:id', async (req, res) => {
   const site = siteOf(req);
   const order = ownOrder(req, req.params.id);
-  if (!order) return res.send(R.notFoundPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site) }), 404);
+  if (!order) return res.send(R.notFoundPage(T.siteSettings(site), { origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site) }), 404);
   const s = settings();
   // Список способов — тот, что реально включён у кассы. Ответ платёжки
   // кэшируется на пять минут, поэтому запрос уходит не на каждое открытие.
@@ -1505,7 +1535,7 @@ app.notFound = (req, res) => {
   const site = siteOf(req);
   trackPage(req, res, site, '/404', { is404: true, requestedPath: req.url });
   res.send(R.notFoundPage(T.siteSettings(site), {
-    origin: originOf(req), categories: T.siteCategories(site)
+    origin: originOf(req), categories: T.siteCategories(site), payRemind: payRemind(req, site)
   }), 404);
 };
 
