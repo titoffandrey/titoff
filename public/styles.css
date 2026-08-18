@@ -1167,7 +1167,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Заголовок каталога — по центру полосы */
 .section-head-center{justify-content:center;text-align:center}
 .section-head>.muted{padding-bottom:3px;font-size:14px;white-space:nowrap}
-.grid{gap:20px}
+.grid{gap:16px}
 .card{border:1px solid var(--border-soft);border-radius:var(--radius);box-shadow:var(--shadow);background:#fff;isolation:isolate;transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .22s ease,border-color .2s ease}
 .card:hover{border-color:#d9d9de;box-shadow:var(--shadow-lg);transform:translateY(-4px)}
 .card:active{transform:scale(.99)}
@@ -1175,8 +1175,8 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .card-media img{mix-blend-mode:darken}
 .card-media img,.card-media .ph{transition:transform .35s cubic-bezier(.2,.8,.2,1)}
 .card:hover .card-media img,.card:hover .card-media .ph{transform:scale(1.025)}
-.card-body{padding:14px 15px 4px}
-.card-cat{margin-bottom:5px;color:#8e8e93;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.card-body{padding:12px 13px 3px}
+.card-cat{margin-bottom:4px;color:#8e8e93;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
 /* Отметка товара занимает слот категории: тот же кегль, вес и трекинг, разница
    только в цвете. Поэтому строка над названием у всех карточек одной высоты, а
    на снимке не лежит ничего. Оранжевый — тот же, каким Apple подписывает
@@ -1186,27 +1186,54 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Распроданное видно и по снимку: подпись сверху и кнопка внизу легко
    проскакивают мимо взгляда, а фото — первое, что читается в карточке. */
 .card-out .card-media img,.card-out .card-media .ph{opacity:.5;filter:grayscale(.7)}
-.card-name{display:-webkit-box;min-height:0;margin:0 0 5px;overflow:hidden;font-size:16px;font-weight:650;line-height:1.3;letter-spacing:-.018em;-webkit-box-orient:vertical;-webkit-line-clamp:2}
-.card-rating{gap:6px;min-height:18px}
-.rating-count{font-size:12px;color:var(--muted)}
-.card-rating-empty{font-size:12px;color:#8e8e93}
+.card-name{display:-webkit-box;min-height:0;margin:0 0 4px;overflow:hidden;font-size:14px;font-weight:650;line-height:1.29;letter-spacing:-.014em;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+
+/* ===== Строка отзывов и цена — по образцу карточки Ozon =====
+   Одна звезда с оценкой, пузырёк и число отзывов словом; ниже цена, старая
+   цена и процент одной строкой. Отступы заданы полями самих элементов, а не
+   gap строки: у Ozon звезда сдвинута влево на 2 px под оптику, а число
+   прижато к своему значку — общим gap этого не получить. */
+.card-rating{gap:0;min-height:16px;font-size:12px}
+.rt-star{width:16px;height:16px;flex:none;margin-left:-2px;color:#ffa800}
+.rt-avg{padding-left:2px;font-size:12px;font-weight:600;line-height:16px;color:#070707}
+.rt-bubble{width:16px;height:16px;flex:none;margin-left:4px;color:rgba(0,26,52,.4)}
+.rating-count{padding-left:2px;font-size:12px;font-weight:600;line-height:16px;color:rgba(0,26,51,.6)}
+.card-rating-empty{font-size:12px;font-weight:600;color:rgba(0,26,51,.6)}
 /* Цена — главный элемент карточки: крупнее и тяжелее названия рядом.
    tabular-nums, чтобы суммы в соседних карточках стояли по одной сетке и не
    «дышали» по ширине при смене товара. */
-.card-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-top:7px;font-size:21px;font-weight:760;letter-spacing:-.032em;font-variant-numeric:tabular-nums}
-/* Зазор задаёт gap самой строки: отдельный margin складывался с ним и разводил
-   цену со старой ценой сильнее, чем нужно. */
-.old-price{margin-left:0;font-size:13px}
+.card-price{display:flex;align-items:baseline;flex-wrap:wrap;gap:0;margin-top:6px;font-size:20px;font-weight:700;line-height:24px;letter-spacing:-.01em;font-variant-numeric:tabular-nums;color:#070707}
+/* Цена со скидкой — розовая, как у Ozon. Прежний зелёный читался как «выгода»,
+   но с ним совпадал и процент, и плашка акции: три зелёных пятна в одной
+   карточке. Розовый занят только ценой и процентом при ней. */
+.price-sale .price-now{color:#f1117e}
 /* Старая цена и процент — одна группа, чтобы на узкой карточке они переезжали
-   на вторую строку вместе. Процент скидки стоит там же, где на странице
-   товара, — рядом с зачёркнутой ценой, а не наклейкой на фото. */
-.price-was{display:inline-flex;align-items:baseline;gap:7px}
-.card-price .save{padding:2px 7px;border-radius:7px;font-size:11px;font-weight:700;letter-spacing:0}
-.card-add{padding:11px 15px 15px}
+   на вторую строку вместе. Процент — просто розовый текст рядом с зачёркнутой
+   ценой, без плашки: залитая плашка рядом с розовой ценой спорила бы с ней.
+   На странице товара плашка осталась зелёной — там она стоит одна. */
+.price-was{display:inline-flex;align-items:baseline;gap:0}
+.card-price .old-price{position:relative;margin-left:4px;font-size:14px;font-weight:600;line-height:20px;color:#99a3ae;text-decoration:none;font-variant-numeric:tabular-nums}
+/* Черта зачёркивания — псевдоэлемент с наклоном в 3°, а не text-decoration:
+   ровная линия поверх цифр читается как опечатка, наклонная — как пометка. */
+.card-price .old-price::before{content:"";position:absolute;left:0;top:calc(50% - 1px);width:100%;height:1px;background:#99a3ae;transform:rotate(-3deg)}
+.card-price .save{margin-left:4px;padding:0;border-radius:0;background:none;color:#f1117e;font-size:14px;font-weight:600;line-height:20px;letter-spacing:0}
+.card-add{padding:10px 13px 13px}
 /* «Пилюля», как у остальных кнопок витрины: прежние 13px выбивались из общего
    языка. Высота срезана только на десктопе — в @media(max-width:800px) она
    возвращается к 42px, пальцем по меньшей кнопке попадают плохо. */
-.card-add .btn{min-height:40px;border-radius:980px}
+.card-add .btn{min-height:36px;padding:9px 12px;font-size:14px;border-radius:980px}
+
+/* ===== Плашка «Распродажа» на снимке =====
+   Единственная отметка, которой позволено лежать на фото. Остальные (Хит,
+   Новинка, Нет в наличии) по-прежнему занимают слот категории над названием:
+   товар вписан в 92 % кадра, и плашка в углу ложилась прямо на него. Левый
+   нижний угол — самое пустое место снимка (там тень, а не сам товар), и
+   ставит её туда же, куда Ozon. Снимок при наведении масштабируется, плашка —
+   нет: она соседка img, а не его потомок. */
+.card-sale{position:absolute;left:8px;bottom:8px;z-index:2;display:inline-flex;align-items:center;gap:2px;
+  height:24px;padding:2px 6px;border-radius:8px;background:#f1117e;color:#fff;
+  font-size:14px;font-weight:600;line-height:20px;letter-spacing:-.01em}
+.card-sale svg{width:16px;height:16px;flex:none}
 /* ===== Кнопка «в корзину»: одно состояние — один вид ===== */
 .add-to-cart{background-image:none;box-shadow:none;position:relative;overflow:hidden;
   transition:background-color .18s ease,border-color .18s ease,transform .12s ease,box-shadow .18s ease}
@@ -1912,20 +1939,23 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .card{border-radius:19px}
   .card:hover{transform:none;box-shadow:var(--shadow)}
   .card-media{aspect-ratio:1/1}
-  .card-body{padding:12px 12px 3px}
-  .card-cat{margin-bottom:4px;font-size:9.5px}
-  .card-name{min-height:0;margin-bottom:7px;font-size:14px;line-height:1.3}
-  .card-rating{gap:4px}
-  .card-rating .stars{font-size:12px;letter-spacing:0}
-  .rating-count{font-size:10.5px}
-  .card-rating-empty{font-size:10.5px}
-  .card-price{gap:1px;margin-top:6px;font-size:17px;line-height:1.3}
-  /* Карточка вдвое уже — старая цена с процентом уезжает под цену целой строкой */
-  .card-price .price-was{width:100%;margin:1px 0 0;gap:6px}
-  .card-price .old-price{margin:0;font-size:11px}
-  .card-price .save{padding:1px 6px;border-radius:6px;font-size:10px}
-  .card-add{padding:10px 12px 12px}
-  .card-add .btn{min-height:42px;padding:9px 8px;font-size:13.5px}
+  .card-body{padding:10px 10px 2px}
+  .card-cat{margin-bottom:3px;font-size:9.5px}
+  .card-name{min-height:0;margin-bottom:5px;font-size:13px;line-height:1.28}
+  .card-rating{min-height:14px}
+  .rt-star,.rt-bubble{width:14px;height:14px}
+  .rt-avg,.rating-count{font-size:11px;line-height:14px}
+  .card-rating-empty{font-size:11px}
+  .card-price{margin-top:5px;font-size:17px;line-height:20px}
+  /* Карточка вдвое уже — старая цена с процентом уезжает под цену целой строкой,
+     поэтому левое поле снимается у неё и переезжает к проценту. */
+  .card-price .price-was{width:100%;margin:1px 0 0}
+  .card-price .old-price{margin-left:0;font-size:12px;line-height:16px}
+  .card-price .save{margin-left:5px;font-size:12px;line-height:16px}
+  .card-sale{left:6px;bottom:6px;height:20px;padding:1px 5px;gap:1px;border-radius:7px;font-size:11px;line-height:18px}
+  .card-sale svg{width:13px;height:13px}
+  .card-add{padding:9px 10px 10px}
+  .card-add .btn{min-height:40px;padding:9px 8px;font-size:13.5px}
 
   .deals-band{padding:34px 0 38px}
   .deals-head{display:block;margin-bottom:18px}

@@ -983,6 +983,48 @@ test('старую цену видно, а стрелки галереи не л
   assert.match(css, /\.g-arrow:focus-visible\{outline/, 'кнопка должна быть видима с клавиатуры');
 });
 
+test('карточка каталога: строка отзывов, розовая цена и плашка «Распродажа»', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 67990, oldPrice: 71990, inStock: true, images: [] };
+  const db = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['Категория'], visibleCategories: () => ['Категория'],
+    ratingFor: () => ({ avg: 4.7, count: 1225 }),
+  };
+  const html = render.homePage(settings, db, { category: '', q: '', origin: '' });
+
+  // Строка отзывов — одна звезда с оценкой, пузырёк и число словом. Пять звёзд
+  // в карточке занимали ширину, но оценку всё равно читают числом рядом.
+  assert.doesNotMatch(html, /<div class="card-rating">\s*<span class="stars"/, 'в карточку вернулись пять звёзд');
+  assert.match(html, /class="rt-star"[\s\S]*?class="rt-avg">4\.7<\/span>[\s\S]*?class="rt-bubble"/);
+  assert.match(html, /class="rating-count">1\s225 отзывов<\/span>/, 'число отзывов — с разрядами и словом');
+  // Звёзды остаются там, где их читают как оценку, а не как значок
+  assert.match(render.stars(4.7), /class="stars"/);
+
+  // Плашка «Распродажа» лежит на снимке и только у того, что можно купить
+  assert.match(html, /<div class="card-media">[\s\S]*?<span class="card-sale">/);
+  const sold = { ...product, inStock: false };
+  const soldHtml = render.homePage(settings, { ...db, getProducts: () => [sold], visibleProducts: () => [sold] }, {});
+  assert.doesNotMatch(soldHtml, /card-sale/, 'скидка обещана на том, что нельзя купить');
+
+  const rule = name => [...css.matchAll(new RegExp(name + '\\s*\\{([^}]*)\\}', 'g'))].map(m => m[1]).join(';');
+  // Плашка — розовая пилюля в углу кадра, поверх снимка
+  const sale = rule('\\.card-sale');
+  assert.match(sale, /position:absolute/);
+  assert.match(sale, /background:#f1117e/);
+  // Цена со скидкой и процент при ней — одного цвета с плашкой; процент без
+  // подложки, иначе две залитые плашки в карточке спорят друг с другом
+  assert.match(rule('\\.price-sale \\.price-now'), /color:#f1117e/);
+  assert.match(rule('\\.card-price \\.save'), /color:#f1117e/);
+  assert.match(rule('\\.card-price \\.save'), /background:none/);
+  // На странице товара плашка процента осталась залитой зелёной — там она одна
+  assert.match(rule('\\.save'), /background:#0b7a37/);
+  // Черта старой цены — наклонный псевдоэлемент, а не text-decoration
+  assert.match(rule('\\.card-price \\.old-price::before'), /transform:rotate\(-3deg\)/);
+  assert.match(rule('\\.rt-star'), /color:#ffa800/);
+});
+
 test('после заказа показывается понятное адаптивное подтверждение', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
