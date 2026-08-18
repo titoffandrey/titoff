@@ -3747,3 +3747,15 @@ test('видео из отзыва отдаётся и режется по ди�
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('ночная пересборка демо-отзывов обходит товары с привезёнными', () => {
+  // Правило легко потерять при правке скрипта, а цена ошибки высокая: к 1225
+  // настоящим отзывам каждую ночь подмешивалось бы 300 синтетических.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'demo-reviews.js'), 'utf8');
+  assert.match(src, /realReviews\.filter\(review => review && review\.source\)/,
+    'товары с привезёнными отзывами должны определяться по полю source');
+  assert.match(src, /generateDemoReviews\(demoProducts/,
+    'генератор должен получать отфильтрованный список товаров');
+  assert.doesNotMatch(src, /generateDemoReviews\(products/,
+    'полный список товаров вернул бы демо-отзывы обратно');
+});

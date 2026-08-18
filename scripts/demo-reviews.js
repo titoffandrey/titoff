@@ -54,7 +54,17 @@ if (remove) {
   process.exit(0);
 }
 
-const generated = generateDemoReviews(products, { now: Date.now() }).map(review => {
+// Товары, которым привезли настоящие отзывы с площадки, демо-набор обходит
+// стороной: подмешивать к ним синтетику значит разбавлять живые отзывы, ради
+// которых их и заливали, а после каждой ночной пересборки они возвращались бы
+// сами. Признак — поле `source` у отзыва (см. scripts/import-ozon-reviews.js).
+const imported = new Set(realReviews.filter(review => review && review.source).map(review => review.productId));
+const demoProducts = products.filter(product => !imported.has(product.id));
+if (imported.size) {
+  console.log(`Товаров с привезёнными отзывами: ${imported.size} — демо-набор для них не создаётся.`);
+}
+
+const generated = generateDemoReviews(demoProducts, { now: Date.now() }).map(review => {
   // Идентификаторы стабильны, поэтому добавленные вручную фото не пропадут при
   // повторном обновлении дат или текстов демо-набора.
   const previous = currentDemoById.get(review.id);
@@ -62,7 +72,7 @@ const generated = generateDemoReviews(products, { now: Date.now() }).map(review 
   return review;
 });
 if (!apply) {
-  console.log(`Будет создано ${generated.length} демо-отзывов для ${products.length} товаров.`);
+  console.log(`Будет создано ${generated.length} демо-отзывов для ${demoProducts.length} товаров.`);
   console.log('Для записи в живой каталог запустите: node scripts/demo-reviews.js --apply');
   process.exit(0);
 }
