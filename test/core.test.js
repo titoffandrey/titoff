@@ -1593,19 +1593,101 @@ test('списки отзывов в панелях листаются, а не 
   }));
   const db = {
     getReviews: () => many, getProducts: () => [{ id: 'p', name: 'Товар' }],
+    reviewStats: () => new Map([['p', { total: many.length, approved: many.length, pending: 0, avg: 5 }]]),
     pendingReviewCount: () => 0
   };
-  const rows = html => (html.match(/class="review-cell"/g) || []).length;
+  const rows = html => (html.match(/class="rv-row/g) || []).length;
 
-  const first = adminViews.reviewsList(SETTINGS, db, null, null, 1);
+  const first = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
   assert.equal(rows(first), per, 'на странице ровно один срез');
   assert.match(first, /href="\/admin\/reviews\?status=all&amp;page=2"/);
-  const last = adminViews.reviewsList(SETTINGS, db, null, null, 4);
+  const last = adminViews.reviewsList(SETTINGS, db, 'all', null, 4);
   assert.equal(rows(last), 7, 'на последней странице остаток');
   // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
-  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, null, '999')), 7);
-  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, null, 'абв')), per);
-  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, null, -5)), per);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, 'all', null, '999')), 7);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, 'all', null, 'абв')), per);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, 'all', null, -5)), per);
+
+  // Лента одного товара листается той же нарезкой — на боевых данных у
+  // 17 Pro Max их больше тысячи.
+  const one = Object.assign({}, db, { reviewsForProduct: () => many, ratingFor: () => ({ avg: 5, count: many.length }) });
+  const page2 = adminViews.productReviews(SETTINGS, one, { id: 'p', name: 'Товар' }, 'all', null, 2);
+  assert.equal(rows(page2), per);
+  assert.match(page2, /href="\/admin\/reviews\/product\/p\?status=all&amp;page=3"/);
+});
+
+test('раздел отзывов открывается очередью модерации, и она подкрашена', () => {
+  // Одобрить или отклонить — единственное дело в разделе, у которого есть срок.
+  // Поэтому на входе видно именно его, а не общую ленту, где неразобранное
+  // тонет среди тысяч опубликованных.
+  const reviews = [
+    { id: 'wait', productId: 'p', author: 'Ждёт', rating: 4, text: 'т', status: 'pending', createdAt: 3 },
+    { id: 'ok', productId: 'p', author: 'Виден', rating: 5, text: 'т', status: 'approved', createdAt: 2 }
+  ];
+  const db = {
+    getReviews: () => reviews, getProducts: () => [{ id: 'p', name: 'Товар' }],
+    reviewStats: () => new Map([['p', { total: 2, approved: 1, pending: 1, avg: 5 }]]),
+    pendingReviewCount: () => 1
+  };
+  const home = adminViews.reviewsList(SETTINGS, db, null, null, 1);
+  assert.match(home, /id="rv-wait"/, 'неодобренный виден сразу на входе');
+  assert.equal(/id="rv-ok"/.test(home), false, 'опубликованный в очередь не попадает');
+  // Подкраска — не украшение: в общей ленте неразобранное надо находить взглядом.
+  assert.match(home, /class="rv-row is-pending" id="rv-wait"/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.rv-row\.is-pending\{[^}]*background:#fffaf2/);
+
+  // И тот же список — по товарам, каждый открывается отдельно.
+  assert.match(home, /href="\/admin\/reviews\/product\/p"/);
+  assert.match(home, /class="rv-prod-wait"[^>]*>1</, 'у товара виден счётчик очереди');
+
+  // На вкладке «Все» видно и то и другое, а лента товара открывается на всех.
+  const all = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
+  assert.match(all, /id="rv-wait"/);
+  assert.match(all, /id="rv-ok"/);
+  const one = Object.assign({}, db, { reviewsForProduct: () => reviews, ratingFor: () => ({ avg: 5, count: 1 }) });
+  const page = adminViews.productReviews(SETTINGS, one, { id: 'p', name: 'Товар' }, null, null, 1);
+  assert.match(page, /id="rv-wait"/);
+  assert.match(page, /id="rv-ok"/);
+  // Действие над строкой обязано вернуть в ленту этого же товара.
+  assert.match(page, /name="product" value="p"/);
+});
+
+test('форма правки отзыва меняет всё, что видит покупатель', () => {
+  const rv = {
+    id: 'r1', productId: 'p', author: 'Ирина', rating: 4, text: 'Хороший телефон',
+    config: 'Синий · 256 ГБ', delivery: 'cdek', status: 'pending', createdAt: Date.UTC(2026, 0, 5),
+    photos: ['a.webp'], videos: ['v.mp4'], previews: { 'a.webp': 'a-t.webp' }
+  };
+  const db = {
+    getProducts: () => [{ id: 'p', name: 'Товар' }, { id: 'q', name: 'Другой' }],
+    pendingReviewCount: () => 1
+  };
+  const html = adminViews.reviewForm(SETTINGS, db, rv, { back: { status: 'pending', page: 2 } });
+  for (const field of ['name="productId"', 'name="status"', 'name="author"', 'name="rating"',
+    'name="date"', 'name="delivery"', 'name="config"', 'name="text"', 'name="photos"']) {
+    assert.ok(html.includes(field), 'в форме нет поля ' + field);
+  }
+  assert.match(html, /value="Ирина"/);
+  assert.match(html, /<option value="cdek" selected>/, 'перевозчик выбран по отзыву');
+  assert.match(html, /<option value="pending" selected>/, 'состояние выбрано по отзыву');
+  assert.ok(html.includes('Хороший телефон'), 'текст подставлен в поле');
+  // Вложения удаляются галочкой — ни строчки скрипта, поэтому форма работает и
+  // там, где скрипты панели не загрузились.
+  assert.match(html, /name="drop" value="a\.webp"/);
+  assert.match(html, /name="drop" value="v\.mp4"/);
+  // Возврат из формы ведёт туда же, откуда пришли. Вкладка приезжает полем
+  // `tab`, а не `status`: у формы уже есть свой `status` — состояние отзыва, — и
+  // два поля с одним именем ушли бы на сервер массивом, из-за чего отзыв
+  // сохранялся бы «на модерации» что ни выбери.
+  assert.match(html, /name="page" value="2"/);
+  assert.match(html, /name="tab" value="pending"/);
+  assert.equal(/name="status" value=/.test(html), false, 'вкладка не должна называться status');
+
+  // Новый отзыв — та же форма, без полей возврата и без вложений.
+  const fresh = adminViews.reviewForm(SETTINGS, db, null, { productId: 'q' });
+  assert.match(fresh, /<option value="q" selected>/);
+  assert.equal(/name="drop"/.test(fresh), false);
 });
 
 test('опубликованный отзыв снимается с витрины, а не только удаляется', () => {
@@ -1616,8 +1698,12 @@ test('опубликованный отзыв снимается с витрин
     { id: 'ok', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 2, photos: [] },
     { id: 'wait', productId: 'p', author: 'Б', rating: 4, text: 'т', status: 'pending', createdAt: 1, photos: [] }
   ];
-  const db = { getReviews: () => reviews, getProducts: () => [{ id: 'p', name: 'Товар' }], pendingReviewCount: () => 1 };
-  const html = adminViews.reviewsList(SETTINGS, db, null, null, 1);
+  const db = {
+    getReviews: () => reviews, getProducts: () => [{ id: 'p', name: 'Товар' }],
+    reviewStats: () => new Map([['p', { total: 2, approved: 1, pending: 1, avg: 5 }]]),
+    pendingReviewCount: () => 1
+  };
+  const html = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
   assert.match(html, /action="\/admin\/reviews\/wait\/approve"/, 'у ожидающего — «Одобрить»');
   assert.match(html, /action="\/admin\/reviews\/ok\/hide"/, 'у опубликованного — «Снять с витрины»');
 
@@ -2067,14 +2153,17 @@ test('модерация отзыва возвращает на ту же стр
   const many = Array.from({ length: per * 3 }, (_, i) => ({
     id: 'r' + i, productId: 'p', author: 'Автор ' + i, rating: 5, text: 'т', status: 'pending', createdAt: 2000 - i
   }));
-  const db = { getReviews: () => many, getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => many.length };
+  const db = {
+    getReviews: () => many, getProducts: () => [], visibleProducts: () => [],
+    reviewStats: () => new Map(), pendingReviewCount: () => many.length
+  };
 
   const page3 = adminViews.reviewsList(SETTINGS, db, 'pending', null, 3);
   const forms = page3.match(/<form method="post" action="\/admin\/reviews\/[^"]+\/(approve|delete)">([\s\S]*?)<\/form>/g) || [];
   assert.ok(forms.length >= 2, 'на странице есть формы одобрения и удаления');
   for (const form of forms) {
     assert.match(form, /name="page" value="3"/, 'форма не несёт номер страницы');
-    assert.match(form, /name="status" value="pending"/, 'форма не несёт вкладку');
+    assert.match(form, /name="tab" value="pending"/, 'форма не несёт вкладку');
   }
 
   // Адрес возврата собирает сервер: вкладка «Все» и первая страница не должны
@@ -2083,15 +2172,83 @@ test('модерация отзыва возвращает на ту же стр
   const from = source.indexOf('const reviewsBackUrl =');
   const to = source.indexOf('\n};', from);
   assert.ok(from > -1 && to > from, 'reviewsBackUrl не найдена в server.js');
-  const build = new Function('const REVIEW_TABS = ["all","pending","approved"];'
-    + source.slice(from, to + 3) + ' return reviewsBackUrl;')();
-  assert.equal(build({ status: 'pending', page: '3' }, 'Готово'), '/admin/reviews?status=pending&page=3&flash=' + encodeURIComponent('Готово'));
-  assert.equal(build({ status: 'all', page: '1' }), '/admin/reviews');
-  assert.equal(build({ status: 'нет-такой', page: 'абв' }), '/admin/reviews');
-  assert.equal(build({ status: 'approved', page: -7 }), '/admin/reviews?status=approved');
+  const build = new Function('db', 'const REVIEW_TABS = ["pending","approved","all"];'
+    + source.slice(from, to + 3) + ' return reviewsBackUrl;')({ getProduct: id => id === 'p' ? { id: 'p' } : null });
+  assert.equal(build({ tab: 'approved', page: '3' }, 'Готово'), '/admin/reviews?status=approved&page=3&flash=' + encodeURIComponent('Готово'));
+  // Вкладка по умолчанию у страниц разная: очередь открывается на «На модерации»,
+  // лента товара — на «Все». В адрес пишем только отличие от неё.
+  assert.equal(build({ tab: 'pending', page: '1' }), '/admin/reviews');
+  assert.equal(build({ tab: 'нет-такой', page: 'абв' }), '/admin/reviews');
+  assert.equal(build({ tab: 'all', page: -7 }), '/admin/reviews?status=all');
+  // Разбирали ленту товара — туда и возвращаемся, а не в общую очередь.
+  assert.equal(build({ tab: 'all', page: '2', product: 'p' }), '/admin/reviews/product/p?page=2');
+  assert.equal(build({ tab: 'pending', page: '1', product: 'p' }), '/admin/reviews/product/p?status=pending');
+  // Товара нет — возврат в общий список, а не на страницу, которой не существует.
+  assert.equal(build({ tab: 'all', page: '1', product: 'нет' }), '/admin/reviews?status=all');
   // Маршруты обязаны пользоваться именно им, а не фиксированным адресом.
   assert.match(source, /approve[\s\S]{0,120}reviewsBackUrl\(req\.body/);
   assert.match(source, /deleteReview\(req\.params\.id\); res\.redirect\(reviewsBackUrl\(req\.body/);
+
+  // Побеждает первый совпавший маршрут, а «/admin/reviews/:id/edit» подходит и
+  // под «/admin/reviews/product/…». Переставь регистрацию — и лента товара
+  // уйдёт в форму правки отзыва с id «product».
+  const productRoute = source.indexOf(`app.get('/admin/reviews/product/:productId'`);
+  const editRoute = source.indexOf(`app.get('/admin/reviews/:id/edit'`);
+  assert.ok(productRoute > -1 && editRoute > -1, 'маршруты на месте');
+  assert.ok(productRoute < editRoute, 'лента товара регистрируется раньше формы правки');
+});
+
+test('правка отзыва меняет поля, чистит файлы и не ломает привезённую дату', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-edit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const DAY = 24 * 60 * 60 * 1000;
+  const source = Date.UTC(2026, 0, 10);
+  fs.writeFileSync(path.join(dir, 'products.json'), '[]');
+  fs.writeFileSync(path.join(dir, 'reviews.json'), JSON.stringify([{
+    id: 'r1', productId: 'p', author: 'Ирина', rating: 4, text: 'старый текст',
+    config: '', delivery: 'cdek', status: 'pending', createdAt: source + 5 * DAY,
+    sourceDate: source, source: 'ozon',
+    photos: ['keep.webp', 'gone.webp'], videos: [], previews: { 'keep.webp': 'keep-t.webp', 'gone.webp': 'gone-t.webp' }
+  }]));
+  const store = freshDb(dir);
+  for (const f of ['keep.webp', 'gone.webp', 'keep-t.webp', 'gone-t.webp']) {
+    fs.writeFileSync(path.join(store.UPLOAD_DIR, f), 'x');
+  }
+
+  const next = source + 9 * DAY;
+  const saved = store.updateReview('r1', {
+    author: 'Ирина К.', rating: 5, text: 'новый текст', config: 'Синий · 256 ГБ',
+    delivery: 'ozon', status: 'approved', createdAt: next, photos: ['keep.webp'], videos: []
+  });
+  assert.equal(saved.author, 'Ирина К.');
+  assert.equal(saved.rating, 5);
+  assert.equal(saved.text, 'новый текст');
+  assert.equal(saved.delivery, 'ozon');
+  assert.equal(saved.status, 'approved');
+  assert.equal(saved.source, 'ozon', 'откуда отзыв — не переписываем');
+
+  // Показанная дата у привезённого отзыва каждую ночь пересчитывается от
+  // sourceDate: не подвинь мы её на ту же величину — правка молча откатилась бы
+  // к утру. Сдвиг набора при этом сохраняется.
+  assert.equal(saved.createdAt, next);
+  assert.equal(saved.sourceDate, source + 4 * DAY, 'исходная дата уехала на ту же величину');
+  const { plannedDates } = require('../lib/review-dates');
+  assert.equal(plannedDates(store.getReviews(), next).size, 0, 'ночной прогон правку не откатывает');
+
+  // Снятое вложение уходит вместе со своим превью и своим файлом, а оставшееся
+  // цело: карта превью переживает удаление и держала бы файл в хранилище вечно.
+  assert.deepEqual(saved.photos, ['keep.webp']);
+  assert.deepEqual(saved.previews, { 'keep.webp': 'keep-t.webp' });
+  assert.equal(fs.existsSync(path.join(store.UPLOAD_DIR, 'keep.webp')), true);
+  assert.equal(fs.existsSync(path.join(store.UPLOAD_DIR, 'keep-t.webp')), true);
+  assert.equal(fs.existsSync(path.join(store.UPLOAD_DIR, 'gone.webp')), false);
+  assert.equal(fs.existsSync(path.join(store.UPLOAD_DIR, 'gone-t.webp')), false);
+
+  // Не пришло поле — не тронули: частичная правка не должна затирать соседнее.
+  const again = store.updateReview('r1', { rating: 3 });
+  assert.equal(again.text, 'новый текст');
+  assert.equal(again.author, 'Ирина К.');
+  assert.equal(store.updateReview('нет-такого', { rating: 1 }), null);
 });
 
 test('оценка товара в каталоге читается из индекса, а не пересчётом отзывов', () => {

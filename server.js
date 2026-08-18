@@ -73,18 +73,36 @@ const pageQuery = (value) => {
   const n = Math.floor(Number(value));
   return Number.isFinite(n) && n > 1 ? '?page=' + Math.min(n, 1e6) : '';
 };
-// Тот же возврат для очереди отзывов, где к странице добавляется ещё и вкладка.
-// Модерация разбирается сотнями страниц, и после каждого действия админа нельзя
-// выбрасывать ни в начало списка, ни с вкладки «На модерации» на «Все».
-const REVIEW_TABS = ['all', 'pending', 'approved'];
-const reviewsBackUrl = (body, flash) => {
+// Тот же возврат для отзывов, где к странице добавляется вкладка, а иногда и
+// товар: ленту разбирают и общей очередью, и по одному товару. Модерация идёт
+// сотнями страниц, и после каждого действия админа нельзя выбрасывать ни в
+// начало списка, ни с вкладки «На модерации» на «Все», ни из товара наружу.
+//
+// Собирается из отдельных полей формы, а НЕ из готового адреса в теле запроса:
+// присланная строка уехала бы в Location как есть.
+//
+// Вкладка приезжает в поле `tab`, а не `status`: у формы правки есть свой
+// `status` — состояние самого отзыва, — и два поля с одним именем ушли бы
+// массивом, из-за чего отзыв сохранялся бы «на модерации» что ни выбери.
+const REVIEW_TABS = ['pending', 'approved', 'all'];
+const backFrom = (src) => ({
+  status: String((src && src.tab) || ''), page: src && src.page,
+  product: String((src && src.product) || '')
+});
+const reviewsBackUrl = (body, flash, anchor) => {
+  const product = String((body && body.product) || '');
+  const known = !!(product && db.getProduct(product));
+  const base = known ? '/admin/reviews/product/' + encodeURIComponent(product) : '/admin/reviews';
   const params = [];
-  const status = String((body && body.status) || '');
-  if (REVIEW_TABS.includes(status) && status !== 'all') params.push('status=' + status);
+  const status = String((body && body.tab) || '');
+  // Вкладка по умолчанию у страниц разная: очередь открывается на «На модерации»,
+  // лента товара — на «Все». В адрес пишем только отличие от неё, чтобы ссылки
+  // не обрастали мусором.
+  if (REVIEW_TABS.includes(status) && status !== (known ? 'all' : 'pending')) params.push('status=' + status);
   const n = Math.floor(Number(body && body.page));
   if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
   if (flash) params.push('flash=' + encodeURIComponent(flash));
-  return '/admin/reviews' + (params.length ? '?' + params.join('&') : '');
+  return base + (params.length ? '?' + params.join('&') : '') + (anchor ? '#' + anchor : '');
 };
 const parseDt = (v) => { if (!v) return null; const t = Date.parse(v); return isNaN(t) ? null : t; };
 // Варианты из формы: цвета «Название|#hex|наличие» и память «Метка|доплата|наличие».
@@ -1316,15 +1334,76 @@ app.post('/admin/products/:id/images/remove', (req, res) => {
   res.json({ ok: true });
 });
 
-/* ---------- Отзывы: модерация ---------- */
+/* ---------- Отзывы: модерация и правка ---------- */
+const REVIEW_PHOTO_MAX = 12;
+// Миниатюры для добавленных из панели снимков: в ленте вложений показывается
+// именно превью, а полный файл грузится только в просмотрщике. Нет ImageMagick —
+// вернётся пустая строка, и вложение покажется самим снимком, как раньше.
+async function reviewPreviews(files) {
+  const out = {};
+  for (const f of files) { const thumb = await IMG.makeThumb(db.UPLOAD_DIR, f); if (thumb) out[f] = thumb; }
+  return out;
+}
 app.get('/admin/reviews', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewsList(settings(), db, req.query.status, req.query.flash, req.query.page)); });
-app.get('/admin/reviews/new', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.addReviewForm(settings(), db, req.query.productId, null)); });
+app.get('/admin/reviews/new', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewForm(settings(), db, null, { productId: req.query.productId })); });
 app.post('/admin/reviews/new', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const p = db.getProduct(req.body.productId); if (!p) return res.redirect('/admin/reviews');
-  let createdAt = Date.now(); if (req.body.date) { const t = Date.parse(req.body.date); if (!isNaN(t)) createdAt = t; }
-  db.createReview({ productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text, photos: await optimizeUploads(req.filesFor('photos'), 1400), status: 'approved', createdAt });
-  res.redirect('/admin/reviews?flash=' + encodeURIComponent('Отзыв опубликован'));
+  const photos = await optimizeUploads(req.filesFor('photos').slice(0, REVIEW_PHOTO_MAX), 1400);
+  db.createReview({
+    productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text,
+    config: req.body.config, delivery: req.body.delivery,
+    photos, previews: await reviewPreviews(photos),
+    status: req.body.status === 'pending' ? 'pending' : 'approved',
+    createdAt: parseDt(req.body.date) || Date.now()
+  });
+  res.redirect('/admin/reviews/product/' + encodeURIComponent(p.id) + '?flash=' + encodeURIComponent('Отзыв добавлен'));
+});
+// Раньше маршрута с :id — побеждает первый совпавший, и отзыв с id «product»
+// иначе перехватил бы ленту товара.
+app.get('/admin/reviews/product/:productId', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const p = db.getProduct(req.params.productId);
+  if (!p) return res.redirect('/admin/reviews');
+  res.send(A.productReviews(settings(), db, p, req.query.status, req.query.flash, req.query.page));
+});
+app.get('/admin/reviews/:id/edit', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const rv = db.getReview(req.params.id);
+  if (!rv) return res.redirect(reviewsBackUrl(req.query, 'Отзыв не найден'));
+  res.send(A.reviewForm(settings(), db, rv, { back: backFrom(req.query) }));
+});
+app.post('/admin/reviews/:id/edit', async (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const rv = db.getReview(req.params.id);
+  if (!rv) return res.redirect(reviewsBackUrl(req.body, 'Отзыв не найден'));
+  const product = db.getProduct(req.body.productId);
+  const author = String(req.body.author || '').trim();
+  const createdAt = parseDt(req.body.date);
+  // Проверка ДО записи и до сохранения файлов: иначе форма вернулась бы с
+  // ошибкой, а половина правки уже лежала бы в хранилище (то же правило, что у
+  // формы товара и настроек). Введённое возвращается вместе с ошибкой.
+  const fail = (error) => res.send(A.reviewForm(settings(), db, Object.assign({}, rv, {
+    productId: product ? product.id : rv.productId, author: req.body.author, rating: req.body.rating,
+    text: req.body.text, config: req.body.config, delivery: req.body.delivery,
+    status: req.body.status, createdAt: createdAt || rv.createdAt
+  }), { back: backFrom(req.body), flash: error, flashType: 'err' }), 400);
+  if (!author) return fail('Укажите имя автора');
+  if (req.body.date && !createdAt) return fail('Не разобрали дату отзыва');
+
+  const dropped = new Set(asArray(req.body.drop).map(String));
+  const room = Math.max(0, REVIEW_PHOTO_MAX - (rv.photos || []).filter(f => !dropped.has(f)).length);
+  const added = await optimizeUploads(req.filesFor('photos').slice(0, room), 1400);
+  db.updateReview(rv.id, {
+    productId: product ? product.id : rv.productId,
+    author, rating: req.body.rating, text: req.body.text, config: req.body.config,
+    delivery: req.body.delivery, status: req.body.status,
+    createdAt: createdAt || rv.createdAt,
+    photos: (rv.photos || []).filter(f => !dropped.has(f)).concat(added),
+    videos: (rv.videos || []).filter(f => !dropped.has(f)),
+    previews: await reviewPreviews(added)
+  });
+  res.redirect(reviewsBackUrl(req.body, 'Отзыв сохранён', 'rv-' + rv.id));
 });
 app.post('/admin/reviews/:id/approve', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'approved'); res.redirect(reviewsBackUrl(req.body, 'Отзыв опубликован')); });
 // «Снять с витрины» — возврат в очередь модерации. Прежде отзыв прятали в

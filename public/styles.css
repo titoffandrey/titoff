@@ -1552,6 +1552,100 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders .o-act{display:none;width:1%;text-align:right}
 .edit-switch:checked ~ .a-orders .o-act{display:table-cell}
 
+/* ===== Отзывы в панели =====
+   Раздел в два уровня: очередь модерации на входе и лента каждого товара
+   отдельно. Строка отзыва — не ячейка таблицы: у отзыва длинный текст и
+   вложения, в столбцах он расползался на треть экрана, а на телефоне таблицу
+   приходилось листать вбок.
+   Неодобренное подкрашено: это единственное в разделе дело со сроком, и найти
+   его в общей ленте надо с одного взгляда. Оттенок мягкий, тёплый — строка
+   остаётся читаемой, а не превращается в предупреждение. Цвет — тот же
+   оранжевый #bf4800, которым на витрине подписана «Новинка»: акцент у магазина
+   свой и в 11px мог бы не читаться. */
+.rv-list{display:flex;flex-direction:column;gap:10px}
+.rv-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:6px 16px;align-items:center;
+  padding:13px 15px;border:1px solid var(--border-soft);border-radius:15px;background:#fff;
+  transition:border-color .14s,box-shadow .16s}
+.rv-row:hover{border-color:#d6d6dc;box-shadow:0 1px 2px rgba(17,17,26,.045)}
+.rv-row.is-pending{background:#fffaf2;border-color:#f0dcc0}
+.rv-row.is-pending:hover{border-color:#e3c79c}
+/* Вернулись из формы правки — видно, какая именно строка правилась. */
+.rv-row:target{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,0,0,.06)}
+.rv-main{min-width:0}
+.rv-head{display:flex;flex-wrap:wrap;align-items:center;gap:5px 9px;line-height:1.3}
+.rv-head .stars{font-size:13px}
+.rv-who{font-size:14px;font-weight:650;overflow-wrap:anywhere}
+.rv-when{font-size:12px}
+.rv-tag{padding:2px 8px;border-radius:20px;background:#bf4800;color:#fff;font-size:11px;font-weight:650;line-height:1.55;white-space:nowrap}
+.rv-where{max-width:240px;margin-left:auto;overflow:hidden;color:#6e6e73;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+a.rv-where:hover{color:var(--text);text-decoration:underline}
+.rv-where-gone{color:#a1a1a6}
+/* Текст обрезан двумя строками: в списке отзыв надо узнать, а не прочесть
+   целиком — для чтения есть форма правки, и она в одном клике. */
+.rv-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  margin:5px 0 0;color:#333;font-size:13.5px;line-height:1.45}
+.rv-text-none{color:#a1a1a6;font-style:italic}
+.rv-bits{margin-top:4px}
+.rv-thumbs{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.rv-thumb{position:relative;display:flex;width:44px;height:44px;flex:none;align-items:center;justify-content:center;
+  overflow:hidden;border:1px solid var(--border-soft);border-radius:9px;background:var(--bg2)}
+.rv-thumb img{width:100%;height:100%;object-fit:cover}
+.rv-thumb-cap{color:var(--muted);font-size:10px;font-weight:700}
+.rv-thumb-more{color:var(--muted);font-size:12px;font-weight:650}
+/* Треугольник поверх кадра: иначе первый кадр ролика не отличить от фото. */
+.rv-thumb.is-video::after{content:"";position:absolute;width:0;height:0;margin-left:3px;
+  border:6px solid transparent;border-left:10px solid rgba(255,255,255,.95);
+  filter:drop-shadow(0 0 2px rgba(0,0,0,.55))}
+.rv-acts{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.rv-acts form{margin:0}
+.rv-acts .btn{width:100%;min-width:136px;justify-content:center}
+.rv-empty{margin:0;padding:16px 4px}
+
+/* Плитки товаров: у кого сколько отзывов и сколько из них ждёт решения. */
+.rv-products{display:grid;grid-template-columns:repeat(auto-fill,minmax(236px,1fr));gap:8px}
+.rv-prod{display:flex;min-width:0;align-items:center;gap:10px;padding:8px 10px;color:var(--text);
+  border:1px solid var(--border-soft);border-radius:14px;transition:border-color .14s,background .14s}
+.rv-prod:hover{border-color:#d6d6dc;background:#fcfcfd}
+.rv-prod.has-wait{border-color:#f0dcc0;background:#fffaf2}
+.rv-prod-pic{flex:none;line-height:0}
+.rv-prod-pic img,.rv-prod-pic svg{width:40px;height:40px;object-fit:contain;border-radius:9px;background:var(--bg2)}
+.rv-prod-body{display:flex;min-width:0;flex-direction:column;gap:1px}
+.rv-prod-body b{overflow:hidden;font-size:13.5px;font-weight:620;text-overflow:ellipsis;white-space:nowrap}
+.rv-prod-wait{display:flex;flex:none;min-width:22px;height:22px;margin-left:auto;padding:0 6px;
+  align-items:center;justify-content:center;border-radius:11px;background:#bf4800;color:#fff;font-size:11.5px;font-weight:700}
+/* Шапка ленты одного товара */
+.a-panel.rv-prod-head{display:flex;align-items:center;gap:14px}
+.rv-prod-head .rv-prod-pic img,.rv-prod-head .rv-prod-pic svg{width:52px;height:52px;border-radius:11px}
+.rv-prod-info{display:flex;min-width:0;flex-direction:column;gap:2px}
+.rv-prod-info b{font-size:16px;letter-spacing:-.015em}
+.rv-prod-links{display:flex;gap:8px;margin-left:auto}
+
+/* Форма отзыва: поля слева, вложения справа отдельной колонкой. */
+.rv-form-grid{display:grid;grid-template-columns:minmax(0,1fr) 296px;gap:0 26px}
+.rv-form-col{min-width:0}
+.rv-form-media{padding-left:24px;border-left:1px solid var(--border-soft)}
+.rv-form-sub{display:block;margin-bottom:9px;font-size:13px;font-weight:650}
+.rv-files{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px}
+/* Удаление вложения — галочка, а не кнопка со скриптом: форма работает и там,
+   где скрипты панели не загрузились, и удаляется всё одним сохранением. */
+.rv-file{position:relative;display:flex;flex-direction:column;gap:4px;cursor:pointer}
+.rv-file input{position:absolute;width:1px;height:1px;opacity:0}
+.rv-file-body{position:relative;display:flex;aspect-ratio:1/1;align-items:center;justify-content:center;
+  overflow:hidden;border:1px solid var(--border-soft);border-radius:12px;background:var(--bg2);
+  transition:opacity .14s,filter .14s}
+.rv-file-body img{width:100%;height:100%;object-fit:cover}
+.rv-file-x{position:absolute;top:4px;right:4px;display:flex;width:20px;height:20px;align-items:center;
+  justify-content:center;border-radius:50%;background:rgba(20,20,22,.55);color:#fff;font-size:11px;line-height:1}
+.rv-file-cap{color:var(--muted);font-size:11px;text-align:center}
+.rv-file-cap i{font-style:normal}
+.rv-gone{display:none;color:#d70015;font-weight:650}
+.rv-file input:checked ~ .rv-file-body{opacity:.42;filter:grayscale(1)}
+.rv-file input:checked ~ .rv-file-body .rv-file-x{background:#d70015}
+.rv-file input:checked ~ .rv-file-cap .rv-keep{display:none}
+.rv-file input:checked ~ .rv-file-cap .rv-gone{display:inline}
+.rv-file input:focus-visible ~ .rv-file-body{outline:2px solid var(--accent);outline-offset:2px}
+.rv-form-del{margin-left:auto}
+
 /* Значки клиента: флаг страны, устройство, система, браузер. Одной строкой и
    открыто, а не в свёртке: с одного взгляда видно, кто и с чего зашёл.
    Обводка глифов волосяная — тот же вес штриха, что у витрины. */
@@ -1936,6 +2030,21 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
   .a-orders td:empty{display:none}
+
+  /* Отзывы: кнопки уходят под строку и делят ширину поровну — колонкой справа
+     они забирали бы половину узкого экрана у самого отзыва. */
+  .rv-row{grid-template-columns:minmax(0,1fr)}
+  .rv-where{margin-left:0}
+  .rv-acts{flex-direction:row;flex-wrap:wrap;margin-top:9px;padding-top:10px;border-top:1px solid var(--border-soft)}
+  .rv-acts .btn{flex:1 1 auto;width:auto;min-width:0}
+  .rv-products{grid-template-columns:1fr}
+  /* Подсказка у заголовка съедает половину узкой строки и отжимает сам
+     заголовок в две строки — на телефоне её нет. */
+  .rv-hint{display:none}
+  .a-panel.rv-prod-head{flex-wrap:wrap}
+  .rv-prod-links{width:100%;margin-left:0}
+  .rv-form-grid{grid-template-columns:minmax(0,1fr)}
+  .rv-form-media{margin-top:6px;padding:14px 0 0;border-left:0;border-top:1px solid var(--border-soft)}
   .a-main{min-height:auto}
   .a-topbar{position:static;min-height:62px;height:auto;padding:12px 16px;flex-wrap:nowrap}
   .a-topbar h1{min-width:0;overflow:hidden;font-size:21px;white-space:nowrap;text-overflow:ellipsis}
