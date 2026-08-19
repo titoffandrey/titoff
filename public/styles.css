@@ -2342,7 +2342,26 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-item-media img,.co-item-media svg{width:100%;height:100%;object-fit:contain}
 .co-item-name{font-size:16.5px;font-weight:600;margin:0;line-height:1.3;letter-spacing:-.01em}
 .co-item-variant{font-size:13.5px;color:var(--muted);margin-top:4px}
-.co-item-unit{font-size:13px;color:var(--muted);margin-top:8px}
+/* Цена за штуку — тем же языком, что и в карточке каталога: розовая цена со
+   скидкой, зачёркнутая старая с наклонной чертой, розовый процент. Покупатель
+   уже видел этот вид на главной, и переучиваться на оформлении не должен.
+   Кегль здесь меньше карточного: там цена — главное на карточке, здесь главное
+   сумма позиции справа, а это подпись к ней. */
+.co-item-unit{margin-top:8px}
+.co-item-unit .card-price{margin-top:0;font-size:16px;line-height:22px;gap:0 7px}
+.co-item-unit .card-price .old-price{font-size:13px;line-height:18px}
+.co-item-unit .card-price .save{font-size:13px;line-height:18px}
+/* «за штуку» — flex-элемент внутри ценового блока: снаружи оно равнялось по
+   первой строке и на узком экране повисало в стороне, пока цена со скидкой
+   переносилась на вторую. */
+.co-item-per{font-size:13px;font-weight:400;color:var(--muted)}
+/* Выгода по позиции — рублями под суммой: процент уже стоит у цены за штуку, а
+   здесь важно, сколько именно покупатель не платит. */
+.co-item-save{font-size:13px;font-weight:600;color:#f1117e;white-space:nowrap;
+  font-variant-numeric:tabular-nums;margin-top:-6px}
+/* У распроданной позиции цена гаснет вместе с фото: обещать выгоду на том, что
+   не попадёт в заказ, незачем — процент по этой же причине не рисуется вовсе. */
+.co-item-out .co-item-unit .card-price .price-now{color:var(--muted)}
 .co-item-warn{display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#b42318;
   background:#fef3f2;border-radius:8px;padding:3px 8px}
 .co-item-side{display:flex;flex-direction:column;align-items:flex-end;gap:12px}
@@ -2371,6 +2390,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-line{display:flex;justify-content:space-between;gap:12px;font-size:14.5px;margin-bottom:9px}
 .co-line span:last-child{font-variant-numeric:tabular-nums}
 .co-line-muted span:last-child{color:var(--muted);font-size:13px}
+/* Скидка — единственная строка сводки, которая говорит не «сколько платить», а
+   «сколько не платить». Розовая, как цена со скидкой и процент на карточке;
+   без скидки строки в заказе просто нет. */
+.co-line-save span{color:#f1117e;font-weight:600}
 .co-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   padding-top:14px;border-top:1px solid var(--border);margin-top:14px}
 .co-total span{font-size:15px}
@@ -2670,6 +2693,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .co-item-media{width:64px;height:64px;border-radius:12px}
   .co-item-side{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
   .co-item-unit{margin-top:6px}
+  /* На телефоне правая колонка становится строкой, и «выгода» повисала бы
+     посередине между суммой и кнопками. Ставим её сразу за суммой, а кнопки
+     прижимаем к правому краю отступом: подпись должна стоять у того числа,
+     к которому относится. */
+  .co-item-side{justify-content:flex-start}
+  .co-item-save{margin-top:0}
+  .co-item-controls{margin-left:auto}
   .co-summary{padding:18px 16px}
   .trust-col{margin-top:14px;padding-top:12px}
   .co-back-full{display:none}

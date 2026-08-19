@@ -49,6 +49,10 @@
           if (!item || fresh.gone) return;              // товар убрали из каталога
           if (fresh.name) item.name = fresh.name;
           if (Number(fresh.price) > 0) item.price = Number(fresh.price);
+          // Цена для сравнения приходит от сервера тем же расчётом, что и
+          // зачёркнутая на карточке. Ноль — сравнивать не с чем, и ноль тоже
+          // является обновлением: акция могла закончиться, пока товар лежал.
+          item.compare = Number(fresh.compare) > 0 ? Number(fresh.compare) : 0;
           // Пустая строка тоже является обновлением: если фото удалили в панели,
           // старая миниатюра не должна оставаться в localStorage и давать 404.
           item.img = fresh.img || '';
@@ -63,6 +67,17 @@
       .catch(function () { /* офлайн — работаем с тем, что сохранено */ });
   }
 
+  /* Скидка позиции: цена для сравнения, процент и выгода в рублях — или null,
+   * когда сравнивать не с чем. Считается ровно так же, как на карточке каталога
+   * (`comparePrice`/`discountPct` в lib/deals.js): процент округляется от цены
+   * сравнения, поэтому одна и та же сборка показывает на витрине и в корзине
+   * одинаковые «−13%», а не расходится на процент из-за другого округления.
+   */
+  function itemSale(i) {
+    var cmp = Number(i.compare) || 0, price = Number(i.price) || 0;
+    if (!(cmp > price) || price <= 0) return null;
+    return { compare: cmp, saved: cmp - price, pct: Math.round((1 - price / cmp) * 100) };
+  }
   // ===== Страница оформления (/checkout) =====
   // Три блока, а не «список слева, форма справа»: товары и форма идут одной
   // колонкой сверху вниз (шаг за шагом), а справа липнет только сводка. Прежняя
@@ -99,16 +114,36 @@
         var k = escapeHtml(itemKey(i));
         var variant = [i.storage, i.color, i.band, i.bandSize].concat(optionValues(i)).filter(Boolean).join(' · ');
         var out = i.available === false;
+        var sale = itemSale(i);
         return '<article class="co-item' + (out ? ' co-item-out' : '') + '">'
+          /* Плашки «Распродажа» здесь нет намеренно, хотя на карточке каталога
+           * она есть: миниатюра тут 80 px, и слово в неё не влезает — обрезанное
+           * «Распродаж» выглядит как поломка. Язык скидки несут цена, черта и
+           * процент — те же классы, что и на главной, — а плашка была бы
+           * четвёртым повтором одного и того же в одной строке. */
           + '<div class="co-item-media">' + itemThumb(i) + '</div>'
           + '<div class="co-item-body">'
           + '<h3 class="co-item-name">' + escapeHtml(i.name) + '</h3>'
           + (variant ? '<div class="co-item-variant">' + escapeHtml(variant) + '</div>' : '')
           + (out ? '<div class="co-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
-          + '<div class="co-item-unit">' + money(i.price) + ' за штуку</div>'
+          // Цена за штуку — тем же набором классов, что и в карточке каталога:
+          // розовая цена, зачёркнутая старая с наклонной чертой, розовый процент.
+          + '<div class="co-item-unit">'
+          + '<span class="card-price' + (sale ? ' price-sale' : '') + '">'
+          + '<span class="price-now">' + money(i.price) + '</span>'
+          + (sale ? '<span class="price-was"><span class="old-price">' + money(sale.compare) + '</span>'
+            + (out ? '' : '<span class="save">−' + sale.pct + '%</span>') + '</span>' : '')
+          // «за штуку» лежит ВНУТРИ ценового блока, а не рядом: снаружи оно
+          // равнялось по первой строке и на узком экране повисало в стороне,
+          // пока цена со скидкой переносилась на вторую.
+          + '<span class="co-item-per">за штуку</span>'
+          + '</span></div>'
           + '</div>'
           + '<div class="co-item-side">'
           + '<div class="co-item-sum">' + money(i.price * i.qty) + '</div>'
+          // Выгода по позиции — рублями, а не процентом: процент уже стоит у
+          // цены за штуку, а здесь важно, сколько именно покупатель не платит.
+          + (sale && !out ? '<div class="co-item-save">выгода ' + money(sale.saved * i.qty) + '</div>' : '')
           + '<div class="co-item-controls">'
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Уменьшить количество">−</button>'
           + '<span>' + i.qty + '</span>'
@@ -231,7 +266,19 @@
     // способ, а не «0 ₽» — обещать бесплатную доставку мы не можем.
     var price = shipCurrent();
     var way = [deliveryName(), deliveryModeName().toLowerCase()].filter(Boolean).join(', ');
-    side.innerHTML = '<div class="co-line"><span>Товары (' + count + ')</span><span>' + sum + '</span></div>'
+    /* Выгода — отдельной строкой между товарами и доставкой, и розовой, как
+     * процент и цена со скидкой на карточке. Это единственная строка сводки,
+     * которая говорит не «сколько платить», а «сколько не платить», поэтому она
+     * и выделена цветом; строки без скидки в заказе просто нет.
+     *
+     * Когда скидка есть, «Товары» показывают сумму ДО неё — иначе столбик не
+     * сходится: покупатель вычитает скидку из суммы товаров и не получает итог.
+     * Без скидки строка одна и показывает то же, что и раньше.
+     */
+    var saved = Cart.saved();
+    var goods = saved > 0 ? money(Cart.total() + saved) : sum;
+    side.innerHTML = '<div class="co-line"><span>Товары (' + count + ')</span><span>' + goods + '</span></div>'
+      + (saved > 0 ? '<div class="co-line co-line-save"><span>Скидка</span><span>−' + money(saved) + '</span></div>' : '')
       + '<div class="co-line"><span>Доставка</span><span>'
       + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>'
       + (way ? '<div class="co-line co-line-muted"><span>' + escapeHtml(way)
@@ -986,6 +1033,18 @@
     // совпадать с ним, а не обещать покупателю более высокий итог.
     total: function () { return this.items.reduce(function (a, i) { return a + (i.available === false ? 0 : Number(i.price) * Number(i.qty)); }, 0); },
     availableCount: function () { return this.items.reduce(function (a, i) { return a + (i.available === false ? 0 : Number(i.qty)); }, 0); },
+    /* Сколько покупатель экономит на всём заказе. Считается по тем же позициям,
+     * что и сумма: у распроданной позиции цены в итоге нет, и выгоды по ней тоже
+     * нет. Цена для сравнения приходит от сервера — своей витрина не держит,
+     * как не держит и самой цены.
+     */
+    saved: function () {
+      return this.items.reduce(function (a, i) {
+        if (i.available === false) return a;
+        var cmp = Number(i.compare) || 0, price = Number(i.price) || 0;
+        return a + (cmp > price ? (cmp - price) * Number(i.qty) : 0);
+      }, 0);
+    },
     has: function (id) { return this.items.some(function (i) { return i.id === id; }); },
     updateBadge: function () {
       var b = document.getElementById('cart-badge');

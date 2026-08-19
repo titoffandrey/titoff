@@ -3416,7 +3416,7 @@ test('куда доставить — обязательный выбор, а е
   assert.match(css, /\.co-modes-label\{/);
 
   // В сводке доставка стоит отдельной строкой, а итог считается вместе с ней.
-  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 1400);
+  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 2400);
   assert.match(rail, /Доставка/);
   assert.match(rail, /money\(orderTotal\(\)\)/);
   // Пока адреса нет, цену не выдумываем и «бесплатно» не обещаем.
@@ -3538,6 +3538,61 @@ const PICKUP_SAMPLE = [
   { carrier: 'cdek', code: 'NSK376', region: 'Новосибирская область', city: 'Новосибирск', short: 'ул. Колхидская, 6', lat: 54.9866, lon: 82.8158, type: 'pvz', hours: '' },
   { carrier: 'cdek', code: 'NN12', region: 'Нижегородская область', city: 'Нижний Новгород', short: 'пр-т Ленина, 9', lat: 56.2565, lon: 43.8636, type: 'pvz', hours: '' }
 ];
+
+test('скидка на оформлении показана тем же языком, что и в каталоге', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const D = require('../lib/deals');
+
+  /* Цену для сравнения считает СЕРВЕР тем же способом, что и зачёркнутую на
+   * карточке: база сравнения плюс те же доплаты. Своей формулы у витрины нет —
+   * она разъехалась бы с каталогом на первом же товаре с доплатой за память. */
+  const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/address-suggest'"));
+  assert.match(cart, /const cmpBase = D\.comparePrice\(view\)/);
+  assert.match(cart, /const compare = cmpBase \? cmpBase \+ adds : 0/);
+  assert.match(cart, /price, compare,/);
+  // Доплата одна и та же в обеих ценах: выгода в рублях сохраняется, а процент
+  // от суммы честно уменьшается — ровно как на странице товара.
+  const p = { price: 66990, oldPrice: 76990 };
+  assert.equal(D.comparePrice(p), 76990);
+  assert.equal(D.discountPct(p), 13);
+  const adds = 12000;
+  const pct = Math.round((1 - (D.effectivePrice(p) + adds) / (D.comparePrice(p) + adds)) * 100);
+  assert.equal(pct, 11, 'процент обязан считаться от цены выбранной сборки');
+
+  // Разметка позиции — те же классы, что и в карточке каталога: розовая цена,
+  // зачёркнутая старая с наклонной чертой, розовый процент.
+  assert.match(js, /class="card-price' \+ \(sale \? ' price-sale' : ''\)/);
+  assert.match(js, /class="price-now"/);
+  assert.match(js, /class="price-was"><span class="old-price"/);
+  assert.match(js, /class="save">−' \+ sale\.pct \+ '%/);
+  assert.match(css, /\.co-item-unit \.card-price\{/);
+  // Стиль общий с каталогом, а не скопированный: правило розовой цены и черты
+  // одно на всю витрину.
+  assert.match(css, /\.price-sale \.price-now\{color:#f1117e\}/);
+  assert.match(css, /\.card-price \.old-price::before\{content:""/);
+
+  // Выгода видна дважды и по-разному: рублями у позиции и строкой в сводке.
+  assert.match(js, /выгода ' \+ money\(sale\.saved \* i\.qty\)/);
+  assert.match(js, /co-line-save"><span>Скидка<\/span><span>−/);
+  assert.match(css, /\.co-line-save span\{color:#f1117e/);
+  /* Столбик сводки обязан сходиться: при скидке «Товары» показывают сумму ДО
+   * неё, иначе покупатель вычитает скидку и не получает итог. */
+  assert.match(js, /var goods = saved > 0 \? money\(Cart\.total\(\) \+ saved\) : sum/);
+
+  // У распроданной позиции процента нет: обещать выгоду на том, что не попадёт
+  // в заказ, незачем — то же правило, что и в карточке каталога.
+  assert.match(js, /out \? '' : '<span class="save">/);
+  // И плашки «Распродажа» здесь нет: миниатюра 80 px, слово в неё не влезает.
+  assert.doesNotMatch(js, /card-sale/);
+
+  // Выгода считается по тем же позициям, что и сумма: у распроданной цены в
+  // итоге нет, и выгоды по ней тоже нет.
+  const saved = js.slice(js.indexOf('saved: function'), js.indexOf('saved: function') + 420);
+  assert.match(saved, /i\.available === false/);
+  assert.match(saved, /Number\(i\.compare\)/);
+});
 
 test('пункт выдачи ищется по координатам, а без них — по названию города', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pickup-'));
@@ -4251,7 +4306,7 @@ test('оформление разложено на три блока, а сум�
   assert.match(js, /if \(form && !form\.dataset\.ready\)/);
   assert.match(js, /form\.dataset\.ready = '1'/);
   // В правой панели только деньги: полей формы там быть не должно.
-  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 900);
+  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 2400);
   assert.doesNotMatch(rail, /co-first-name|co-last-name|co-contact|co-address|checkout-submit/);
   assert.match(rail, /Cart\.availableCount\(\)/, 'число товаров обязано совпадать с суммой рядом');
   // Смена перевозчика обновляет варианты доставки (у них своя цена), сумму

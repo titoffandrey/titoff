@@ -666,9 +666,20 @@ app.post('/api/cart', (req, res) => {
       ? (view.images || []).find(src => ics[src] === color && !ibs[src]) : null;
     // Доп. характеристики: доплата за каждое выбранное значение
     const chosen = findOptions(view, it);
-    const price = D.effectivePrice(view) + (st ? Number(st.add) || 0 : 0)
+    const adds = (st ? Number(st.add) || 0 : 0)
       + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0)
       + optionsAdd(chosen);
+    const price = D.effectivePrice(view) + adds;
+    /* Цена для сравнения — та же, что зачёркнута на карточке и на странице
+     * товара, и считается ТЕМ ЖЕ способом: база сравнения плюс те же доплаты.
+     * Доплата за память и прочее одинакова в обеих ценах, поэтому выгода в
+     * рублях сохраняется, а процент от суммы честно уменьшается.
+     *
+     * Ноль означает «зачёркивать нечего»: у товара без старой цены и без
+     * активной акции сравнивать не с чем.
+     */
+    const cmpBase = D.comparePrice(view);
+    const compare = cmpBase ? cmpBase + adds : 0;
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
       || (band && band.option.inStock === false)
       || (band && band.option.forColor && band.option.forColor !== color)
@@ -678,7 +689,7 @@ app.post('/api/cart', (req, res) => {
       || (st && !optionFits(st, storage, choiceMap(chosen)))
       || variantMissing(view, it);
     return {
-      id: view.id, name: view.name, storage, color, price,
+      id: view.id, name: view.name, storage, color, price, compare,
       band: band ? bandStr : '', bandSize: band ? bandSize : '',
       img: byBand || byColor || (view.images || [])[0] || '',
       available: !outOfStock
