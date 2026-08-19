@@ -444,7 +444,7 @@
    */
   var pickup = {
     key: '', wanted: '', retriedKey: '', items: [], ready: false, done: false, pending: false,
-    code: '', geo: null
+    code: '', open: true, geo: null
   };
 
   // Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
@@ -456,8 +456,9 @@
   // прежнем городе или чужой сети — это не выбор покупателя, а мусор.
   function dropPickup() {
     pickup.code = '';
-    var on = document.querySelector('input[name="co-pickup"]:checked');
-    if (on) on.checked = false;
+    // Выбирать снова — значит снова показать из чего: свёрнутый пустой список
+    // выглядел бы как уже сделанный выбор.
+    pickup.open = true;
   }
 
   function pointsBox() { return document.getElementById('co-points'); }
@@ -511,13 +512,38 @@
     return (Math.round(km * 10) / 10).toLocaleString('ru-RU') + ' км';
   }
 
-  /* Блок — это ТОЛЬКО выбор пункта: подпись и список. Ни поиска, ни ручного
-   * ввода адреса, ни сносок под списком. Всё это стояло здесь и мешало: шаг
-   * «Доставка» и так последний перед оплатой, и лишние строки на нём читаются
-   * как работа, которую ещё надо сделать.
+  /* Значки блока. Холст 24×24 и волосяная обводка — тот же вес штриха, что у
+   * глифов характеристик и блока доверия, поэтому в одной странице они не спорят.
+   * Витрина и постамат различаются рисунком: у первого навес и дверь, у второго
+   * шкаф с ячейками. Это главное, что покупателю надо увидеть с одного взгляда —
+   * в постамате никто не поможет и не даст примерить.
+   */
+  var PVZ_ICONS = {
+    pvz: '<path d="M3.6 9.2 5.2 4.4h13.6l1.6 4.8M4.9 9.2v10.4h14.2V9.2M9.7 19.6v-5.4h4.6v5.4"/>',
+    postamat: '<path d="M5.6 3.8h12.8v16.4H5.6zM5.6 9.6h12.8M5.6 15.2h12.8M15.4 6.4v.6M15.4 12.2v.6M15.4 17.8v.6"/>',
+    pin: '<path d="M12 21.2s6.6-6.1 6.6-10.6a6.6 6.6 0 0 0-13.2 0C5.4 15.1 12 21.2 12 21.2zM12 13a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2z"/>',
+    chevron: '<path d="M7.2 10.2 12 15l4.8-4.8"/>',
+    check: '<path d="m5.4 12.6 4.4 4.4 8.8-9.6"/>'
+  };
+  function pvzIcon(name, cls) {
+    var d = PVZ_ICONS[name];
+    if (!d) return '';
+    return '<svg class="' + cls + '" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+      + ' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  }
+
+  /* Блок — это ТОЛЬКО выбор пункта, и устроен он как выпадающий список: пока
+   * пункт не выбран, список раскрыт (выбирать всё равно придётся), после выбора
+   * схлопывается в одну строку с выбранным пунктом, а нажатие на неё открывает
+   * список снова.
    *
-   * Выбирать нечего (рядом пусто, базы перевозчика нет) — говорим это одной
-   * строкой и не делаем вид, что выбор есть.
+   * Так шаг «Доставка» не растягивается на пять адресов после того, как выбор уже
+   * сделан: на последнем шаге перед оплатой важно видеть кнопку, а не перечень,
+   * из которого уже выбрали. И при этом видно, ЧТО именно выбрано, — свёрнутая
+   * строка показывает адрес, часы и расстояние.
+   *
+   * Разметка — `listbox`, как у подсказок адреса в этой же форме: у выпадающего
+   * списка это правильная роль, и с клавиатуры он ведёт себя ожидаемо.
    */
   function renderPoints() {
     var box = pointsBox();
@@ -532,33 +558,101 @@
       syncSubmit();
       return;
     }
+    var picked = null;
+    for (var i = 0; i < pickup.items.length; i++) if (pickup.items[i].code === pickup.code) picked = pickup.items[i];
+    // Пока не выбрано — список открыт: закрытый требовал бы лишнего нажатия там,
+    // где выбор обязателен.
+    var open = picked ? pickup.open : true;
+    var count = pickup.items.length;
+
     box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
-      + '<div class="co-point-list" role="radiogroup" aria-label="Пункты выдачи">'
+      + '<div class="co-pvz' + (open ? ' is-open' : '') + (picked ? ' is-picked' : '') + '">'
+      + '<button type="button" class="co-pvz-head" id="co-pvz-head" aria-expanded="' + (open ? 'true' : 'false')
+      + '" aria-controls="co-pvz-list">'
+      + '<span class="co-pvz-ico">' + pvzIcon(picked ? (picked.postamat ? 'postamat' : 'pvz') : 'pin', 'co-ico') + '</span>'
+      + '<span class="co-pvz-text">'
+      + (picked
+        ? '<b>' + escapeHtml(picked.title)
+          + (picked.postamat ? '<span class="co-point-kind">постамат</span>' : '') + '</b>'
+          + '<i>' + [picked.hours, pointDistance(picked.km)].filter(Boolean).map(escapeHtml).join(' · ') + '</i>'
+        : '<b>Выберите пункт выдачи</b><i>' + count + ' ' + plural(count, 'пункт', 'пункта', 'пунктов')
+          + ' рядом с вашим адресом</i>')
+      + '</span>'
+      + (picked ? '<span class="co-pvz-change">Изменить</span>' : '')
+      + pvzIcon('chevron', 'co-pvz-chev')
+      + '</button>'
+      + '<div class="co-pvz-drop" id="co-pvz-list" role="listbox" aria-label="Пункты выдачи">'
+      + '<div class="co-pvz-inner">'
       + pickup.items.map(function (p) {
         var km = pointDistance(p.km);
-        return '<label class="co-point' + (p.code === pickup.code ? ' is-picked' : '') + '">'
-          + '<input type="radio" name="co-pickup" value="' + escapeHtml(p.code) + '"'
-          + (p.code === pickup.code ? ' checked' : '') + '>'
+        var on = p.code === pickup.code;
+        return '<button type="button" class="co-point' + (on ? ' is-picked' : '') + '" role="option"'
+          + ' aria-selected="' + (on ? 'true' : 'false') + '" data-code="' + escapeHtml(p.code) + '">'
+          + '<span class="co-point-ico">' + pvzIcon(p.postamat ? 'postamat' : 'pvz', 'co-ico') + '</span>'
           + '<span class="co-point-text"><b>' + escapeHtml(p.title)
           + (p.postamat ? '<span class="co-point-kind">постамат</span>' : '') + '</b>'
           + (p.hours ? '<i>' + escapeHtml(p.hours) + '</i>' : '') + '</span>'
           + (km ? '<span class="co-point-km">' + escapeHtml(km) + '</span>' : '')
-          + '</label>';
+          + '<span class="co-point-check">' + pvzIcon('check', 'co-ico') + '</span>'
+          + '</button>';
       }).join('')
-      + '</div>';
+      + '</div></div></div>';
+    syncDropHeight();
     syncSubmit();
   }
 
-  // Выбор пункта не трогает адрес покупателя и не двигает цену: зона считается
-  // по его адресу, а пункт дальше 60 км мы и не предлагаем.
+  /* Высота раскрытого списка МЕРЯЕТСЯ, а не задаётся числом в CSS. Числом её
+   * задать нельзя: на узком экране адрес переносится на две строки, и пятый
+   * пункт уезжал за границу — список выглядел обрезанным. Заодно так плавность
+   * не зависит от длины списка: он всегда едет ровно на свою высоту.
+   */
+  function syncDropHeight() {
+    var drop = document.getElementById('co-pvz-list');
+    if (!drop) return;
+    var open = drop.parentNode && drop.parentNode.classList.contains('is-open');
+    drop.style.maxHeight = open ? drop.scrollHeight + 'px' : '';
+  }
+
+  // Раскрыть список — так делает и кнопка оформления, когда пункт не выбран:
+  // сказать «выберите пункт» и оставить список закрытым было бы издевательством.
+  function openPoints() {
+    pickup.open = true;
+    renderPoints();
+    var box = pointsBox();
+    if (box && box.scrollIntoView) box.scrollIntoView({ block: 'center' });
+  }
+
+  /* Выбор пункта не трогает адрес покупателя и не двигает цену: зона считается
+   * по его адресу, а пункт дальше 60 км мы и не предлагаем.
+   *
+   * Слушаем сам блок, а не строки: список перерисовывается на каждый выбор и на
+   * каждый ответ сервера, и обработчики на строках пришлось бы вешать заново.
+   */
   function initPointsChoice() {
     var box = pointsBox();
     if (!box) return;
-    box.addEventListener('change', function (e) {
-      var input = e.target;
-      if (!input || input.name !== 'co-pickup') return;
-      pickup.code = input.value;
+    box.addEventListener('click', function (e) {
+      var head = e.target.closest && e.target.closest('#co-pvz-head');
+      if (head) { pickup.open = !pickup.open; renderPoints(); return; }
+      var row = e.target.closest && e.target.closest('.co-point[data-code]');
+      if (!row) return;
+      pickup.code = row.getAttribute('data-code');
+      // Выбор сделан — список сворачивается: дальше на экране нужна кнопка, а
+      // не перечень, из которого уже выбрали.
+      pickup.open = false;
       renderPoints();
+    });
+    // Поворот телефона меняет перенос адреса, а с ним и высоту списка. Меряем
+    // заново — иначе после поворота он остался бы обрезанным.
+    window.addEventListener('resize', syncDropHeight);
+    // Esc закрывает открытый список — привычка, оставшаяся от любого выпадающего
+    // списка. Работает только когда есть что показать в свёрнутом виде.
+    box.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !pickup.open || !pickup.code) return;
+      pickup.open = false;
+      renderPoints();
+      var head = document.getElementById('co-pvz-head');
+      if (head) head.focus();
     });
   }
 
@@ -2044,9 +2138,8 @@
     // Доставка в пункт выдачи без самого пункта — заказ без адреса назначения.
     // Полноту вписанного руками адреса проверит сервер, как и адрес покупателя.
     if (deliveryModeChoice() === 'pvz' && !pickup.code) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите пункт выдачи или впишите его адрес'; }
-      var box = document.getElementById('co-points');
-      if (box && box.scrollIntoView) box.scrollIntoView({ block: 'center' });
+      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите пункт выдачи'; }
+      openPoints();
       return;
     }
     // Кнопка при такой сумме уже погашена, но проверяем ещё раз: сумму мог

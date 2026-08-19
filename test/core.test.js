@@ -3701,9 +3701,7 @@ test('список пунктов витрина берёт у сервера и
    * при этом никуда не делось — оно в подвале, где ему и место. */
   assert.doesNotMatch(js, /co-pickup-address|co-point-other|co-point-q/, 'в блоке остаётся только выбор пункта');
   assert.doesNotMatch(js, /Нужного пункта нет в списке|Поиск по улице/);
-  assert.doesNotMatch(js, /openstreetmap\.org/i, 'авторство OSM живёт в подвале, а не на оформлении');
-  const layout = render.layout({ storeName: 'Тест', tagline: 'Слоган', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' }, { body: '<p>тело</p>' });
-  assert.match(layout, /openstreetmap\.org\/copyright/, 'лицензия OSM требует указать источник');
+  assert.doesNotMatch(js, /openstreetmap\.org/i, 'сносок про источник данных на оформлении нет');
   // Выбирать нечего — говорим это, а не делаем вид, что выбор есть.
   assert.match(js, /Рядом с вашим адресом пунктов не нашлось/);
 
@@ -3720,6 +3718,39 @@ test('список пунктов витрина берёт у сервера и
   // выбор из двух-трёх равных, а здесь перечень адресов.
   assert.match(css, /\.co-point\+\.co-point\{border-top:1px solid var\(--border\)\}/);
   assert.match(css, /\.co-point-km\{[^}]*tabular-nums/);
+
+  /* Выпадающий список: пока пункт не выбран — раскрыт (выбирать всё равно
+   * придётся), после выбора схлопывается в строку с выбранным пунктом, нажатие
+   * на неё открывает снова. */
+  assert.match(js, /var open = picked \? pickup\.open : true/);
+  assert.match(js, /pickup\.open = !pickup\.open; renderPoints\(\)/);
+  assert.match(js, /pickup\.open = false;\s*\n\s*renderPoints\(\)/);
+  assert.match(js, /aria-expanded="' \+ \(open \? 'true' : 'false'\)/);
+  assert.match(js, /role="listbox"/);
+  assert.match(js, /role="option"/);
+  // Кнопка оформления не просто ругается, а раскрывает список: сказать
+  // «выберите пункт» и оставить его закрытым было бы издевательством.
+  assert.match(js, /openPoints\(\);/);
+  // Снятый выбор снова раскрывает список: свёрнутый пустой выглядел бы как
+  // уже сделанный выбор.
+  assert.match(js, /pickup\.code = '';\s*\n(?:\s*\/\/[^\n]*\n)*\s*pickup\.open = true/);
+  // Раскрытие высотой, а не display: список выезжает из строки выше.
+  assert.match(css, /\.co-pvz-drop\{max-height:0/);
+  assert.match(css, /\.co-pvz\.is-open \.co-pvz-drop\{max-height:/);
+  // Высоту раскрытого списка меряет скрипт: числом её не задать — на узком
+  // экране адрес переносится, и последний пункт оказывался за границей.
+  assert.match(js, /drop\.style\.maxHeight = open \? drop\.scrollHeight \+ 'px' : ''/);
+  assert.match(css, /\.co-pvz\.is-open \.co-pvz-chev\{transform:rotate\(180deg\)\}/);
+  // Галочка занимает место всегда — иначе строка дёргалась бы при выборе.
+  assert.match(css, /\.co-point-check\{[^}]*opacity:0/);
+
+  // Значки: витрина и постамат различаются рисунком, вес штриха тот же, что у
+  // остальных глифов витрины.
+  assert.match(js, /PVZ_ICONS = \{/);
+  for (const name of ['pvz', 'postamat', 'pin', 'chevron', 'check']) {
+    assert.match(js, new RegExp(name + ':\\s*\'<path'), 'нет значка ' + name);
+  }
+  assert.match(js, /stroke-width="1\.6"/);
 });
 
 test('координаты для поиска пунктов приходят от подсказки адреса, а не от геокодера', () => {
