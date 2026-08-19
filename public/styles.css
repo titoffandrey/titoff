@@ -94,7 +94,10 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .hero p{color:var(--muted);font-size:clamp(15px,3.5vw,20px);margin:0}
 
 /* ===== Секции ===== */
-.section{padding:34px 0}
+/* Только по вертикали: `padding:34px 0` обнуляло боковые поля у `.container
+   .section` (специфичность та же, а правило ниже) — и каталог, самая заметная
+   сетка витрины, шёл во всю ширину экрана, вплотную к краю. */
+.section{padding-block:34px}
 .section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:18px}
 .section-head h2{font-size:clamp(20px,4vw,28px);margin:0}
 
@@ -751,7 +754,7 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   .grid{grid-template-columns:repeat(2,1fr);gap:12px}
   .card-body{padding:12px 13px 4px}
   .card-add{padding:10px 13px 13px}
-  .section{padding:22px 0}
+  .section{padding-block:22px}
   .section-head{margin-bottom:14px}
 
   /* деталь товара: покупка «липнет» снизу — как в приложении */
@@ -1147,7 +1150,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 @media(prefers-reduced-motion:reduce){.ticker-track{animation:none}}
 
 /* Секции и каталог */
-.section{padding:54px 0}
+.section{padding-block:54px}
 .section-head{align-items:flex-end;margin-bottom:22px}
 .section-head h2{font-size:clamp(26px,3vw,36px);line-height:1.08}
 /* Заголовок каталога — по центру полосы */
@@ -1601,6 +1604,13 @@ body.admin{background:#f4f4f6;color:#242426}
 .pay-method-check span{display:block;line-height:1.35}
 .pay-method-check b{display:block;font-size:13.5px;font-weight:600}
 .pay-method-check i{display:block;font-style:normal;font-size:11.5px;color:var(--muted);margin-top:1px}
+/* Способ, которого у кассы нет: строку не убираем — иначе выбор владельца
+   пропал бы из формы и первым же «Сохранить» стёрся молча, — но и делать вид,
+   что он работает, нельзя. */
+.pay-method-check.is-off{opacity:.62}
+.pay-method-tag{margin-left:6px;padding:1px 6px;border-radius:6px;background:#eaf5ff;color:#0b6bcb;
+  font-size:10px;font-style:normal;font-weight:600;vertical-align:middle;white-space:nowrap}
+.pay-method-tag-off{background:#f2f2f5;color:#6e6e73}
 
 /* ===== Список заказов =====
    Каждая заявка несёт много мелочей: имя, контакт, доставку, адрес, состав,
@@ -1947,7 +1957,9 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Телефоны и небольшие планшеты */
 @media(max-width:800px){
   html{scroll-padding-top:160px}
-  .container{padding-inline:16px}
+  /* Поля по бокам на телефоне. Были 16px, и карточки каталога упирались в
+     край экрана: сетка идёт во всю ширину, и весь её воздух — эти поля. */
+  .container{padding-inline:20px}
 
   .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;height:auto;min-height:58px;padding-top:8px;padding-bottom:10px;gap:8px}
   .header-row .logo{margin:0;font-size:22px}
@@ -1957,7 +1969,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:50px}
   .search input{height:44px;font-size:16px}
   .search::after{top:28px}
-  .nav-inner{padding:2px 16px 8px;gap:0}
+  .nav-inner{padding:2px 20px 8px;gap:0}
   .nav-cat{padding:10px 12px 9px;font-size:13px}
   .nav-cat.active::after{left:12px;right:12px}
   .site-header.header-compact .header-row{height:52px;min-height:52px;padding-top:4px;padding-bottom:4px;row-gap:0}
@@ -1969,7 +1981,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      экрана, а не задаётся числом: слоган пишет владелец. --fit — длина строки
      в em, её считает heroFit() в lib/render.js; 32px — поля контейнера.
      Длинный слоган из-за этого ужимается сильнее — это цена одной строки. */
-  .store-hero h1{white-space:nowrap;font-size:min(28px,calc((100vw - 32px)/var(--fit,21)));line-height:1.2}
+  .store-hero h1{white-space:nowrap;font-size:min(28px,calc((100vw - 40px)/var(--fit,21)));line-height:1.2}
   /* На телефоне лента идёт быстрее: экран уже, иначе подписи будто стоят */
   .hero-ticker{padding:12px 0 14px;
     -webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent);
@@ -1979,7 +1991,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .ticker-row li{gap:9px;font-size:13px}
   .tick-ico{width:22px;height:22px}
 
-  .section{padding:34px 0}
+  .section{padding-block:34px}
   .section-head{margin-bottom:16px}
   .section-head h2{font-size:28px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -2006,7 +2018,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .deals-head{display:block;margin-bottom:18px}
   .deals-title{font-size:29px}
   .deals-sub{margin-top:8px;text-align:left}
-  .deals-band .grid{display:grid;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(220px,76vw);gap:12px;margin-inline:-16px;padding:0 16px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .deals-band .grid{display:grid;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(220px,76vw);gap:12px;margin-inline:-20px;padding:0 20px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
   .deals-band .grid::-webkit-scrollbar{display:none}
   .deals-band .card{scroll-snap-align:start}
 
@@ -2068,7 +2080,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   /* Слоган в подвале — тоже одна строка, тем же способом, что в заголовке
      первого экрана (--fit считает footFit() в lib/render.js). Кегль падает
      ниже 14px только у слогана, который иначе не помещается. */
-  .foot-note{max-width:none;margin:8px auto 0;white-space:nowrap;font-size:min(14px,calc((100vw - 32px)/var(--fit,21)))}
+  .foot-note{max-width:none;margin:8px auto 0;white-space:nowrap;font-size:min(14px,calc((100vw - 40px)/var(--fit,21)))}
   .footer-contacts{display:grid;justify-items:center;gap:10px;width:100%}
   .foot-contact{margin:0}
   /* Телеграм — основной способ связи с телефона, поэтому не строчная ссылка,
@@ -2090,10 +2102,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      ссылки про данные, что и раньше (31.3em плюс зазор), поэтому константа не
      меняется: 46px — поля контейнера плюс зазор между колонками. Короткие
      ссылки центруются под длинными. */
-  .footer-links{display:grid;grid-template-columns:repeat(2,auto);justify-content:center;justify-items:center;gap:10px 14px;font-size:min(12px,calc((100vw - 46px)/32.9))}
+  .footer-links{display:grid;grid-template-columns:repeat(2,auto);justify-content:center;justify-items:center;gap:10px 14px;font-size:min(12px,calc((100vw - 54px)/32.9))}
   .footer-links a{white-space:nowrap}
 
-  .legal-page{padding-inline:16px}
+  .legal-page{padding-inline:20px}
   .legal-hero{padding:34px 0 24px}
   .legal-hero h1{font-size:clamp(31px,10vw,44px)}
   .legal-card{border-radius:20px}
@@ -2233,12 +2245,14 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 }
 
 @media(max-width:420px){
-  .container{padding-inline:13px}
-  .header-row{padding-inline:13px}
-  .nav-inner{padding-inline:13px}
-  .store-hero-inner{padding:17px 13px}
-  /* Поля контейнера здесь 13px, поэтому строке достаётся на 6px больше */
-  .store-hero h1{font-size:min(23px,calc((100vw - 26px)/var(--fit,21)))}
+  /* На самых узких экранах поля чуть уже, чем у остальных телефонов, но не
+     впритык: 13px читались как обрезанная по краю вёрстка. */
+  .container{padding-inline:16px}
+  .header-row{padding-inline:16px}
+  .nav-inner{padding-inline:16px}
+  .store-hero-inner{padding:17px 16px}
+  /* Поля контейнера здесь 16px, поэтому строке достаётся на 32px меньше */
+  .store-hero h1{font-size:min(23px,calc((100vw - 32px)/var(--fit,21)))}
   .section-head{align-items:flex-end}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}
@@ -2246,11 +2260,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .card-body{padding-inline:10px}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{font-size:13px}
-  .deals-band .grid{margin-inline:-13px;padding-inline:13px;grid-auto-columns:78vw}
+  .deals-band .grid{margin-inline:-16px;padding-inline:16px;grid-auto-columns:78vw}
   .product-name{font-size:34px}
   .product-price{font-size:30px}
   .deal-banner{font-size:12px}
-  .product .buy-row{margin-inline:-13px;padding-inline:13px}
+  .product .buy-row{margin-inline:-16px;padding-inline:16px}
   .a-cards{grid-template-columns:1fr 1fr}
   .a-stat{min-height:98px;padding:14px;font-size:13px}
   .a-stat-num{font-size:27px}
@@ -2259,9 +2273,9 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .color-editor .color-row .color-hexed{width:78px;min-width:78px;padding-inline:5px}
   .st-price-wrap{padding-inline:6px}
   .storage-editor .storage-row .st-price{width:75px;min-width:75px}
-  /* Те же 13px полей, что и у первого экрана */
-  .foot-note{font-size:min(14px,calc((100vw - 26px)/var(--fit,21)))}
-  .footer-links{font-size:min(12px,calc((100vw - 40px)/32.9))}
+  /* Те же 16px полей, что и у первого экрана */
+  .foot-note{font-size:min(14px,calc((100vw - 32px)/var(--fit,21)))}
+  .footer-links{font-size:min(12px,calc((100vw - 46px)/32.9))}
 }
 
 /* Уже 340px пара правовых ссылок в строке потребовала бы кегля мельче 9px —
@@ -2631,6 +2645,24 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .btn-plain:hover{border-color:var(--border)}
 .pay-choice .co-choice{margin-bottom:0}
 .pay-choice .btn-lg{width:100%;margin-top:18px}
+/* Выбор валюты счёта. Стоит НАД способами и сделан ссылками: от валюты зависит
+   и список способов, и сумма перевода, а всю разметку состояния на этой
+   странице рисует сервер (см. public/pay.js). Сумма подписана у каждой валюты —
+   выбирают, уже видя, сколько переводить. */
+.pay-cur{margin-bottom:18px}
+.pay-cur-label{display:block;margin-bottom:8px;color:var(--muted);font-size:12.5px}
+.pay-cur-row{display:flex;flex-wrap:wrap;gap:8px}
+.pay-cur-opt{display:flex;flex-direction:column;gap:2px;min-width:104px;padding:9px 14px;
+  border:1px solid var(--border);border-radius:13px;background:#fff;color:var(--text);
+  transition:border-color .14s,background .14s}
+.pay-cur-opt:hover{border-color:#c7c7cc}
+.pay-cur-opt b{font-size:13.5px;font-weight:650;letter-spacing:.01em}
+.pay-cur-opt i{font-style:normal;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pay-cur-opt.active{border-color:var(--text);background:var(--text);color:#fff}
+.pay-cur-opt.active i{color:rgba(255,255,255,.78)}
+/* Пояснение под суммой: в чужой валюте покупатель обязан видеть, от какой
+   рублёвой суммы она посчитана. */
+.pay-cur-note{margin:8px 0 0}
 /* Карточка способа оплаты: радио, знак, название с подсказкой.
    Радио остаётся ВИДИМЫМ и настоящим — выбранный вариант обязан читаться и без
    :has(), который поддерживают не все версии Safari, доходящие до витрины. */
@@ -2811,3 +2843,25 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 #band-uploads .cu-case-tab:hover{border-color:var(--accent)}
 #band-uploads .cu-case-tab.active{background:var(--text);border-color:var(--text);color:#fff}
 .img-group-case{font-weight:400;color:var(--muted);font-size:12px;margin-left:6px}
+
+/* =========================================================
+   ПОЛЯ ВВОДА НА ТЕЛЕФОНЕ: НЕ МЕЛЬЧЕ 16 px
+   =========================================================
+   Safari на iOS приближает страницу, когда фокус встаёт в поле с кеглем
+   меньше 16 px, — и обратно сам НЕ отъезжает. Со стороны это выглядит как
+   поломка вёрстки: страницу вдруг можно двигать вбок, и остаётся она такой,
+   даже если введённое стереть, — до перезагрузки. Ловилось это на адресе при
+   оформлении (поля формы — 15 px), но касается любого поля на витрине и в
+   панели: у поиска в шапке кегль подняли давно, а про остальные забыли.
+
+   Условие — `pointer:coarse`, а не ширина экрана: на планшете окно шире 800 px,
+   а приближает Safari там точно так же. Правило стоит последним в файле, потому
+   что спорит с десятком мест, где кегль поля задан по-своему.
+
+   Из списка исключены поля, которые фокус не приближает: галочки,
+   переключатели, ползунки, выбор цвета и файловый ввод (у последнего свой
+   кегль подписи «Файл не выбран», и трогать его незачем). */
+@media (pointer:coarse){
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),
+  .field select,.field textarea,select,textarea{font-size:16px}
+}

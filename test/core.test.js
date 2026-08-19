@@ -1142,8 +1142,8 @@ test('на телефоне слоган стоит в одну строку, а
   assert.match(html, /<h1 style="--fit:[\d.]+">/);
   assert.match(html, /class="foot-note" style="--fit:[\d.]+"/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
-  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(28px,calc\(\(100vw - 32px\)\/var\(--fit,\d+\)\)\)/);
-  assert.match(mobile, /\.foot-note\{[^}]*white-space:nowrap;font-size:min\(14px,calc\(\(100vw - 32px\)\/var\(--fit,\d+\)\)\)/);
+  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(28px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
+  assert.match(mobile, /\.foot-note\{[^}]*white-space:nowrap;font-size:min\(14px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
 
   // Оценка обязана быть не меньше ширины, замеренной в браузере (em при кегле
   // 14px — на узком экране строка набирается примерно им). Заниженная оценка
@@ -1160,7 +1160,7 @@ test('правовые ссылки в подвале тоже помещают�
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
   const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
-  assert.match(mobile, /\.footer-links\{[^}]*grid-template-columns:repeat\(2,auto\)[^}]*font-size:min\(12px,calc\(\(100vw - 46px\)\/32\.9\)\)/);
+  assert.match(mobile, /\.footer-links\{[^}]*grid-template-columns:repeat\(2,auto\)[^}]*font-size:min\(12px,calc\(\(100vw - 54px\)\/32\.9\)\)/);
   assert.match(mobile, /\.footer-links a\{white-space:nowrap\}/);
   // Длина строки вписана в CSS числом, поэтому подписи менять нельзя, не
   // пересчитав константу 32.9 (это 31.3em самой длинной пары плюс запас).
@@ -2894,10 +2894,125 @@ test('трансграничные способы скрыты по умолча
   const empty = adminViews.settingsPage(Object.assign({}, settings, { payMethods: [] }), { pendingReviewCount: () => 0 }, null);
   assert.match(empty, /Не отмечен ни один способ/);
 
-  // Скрытый способ не должен проходить запросом мимо интерфейса.
+  // Скрытый способ не должен проходить запросом мимо интерфейса: и страница
+  // оплаты, и создание счёта берут список у одной и той же payContext(), где
+  // сходятся включённое у кассы, разрешённое в настройках и валюта счёта.
   const start = source.slice(source.indexOf("app.post('/api/pay/crocopay/start'"), source.indexOf("app.get('/api/pay/crocopay/status'"));
-  assert.match(start, /PAY\.allowed\(null, s\.payMethods\)\.some/);
-  assert.match(source, /PAY\.allowed\(r\.ok \? r\.options : null, s\.payMethods\)/);
+  assert.match(start, /ctx\.methods\.some\(m => m\.id === method\)/);
+  assert.match(source, /PAY\.allowed\(live \? \(live\.byCurrency\[currency\] \|\| \[\]\) : null, s\.payMethods\)/);
+  assert.equal((source.match(/PAY\.allowed\(/g) || []).length, 1, 'список способов собирается в одном месте');
+});
+
+test('способы и валюты в настройках приходят от кассы, а не из зашитого списка', () => {
+  const pay = require('../lib/pay-methods');
+  const croco = require('../lib/crocopay');
+  const db = { pendingReviewCount: () => 0 };
+
+  // Живой вид ответа — сгруппированный по валюте. Разбираем ВСЕ группы: список
+  // валют счёта берётся отсюда же, а не из своей таблицы.
+  const live = croco.parseOptions({
+    payment_methods: [
+      { code: 'RUB', options: [{ code: 'SBP' }, { code: 'NEW_FANCY_PAY' }] },
+      { code: 'USD', options: [{ code: 'TO_CARD_TRANSGRAN' }] }
+    ]
+  });
+  assert.deepEqual(live.currencies, ['RUB', 'USD']);
+  assert.deepEqual(live.byCurrency.USD, ['TO_CARD_TRANSGRAN']);
+  // Рубль первым всегда: цены магазина в нём, он же валюта по умолчанию.
+  assert.deepEqual(croco.parseOptions({ payment_methods: [{ code: 'USD', options: [{ code: 'SBP' }] }, { code: 'RUB', options: [{ code: 'SBP' }] }] }).currencies, ['RUB', 'USD']);
+  // Документированный плоский вид тоже читается — формат уже расходился дважды.
+  assert.deepEqual(croco.parseOptions({ methods: [{ currency: 'RUB', payment_option: 'SBP' }] }).byCurrency.RUB, ['SBP']);
+
+  const settings = Object.assign(dbCore.defaultSettings(), {
+    crocopayEnabled: true, crocopayClientId: 'ID', crocopayClientSecret: 'S',
+    payMethods: ['SBP', 'NEW_FANCY_PAY'], crocopayRates: { USD: 90 }
+  });
+  const html = adminViews.settingsPage(settings, db, null, 'ok', { live: Object.assign({ ok: true }, live) });
+
+  // Способ, которого нет в закрытом списке, но который включён у кассы, —
+  // отмечается прямо здесь, а не выкаткой новой версии.
+  assert.match(html, /name="payMethods" value="NEW_FANCY_PAY" checked/);
+  assert.match(html, /новый у кассы/);
+  // Способ из нашего списка, которого у кассы нет: строка остаётся (иначе выбор
+  // владельца стёрся бы первым же «Сохранить»), но помечена.
+  assert.match(html, /name="payMethods" value="QR_NSPK"[\s\S]{0,200}нет у кассы/);
+  assert.match(html, /Список пришёл от кассы: способов — 3, валют — 2 \(RUB, USD\)/);
+  // Валюты — тоже её ответ.
+  assert.match(html, /<option value="USD"/);
+  assert.match(html, /name="payrate:USD"/);
+
+  // Незнакомый код показывается сам собой и НЕ выдаёт себя за карту: подпись
+  // реквизита у него нейтральная — угадывать, что там придёт, нельзя.
+  const fresh = pay.describe('NEW_FANCY_PAY');
+  assert.equal(fresh.name, 'NEW_FANCY_PAY');
+  assert.equal(fresh.unknown, true);
+  assert.equal(pay.requisiteLabel('NEW_FANCY_PAY'), 'Реквизиты');
+  // И он проходит на витрину, если касса его включила, а владелец отметил.
+  assert.deepEqual(pay.allowed(['SBP', 'NEW_FANCY_PAY'], ['SBP', 'NEW_FANCY_PAY']).map(m => m.id), ['SBP', 'NEW_FANCY_PAY']);
+  // Не отмечен владельцем — не показываем, как и любой другой.
+  assert.deepEqual(pay.allowed(['SBP', 'NEW_FANCY_PAY'], ['SBP']).map(m => m.id), ['SBP']);
+});
+
+test('счёт выставляется в валюте по курсу магазина, а без курса валюты нет', () => {
+  const pay = require('../lib/pay-methods');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Курс — «сколько рублей за единицу валюты». База не пересчитывается никогда.
+  assert.equal(pay.rateOf({ USD: 90 }, 'RUB'), 1);
+  assert.equal(pay.rateOf({ USD: 90 }, 'USD'), 90);
+  assert.equal(pay.rateOf({ USD: 0 }, 'USD'), 0, 'ноль — курса нет');
+  assert.equal(pay.rateOf({}, 'мусор'), 0);
+  assert.equal(pay.convert(68500, 90.5), 756.91);
+  assert.equal(pay.convert(68500, 0), 0, 'без курса суммы нет');
+  assert.equal(pay.currencyCode('usd'), 'USD');
+  assert.equal(pay.currencyCode('РУБ'), '', 'код валюты — три латинские буквы');
+  assert.match(pay.formatAmount(756.91, 'USD'), /756,91\s\$/);
+
+  // Валюта предлагается, только когда она включена у кассы И у неё есть курс:
+  // без курса счёт вышел бы на выдуманную сумму. Правило одно на страницу
+  // оплаты и на создание счёта — иначе покупатель видел бы одну сумму, а счёт
+  // уходил бы на другую.
+  const ctx = source.slice(source.indexOf('async function payContext'), source.indexOf('// Выставить счёт по уже созданному заказу'));
+  assert.match(ctx, /filter\(c => PAY\.rateOf\(rates, c\) > 0\)/);
+  assert.match(ctx, /if \(!s\.crocopayCurrencyChoice\) codes = codes\.filter\(c => c === def\)/);
+  // Сумма счёта — пересчитанная, а не рублёвая: иначе доллары ушли бы в кассу
+  // числом рублей.
+  assert.match(source, /amount: ctx\.amount,\s*\n\s*currency: ctx\.currency/);
+  assert.match(source, /method, amount: ctx\.amount, currency: ctx\.currency/);
+
+  // Проверка курса идёт ДО записи настроек — то же правило, что у всей формы.
+  const route = source.slice(source.indexOf("app.post('/admin/settings'"));
+  assert.match(route, /if \(!PAY\.rateOf\(rates, code\)\) return fail\(/);
+
+  // На витрине сумма перевода показана в валюте счёта, а рублёвая сумма заказа
+  // рядом: покупатель обязан видеть, от чего она посчитана.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const order = { id: 'o1', number: '482913', total: 68500, items: [], contact: 'tg',
+    payment: { status: 'pending', invoiceId: 'i1', requisite: '2200', method: 'TO_CARD_TRANSGRAN', amount: 756.91, currency: 'USD', expiresAt: Date.now() + 6e5 } };
+  const invoice = render.payPage(ss, order, { origin: '', methods: [], currencies: ['RUB', 'USD'], currency: 'USD', amount: 756.91 });
+  assert.match(invoice, /Сумма перевода<\/span><b>756,91 \$<\/b>/);
+  // Разряды в toLocaleString('ru-RU') разделяет неразрывный пробел — отсюда \s.
+  assert.match(invoice, /Заказ на 68\s500\s₽ — счёт выставлен в валюте Доллар США/);
+
+  // Выбор валюты — ссылки с суммой у каждой: выбирают, уже видя, сколько
+  // переводить. Одна валюта — выбора нет вовсе.
+  const choice = render.payPage(ss, Object.assign({}, order, { payment: null }), {
+    origin: '', methods: pay.allowed(null, ['SBP']), currencies: ['RUB', 'USD'], currency: 'RUB',
+    amount: 68500, amounts: { RUB: 68500, USD: 756.91 }
+  });
+  assert.match(choice, /class="pay-cur-opt active" href="\/pay\/o1\?choose=1&amp;currency=RUB"/);
+  assert.match(choice, /href="\/pay\/o1\?choose=1&amp;currency=USD"[\s\S]{0,120}756,91 \$/);
+  const single = render.payPage(ss, Object.assign({}, order, { payment: null }), {
+    origin: '', methods: pay.allowed(null, ['SBP']), currencies: ['RUB'], currency: 'RUB', amount: 68500
+  });
+  assert.equal(/pay-cur-opt/.test(single), false, 'одна валюта — переключателя нет');
+
+  // Прежний способ не в списке (сменили валюту) — отмечается первый доступный,
+  // иначе кнопка отвечала бы «выберите способ» на пустом месте.
+  const switched = render.payPage(ss, Object.assign({}, order, {
+    payment: { status: 'expired', method: 'TO_CARD_TRANSGRAN' }
+  }), { origin: '', methods: pay.allowed(null, ['SBP', 'TO_CARD']), currencies: ['RUB'], currency: 'RUB', amount: 68500 });
+  assert.match(switched, /value="SBP" checked/);
 });
 
 test('у способа оплаты есть знак, а у СБП — настоящий логотип', () => {
@@ -4290,8 +4405,13 @@ test('в настройках есть касса, а ключи не утека
   assert.match(html, /name="crocopayEnabled"[^>]*checked/);
   assert.match(html, /name="crocopayClientId"/);
   assert.match(html, /name="crocopayClientSecret"/);
-  // Валюта всегда рублёвая — выбора в форме быть не должно.
-  assert.doesNotMatch(html, /name="crocopayCurrency"/);
+  // Валюта счёта выбирается, но пока касса не ответила — только рубль: список
+  // валют приходит от неё, а не из зашитой таблицы.
+  assert.match(html, /name="crocopayCurrency"/);
+  assert.equal((html.match(/<option value="[A-Z]{3}" selected>/g) || []).length, 1);
+  assert.match(html, /<option value="RUB" selected>RUB — Рубль<\/option>/);
+  assert.match(html, /Касса не ответила — показан встроенный список/);
+  assert.match(html, /name="crocopayCurrencyChoice"/);
   // Включено без ключей — на витрине оплаты нет, и владелец обязан это увидеть.
   assert.match(html, /Оплата включена, но ключи кассы не заданы/);
   const full = adminViews.settingsPage(Object.assign({}, settings, { crocopayClientSecret: 'СЕКРЕТ' }), db, null);

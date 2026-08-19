@@ -1017,6 +1017,54 @@ function notifyPayment(order, state, note) {
   sendTelegram(ss, msg).catch(() => {});
 }
 
+/* Что реально включено у кассы — способы и валюты. Спрашивается и на странице
+ * оплаты, и в настройках: зашитый список правится только выкаткой, а у кассы
+ * способ могли включить или выключить вчера. Ответ кэширован на пять минут,
+ * поэтому запрос уходит не на каждое открытие. Касса молчит (нет ключей, оплата
+ * выключена, сеть) — `null`, и вызывающий решает, что показать.
+ */
+async function livePayMethods(s) {
+  if (!CROCO.enabled(s)) return null;
+  try {
+    const r = await CROCO.availableOptions(s);
+    return r && r.ok ? r : null;
+  } catch (e) { return null; }
+}
+
+/* Валюта счёта, курс и способы под неё — одним местом для страницы оплаты и для
+ * выставления счёта. Порознь они разъехались бы на первом же несовпадении:
+ * покупатель видел бы сумму в одной валюте, а счёт уходил бы в другой.
+ *
+ * Правила: валюта предлагается, только если она включена У КАССЫ и у неё задан
+ * курс в настройках (без курса сумма счёта была бы выдумана). Выбор валюты
+ * выключен — остаётся одна, по умолчанию. Рубль доступен всегда: цены в нём, и
+ * курс у него 1.
+ */
+async function payContext(s, order, wanted) {
+  const live = await livePayMethods(s);
+  const base = PAY.BASE;
+  const def = PAY.currencyCode(s.crocopayCurrency) || base;
+  const rates = s.crocopayRates || {};
+  let codes = (live && live.currencies.length ? live.currencies : [def]).filter(c => PAY.rateOf(rates, c) > 0);
+  if (!codes.includes(def) && PAY.rateOf(rates, def) > 0) codes.unshift(def);
+  if (!s.crocopayCurrencyChoice) codes = codes.filter(c => c === def);
+  if (!codes.length) codes = [base];
+  const asked = PAY.currencyCode(wanted);
+  const currency = codes.includes(asked) ? asked : (codes.includes(def) ? def : codes[0]);
+  const rate = PAY.rateOf(rates, currency);
+  const sum = code => (code === base ? Number(order.total) || 0 : PAY.convert(order.total, PAY.rateOf(rates, code)));
+  const amount = sum(currency);
+  // Сумма в каждой валюте — чтобы покупатель выбирал, уже видя, сколько
+  // переводить, а не узнавал это после нажатия.
+  const amounts = {};
+  for (const code of codes) amounts[code] = sum(code);
+  // Способы — срез по выбранной валюте: у кассы они сгруппированы именно так, и
+  // рублёвый способ в долларовом счёте не годится.
+  const methods = CROCO.enabled(s)
+    ? PAY.allowed(live ? (live.byCurrency[currency] || []) : null, s.payMethods) : [];
+  return { live, codes, currency, rate, amount, amounts, methods };
+}
+
 // Выставить счёт по уже созданному заказу и отдать реквизиты.
 app.post('/api/pay/crocopay/start', async (req, res) => {
   if (rateLimited(req, 'pay', 20, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
@@ -1036,8 +1084,14 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   // владелец оставил на витрине: скрытый в настройках способ не должен
   // проходить запросом мимо интерфейса.
   const method = String((req.body && req.body.method) || '');
-  if (!PAY.allowed(null, s.payMethods).some(m => m.id === method)) {
+  // Валюта счёта проверяется тем же местом, что и рисует выбор: подставить в
+  // запрос валюту, которой у кассы нет или для которой не задан курс, нельзя.
+  const ctx = await payContext(s, order, req.body && req.body.currency);
+  if (!ctx.methods.some(m => m.id === method)) {
     return res.json({ ok: false, error: 'Выберите способ оплаты' }, 400);
+  }
+  if (!(ctx.amount > 0)) {
+    return res.json({ ok: false, error: 'Оплата в этой валюте сейчас недоступна — выберите другую' }, 400);
   }
 
   // Способ выбран — черновик становится заказом. Именно здесь, ДО обращения к
@@ -1057,14 +1111,17 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   // startOrderPayment сохранит старый token — см. комментарий в lib/db.js.
   // Сумму храним в ОСНОВНЫХ единицах — в тех же, в которых её понимает касса
   // (документация обещает копейки и врёт, см. lib/crocopay.js).
+  // Ожидаемая сумма пишется в ВАЛЮТЕ СЧЁТА: с ней потом сверяется вебхук, а
+  // приходит он про тот счёт, который касса и выставила.
   const started = db.startOrderPayment(id, {
     provider: 'crocopay', token: crypto.randomBytes(16).toString('hex'),
-    method, amount: order.total, currency: CROCO.CURRENCY
+    method, amount: ctx.amount, currency: ctx.currency
   });
   if (!started || !started.payment || !started.payment.token) return res.json({ ok: false, error: 'Не удалось начать оплату' }, 500);
 
   const r = await CROCO.createInvoice(s, {
-    amount: order.total,
+    amount: ctx.amount,
+    currency: ctx.currency,
     method,
     // Своего идентификатора заказа в теле вебхука нет вовсе — есть только
     // GET-параметры этого адреса, платёжка их сохраняет. Подпись подтверждает,
@@ -1075,7 +1132,7 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   if (!r.ok) {
     // В логе — способ и сумма: без них по одной строке «Requisites not found»
     // не понять, на чём именно споткнулась касса.
-    console.error('crocopay invoice:', r.error, '| способ', method, '| сумма', order.total, '| заказ', R.orderNo(order.number));
+    console.error('crocopay invoice:', r.error, '| способ', method, '| сумма', ctx.amount, ctx.currency, '| заказ', R.orderNo(order.number));
     // Текст для покупателя собирает lib/crocopay.js: разбор чужих английских
     // ответов — знание об их API, и живёт оно рядом с остальным.
     // `placed` — заказ уже настоящий, даже если счёт не вышел. Витрине это нужно,
@@ -1121,15 +1178,15 @@ app.get('/pay/:id', async (req, res) => {
   const order = ownOrder(req, req.params.id);
   if (!order) return sendNotFound(req, res);
   const s = settings();
-  // Список способов — тот, что реально включён у кассы. Ответ платёжки
-  // кэшируется на пять минут, поэтому запрос уходит не на каждое открытие.
-  let methods = [];
-  if (CROCO.enabled(s)) {
-    const r = await CROCO.availableOptions(s);
-    methods = PAY.allowed(r.ok ? r.options : null, s.payMethods);
-  }
+  // Способы и валюты — те, что реально включены у кассы; выбранная валюта
+  // приезжает в адресе, потому что её переключатель — обычные ссылки.
+  const ctx = await payContext(s, order, req.query.currency);
   res.send(R.payPage(s, order, pageOpts(req, {
-    methods,
+    methods: ctx.methods,
+    currencies: ctx.codes,
+    currency: ctx.currency,
+    amount: ctx.amount,
+    amounts: ctx.amounts,
     // «Выбрать другой способ»: показать выбор поверх ещё действующего счёта.
     choose: String(req.query.choose || '') === '1',
     // На самой странице оплаты напоминать о неоплаченном счёте незачем: она и
@@ -1517,11 +1574,17 @@ app.get('/admin/orders', (req, res) => { if (!guardAdmin(req, res)) return; res.
 app.post('/admin/orders/:id/delete', (req, res) => { if (!guardAdmin(req, res)) return; db.deleteOrder(req.params.id); res.redirect('/admin/orders' + pageQuery(req.body.page)); });
 
 /* ---------- Настройки магазина ---------- */
-app.get('/admin/settings', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.settingsPage(settings(), db, req.query.flash)); });
+
+app.get('/admin/settings', async (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const s = settings();
+  res.send(A.settingsPage(s, db, req.query.flash, 'ok', { live: await livePayMethods(s) }));
+});
 app.post('/admin/settings', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const current = settings();
-  const fail = (error) => res.send(A.settingsPage(current, db, error, 'err', { draft: req.body }), 400);
+  const live = await livePayMethods(current);
+  const fail = (error) => res.send(A.settingsPage(current, db, error, 'err', { draft: req.body, live }), 400);
   if (!String(req.body.storeName || '').trim()) return fail('Укажите название магазина');
   const passwordProblem = passwordError(req.body.adminPassword, false);
   if (passwordProblem) return fail(passwordProblem);
@@ -1541,10 +1604,37 @@ app.post('/admin/settings', async (req, res) => {
   // Способы оплаты — галочки, поэтому снятые в теле формы просто отсутствуют.
   // Скрытое поле payMethodsForm говорит, что секция вообще пришла: без него
   // снятие ВСЕХ галочек было бы неотличимо от запроса без этой секции.
+  //
+  // Отмеченное больше не сверяется с закрытым списком: способ, включённый у
+  // кассы, но не вписанный в lib/pay-methods.js, обязан включаться здесь же, а
+  // не выкаткой. Проверяем только вид кода — он уходит в тело запроса к кассе.
   if (req.body.payMethodsForm !== undefined) {
     const picked = [].concat(req.body.payMethods === undefined ? [] : req.body.payMethods);
-    patch.payMethods = PAY.METHODS.map(m => m.id).filter(id => picked.includes(id));
+    patch.payMethods = picked.map(id => String(id || '').trim())
+      .filter((id, i, all) => /^[A-Z0-9_]{2,40}$/.test(id) && all.indexOf(id) === i);
   }
+  // Валюта счёта и курсы. Курс — «сколько рублей за единицу валюты»; пустой
+  // означает «этой валютой платить нельзя», и это не ошибка. Ошибка — выбрать
+  // валютой по умолчанию ту, у которой курса нет: счёт вышел бы на выдуманную
+  // сумму, поэтому проверяем ДО записи, как и всё остальное в этой форме.
+  const rates = Object.assign({}, current.crocopayRates || {});
+  for (const key of Object.keys(req.body)) {
+    if (!key.startsWith('payrate:')) continue;
+    const code = PAY.currencyCode(key.slice(8));
+    if (!code || code === PAY.BASE) continue;
+    const raw = String(req.body[key] || '').trim().replace(',', '.');
+    const value = Number(raw);
+    if (!raw) { delete rates[code]; continue; }
+    if (!Number.isFinite(value) || value <= 0) return fail(`Курс ${code} — положительное число или пусто`);
+    rates[code] = Math.round(value * 10000) / 10000;
+  }
+  patch.crocopayRates = rates;
+  if (req.body.crocopayCurrency !== undefined) {
+    const code = PAY.currencyCode(req.body.crocopayCurrency) || PAY.BASE;
+    if (!PAY.rateOf(rates, code)) return fail(`Для валюты ${code} не задан курс — счёт в ней выставить нельзя`);
+    patch.crocopayCurrency = code;
+  }
+  patch.crocopayCurrencyChoice = req.body.crocopayCurrencyChoice !== undefined;
   db.saveSettings(patch);
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
   // Список способов оплаты кэширован под ключи прежней кассы — после смены

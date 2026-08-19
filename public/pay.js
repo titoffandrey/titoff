@@ -14,6 +14,10 @@
   var orderId = page.dataset.order || '';
   var state = page.dataset.state || '';
   var expires = Number(page.dataset.expires || 0) || 0;
+  // Валюта счёта. Её выбирают ссылками (разметку рисует сервер), сюда она
+  // приезжает готовой — скрипт только передаёт её вместе со способом, чтобы
+  // счёт вышел в той же валюте, сумму которой покупатель видел на странице.
+  var currency = page.dataset.currency || '';
 
   /* ------------------------------ Копирование ------------------------------ */
   // Номер карты покупатель переносит в банковское приложение — это главное
@@ -96,7 +100,7 @@
     btn.textContent = 'Выставляем счёт…';
     fetch('/api/pay/crocopay/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: orderId, method: method })
+      body: JSON.stringify({ orderId: orderId, method: method, currency: currency })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
