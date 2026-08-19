@@ -444,7 +444,7 @@
    */
   var pickup = {
     key: '', wanted: '', retriedKey: '', items: [], ready: false, done: false, pending: false,
-    code: '', built: false, manual: false, osm: false, q: '', timer: null, geo: null
+    code: '', geo: null
   };
 
   // Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
@@ -459,10 +459,6 @@
     var on = document.querySelector('input[name="co-pickup"]:checked');
     if (on) on.checked = false;
   }
-  function pickupManualValue() {
-    var f = document.getElementById('co-pickup-address');
-    return f ? f.value.trim() : '';
-  }
 
   function pointsBox() { return document.getElementById('co-points'); }
   // Пункт нужен только выбравшему «в пункт выдачи» и только по разобранному
@@ -473,12 +469,12 @@
     var box = pointsBox();
     if (!box) return;
     if (!pointsWanted()) { box.hidden = true; return; }
-    var key = deliveryChoice() + '|' + addressValue() + '|' + pickup.q
+    var key = deliveryChoice() + '|' + addressValue()
       + '|' + (pickup.geo ? pickup.geo.lat + ',' + pickup.geo.lon : '');
     if (key === pickup.key) { renderPoints(); return; }
     if (pickup.pending && pickup.wanted === key) return;
     pickup.wanted = key; pickup.pending = true;
-    var body = { method: deliveryChoice(), address: addressValue(), q: pickup.q };
+    var body = { method: deliveryChoice(), address: addressValue() };
     if (pickup.geo) { body.lat = pickup.geo.lat; body.lon = pickup.geo.lon; }
     fetch('/api/delivery/points', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -488,8 +484,6 @@
         pickup.pending = false;
         if (!d || !d.ok || pickup.wanted !== key) return;      // ответ устарел
         pickup.key = key; pickup.items = d.items || []; pickup.ready = !!d.ready; pickup.done = true;
-        // Лицензия OpenStreetMap требует указать авторство рядом с её данными.
-        pickup.osm = pickup.items.some(function (p) { return p.osm; });
         renderPoints();
         /* У OZON точки подтягиваются из OpenStreetMap в фоне, и сервер сказал,
          * что список сейчас обновляется. Переспрашиваем один раз: ждать ответа
@@ -517,96 +511,41 @@
     return (Math.round(km * 10) / 10).toLocaleString('ru-RU') + ' км';
   }
 
-  /* Скелет блока собирается ОДИН РАЗ, дальше меняется только сам список. Иначе
-   * перерисовка на каждый ответ сервера сбрасывала бы фокус в поле поиска —
-   * ровно там, где покупатель в этот момент печатает.
+  /* Блок — это ТОЛЬКО выбор пункта: подпись и список. Ни поиска, ни ручного
+   * ввода адреса, ни сносок под списком. Всё это стояло здесь и мешало: шаг
+   * «Доставка» и так последний перед оплатой, и лишние строки на нём читаются
+   * как работа, которую ещё надо сделать.
+   *
+   * Выбирать нечего (рядом пусто, базы перевозчика нет) — говорим это одной
+   * строкой и не делаем вид, что выбор есть.
    */
-  function buildPointsBox(box) {
-    box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
-      + '<div class="co-point-find"><input type="search" id="co-point-q" autocomplete="off"'
-      + ' placeholder="Поиск по улице" aria-label="Поиск пункта выдачи по улице"></div>'
-      + '<div id="co-point-list"></div>'
-      + '<div class="co-point-manual" id="co-point-manual" hidden>'
-      + '<label for="co-pickup-address">Адрес пункта выдачи <span class="req">*</span></label>'
-      + '<input type="text" id="co-pickup-address" maxlength="400" placeholder="Город, улица, дом">'
-      + '<p class="field-note">Впишите адрес пункта, в котором заберёте заказ.</p></div>';
-    pickup.built = true;
-    var q = document.getElementById('co-point-q');
-    // Поиск идёт на сервер — у витрины базы нет. Задержка та же, что у адреса:
-    // печатают по букве, а список меняется словами.
-    if (q) q.addEventListener('input', function () {
-      clearTimeout(pickup.timer);
-      pickup.timer = setTimeout(function () {
-        pickup.q = q.value.trim();
-        loadPoints();
-      }, 260);
-    });
-    var manual = document.getElementById('co-pickup-address');
-    // Вписанный руками пункт и выбранный из списка — одно и то же поле выбора,
-    // поэтому одно отменяет другое.
-    if (manual) manual.addEventListener('input', function () {
-      if (manual.value.trim()) dropPickup();
-      syncSubmit();
-    });
-  }
-
   function renderPoints() {
     var box = pointsBox();
     if (!box) return;
     if (!pointsWanted()) { box.hidden = true; return; }
-    if (!pickup.built) buildPointsBox(box);
     box.hidden = false;
-    var list = document.getElementById('co-point-list');
-    var manual = document.getElementById('co-point-manual');
-    var find = document.getElementById('co-point-q');
-    if (!list) return;
-
-    // Списка этого перевозчика у нас нет вовсе — тогда и поиску искать нечего,
-    // а ручной ввод остаётся единственным путём. Это не «рядом ничего нет»:
-    // сказать так про перевозчика, чьего справочника у нас просто не заведено,
-    // значило бы соврать.
-    var noBase = pickup.done && !pickup.ready;
-    if (find) find.hidden = noBase;
-
-    if (!pickup.done) { list.innerHTML = ''; }
-    else if (noBase) {
-      list.innerHTML = '';
-    } else if (!pickup.items.length) {
-      list.innerHTML = '<p class="co-points-note">' + (pickup.q
-        ? 'По этому запросу пунктов не нашлось.'
-        : 'Рядом с вашим адресом пунктов не нашлось.') + '</p>';
-    } else {
-      list.innerHTML = '<div class="co-point-list" role="radiogroup" aria-label="Пункты выдачи">'
-        + pickup.items.map(function (p) {
-          var km = pointDistance(p.km);
-          return '<label class="co-point' + (p.code === pickup.code ? ' is-picked' : '') + '">'
-            + '<input type="radio" name="co-pickup" value="' + escapeHtml(p.code) + '"'
-            + (p.code === pickup.code ? ' checked' : '') + '>'
-            + '<span class="co-point-text"><b>' + escapeHtml(p.title)
-            + (p.postamat ? '<span class="co-point-kind">постамат</span>' : '') + '</b>'
-            + (p.hours ? '<i>' + escapeHtml(p.hours) + '</i>' : '') + '</span>'
-            + (km ? '<span class="co-point-km">' + escapeHtml(km) + '</span>' : '')
-            + '</label>';
-        }).join('')
-        + '</div>'
-        // Авторство OpenStreetMap — требование её лицензии, а не украшение:
-        // показываем ровно там, где показаны её данные.
-        + (pickup.osm ? '<p class="co-points-note">Адреса пунктов — данные'
-          + ' <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>,'
-          + ' проверьте пункт перед поездкой.</p>' : '')
-        + '<button type="button" class="co-point-other" id="co-point-other" aria-expanded="'
-        + (pickup.manual ? 'true' : 'false') + '">Нужного пункта нет в списке</button>';
-      var other = document.getElementById('co-point-other');
-      if (other) other.addEventListener('click', function () {
-        pickup.manual = true;
-        renderPoints();
-        var f = document.getElementById('co-pickup-address');
-        if (f) f.focus();
-      });
+    if (!pickup.done) { box.innerHTML = ''; return; }
+    if (!pickup.items.length) {
+      box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
+        + '<p class="co-points-note">Рядом с вашим адресом пунктов не нашлось —'
+        + ' выберите доставку курьером.</p>';
+      syncSubmit();
+      return;
     }
-    // Ручной ввод показываем, когда выбирать не из чего или когда покупатель
-    // сам сказал, что нужного пункта в списке нет.
-    if (manual) manual.hidden = !(pickup.done && (noBase || !pickup.items.length || pickup.manual));
+    box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
+      + '<div class="co-point-list" role="radiogroup" aria-label="Пункты выдачи">'
+      + pickup.items.map(function (p) {
+        var km = pointDistance(p.km);
+        return '<label class="co-point' + (p.code === pickup.code ? ' is-picked' : '') + '">'
+          + '<input type="radio" name="co-pickup" value="' + escapeHtml(p.code) + '"'
+          + (p.code === pickup.code ? ' checked' : '') + '>'
+          + '<span class="co-point-text"><b>' + escapeHtml(p.title)
+          + (p.postamat ? '<span class="co-point-kind">постамат</span>' : '') + '</b>'
+          + (p.hours ? '<i>' + escapeHtml(p.hours) + '</i>' : '') + '</span>'
+          + (km ? '<span class="co-point-km">' + escapeHtml(km) + '</span>' : '')
+          + '</label>';
+      }).join('')
+      + '</div>';
     syncSubmit();
   }
 
@@ -619,8 +558,6 @@
       var input = e.target;
       if (!input || input.name !== 'co-pickup') return;
       pickup.code = input.value;
-      var f = document.getElementById('co-pickup-address');
-      if (f) f.value = '';        // выбранный пункт отменяет вписанный руками
       renderPoints();
     });
   }
@@ -2106,7 +2043,7 @@
     }
     // Доставка в пункт выдачи без самого пункта — заказ без адреса назначения.
     // Полноту вписанного руками адреса проверит сервер, как и адрес покупателя.
-    if (deliveryModeChoice() === 'pvz' && !pickup.code && !pickupManualValue()) {
+    if (deliveryModeChoice() === 'pvz' && !pickup.code) {
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите пункт выдачи или впишите его адрес'; }
       var box = document.getElementById('co-points');
       if (box && box.scrollIntoView) box.scrollIntoView({ block: 'center' });
@@ -2132,10 +2069,8 @@
       delivery: deliveryChoice(),
       deliveryMode: deliveryModeChoice(),
       // Код выбранного пункта выдачи. Адрес к нему сервер подставит сам из своей
-      // базы — присланной строке он не верит так же, как не верит цене. Строка
-      // нужна только для пункта, вписанного руками: кода у него нет.
-      pickupCode: pickup.code,
-      pickupAddress: pickup.code ? '' : pickupManualValue()
+      // базы — присланной строке он не верит так же, как не верит цене.
+      pickupCode: pickup.code
     };
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json(); })

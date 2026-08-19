@@ -750,9 +750,6 @@ app.post('/api/delivery/points', (req, res) => {
   if (!DELIVERY.isValid(method)) return res.json({ ok: true, items: [] });
   const items = PICKUP.nearest(method, {
     address: String(req.body && req.body.address || '').slice(0, 400),
-    // Строка поиска: нужного пункта может не быть в пятёрке ближайших, и тогда
-    // покупатель ищет его по улице. База своя, поэтому поиск ничего не стоит.
-    q: String(req.body && req.body.q || '').slice(0, 80),
     lat: Number(req.body && req.body.lat),
     lon: Number(req.body && req.body.lon)
   });
@@ -874,22 +871,21 @@ app.post('/api/order', async (req, res) => {
   const addressCheck = ADDRESS.checkAddress(address);
   if (!addressCheck.ok) return res.json({ ok: false, error: addressCheck.error }, 400);
 
-  /* Пункт выдачи — КУДА ЕДЕТ ПОСЫЛКА, отдельно от адреса покупателя. Код
-   * приходит от витрины, а АДРЕС БЕРЁТСЯ ИЗ БАЗЫ: клиентской строке верим не
+  /* Пункт выдачи — КУДА ЕДЕТ ПОСЫЛКА, отдельно от адреса покупателя. От витрины
+   * приходит только код, а АДРЕС БЕРЁТСЯ ИЗ БАЗЫ: клиентской строке верим не
    * больше, чем клиентской цене, иначе в заказ уехал бы код одного пункта с
-   * адресом другого.
+   * адресом другого. Своего адреса пункта витрина не присылает вовсе — выбрать
+   * можно лишь то, что мы сами показали.
    *
-   * Пункта нет в базе (её ещё не скачали, город глухой, у перевозчика свой
-   * список) — покупатель вписывает адрес пункта руками, и тогда он проверяется
-   * на полноту так же, как его собственный. Отказывать в заказе из-за того, что
-   * у нас нет чужого справочника, нельзя.
+   * Кода нет или пункт исчез из базы (закрылся между выбором и оформлением) —
+   * отказ: заказ без адреса назначения оформить нельзя.
    */
   let pickupAddress = '';
   let point = null;
   if (deliveryMode === 'pvz') {
     point = PICKUP.findPoint(delivery, req.body.pickupCode);
-    pickupAddress = point ? PICKUP.addressOf(point) : String(req.body.pickupAddress || '').trim();
-    if (!pickupAddress) return res.json({ ok: false, error: 'Выберите пункт выдачи или впишите его адрес' }, 400);
+    if (!point) return res.json({ ok: false, error: 'Выберите пункт выдачи' }, 400);
+    pickupAddress = PICKUP.addressOf(point);
     const pickupCheck = ADDRESS.checkAddress(pickupAddress);
     if (!pickupCheck.ok) return res.json({ ok: false, error: pickupCheck.error }, 400);
   }

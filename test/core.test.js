@@ -3234,7 +3234,7 @@ test('имя, фамилия, адрес и способ доставки обя
   assert.match(route, /Укажите адрес/);
   // Адрес покупателя и пункт выдачи — два разных требования: первый есть у
   // любого заказа, второй только у доставки в пункт.
-  assert.match(route, /Выберите пункт выдачи или впишите его адрес/);
+  assert.match(route, /Выберите пункт выдачи/);
   assert.match(route, /DELIVERY\.isValid\(delivery\)/);
   assert.ok(route.indexOf('Выберите способ доставки') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
 
@@ -3619,7 +3619,8 @@ test('адрес пункта выдачи в заказе берётся из �
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ====================== ОПЛАТА'));
   assert.match(route, /PICKUP\.findPoint\(delivery, req\.body\.pickupCode\)/);
-  assert.match(route, /point \? PICKUP\.addressOf\(point\) : String\(req\.body\.pickupAddress/);
+  assert.match(route, /if \(!point\) return res\.json\(\{ ok: false, error: 'Выберите пункт выдачи' \}/);
+  assert.match(route, /pickupAddress = PICKUP\.addressOf\(point\)/);
   assert.match(route, /const address = String\(req\.body\.address \|\| ''\)\.trim\(\)/);
   // Пункт берётся только у «в пункт выдачи»: курьеру он ни к чему.
   assert.match(route, /if \(deliveryMode === 'pvz'\)/);
@@ -3692,25 +3693,28 @@ test('список пунктов витрина берёт у сервера и
 
   // «Рядом ничего нет» и «списка этого перевозчика у нас нет» — разные ответы.
   assert.match(server, /ready: PICKUP\.has\(method\)/);
-  assert.match(js, /var noBase = pickup\.done && !pickup\.ready/);
+  assert.match(js, /pickup\.ready = !!d\.ready/);
 
-  // У любого исхода есть выход: нет базы, рядом пусто, нужного пункта нет в
-  // пятёрке — адрес пункта вписывается руками, и заказ оформляется.
-  assert.match(js, /id="co-pickup-address"/);
-  assert.match(js, /id="co-point-other"/);
-  assert.match(js, /Нужного пункта нет в списке/);
-  // Поиск по улице считает сервер — своей базы у витрины нет.
-  assert.match(js, /id="co-point-q"/);
-  assert.match(server, /q: String\(req\.body && req\.body\.q/);
+  /* В блоке ТОЛЬКО выбор пункта. Ни поиска, ни ручного ввода адреса, ни сносок
+   * под списком: шаг «Доставка» — последний перед оплатой, и лишние строки на
+   * нём читаются как работа, которую ещё надо сделать. Авторство OpenStreetMap
+   * при этом никуда не делось — оно в подвале, где ему и место. */
+  assert.doesNotMatch(js, /co-pickup-address|co-point-other|co-point-q/, 'в блоке остаётся только выбор пункта');
+  assert.doesNotMatch(js, /Нужного пункта нет в списке|Поиск по улице/);
+  assert.doesNotMatch(js, /openstreetmap\.org/i, 'авторство OSM живёт в подвале, а не на оформлении');
+  const layout = render.layout({ storeName: 'Тест', tagline: 'Слоган', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' }, { body: '<p>тело</p>' });
+  assert.match(layout, /openstreetmap\.org\/copyright/, 'лицензия OSM требует указать источник');
+  // Выбирать нечего — говорим это, а не делаем вид, что выбор есть.
+  assert.match(js, /Рядом с вашим адресом пунктов не нашлось/);
 
   // Пункт выдачи обязателен, когда выбран «в пункт выдачи»: заказ без адреса
   // назначения оформить нельзя.
-  assert.match(js, /deliveryModeChoice\(\) === 'pvz' && !pickup\.code && !pickupManualValue\(\)/);
+  assert.match(js, /deliveryModeChoice\(\) === 'pvz' && !pickup\.code/);
 
-  // Код уезжает в заказ, а адрес пункта из базы — нет: его подставит сервер.
-  // Строка нужна только вписанному руками пункту.
+  // В заказ уезжает только код: адрес пункта витрина не присылает вовсе —
+  // выбрать можно лишь то, что сервер сам и показал.
   assert.match(js, /pickupCode: pickup\.code/);
-  assert.match(js, /pickupAddress: pickup\.code \? '' : pickupManualValue\(\)/);
+  assert.doesNotMatch(js, /pickupAddress:/);
 
   // Строки с волосяной линией, а не пять карточек с рамками: карточка выделяет
   // выбор из двух-трёх равных, а здесь перечень адресов.
@@ -3727,7 +3731,10 @@ test('координаты для поиска пунктов приходят �
   assert.match(dadata, /GEO_EXACT\.has\(String\(d\.qc_geo\)\)/);
   // Своего геокодера в проекте нет и заводить его не нужно.
   const files = fs.readdirSync(path.join(__dirname, '..', 'lib')).map(f => fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8')).join('\n');
-  assert.doesNotMatch(files, /nominatim|openstreetmap\.org/i, 'внешний геокодер не нужен: координаты уже приходят с подсказкой');
+  // Геокодера нет ни своего, ни чужого: координаты приходят вместе с подсказкой
+  // адреса. OpenStreetMap в проекте есть, но не как геокодер — оттуда берутся
+  // сами пункты выдачи OZON (lib/pickup-osm.js).
+  assert.doesNotMatch(files, /nominatim|geocod/i, 'внешний геокодер не нужен: координаты уже приходят с подсказкой');
   assert.equal(typeof suggestAddress, 'function');
 });
 
@@ -3773,9 +3780,8 @@ test('точки OZON берутся из OSM только с точным ад�
   // Часы у OSM по-английски — дни недели переводим, время и так цифрами.
   assert.equal(points[0].hours, 'Пн-Вс 09:00-21:00');
   assert.equal(OSM.hoursRu('Mo-Fr 10:00-20:00; Sa 11:00-18:00'), 'Пн-Пт 10:00-20:00, Сб 11:00-18:00');
-  // Точка OSM помечена источником: лицензия требует указать авторство.
+  // Точка помечена источником — по нему видно, откуда взялся адрес.
   assert.equal(points[0].source, 'osm');
-  assert.equal(PICKUP.shape(points[0], 1).osm, true);
   // Кода перевозчика у неё нет — в заказ уедет только адрес.
   assert.equal(points[0].official, undefined);
 
@@ -3801,8 +3807,9 @@ test('обновление точек OZON не задерживает офор�
   // Витрина переспрашивает один раз, а не опрашивает по кругу.
   assert.match(js, /d\.refreshing && pickup\.retriedKey !== key/);
 
-  // Авторство OpenStreetMap — требование лицензии.
-  assert.match(js, /openstreetmap\.org\/copyright/);
+  // Авторство OpenStreetMap — требование лицензии, и оно в подвале сайта:
+  // на оформлении сноскам не место, а подвал закрывает требование так же.
+  assert.doesNotMatch(js, /openstreetmap\.org/i);
 
   // Код в заказ пишем только от самого перевозчика: у точки OSM это
   // идентификатор объекта карты, накладной он не поможет.

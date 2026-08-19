@@ -1244,14 +1244,40 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* ===== Кнопка оформления: подпись слева, сумма справа ===== */
 /* Подпись и сумма — рядом по центру, а не по разным краям: на широкой кнопке
    между ними была пустота, и сумму приходилось искать глазами. */
-.btn-checkout{justify-content:center;padding-inline:20px;gap:11px}
+/* Это ГЛАВНАЯ кнопка витрины: всё оформление ведёт к ней одной, и выглядеть она
+   должна весомее любой другой. Поэтому крупнее, плотнее по тексту и с цветной
+   тенью — не «ещё одна синяя кнопка», а конец пути.
+
+   Цвет берётся из акцента магазина, а не задаётся числом: у сайтов он свой.
+   Тень поэтому собирается из самого акцента через color-mix, а обычная чёрная
+   лежит запасной — в браузерах без color-mix кнопка просто останется с ней. */
+.btn-checkout{justify-content:center;padding:16px 22px;gap:12px;font-size:17px;font-weight:600;
+  letter-spacing:-.015em;box-shadow:0 8px 20px -8px rgba(0,0,0,.45);
+  transition:transform .16s,box-shadow .16s,filter .16s}
 .btn-checkout-sum{font-variant-numeric:tabular-nums;font-weight:700;
-  background:rgba(255,255,255,.26);border-radius:980px;padding:4px 11px;font-size:15px}
+  background:rgba(255,255,255,.24);border-radius:980px;padding:5px 12px;font-size:16px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+/* Наведение приподнимает кнопку и усиливает тень — то же движение, что у прочих
+   кнопок витрины, только заметнее. Нажатие возвращает её на место. */
+.btn-checkout:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.07);
+  box-shadow:0 14px 28px -10px rgba(0,0,0,.5)}
+.btn-checkout:active:not(:disabled){transform:translateY(0) scale(.985);
+  box-shadow:0 4px 12px -6px rgba(0,0,0,.45)}
+@supports (color:color-mix(in srgb,red,blue)){
+  .btn-checkout{box-shadow:0 10px 22px -8px color-mix(in srgb,var(--accent) 62%,transparent)}
+  .btn-checkout:hover:not(:disabled){box-shadow:0 16px 32px -10px color-mix(in srgb,var(--accent) 70%,transparent)}
+  .btn-checkout:active:not(:disabled){box-shadow:0 5px 14px -8px color-mix(in srgb,var(--accent) 60%,transparent)}
+}
 /* Недоступная кнопка оформления — именно серая, а не выцветшая синяя: общий
    `opacity:.45` на акцентном фоне читается как «кнопка ещё грузится», а не как
-   «нажать нельзя». Причина при этом всегда стоит строкой ниже. */
-.btn-checkout:disabled{background:#e8e8ed;border-color:#e8e8ed;color:#86868b;opacity:1}
-.btn-checkout:disabled .btn-checkout-sum{background:rgba(0,0,0,.06);color:#86868b}
+   «нажать нельзя». Причина при этом всегда стоит строкой ниже. Тень у неё
+   снимается совсем: приподнятая серая кнопка выглядела бы нажимаемой. */
+.btn-checkout:disabled{background:#e8e8ed;border-color:#e8e8ed;color:#86868b;opacity:1;
+  box-shadow:none;transform:none}
+.btn-checkout:disabled .btn-checkout-sum{background:rgba(0,0,0,.06);color:#86868b;box-shadow:none}
+@media(prefers-reduced-motion:reduce){
+  .btn-checkout,.btn-checkout:hover:not(:disabled),.btn-checkout:active:not(:disabled){transform:none;transition:none}
+}
 
 @media(prefers-reduced-motion:reduce){
   .add-to-cart,.add-to-cart.just-added{animation:none;transition:none}
@@ -2474,19 +2500,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   font-size:11px;font-weight:500;color:var(--muted);vertical-align:1px}
 .co-point-km{flex:none;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .co-points-note{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
-/* Поиск по улице: нужного пункта может не быть в пятёрке ближайших, и без него
-   покупателю пришлось бы вписывать адрес руками, хотя пункт у нас есть. */
-.co-point-find{margin:0 0 8px}
-.co-point-find input{width:100%}
-/* «Нужного пункта нет в списке» — ссылка, а не кнопка с рамкой: это выход на
-   редкий случай, и выглядеть он должен тише самого списка. */
-.co-point-other{display:inline-block;margin:8px 0 0;padding:0;border:0;background:none;
-  font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer;text-decoration:underline;
-  text-underline-offset:2px}
-.co-point-other[aria-expanded="true"]{display:none}
-.co-point-manual{margin:10px 0 0}
-.co-point-manual label{display:block;margin:0 0 6px;font-size:13px;color:var(--muted)}
-.co-point-manual input{width:100%}
 /* Пока адреса нет, считать нечего: в строке сводки стоит подпись, а не «0 ₽» —
    бесплатную доставку мы не обещаем. */
 .co-line-wait{font-style:normal;color:var(--muted)}
