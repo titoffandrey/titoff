@@ -24,6 +24,7 @@
  */
 
 const PICKUP = require('../lib/pickup');
+const OSM = require('../lib/pickup-osm');
 const ADDRESS = require('../lib/address');
 
 const URL_CDEK = 'https://integration.cdek.ru/pvzlist/v1/xml?country=RU';
@@ -31,6 +32,9 @@ const TIMEOUT = 180 * 1000;      // 17 МБ по узкому каналу ка�
 // Порог правдоподобия. У СДЭК больше десяти тысяч пунктов; если пришла тысяча —
 // это обрезанный ответ или поломка на той стороне, и записывать его нельзя.
 const MIN_POINTS = 3000;
+// Сколько плиток OZON обновляем за один прогон. Публичный Overpass — общий
+// бесплатный ресурс, и выкачивать его пачкой каждую ночь нельзя.
+const TILES_PER_RUN = 3;
 
 const apply = process.argv.includes('--apply');
 
@@ -85,7 +89,11 @@ function parseCdek(xml) {
       lat: Math.round(lat * 1e6) / 1e6,
       lon: Math.round(lon * 1e6) / 1e6,
       type: a.Type === 'POSTAMAT' ? 'postamat' : 'pvz',
-      hours: String(a.WorkTime || '').trim().slice(0, 120)
+      hours: String(a.WorkTime || '').trim().slice(0, 120),
+      // Код пункта пришёл от самого перевозчика — по нему оформляют накладную,
+      // и его стоит показать менеджеру. У точек из OpenStreetMap такого кода
+      // нет: там свой идентификатор объекта карты, и в заказе он был бы шумом.
+      official: true
     };
     // Пункт, чей адрес не пройдёт проверку полноты, показывать нельзя: покупатель
     // выберет его, а оформление откажет — и виноват будет магазин, а не данные.
@@ -157,6 +165,35 @@ async function main() {
   };
   PICKUP.save(next);
   console.log('Записано в', PICKUP.FILE);
+
+  await refreshOzonTiles();
+}
+
+/* Плитки OZON. Точки берутся из OpenStreetMap и появляются в базе тогда, когда
+ * в этом месте кто-то оформлял заказ (lib/pickup-osm.js). Ночью обновляем уже
+ * известные плитки — те, что успели устареть: днём это делал бы первый
+ * покупатель, и список у него был бы прошлогодним.
+ *
+ * По одной плитке за прогон и по очереди: публичный Overpass — общий бесплатный
+ * ресурс, и выкачивать его пачкой запросов каждую ночь нельзя. Плиток у магазина
+ * единицы, так что за неделю обойдём все.
+ */
+async function refreshOzonTiles() {
+  const base = PICKUP.load();
+  const stale = Object.keys(OSM.tilesOf(base)).filter(key => OSM.tileStale(base, key));
+  if (!stale.length) return;
+  console.log(`\nПлитки OZON: устарело ${stale.length}, обновляем ${Math.min(stale.length, TILES_PER_RUN)}`);
+  for (const key of stale.slice(0, TILES_PER_RUN)) {
+    const [lat, lon] = key.split(',').map(Number);
+    try {
+      const r = await OSM.refreshTile(OSM.tileFor(lat, lon));
+      console.log(`  ${key}: ${r.added} пунктов (без адреса ${r.stats.noAddress} из ${r.stats.found})`);
+    } catch (e) {
+      // Overpass вправе не ответить: он бесплатный и общий. Прежние точки этой
+      // плитки остаются в базе — это лучше, чем пустой список.
+      console.warn(`  ${key}: не обновилось —`, (e && e.message) || e);
+    }
+  }
 }
 
 // Разбор вынесен наружу, чтобы его проверял тест: на живой список ходить из

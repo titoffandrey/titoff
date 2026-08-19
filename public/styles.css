@@ -2474,6 +2474,19 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   font-size:11px;font-weight:500;color:var(--muted);vertical-align:1px}
 .co-point-km{flex:none;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .co-points-note{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
+/* Поиск по улице: нужного пункта может не быть в пятёрке ближайших, и без него
+   покупателю пришлось бы вписывать адрес руками, хотя пункт у нас есть. */
+.co-point-find{margin:0 0 8px}
+.co-point-find input{width:100%}
+/* «Нужного пункта нет в списке» — ссылка, а не кнопка с рамкой: это выход на
+   редкий случай, и выглядеть он должен тише самого списка. */
+.co-point-other{display:inline-block;margin:8px 0 0;padding:0;border:0;background:none;
+  font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer;text-decoration:underline;
+  text-underline-offset:2px}
+.co-point-other[aria-expanded="true"]{display:none}
+.co-point-manual{margin:10px 0 0}
+.co-point-manual label{display:block;margin:0 0 6px;font-size:13px;color:var(--muted)}
+.co-point-manual input{width:100%}
 /* Пока адреса нет, считать нечего: в строке сводки стоит подпись, а не «0 ₽» —
    бесплатную доставку мы не обещаем. */
 .co-line-wait{font-style:normal;color:var(--muted)}

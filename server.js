@@ -17,6 +17,7 @@ const DELIVERY = require('./lib/delivery');
 const SHIP = require('./lib/delivery-price');
 const ADDRESS = require('./lib/address');
 const PICKUP = require('./lib/pickup');
+const OSM = require('./lib/pickup-osm');
 const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
@@ -749,13 +750,23 @@ app.post('/api/delivery/points', (req, res) => {
   if (!DELIVERY.isValid(method)) return res.json({ ok: true, items: [] });
   const items = PICKUP.nearest(method, {
     address: String(req.body && req.body.address || '').slice(0, 400),
+    // Строка поиска: нужного пункта может не быть в пятёрке ближайших, и тогда
+    // покупатель ищет его по улице. База своя, поэтому поиск ничего не стоит.
+    q: String(req.body && req.body.q || '').slice(0, 80),
     lat: Number(req.body && req.body.lat),
     lon: Number(req.body && req.body.lon)
   });
+  /* У OZON своего списка пунктов нет, и точки берутся из OpenStreetMap плитками
+   * по 0,1° вокруг покупателя (lib/pickup-osm.js). Обновление плитки НЕ ЖДЁМ:
+   * отдаём то, что уже в базе, и помечаем ответ `refreshing` — по нему витрина
+   * переспросит через несколько секунд. Заказ от чужого сервиса не зависит.
+   */
+  const refreshing = method === 'ozon'
+    && OSM.ensureTile(Number(req.body && req.body.lat), Number(req.body && req.body.lon));
   // `ready` отделяет «у нас нет списка этого перевозчика» от «рядом ничего не
-  // нашлось». Без него покупателю OZON, чьей базы у нас пока нет вовсе, витрина
-  // сообщала бы, что пунктов рядом нет, — а это неправда.
-  res.json({ ok: true, ready: PICKUP.has(method), items });
+  // нашлось». Без него покупателю, чьей базы у нас нет вовсе, витрина сообщала
+  // бы, что пунктов рядом нет, — а это неправда.
+  res.json({ ok: true, ready: PICKUP.has(method), refreshing, items });
 });
 
 // Заказ -> цена считается по ценам сайта, заявка в Telegram этого сайта
@@ -770,7 +781,11 @@ function notifyNewOrder(order) {
     + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
     + (order.delivery ? `🚚 Доставка: ${tgEsc([DELIVERY.nameOf(order.delivery), DELIVERY.shortModeOf(order.delivery, order.deliveryMode)].filter(Boolean).join(', '))}`
       + `${order.deliveryPrice ? ` — ${R.money(order.deliveryPrice, ss)}` : ''}\n` : '')
-    + (order.address ? `📍 Адрес: ${order.pickupCode ? tgEsc(order.pickupCode) + ' — ' : ''}${tgEsc(order.address)}\n` : '')
+    // Куда везти и с кем связываться — две разные строки: у заказа в пункт
+    // выдачи адрес покупателя тоже есть, но посылка едет не туда.
+    + (order.pickupAddress
+      ? `📦 Пункт выдачи: ${order.pickupCode ? tgEsc(order.pickupCode) + ' — ' : ''}${tgEsc(order.pickupAddress)}\n` : '')
+    + (order.address ? `📍 Адрес покупателя: ${tgEsc(order.address)}\n` : '')
     + `🌍 Город: ${tgEsc([order.clientCity, order.clientRegion, order.clientCountry].filter(Boolean).join(', ')) || 'не определён'}\n`
     + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
     + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
@@ -847,23 +862,48 @@ app.post('/api/order', async (req, res) => {
   if (!DELIVERY.isValid(delivery)) return res.json({ ok: false, error: 'Выберите способ доставки' }, 400);
   const deliveryMode = String(req.body.deliveryMode || '').trim();
   if (!DELIVERY.isValidMode(delivery, deliveryMode)) return res.json({ ok: false, error: 'Выберите, куда доставить: в пункт выдачи или курьером' }, 400);
-  /* Выбранный пункт выдачи. Код приходит от витрины, а АДРЕС БЕРЁТСЯ ИЗ БАЗЫ —
-   * клиентской строке верим не больше, чем клиентской цене: иначе в заказ уехал
-   * бы код одного пункта с адресом другого. Не нашёлся код (база обновилась, и
-   * пункт закрыли) — это не отказ: адрес покупателя всё равно с ним, а пункт
-   * менеджер уточнит. Курьеру пункт ни к чему, поэтому берём его только у «pvz».
+  /* Адрес ПОКУПАТЕЛЯ — его данные наравне с именем и контактом. Выбор пункта
+   * выдачи его не меняет: по нему считается зона доставки, по нему же ищутся
+   * ближайшие пункты, и по нему везёт курьер.
+   *
+   * Адрес обязан быть полным: населённый пункт, улица и дом. По «Екатеринбургу»
+   * нельзя ни оформить накладную, ни посчитать доставку, а заказ уже оплачен.
    */
-  const point = deliveryMode === 'pvz' ? PICKUP.findPoint(delivery, req.body.pickupCode) : null;
-  const address = point ? PICKUP.addressOf(point) : String(req.body.address || '').trim();
-  if (!address) return res.json({ ok: false, error: 'Укажите адрес или пункт выдачи' }, 400);
-  // Адрес обязан быть полным: населённый пункт, улица и дом. По «Екатеринбургу»
-  // нельзя ни оформить накладную, ни посчитать доставку, а заказ уже оплачен.
+  const address = String(req.body.address || '').trim();
+  if (!address) return res.json({ ok: false, error: 'Укажите адрес' }, 400);
   const addressCheck = ADDRESS.checkAddress(address);
   if (!addressCheck.ok) return res.json({ ok: false, error: addressCheck.error }, 400);
 
-  // Доставку считаем заново по своей сетке тарифов — ровно так же, как цену
-  // товаров. Витрина показывала свою цифру, но она приходит от того же расчёта
-  // (`/api/delivery/quote`), а не из скрипта, поэтому расходиться им не с чего.
+  /* Пункт выдачи — КУДА ЕДЕТ ПОСЫЛКА, отдельно от адреса покупателя. Код
+   * приходит от витрины, а АДРЕС БЕРЁТСЯ ИЗ БАЗЫ: клиентской строке верим не
+   * больше, чем клиентской цене, иначе в заказ уехал бы код одного пункта с
+   * адресом другого.
+   *
+   * Пункта нет в базе (её ещё не скачали, город глухой, у перевозчика свой
+   * список) — покупатель вписывает адрес пункта руками, и тогда он проверяется
+   * на полноту так же, как его собственный. Отказывать в заказе из-за того, что
+   * у нас нет чужого справочника, нельзя.
+   */
+  let pickupAddress = '';
+  let point = null;
+  if (deliveryMode === 'pvz') {
+    point = PICKUP.findPoint(delivery, req.body.pickupCode);
+    pickupAddress = point ? PICKUP.addressOf(point) : String(req.body.pickupAddress || '').trim();
+    if (!pickupAddress) return res.json({ ok: false, error: 'Выберите пункт выдачи или впишите его адрес' }, 400);
+    const pickupCheck = ADDRESS.checkAddress(pickupAddress);
+    if (!pickupCheck.ok) return res.json({ ok: false, error: pickupCheck.error }, 400);
+  }
+
+  /* Доставку считаем заново по своей сетке тарифов — ровно так же, как цену
+   * товаров. Витрина показывала свою цифру, но она приходит от того же расчёта
+   * (`/api/delivery/quote`), а не из скрипта, поэтому расходиться им не с чего.
+   *
+   * Зона берётся по адресу ПОКУПАТЕЛЯ, а не по адресу пункта выдачи, даже когда
+   * посылка едет в пункт. Так цена не меняется от выбора пункта: покупатель
+   * видит сумму до того, как выберет, и она обязана совпасть с той, что уйдёт в
+   * заказ. Разойтись зоны почти не могут — дальше 60 км пункты не предлагаются,
+   * а зоны здесь размером с федеральный округ.
+   */
   const ship = SHIP.quote(delivery, deliveryMode, address, total);
   if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
   const grandTotal = total + ship.price;
@@ -899,8 +939,11 @@ app.post('/api/order', async (req, res) => {
     firstName, lastName, contact, address, delivery, comment: req.body.comment,
     deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
     // Код пункта выдачи — то, по чему менеджер оформляет накладную: адрес у
-    // перевозчика может быть записан иначе, а код у пункта один.
-    pickupCode: point ? point.code : '',
+    // перевозчика может быть записан иначе, а код у пункта один. Пишем только
+    // код от самого перевозчика: у точки из OpenStreetMap это идентификатор
+    // объекта карты, накладной он не поможет, а в заказе будет шумом. Вписанный
+    // руками пункт кода не имеет тем более — только адрес.
+    pickupCode: point && point.official ? point.code : '', pickupAddress,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
     clientCountry: client.country, clientCountryCode: client.countryCode, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
