@@ -1515,7 +1515,7 @@ app.post('/admin/reviews/new', async (req, res) => {
   const photos = await optimizeUploads(req.filesFor('photos').slice(0, REVIEW_PHOTO_MAX), 1400);
   db.createReview({
     productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text,
-    config: req.body.config, delivery: req.body.delivery,
+    config: req.body.config, delivery: req.body.delivery, reply: { text: req.body.reply },
     photos, previews: await reviewPreviews(photos),
     status: req.body.status === 'pending' ? 'pending' : 'approved',
     createdAt: parseDt(req.body.date) || Date.now()
@@ -1549,6 +1549,7 @@ app.post('/admin/reviews/:id/edit', async (req, res) => {
   const fail = (error) => res.send(A.reviewForm(settings(), db, Object.assign({}, rv, {
     productId: product ? product.id : rv.productId, author: req.body.author, rating: req.body.rating,
     text: req.body.text, config: req.body.config, delivery: req.body.delivery,
+    reply: { text: req.body.reply, at: (rv.reply || {}).at },
     status: req.body.status, createdAt: createdAt || rv.createdAt
   }), { back: backFrom(req.body), flash: error, flashType: 'err' }), 400);
   if (!author) return fail('Укажите имя автора');
@@ -1561,12 +1562,27 @@ app.post('/admin/reviews/:id/edit', async (req, res) => {
     productId: product ? product.id : rv.productId,
     author, rating: req.body.rating, text: req.body.text, config: req.body.config,
     delivery: req.body.delivery, status: req.body.status,
+    // Пустое поле — это удаление ответа, поэтому оно уходит в хранилище как есть.
+    reply: { text: req.body.reply },
     createdAt: createdAt || rv.createdAt,
     photos: (rv.photos || []).filter(f => !dropped.has(f)).concat(added),
     videos: (rv.videos || []).filter(f => !dropped.has(f)),
     previews: await reviewPreviews(added)
   });
   res.redirect(reviewsBackUrl(req.body, 'Отзыв сохранён', 'rv-' + rv.id));
+});
+// Ответ магазина прямо из строки списка: отвечают там же, где разбирают ленту,
+// и уводить ради двух строк текста в форму правки незачем. Пустое поле — это
+// удаление ответа, поэтому отдельной ручки для него нет; кнопка «Удалить ответ»
+// шлёт ту же форму с `drop` и текст не отправляет.
+app.post('/admin/reviews/:id/reply', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const rv = db.getReview(req.params.id);
+  if (!rv) return res.redirect(reviewsBackUrl(req.body, 'Отзыв не найден'));
+  const text = req.body.drop ? '' : String(req.body.reply || '');
+  db.updateReview(rv.id, { reply: { text } });
+  const saved = !!String(text).trim();
+  res.redirect(reviewsBackUrl(req.body, saved ? 'Ответ сохранён' : 'Ответ удалён', 'rv-' + rv.id));
 });
 app.post('/admin/reviews/:id/approve', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'approved'); res.redirect(reviewsBackUrl(req.body, 'Отзыв опубликован')); });
 // «Снять с витрины» — возврат в очередь модерации. Прежде отзыв прятали в

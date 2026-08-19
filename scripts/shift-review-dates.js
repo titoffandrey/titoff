@@ -20,7 +20,15 @@ function shift(now) {
   const plan = plannedDates(list, now);
   if (!plan.size) return 0;
   for (const rv of list) {
-    if (plan.has(rv.id)) rv.createdAt = plan.get(rv.id);
+    if (!plan.has(rv.id)) continue;
+    const next = plan.get(rv.id);
+    // Ответ магазина едет вместе с отзывом: даты привезённых отзывов раздаются
+    // заново каждую ночь, и оставшийся на месте ответ рано или поздно оказался
+    // бы написан раньше самого отзыва. Сдвигается он ровно на ту же величину,
+    // поэтому «ответили в тот же день» остаётся правдой. То же правило, что у
+    // `sourceDate` при ручной правке даты в панели (db.updateReview).
+    if (rv.reply && Number(rv.reply.at) > 0) rv.reply.at += next - (Number(rv.createdAt) || next);
+    rv.createdAt = next;
   }
   db.saveReviews(list);
   return plan.size;

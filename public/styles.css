@@ -216,6 +216,19 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
   background:rgba(0,0,0,.55);pointer-events:none}
 .rv-play::after{content:"";position:absolute;left:11px;top:9px;border-style:solid;border-width:6px 0 6px 10px;
   border-color:transparent transparent transparent #fff}
+/* Ответ магазина: серая плашка под отзывом со сдвигом вправо — читается как
+   реплика в переписке, а не как второй отзыв. Сдвиг небольшой (18 px): на
+   телефоне он забирает ширину у самого текста, поэтому там его нет вовсе.
+   Названия магазина в шапке нет — продавец на витрине один (см. lib/render.js). */
+.review-reply{margin:10px 0 0 18px;padding:10px 13px;border-radius:12px;background:var(--bg2)}
+.rr-head{display:flex;align-items:center;gap:6px;color:#48484a;line-height:1.3}
+.rr-ico{width:15px;height:15px;flex:none;opacity:.75}
+.rr-title{font-size:12.5px;font-weight:650;letter-spacing:-.005em}
+/* Дата прижата к правому краю: в шапке она уточнение, а не часть подписи. */
+.rr-when{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
+/* pre-line, а не <br> в разметке: ответ пишут в обычной textarea, и абзацы в
+   нём бывают, а вставлять теги в чужой текст незачем. */
+.rr-text{margin:5px 0 0;color:#333;font-size:14px;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere}
 @media(max-width:520px){
   .rv-item{width:74px;height:74px}
   .review{padding:13px 14px}
@@ -223,6 +236,8 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
   /* Имя и звёзды на узком экране встают в столбик сами — переносить строку
      мелочей туда же нельзя, она и так последняя. */
   .review-meta{font-size:12px}
+  .review-reply{margin-left:0;padding:9px 11px}
+  .rr-text{font-size:13.5px}
 }
 
 /* Просмотр вложений отзыва */
@@ -1789,6 +1804,50 @@ a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-acts .btn{width:100%;min-width:136px;justify-content:center}
 .rv-empty{margin:0;padding:16px 4px}
 
+/* Ответ магазина в строке списка. Занимает всю ширину строки (обе колонки
+   сетки), а не колонку с отзывом: textarea в половине строки набирать неудобно,
+   а свёрнутый вид — это одна строка подписи, и места он не просит вовсе. */
+.rv-reply{grid-column:1/-1;margin-top:9px;padding-top:9px;border-top:1px solid var(--border-soft)}
+.rv-reply-sum{display:flex;align-items:center;gap:7px;min-width:0;padding:3px 0;color:#6e6e73;
+  font-size:12.5px;line-height:1.35;cursor:pointer;list-style:none}
+.rv-reply-sum::-webkit-details-marker{display:none}
+.rv-reply-ico{width:15px;height:15px;flex:none;opacity:.7}
+/* Начало ответа прямо в свёрнутой строке: открывать её, чтобы узнать, есть ли
+   ответ, не нужно. Одна строка с многоточием — в списке ответ надо узнать, а не
+   прочесть целиком, как и сам отзыв двумя строками выше. */
+.rv-reply-peek{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-reply-peek b{color:#48484a;font-weight:650}
+.rv-reply-none{color:#8e8e93}
+/* Раскрыли — начало ответа уходит: тот же текст стоит строкой ниже в поле, и
+   обрезанный многоточием дубль над ним читался бы как вторая версия ответа. */
+.rv-reply-cut{font-style:normal}
+.rv-reply[open] .rv-reply-cut{display:none}
+/* Подпись действия названа «Изменить ответ», а не «Изменить»: кнопка правки
+   самого отзыва стоит строкой выше и называется так же — два одинаковых слова
+   в одной строке пришлось бы разбирать глазами. */
+.rv-reply-more{flex:none;color:var(--accent);font-weight:650}
+.rv-reply:hover .rv-reply-more{text-decoration:underline}
+/* Стрелка переворачивается на раскрытии — тот же приём, что у выбора пункта
+   выдачи на витрине: свёртка должна выглядеть свёрткой. */
+.rv-reply-more::after{content:"";display:inline-block;width:6px;height:6px;margin:0 1px 0 7px;
+  border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;
+  transform:translateY(-2px) rotate(45deg)}
+.rv-reply[open] .rv-reply-more::after{transform:translateY(1px) rotate(-135deg)}
+.rv-reply-sum:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+/* Поле — обычный .field панели, а не своя коробка: у него и рамка, и фокус, и
+   кегль 16 px на телефоне (правило `pointer:coarse` в конце файла, иначе Safari
+   приближает страницу на фокусе и обратно не отъезжает). Своя высота и отступ —
+   всё, что здесь отличается. */
+.rv-reply-form{margin-top:8px}
+.rv-reply-form .field{margin-bottom:8px}
+/* Ровно три строки и на десктопе, и на телефоне: высота кратна строке, иначе
+   четвёртая видна наполовину и поле выглядит обрезанным. */
+.rv-reply-form textarea{min-height:96px}
+.rv-reply-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.rv-reply-note{margin-left:auto}
+/* Отвеченный отзыв видно по строке подписи, а не только развернув свёртку. */
+.rv-reply.is-answered .rv-reply-ico{opacity:1;color:#0b7a37}
+
 /* Плитки товаров: у кого сколько отзывов и сколько из них ждёт решения. */
 .rv-products{display:grid;grid-template-columns:repeat(auto-fill,minmax(236px,1fr));gap:8px}
 .rv-prod{display:flex;min-width:0;align-items:center;gap:10px;padding:8px 10px;color:var(--text);
@@ -2250,8 +2309,21 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      они забирали бы половину узкого экрана у самого отзыва. */
   .rv-row{grid-template-columns:minmax(0,1fr)}
   .rv-where{margin-left:0}
-  .rv-acts{flex-direction:row;flex-wrap:wrap;margin-top:9px;padding-top:10px;border-top:1px solid var(--border-soft)}
+  .rv-acts{order:3;flex-direction:row;flex-wrap:wrap;margin-top:9px;padding-top:10px;border-top:1px solid var(--border-soft)}
   .rv-acts .btn{flex:1 1 auto;width:auto;min-width:0}
+  /* В столбик ответ встаёт ПЕРЕД кнопками: он про содержание отзыва, а кнопки —
+     это уже действия над строкой, и им место последними. На десктопе порядок
+     задан колонками сетки, и трогать его там нечем. */
+  .rv-main{order:1}
+  .rv-reply{order:2}
+  /* Начала ответа в узкой строке не остаётся всё равно: рядом стоит подпись
+     действия, и на 375 px от текста доживает одна буква с многоточием. Видно,
+     что ответ есть, — этого здесь и довольно, сам текст в поле под свёрткой. */
+  .rv-reply-cut{display:none}
+  .rv-reply-acts .btn{flex:1 1 auto;justify-content:center}
+  /* Подпись уходит на свою строку целиком: прижатая вправо, она вставала бы
+     под кнопками узкой колонкой в два слова. */
+  .rv-reply-note{flex:1 0 100%;margin-left:0}
   .rv-products{grid-template-columns:1fr}
   /* Подсказка у заголовка съедает половину узкой строки и отжимает сам
      заголовок в две строки — на телефоне её нет. */

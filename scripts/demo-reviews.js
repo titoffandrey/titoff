@@ -69,6 +69,10 @@ const generated = generateDemoReviews(demoProducts, { now: Date.now() }).map(rev
   // повторном обновлении дат или текстов демо-набора.
   const previous = currentDemoById.get(review.id);
   if (previous && Array.isArray(previous.photos)) review.photos = previous.photos.slice();
+  // Ответ магазина писал человек, и пересборка набора его переживает — иначе он
+  // пропадал бы с витрины в ближайшую ночь (cron в 01:20 UTC), а автор ответа
+  // узнавал бы об этом случайно.
+  if (previous && previous.reply) review.reply = previous.reply;
   return review;
 });
 if (!apply) {

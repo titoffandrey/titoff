@@ -2000,6 +2000,106 @@ test('опубликованный отзыв снимается с витрин
   assert.match(route.slice(0, 300), /setReviewStatus\(req\.params\.id, 'pending'\)/);
 });
 
+test('ответ магазина виден под отзывом и подписан как ответ', () => {
+  const at = Date.UTC(2026, 7, 18, 9, 0, 0);
+  const card = render.reviewCard({
+    id: 'r', author: 'Наташа', rating: 5, text: 'Пришло за два дня', createdAt: at,
+    reply: { text: 'Спасибо за отзыв!\nПишите, если что', at }
+  });
+  assert.match(card, /<div class="review-reply">/);
+  assert.match(card, /Ответ магазина/);
+  assert.match(card, /<p class="rr-text">Спасибо за отзыв!\nПишите, если что<\/p>/,
+    'переносы строк остаются в тексте — их показывает white-space:pre-line, а не <br> в разметке');
+  assert.match(card, /class="rr-when" datetime="2026-08-18/);
+
+  // Ответа нет — нет и блока: пустая серая плашка под каждым отзывом.
+  const bare = render.reviewCard({ id: 'r', author: 'Наташа', rating: 5, text: 'т', createdAt: at });
+  assert.doesNotMatch(bare, /review-reply/);
+  assert.doesNotMatch(render.reviewCard({ id: 'r', author: 'А', rating: 5, createdAt: at, reply: { text: '   ' } }), /review-reply/,
+    'пробелы — это не ответ');
+
+  // Ответ пишет человек в панели, но экранируется он как любое чужое значение.
+  assert.doesNotMatch(render.reviewCard({ id: 'r', author: 'А', rating: 5, createdAt: at, reply: { text: '<script>alert(1)</script>' } }), /<script>/);
+
+  // Названия магазина в шапке нет намеренно: продавец на витрине один, его имя
+  // стоит в шапке страницы и в подвале, и третий повтор ничего не добавляет.
+  // Правило легко потерять, дописав сюда «name» из настроек.
+  assert.doesNotMatch(render.reviewReply({ reply: { text: 'т', at } }), /iStore|Магазин«|storeName/);
+
+  // Плашка нарисована в CSS: без стиля она читалась бы как второй отзыв.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.rr-text\{[^}]*white-space:pre-line/);
+  assert.match(css, /\.review-reply\{/);
+});
+
+test('ответ магазина правится из строки списка и переживает ночную пересборку', () => {
+  const reviews = [
+    { id: 'ok', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 2, photos: [], reply: { text: 'Спасибо за отзыв!', at: 1 } },
+    { id: 'wait', productId: 'p', author: 'Б', rating: 4, text: 'т', status: 'pending', createdAt: 1, photos: [] }
+  ];
+  const db = {
+    getReviews: () => reviews, getProducts: () => [{ id: 'p', name: 'Товар' }],
+    reviewsForProduct: () => reviews, ratingFor: () => ({ avg: 5, count: 1 }),
+    reviewStats: () => new Map([['p', { total: 2, approved: 1, pending: 1, avg: 5 }]]),
+    pendingReviewCount: () => 1
+  };
+  const html = adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1);
+  // Отвечают там же, где разбирают ленту: форма стоит прямо в строке.
+  assert.match(html, /action="\/admin\/reviews\/ok\/reply"/);
+  assert.match(html, /action="\/admin\/reviews\/wait\/reply"/);
+  assert.match(html, /<textarea id="reply-wait" name="reply"/);
+  // Свёрнутая строка сама говорит, есть ответ или нет.
+  assert.match(html, /Ответ магазина<\/b><i class="rv-reply-cut">: Спасибо за отзыв!/);
+  assert.match(html, /Ответа магазина пока нет/);
+  // Удаление ответа — вторая кнопка отправки той же формы, и только у отвеченного.
+  assert.equal((html.match(/name="drop" value="1"/g) || []).length, 1);
+
+  // Форма правки отзыва меняет всё, что видит покупатель, — ответ в том числе.
+  const form = adminViews.reviewForm(SETTINGS, db, reviews[0], {});
+  assert.match(form, /<textarea name="reply"[^>]*>Спасибо за отзыв!<\/textarea>/);
+
+  // Маршрут: пустой текст — это удаление, поэтому отдельной ручки для него нет.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.post('/admin/reviews/:id/reply'"));
+  assert.match(route.slice(0, 600), /req\.body\.drop \? '' : String\(req\.body\.reply/);
+
+  // Ночная пересборка демо-набора ответ не стирает: его писал человек, а cron
+  // ходит каждую ночь — пропажу заметили бы случайно и не сразу.
+  const script = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'demo-reviews.js'), 'utf8');
+  assert.match(script, /previous && previous\.reply/);
+});
+
+test('ответ магазина хранится с датой и снимается пустым текстом', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-reply-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = freshDb(dir);
+  const rv = store.createReview({ productId: 'p', author: 'А', rating: 5, text: 'т' });
+  assert.equal(rv.reply, null, 'поля нет — ответа нет, старые записи читаются без миграции');
+
+  const answered = store.updateReview(rv.id, { reply: { text: '  Спасибо!  ' } });
+  assert.equal(answered.reply.text, 'Спасибо!');
+  assert.ok(answered.reply.at > 0);
+
+  // Правка опечатки дату не двигает: «Ответ магазина от сегодня» под отзывом
+  // трёхмесячной давности читался бы как новый ответ.
+  const fixed = store.updateReview(rv.id, { reply: { text: 'Спасибо!!' } });
+  assert.equal(fixed.reply.at, answered.reply.at);
+
+  // Пустой текст — это удаление ответа.
+  assert.equal(store.updateReview(rv.id, { reply: { text: '' } }).reply, null);
+
+  // У привезённого отзыва показанная дата каждую ночь раздаётся заново, и
+  // оставшийся на месте ответ оказался бы написан раньше самого отзыва.
+  const shifter = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'shift-review-dates.js'), 'utf8');
+  assert.match(shifter, /rv\.reply\.at \+= next - \(Number\(rv\.createdAt\) \|\| next\)/,
+    'ответ обязан ехать вместе с датой отзыва');
+
+  // Поле не пришло вовсе — ответ остаётся как был (updateReview меняет только
+  // пришедшее, и правка имени не должна стирать ответ).
+  store.updateReview(rv.id, { reply: { text: 'Здравствуйте!' } });
+  assert.equal(store.updateReview(rv.id, { author: 'Б' }).reply.text, 'Здравствуйте!');
+});
+
 test('индекс отзывов даёт те же оценки, что прямой пересчёт', () => {
   // Индекс кэшируется по версии файла: рейтинг обязан совпасть с честным проходом.
   const reviews = [
