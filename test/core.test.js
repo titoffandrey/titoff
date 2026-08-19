@@ -3811,6 +3811,10 @@ test('обновление точек OZON не задерживает офор�
   // Публичный Overpass — общий бесплатный ресурс: один запрос за раз и пауза.
   assert.match(osm, /if \(inFlight\) return true/);
   assert.match(osm, /Date\.now\(\) - lastRun < COOLDOWN/);
+  // Запрос обязан представляться: без User-Agent Apache перед Overpass отвечает
+  // 406, а Node его сам не ставит. Уже ловили на боевом сервере.
+  assert.match(osm, /'User-Agent': USER_AGENT/);
+  assert.doesNotMatch(osm, /USER_AGENT = '[^']*(adcapple|\.com|\.ru)/i, 'домен магазина наружу не называем');
   // Без базы СДЭК региона взять неоткуда — тогда и ходить незачем.
   assert.match(osm, /if \(!PICKUP\.has\('cdek'\)\) return false/);
 });
