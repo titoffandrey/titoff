@@ -5008,6 +5008,21 @@ test('ролики стоят через один на первых трёх с�
   const twice = make(100, 14, 30);
   feed(twice);
   assert.equal(dates.plannedDates(twice, now).size, 0, 'повторный прогон переставляет ленту');
+
+  /* Площадка отдаёт дату с точностью до ДНЯ: у 1225 привезённых отзывов их
+   * всего 277, до 25 отзывов с одним значением. Лента сортируется по дате, и
+   * внутри такой группы порядок был произвольным — ролики вставали по два
+   * подряд вместо «через один». Поэтому назначенные даты обязаны идти строго
+   * по убыванию: соседи разводятся на секунду, а показанный день не меняется.
+   */
+  const day = 24 * 60 * 60 * 1000;
+  const coarse = make(100, 14, 30).map((rv, i) => Object.assign(rv, { sourceDate: now - Math.floor(i / 20) * day }));
+  const byDay = feed(coarse);
+  assert.equal(new Set(byDay.map(r => r.createdAt)).size, byDay.length, 'даты обязаны быть различными');
+  for (let i = 0; i < byDay.length - 1; i++) {
+    if (byDay[i].videos.length) assert.ok(!byDay[i + 1].videos.length, 'два ролика подряд при датах по дню');
+  }
+  assert.equal(dates.plannedDates(coarse, now).size, 0, 'повторный прогон снова тасует ленту');
 });
 
 test('даты привезённых отзывов сдвигаются к сегодня и сдвиг не накапливается', () => {
