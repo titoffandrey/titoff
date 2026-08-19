@@ -1700,24 +1700,24 @@ test('списки отзывов в панелях листаются, а не 
   const per = render.ADMIN_PER_PAGE;
   const many = Array.from({ length: per * 3 + 7 }, (_, i) => ({
     id: 'r' + i, productId: 'p', author: 'Автор ' + i, rating: 5, text: 'текст',
-    status: 'approved', createdAt: 1000 + i, photos: []
+    status: 'pending', createdAt: 1000 + i, photos: []
   }));
   const db = {
     getReviews: () => many, getProducts: () => [{ id: 'p', name: 'Товар' }],
-    reviewStats: () => new Map([['p', { total: many.length, approved: many.length, pending: 0, avg: 5 }]]),
-    pendingReviewCount: () => 0
+    reviewStats: () => new Map([['p', { total: many.length, approved: 0, pending: many.length, avg: 5 }]]),
+    pendingReviewCount: () => many.length
   };
   const rows = html => (html.match(/class="rv-row/g) || []).length;
 
-  const first = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
+  const first = adminViews.reviewsList(SETTINGS, db, null, 1);
   assert.equal(rows(first), per, 'на странице ровно один срез');
-  assert.match(first, /href="\/admin\/reviews\?status=all&amp;sort=new&amp;page=2"/);
-  const last = adminViews.reviewsList(SETTINGS, db, 'all', null, 4);
+  assert.match(first, /href="\/admin\/reviews\?page=2"/);
+  const last = adminViews.reviewsList(SETTINGS, db, null, 4);
   assert.equal(rows(last), 7, 'на последней странице остаток');
   // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
-  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, 'all', null, '999')), 7);
-  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, 'all', null, 'абв')), per);
-  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, 'all', null, -5)), per);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, '999')), 7);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, 'абв')), per);
+  assert.equal(rows(adminViews.reviewsList(SETTINGS, db, null, -5)), per);
 
   // Лента одного товара листается той же нарезкой — на боевых данных у
   // 17 Pro Max их больше тысячи.
@@ -1740,7 +1740,7 @@ test('раздел отзывов открывается очередью мод
     reviewStats: () => new Map([['p', { total: 2, approved: 1, pending: 1, avg: 5 }]]),
     pendingReviewCount: () => 1
   };
-  const home = adminViews.reviewsList(SETTINGS, db, null, null, 1);
+  const home = adminViews.reviewsList(SETTINGS, db, null, 1);
   assert.match(home, /id="rv-wait"/, 'неодобренный виден сразу на входе');
   assert.equal(/id="rv-ok"/.test(home), false, 'опубликованный в очередь не попадает');
   // Подкраска — не украшение: в общей ленте неразобранное надо находить взглядом.
@@ -1752,14 +1752,29 @@ test('раздел отзывов открывается очередью мод
   assert.match(home, /href="\/admin\/reviews\/product\/p"/);
   assert.match(home, /class="rv-prod-wait"[^>]*>1</, 'у товара виден счётчик очереди');
 
-  // На вкладке «Все» видно и то и другое, а лента товара открывается на всех.
-  const all = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
-  assert.match(all, /id="rv-wait"/);
-  assert.match(all, /id="rv-ok"/);
+  // На входе ВСЁ: ни вкладок, ни сортировки, ни абзаца-подсказки. Выбирать в
+  // очереди нечего, а вкладки отвечали на вопрос, который здесь не задают.
+  assert.equal(/class="a-tabs"/.test(home), false, 'вкладок на входе быть не должно');
+  assert.equal(/class="a-sorts"/.test(home), false, 'сортировки на входе быть не должно');
+  assert.equal(home.includes('На витрине видны только опубликованные'), false, 'подсказка убрана');
+
+  // Разобранная очередь не оставляет ни пустой карточки, ни заголовка: сразу
+  // отзывы по товарам.
+  const clean = Object.assign({}, db, {
+    getReviews: () => reviews.filter(r => r.status === 'approved'), pendingReviewCount: () => 0
+  });
+  const done = adminViews.reviewsList(SETTINGS, clean, null, 1);
+  assert.equal(/class="rv-row/.test(done), false, 'разбирать нечего — строк нет');
+  assert.equal(done.includes('Очередь пуста'), false, 'пустой карточки быть не должно');
+  assert.ok(done.includes('Отзывы по товарам'), 'плитки товаров остаются');
+
+  // Вкладки и сортировка живут в ленте товара — там их и выбирают.
   const one = Object.assign({}, db, { reviewsForProduct: () => reviews, ratingFor: () => ({ avg: 5, count: 1 }) });
   const page = adminViews.productReviews(SETTINGS, one, { id: 'p', name: 'Товар' }, null, null, 1);
   assert.match(page, /id="rv-wait"/);
   assert.match(page, /id="rv-ok"/);
+  assert.match(page, /class="a-tabs"/);
+  assert.match(page, /class="a-sorts"/);
   // Действие над строкой обязано вернуть в ленту этого же товара.
   assert.match(page, /name="product" value="p"/);
 });
@@ -1768,16 +1783,16 @@ test('вложения в панели открываются той же гал
   // Раньше клик по снимку в панели просто открывал файл в новой вкладке: чтобы
   // посмотреть все вложения отзыва, приходилось открывать их по одному.
   const rv = {
-    id: 'r1', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 1,
+    id: 'r1', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'pending', createdAt: 1,
     videos: ['v1.mp4'], photos: ['p1.webp', 'p2.webp', 'p3.webp', 'p4.webp', 'p5.webp', 'p6.webp', 'p7.webp'],
     previews: { 'v1.mp4': 'v1-p.webp', 'p1.webp': 'p1-t.webp' }
   };
   const db = {
     getReviews: () => [rv], getProducts: () => [{ id: 'p', name: 'Товар' }],
-    reviewStats: () => new Map([['p', { total: 1, approved: 1, pending: 0, avg: 5 }]]),
-    pendingReviewCount: () => 0
+    reviewStats: () => new Map([['p', { total: 1, approved: 0, pending: 1, avg: 5 }]]),
+    pendingReviewCount: () => 1
   };
-  const list = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
+  const list = adminViews.reviewsList(SETTINGS, db, null, 1);
   const group = list.slice(list.indexOf('<div class="rv-thumbs"'), list.indexOf('</div>', list.indexOf('<div class="rv-thumbs"')));
   assert.match(group, /<div class="rv-thumbs" data-media>/, 'группу просмотрщик ищет по data-media');
   // Порядок тот же, что на витрине: видео первым, нумерация сквозная.
@@ -1819,23 +1834,25 @@ test('в панели отзывы сортируются теми же трем
   };
   const ids = html => [...html.matchAll(/id="rv-([a-z])"/g)].map(m => m[1]);
 
+  // Сортировка живёт в ленте товара: на входе в раздел лежит очередь модерации,
+  // и порядок в ней один — свежие сверху.
   // Подписи берутся из того же REVIEW_SORTS, что и на витрине: «Новые» в панели
   // и «Новые» на витрине обязаны означать одно и то же.
-  const page = adminViews.reviewsList(SETTINGS, db, 'all', null, 1, null);
+  const page = adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1, null);
   for (const [key, label] of render.REVIEW_SORTS) {
     assert.ok(page.includes('sort=' + key), 'нет ссылки на сортировку ' + key);
     assert.ok(page.includes('>' + label + '</a>'), 'нет подписи ' + label);
   }
+  const sorted = m => adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1, m);
   assert.deepEqual(ids(page), ['a', 'b', 'c'], 'по умолчанию — свежие сверху');
-  assert.deepEqual(ids(adminViews.reviewsList(SETTINGS, db, 'all', null, 1, 'low')), ['b', 'c', 'a']);
-  assert.deepEqual(ids(adminViews.reviewsList(SETTINGS, db, 'all', null, 1, 'high')), ['a', 'c', 'b']);
+  assert.deepEqual(ids(sorted('low')), ['b', 'c', 'a']);
+  assert.deepEqual(ids(sorted('high')), ['a', 'c', 'b']);
   // Мусор в адресе приводится к порядку по умолчанию, а не роняет страницу.
-  assert.deepEqual(ids(adminViews.reviewsList(SETTINGS, db, 'all', null, 1, 'абв')), ['a', 'b', 'c']);
+  assert.deepEqual(ids(sorted('абв')), ['a', 'b', 'c']);
 
-  // То же самое в ленте товара, и выбранная сортировка уезжает в формы действий,
-  // чтобы после «Одобрить» не вернуться в «Новые».
-  const one = adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1, 'low');
-  assert.deepEqual(ids(one), ['b', 'c', 'a']);
+  // Выбранная сортировка уезжает в формы действий, чтобы после «Одобрить» не
+  // вернуться в «Новые».
+  const one = sorted('low');
   assert.match(one, /name="sort" value="low"/);
   assert.match(one, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=high"/);
 });
@@ -1887,10 +1904,13 @@ test('опубликованный отзыв снимается с витрин
   ];
   const db = {
     getReviews: () => reviews, getProducts: () => [{ id: 'p', name: 'Товар' }],
+    reviewsForProduct: () => reviews, ratingFor: () => ({ avg: 5, count: 1 }),
     reviewStats: () => new Map([['p', { total: 2, approved: 1, pending: 1, avg: 5 }]]),
     pendingReviewCount: () => 1
   };
-  const html = adminViews.reviewsList(SETTINGS, db, 'all', null, 1);
+  // Обе кнопки видно в ленте товара: на входе в раздел лежит только очередь, а
+  // в ней снимать с витрины нечего.
+  const html = adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1);
   assert.match(html, /action="\/admin\/reviews\/wait\/approve"/, 'у ожидающего — «Одобрить»');
   assert.match(html, /action="\/admin\/reviews\/ok\/hide"/, 'у опубликованного — «Снять с витрины»');
 
@@ -2200,40 +2220,51 @@ test('строка заказа: свой столбец у каждого во�
   assert.match(css, /\.a-orders td\{[^}]*vertical-align:middle/);
 });
 
-test('боковое меню панелей прячется, а разделы подписаны значками', () => {
+test('меню панели — одна кнопка в шапке и выпадающий список разделов', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
   const db = {
     getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [],
-    getOrders: () => [], pendingReviewCount: () => 0, categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+    getOrders: () => [], pendingReviewCount: () => 3, categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
   };
-  const panels = { 'панель': [adminViews.dashboard(SETTINGS, db), 6] };
-  for (const [name, [html, navItems]] of Object.entries(panels)) {
-    assert.match(html, /id="a-nav-toggle"/, 'нет кнопки меню: ' + name);
-    assert.match(html, /<aside class="a-sidebar" id="a-sidebar">/, name);
-    assert.match(html, /admin-ui\.js/, name);
-    // Состояние применяется ДО первой отрисовки: иначе меню моргало бы открытым
-    // на каждой странице у того, кто его спрятал.
-    assert.match(html, /localStorage\.getItem\('admin_nav_off'\)==='1'\)document\.documentElement\.classList\.add\('nav-off'\)/, name);
-    assert.ok(html.indexOf('admin_nav_off') < html.indexOf('<body'), 'скрипт состояния обязан идти до <body>: ' + name);
-    // У каждого раздела свой значок — раздел опознаётся по нему быстрее, чем по слову.
-    assert.equal((html.match(/class="a-nav-ico"/g) || []).length, navItems, 'значки не у всех разделов: ' + name);
-  }
+  const html = adminViews.dashboard(SETTINGS, db);
+  // Кнопка стоит в шапке, список выпадает под ней. Ни боковой колонки, ни ленты
+  // разделов, ни кнопки выхода рядом с ними.
+  assert.match(html, /<div class="a-topbar"><details class="a-menu" id="a-menu">/);
+  assert.match(html, /<summary class="a-menu-btn"/);
+  assert.match(html, /<div class="a-menu-drop">/);
+  assert.equal(/a-sidebar/.test(html), false, 'боковой колонки больше нет');
+  assert.equal(/\/admin\/logout/.test(html), false, 'выход переехал в настройки');
+  assert.match(html, /admin-ui\.js/);
+  // Меню на <details>: без скрипта оно всё равно раскрывается, а состояние
+  // нигде не хранится — значит, и моргать на загрузке нечему.
+  assert.equal(/nav-off|admin_nav_off/.test(html + css + js), false, 'прежнего состояния меню не осталось');
+  // Счётчик очереди виден и со свёрнутым меню — иначе о нём не узнать вовсе.
+  assert.match(html, /<span class="a-menu-dot">3<\/span>/);
+  // У каждого раздела свой значок — раздел опознаётся по нему быстрее, чем по слову.
+  assert.equal((html.match(/class="a-nav-ico"/g) || []).length, 6, 'значки не у всех разделов');
   // Незнакомый ключ не ломает разметку: подпись раздела остаётся и без значка.
   assert.equal(render.adminIcon('выдумка'), '');
   assert.equal(render.adminIcon(''), '');
   assert.match(render.adminIcon('orders'), /<svg class="a-nav-ico"/);
 
-  // Спрятанное меню отдаёт место содержимому, а не оставляет пустую колонку.
-  assert.match(css, /\.nav-off \.a-sidebar\{width:0/);
-  assert.match(css, /\.nav-off \.a-content\{max-width:1500px\}/);
-  // Выбор переживает переходы между разделами.
-  assert.match(js, /localStorage\.setItem\(KEY, hidden\(\) \? '1' : '0'\)/);
-  assert.match(js, /classList\.toggle\('nav-off'\)/);
+  // Колонки нет — содержимое раздаётся во всю ширину.
+  assert.match(css, /\.a-content\{width:100%;max-width:1500px/);
+  // Список выпадает поверх страницы, а не раздвигает шапку.
+  assert.match(css, /\.a-menu\{position:relative/);
+  assert.match(css, /\.a-menu-drop\{position:absolute/);
+  // Своя стрелка-маркер у <summary> убрана: кнопка тут своя.
+  assert.match(css, /\.a-menu>summary\{list-style:none\}/);
+  assert.match(css, /\.a-menu>summary::-webkit-details-marker\{display:none\}/);
+  // Скрипту остаётся то, чего <details> не умеет: клик мимо и Esc.
+  assert.match(js, /menu\.open = false/);
+  assert.match(js, /Escape/);
 
-  // На телефоне прячется сама лента разделов, а строка бренда остаётся: по ней
-  // видно, где ты, и есть чем вернуть меню.
-  assert.match(css, /\.nav-off \.a-nav\{display:none\}/);
+  // Выход теперь на странице настроек, отдельной карточкой.
+  const settings = adminViews.settingsPage(SETTINGS, db);
+  assert.match(settings, /<form action="\/admin\/logout" method="post">/);
+  assert.match(settings, /class="a-panel a-exit"/);
+
   // Заказы на телефоне — карточками: таблица в семь столбцов в ленту не влезает.
   assert.match(css, /\.a-table\.a-orders\{min-width:0;display:block\}/);
   assert.match(css, /\.a-orders thead\{display:none\}/);
@@ -2345,7 +2376,7 @@ test('модерация отзыва возвращает на ту же стр
     reviewStats: () => new Map(), pendingReviewCount: () => many.length
   };
 
-  const page3 = adminViews.reviewsList(SETTINGS, db, 'pending', null, 3);
+  const page3 = adminViews.reviewsList(SETTINGS, db, null, 3);
   const forms = page3.match(/<form method="post" action="\/admin\/reviews\/[^"]+\/(approve|delete)">([\s\S]*?)<\/form>/g) || [];
   assert.ok(forms.length >= 2, 'на странице есть формы одобрения и удаления');
   for (const form of forms) {

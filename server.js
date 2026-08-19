@@ -1441,7 +1441,10 @@ async function reviewPreviews(files) {
   for (const f of files) { const thumb = await IMG.makeThumb(db.UPLOAD_DIR, f); if (thumb) out[f] = thumb; }
   return out;
 }
-app.get('/admin/reviews', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewsList(settings(), db, req.query.status, req.query.flash, req.query.page, req.query.sort)); });
+// Вход в раздел — очередь модерации и ничего кроме неё: ни вкладок, ни
+// сортировки. Прежние `status` и `sort` в адресе (ссылки из закладок, возврат
+// после действия) просто ничего не значат.
+app.get('/admin/reviews', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewsList(settings(), db, req.query.flash, req.query.page)); });
 app.get('/admin/reviews/new', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.reviewForm(settings(), db, null, { productId: req.query.productId })); });
 app.post('/admin/reviews/new', async (req, res) => {
   if (!guardAdmin(req, res)) return;
