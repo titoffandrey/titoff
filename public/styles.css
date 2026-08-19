@@ -406,20 +406,30 @@ body.admin{background:var(--bg2)}
 .a-table td{padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .a-thumb{width:56px}
 .a-thumb img,.a-thumb svg{width:48px;height:48px;object-fit:contain;border-radius:8px;background:var(--bg2)}
-/* Состояние онлайн-оплаты в строке заказа. Цвета — уже проверенные в проекте:
-   зелёный плашки скидки и оранжевый отметки «Новинка», а не var(--accent):
-   в панели акцент нейтрально-серый и подпись на нём не читалась бы. */
-/* Отдельной строкой под суммой, а не рядом с ней: инлайновая плашка тянула
-   колонку «Сумма» на всю ширину подписи. width:fit-content — чтобы фон
-   обтягивал текст, а не всю ячейку. */
-.pay-tag{display:block;width:fit-content;margin-top:5px;padding:2px 8px;border-radius:20px;
-  font-size:11.5px;font-weight:600;line-height:1.5;white-space:nowrap}
-.pay-tag.pay-ok{background:#0b7a37;color:#fff}
-.pay-tag.pay-wait{background:var(--bg2);color:var(--muted)}
-.pay-tag.pay-warn{background:#bf4800;color:#fff}
-/* Истёкший и отменённый счёт — не ошибка и не ожидание: обводка вместо заливки,
-   чтобы в списке заказов такие строки не спорили с оплаченными. */
-.pay-tag.pay-off{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--border)}
+/* ===== Состояние оплаты: один набор цветов на всю панель =====
+   По тону состояния красятся три вещи: плашка в столбце «Статус», подложка с
+   полоской у строки заказа и точка в сводке над списком. Цвет задан здесь один
+   раз и дальше берётся переменной — иначе три места разъедутся на первой же
+   правке, а расходятся они молча: увидеть это можно только глазами.
+   Оттенки — уже проверенные в проекте: зелёный подписи наличия (#0b7a37) и
+   оранжевый отметки «Новинка» (#bf4800), а не var(--accent): акцент у магазина
+   свой, и подпись на нём в 11px могла бы не читаться.
+   --tone — точка и полоска, --tone-ink — текст плашки, --tone-soft — её фон,
+   --tone-row — подложка строки. Последняя заметно бледнее: плашка на экране
+   одна, а строк полсотни, и на их подложке текст обязан читаться как на белом. */
+.o-stat-ok,.o-row-ok,.pay-tag.pay-ok{--tone:#0b7a37;--tone-ink:#0b7a37;--tone-soft:#e7f6ed;--tone-row:#f4fbf7}
+.o-stat-wait,.o-row-wait,.pay-tag.pay-wait{--tone:#e8940c;--tone-ink:#8a5600;--tone-soft:#fff4e2;--tone-row:#fffbf3}
+.o-stat-warn,.o-row-warn,.pay-tag.pay-warn{--tone:#bf4800;--tone-ink:#a83f00;--tone-soft:#ffefe6;--tone-row:#fff7f2}
+.o-stat-off,.o-row-off,.pay-tag.pay-off{--tone:#b0b0b6;--tone-ink:#6e6e73;--tone-soft:#f0f0f2;--tone-row:#f8f8f9}
+.o-stat-none{--tone:#d2d2d7;--tone-ink:#8e8e93;--tone-soft:#f4f4f6}
+/* Плашка — точка и подпись цветом тона на бледной заливке. Прежде заливка была
+   сплошной, а слева стоял глиф (⏳ ✓ ⚠): эмодзи приезжали цветными из
+   системного шрифта, спорили с цветом самой плашки и в каждой системе
+   выглядели по-своему. width:fit-content — чтобы фон обтягивал текст, а не всю
+   ячейку. */
+.pay-tag{display:inline-flex;align-items:center;gap:6px;width:fit-content;padding:3px 9px 3px 8px;border-radius:20px;
+  background:var(--tone-soft);color:var(--tone-ink);font-size:11.5px;font-weight:600;line-height:1.5;white-space:nowrap}
+.pay-tag i{width:6px;height:6px;flex:none;border-radius:50%;background:var(--tone)}
 
 /* Порядок товаров в каталоге: ручка перетаскивания, номер позиции и стрелки.
    Ячейка остаётся обычной (не flex) по той же причине, что и .a-actions ниже —
@@ -1544,10 +1554,35 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-exit h2{margin-bottom:5px}
 .a-exit p{margin:0;max-width:60ch}
 .a-flash{margin:20px 28px 0;padding:13px 16px;border-radius:13px}
-.a-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:24px}
+/* Карточек на «Обзоре» три, а плиток сводки над ними — от четырёх до шести:
+   auto-fit раскладывает и то и другое сам, без медиазапроса на каждый случай. */
+.a-cards{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:24px}
 .a-stat{min-height:122px;padding:20px;border-color:var(--border-soft);border-radius:18px;box-shadow:0 1px 2px rgba(17,17,26,.025);transition:transform .16s,box-shadow .18s,border-color .18s}
 .a-stat:hover{border-color:#d6d6dc;box-shadow:var(--shadow);transform:translateY(-2px)}
 .a-stat-num{margin-bottom:7px;font-size:34px;font-weight:720;letter-spacing:-.045em}
+.a-stat-label{font-size:13.5px;font-weight:560;line-height:1.35}
+.a-stat-sub{margin-top:4px;color:#8e8e93;font-size:11px}
+/* Карточка-ссылка: числа у неё нет вовсе, и 34px под словом «Метрика» читались
+   бы как счётчик чего-то. */
+.a-stat-link .a-stat-num{font-size:21px;letter-spacing:-.03em}
+
+/* ===== Сводка по заказам: сколько оплачено, отменено и сколько выручки =====
+   Стоит над списком заказов и на «Обзоре» — разметка одна (`orderStatsBar()` в
+   lib/render.js). Плитки того же размера, что карточки «Обзора» под ними:
+   разный размер читался бы как разная важность блоков.
+   Число плиток плавает от четырёх до шести — «Проверить» и «Без оплаты»
+   показываются только когда такие заказы есть. Поэтому auto-fit, а не жёсткая
+   сетка: ряд из четырёх и ряд из шести должны выглядеть одинаково нарочно. */
+.o-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px}
+.o-stat{min-width:0;padding:18px;border:1px solid var(--border-soft);border-radius:18px;background:#fff;box-shadow:0 1px 2px rgba(17,17,26,.025)}
+.o-stat-k{display:flex;align-items:center;gap:7px;color:#77777c;font-size:12px;font-weight:620}
+.o-stat-k i{width:8px;height:8px;flex:none;border-radius:50%;background:var(--tone)}
+.o-stat strong{display:block;margin:8px 0 3px;font-size:31px;font-weight:720;line-height:1;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.o-stat small{display:block;color:#8e8e93;font-size:11px}
+/* Выручка — строка, а не число: разряды toLocaleString разделяет неразрывным
+   пробелом, перенести её нельзя, и в 31px она вылезала бы из узкой плитки.
+   Кегль привязан к ширине окна, поэтому и на телефоне сумма помещается целиком. */
+.o-stat-money strong{font-size:clamp(19px,2vw,24px);letter-spacing:-.035em;white-space:nowrap}
 .a-panel{padding:20px 22px;margin-bottom:22px;border-color:var(--border-soft);border-radius:18px;box-shadow:0 1px 2px rgba(17,17,26,.025)}
 .a-panel h2{margin-bottom:16px;font-size:19px}
 .a-panel-head{margin-bottom:13px}
@@ -1598,6 +1633,22 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders .o-sum b{font-size:14.5px;font-variant-numeric:tabular-nums}
 .a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
 
+/* Строка красится по состоянию оплаты: оплаченную от отменённой надо отличать с
+   одного взгляда, не вчитываясь в плашку. Полоска у левого края — inset-тень
+   первой ячейки, а не border: при border-collapse рамка у tr ненадёжна, а тень
+   ничего не двигает. Цвета берутся переменными тона (см. блок «Состояние
+   оплаты» выше). */
+.a-orders tr.o-row td{background:var(--tone-row,transparent)}
+.a-orders tr.o-row td:first-child{box-shadow:inset 3px 0 0 var(--tone,transparent)}
+/* Подсветка якоря обязана перебивать тон: по ссылке с «Обзора» открывается
+   ровно эта заявка, и найти её в списке надо по подсветке. Специфичность у
+   общего `.a-table tr:target td` та же, что у правила выше, и решал бы порядок
+   в файле — поэтому правило своё. */
+.a-orders tr.o-row:target td{background:#fff8df}
+/* Деньги отменённого заказа — не деньги: сумма гасится до подписи, иначе строка
+   «истёк» с чёрной суммой читается как выручка. */
+.a-orders tr.o-row-off .o-sum b{color:var(--muted)}
+
 /* Клиент: открыто «имя · контакт», остальное — по клику. Адрес пункта выдачи
    бывает длиннее всей остальной строки, и заказ разрастался из-за него одного. */
 .a-orders .o-who{font-weight:600;overflow-wrap:anywhere}
@@ -1622,6 +1673,34 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-rest[open] summary::before{content:"▾ "}
 .o-rest summary:hover{color:var(--text)}
 .o-rest div{margin-top:4px}
+
+/* ===== Последние заказы на «Обзоре» =====
+   Список ссылок, а не таблица: столбцов здесь четыре, и на телефоне такую
+   таблицу пришлось бы листать вбок — ради номера и суммы, то есть ради всего,
+   что в ней есть. Строка ведёт к якорю заявки в разделе заказов.
+   Раскладка одна на все ширины: слева «кто и когда», справа «состояние и
+   сколько». Ужиматься ей некуда, поэтому и медиазапроса у неё нет. */
+.o-recent{display:flex;flex-direction:column;gap:8px}
+.o-recent-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 14px;align-items:center;
+  padding:11px 13px;border:1px solid var(--border-soft);border-radius:14px;color:var(--text);
+  background:var(--tone-row,#fff);box-shadow:inset 3px 0 0 var(--tone,transparent);
+  transition:border-color .14s,box-shadow .16s}
+.o-recent-row:hover{border-color:#d6d6dc;box-shadow:inset 3px 0 0 var(--tone,transparent),0 4px 14px rgba(17,17,26,.07)}
+.o-recent-row:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.o-recent-num{grid-column:1;grid-row:1;display:flex;align-items:baseline;gap:8px;min-width:0}
+.o-recent-num b{font-size:14.5px}
+.o-recent-state{grid-column:2;grid-row:1;justify-self:end;text-align:right}
+/* Приписка к состоянию («Пришло 10 000, ожидали 67 990») здесь не показывается:
+   она длиннее всей правой колонки и разваливает ряд. Разбираются с таким
+   заказом в разделе заказов, где приписка и стоит. */
+.o-recent-state .o-note{display:none}
+/* Имя с контактом обрезается многоточием: длинный ник иначе разваливает строку
+   на две и ряд заявок перестаёт читаться сверху вниз. */
+.o-recent-who{grid-column:1;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--muted);font-size:12.5px}
+.o-recent-sum{grid-column:2;grid-row:2;justify-self:end;font-size:14.5px;font-weight:600;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.o-recent-empty{margin:0;padding:4px 0 2px}
 
 /* Режим правки: пока он выключен, столбца с удалением нет вовсе. «✕» у каждой
    строки — это удаление заказа в один промах мыши, а список открывают, чтобы
@@ -1906,7 +1985,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 /* Планшеты */
 @media(max-width:1100px){
-  .a-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* Карточкам «Обзора» жёсткая сетка больше не нужна: их три, а не четыре, и
+     auto-fit сам ставит столько колонок, сколько влезает. */
   .product{gap:36px}
   /* Колонка сведений сузилась — три подписи в строку больше не помещаются.
      Столбиком разделители обязаны стать горизонтальными, иначе линии повиснут
@@ -2100,30 +2180,49 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      справа полосу пустоты, а пункты всё равно короткие. */
   .a-menu-drop{left:-4px;width:calc(100vw - 24px);max-width:340px}
 
+  /* Сводка по заказам: две плитки в ряд, выручка — во всю ширину. Она главное
+     число страницы, и в половинной плитке сумма ужималась бы сильнее всех
+     остальных чисел, хотя читают её первой. */
+  .o-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
+  .o-stat{padding:14px;border-radius:15px}
+  .o-stat strong{margin:6px 0 2px;font-size:25px}
+  .o-stat-money{grid-column:1/-1}
+  .o-stat-money strong{font-size:30px}
+
   /* Заказы на телефоне — карточками, а не таблицей в семь столбцов: в узкую
      ленту такая таблица не влезает никак, и её приходилось листать вбок,
-     теряя из виду и номер, и сумму. Сетка 2 колонки: слева читаемое, справа
-     деньги. */
+     теряя из виду и номер, и сумму.
+     Порядок строк карточки: «номер и дата — состояние», «клиент», «состав»,
+     «чем платили — сколько». Сверху то, по чему заявку узнают, снизу деньги;
+     ряды заданы явно, потому что порядок ячеек в таблице задан столбцами и
+     автоматической раскладке взяться за него неоткуда. */
   /* Спецификация выше, чем у общего `.a-table{min-width:620px}` ниже в этом же
      блоке: карточкам ширина в 620 px не нужна, они и режутся ею по краю. */
   .a-table.a-orders{min-width:0;display:block}
   .a-orders thead{display:none}
   .a-orders tbody,.a-orders tr,.a-orders td{display:block}
-  .a-orders tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;
-    padding:13px 14px;margin-bottom:10px;border:1px solid var(--border-soft);border-radius:15px}
+  .a-orders tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;
+    padding:12px 13px;margin-bottom:10px;border:1px solid var(--border-soft);border-radius:15px;
+    background:var(--tone-row,#fff);box-shadow:inset 3px 0 0 var(--tone,transparent)}
   .a-orders td{border:0;padding:0}
+  /* Подложка и полоска переезжают со строки таблицы на саму карточку: у ячейки
+     в сетке нет ни «первой», ни общей высоты строки, и полоска висела бы
+     чёрточкой у номера заказа. */
+  .a-orders tr.o-row td{background:none}
+  .a-orders tr.o-row td:first-child{box-shadow:none}
   .a-orders .o-num{grid-column:1;grid-row:1}
   .a-orders .o-num b{display:inline}
   .a-orders .o-num .small{display:inline;margin-left:7px}
-  .a-orders .o-sum{grid-column:2;grid-row:1;text-align:right}
-  .a-orders .o-client,.a-orders .o-items{grid-column:1/-1;max-width:none;min-width:0}
-  .a-orders .o-client{margin-top:4px}
-  .a-orders .o-state{grid-column:1;margin-top:4px}
-  .a-orders .o-pay{grid-column:2;margin-top:4px;text-align:right}
+  /* width:1% с десктопа в сетке сжимает ячейку в ниточку — на карточке ширину
+     задаёт содержимое. */
+  .a-orders .o-state{grid-column:2;grid-row:1;justify-self:end;width:auto;text-align:right}
+  .a-orders .o-client{grid-column:1/-1;grid-row:2;max-width:none;min-width:0}
+  .a-orders .o-items{grid-column:1/-1;grid-row:3;max-width:none;min-width:0}
+  .a-orders .o-pay{grid-column:1;grid-row:4;width:auto;text-align:left}
+  .a-orders .o-sum{grid-column:2;grid-row:4;text-align:right}
   .a-orders .o-note{max-width:none}
-  /* width:1% с десктопа в сетке сжимает ячейку в ниточку — на карточке строка
-     удаления идёт во всю ширину, кнопка прижата вправо. */
-  .a-orders .o-act{grid-column:1/-1;width:auto;margin-top:6px;padding-top:9px;
+  /* Строка удаления идёт во всю ширину, кнопка прижата вправо. */
+  .a-orders .o-act{grid-column:1/-1;grid-row:5;width:auto;margin-top:2px;padding-top:9px;
     border-top:1px solid var(--border-soft);text-align:right}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
@@ -2166,6 +2265,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .a-stat{min-height:106px;padding:16px;border-radius:16px}
   .a-stat-num{font-size:29px}
+  /* Карточек три, и третья в двухколоночной сетке осталась бы половинкой рядом
+     с пустотой. Ссылке ширина не мешает: числа у неё нет. */
+  .a-stat-link{min-height:0;grid-column:1/-1}
+  .a-stat-link .a-stat-num{margin-bottom:3px;font-size:19px}
   .a-panel{padding:16px;margin-bottom:16px;border-radius:16px}
   .a-form{padding:16px;border-radius:16px}
   .a-form>.a-panel{margin-inline:0;padding:16px}

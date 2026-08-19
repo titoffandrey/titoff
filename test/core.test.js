@@ -4352,6 +4352,149 @@ test('состояние оплаты видно в обеих панелях и
   assert.match(css, /\.pay-tag\.pay-off/);
 });
 
+// Заказы, на которых считается сводка. Все шесть состояний кассы плюс заявка,
+// у которой оплаты не было вовсе, — как у всех прежних заказов.
+function statsOrders() {
+  const make = (id, total, status) => ({
+    id, number: String(480000 + Number(id.slice(1))), createdAt: 1000 - Number(id.slice(1)),
+    customerName: 'Клиент ' + id, contact: '@u' + id, total, items: [{ name: 'Товар', price: total, qty: 1 }],
+    payment: status ? { status, method: 'SBP' } : null
+  });
+  return [
+    make('o1', 100000, 'paid'), make('o2', 50000, 'paid'),
+    make('o3', 30000, 'pending'), make('o4', 20000, 'pending'),
+    make('o5', 70000, 'expired'), make('o6', 60000, 'cancelled'),
+    make('o7', 40000, 'mismatch'), make('o8', 10000, 'failed'),
+    make('o9', 90000, null)
+  ];
+}
+function statsDb(orders) {
+  return {
+    getOrders: () => orders, visibleOrders: () => orders,
+    getProducts: () => [{ id: 'p', name: 'Товар' }], visibleProducts: () => [{ id: 'p' }],
+    pendingReviewCount: () => 0, categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+}
+
+test('сводка по заказам считает выручку по оплаченным и складывает состояния по тонам', () => {
+  const stats = render.orderStats(statsOrders());
+  assert.equal(stats.count, 9);
+  // Выручка — только оплаченные, и это рублёвый `total` вместе с доставкой:
+  // `payment.amount` лежит в валюте счёта и в общую сумму не годится.
+  assert.equal(stats.revenue, 150000);
+  assert.equal(stats.paid, 2);
+  // «Истёк» и «отменён» для менеджера одно и то же, «сумма не сошлась» и
+  // «платёж не прошёл» — тоже: шесть состояний кассы складываются в четыре тона.
+  assert.equal(stats.tones.ok.n, 2);
+  assert.equal(stats.tones.wait.n, 2);
+  assert.equal(stats.tones.wait.sum, 50000);
+  assert.equal(stats.tones.off.n, 2);
+  assert.equal(stats.tones.warn.n, 2);
+  // Заказ без оплаты (и любой прежний) — свой тон, а не «ждём оплату».
+  assert.equal(stats.tones.none.n, 1);
+  assert.equal(render.orderTone({ payment: null }), 'none');
+  assert.equal(render.orderTone({ payment: { status: 'выдумка' } }), 'none');
+  assert.equal(render.orderTone({ payment: { status: 'paid' } }), 'ok');
+  assert.equal(render.orderTone({ payment: { status: 'cancelled' } }), 'off');
+  // Пустой список не падает и не выдумывает выручку.
+  assert.equal(render.orderStats([]).revenue, 0);
+  assert.equal(render.orderStats(undefined).count, 0);
+  // Битая сумма не превращается в NaN на всю сводку.
+  assert.equal(render.orderStats([{ total: 'абв', payment: { status: 'paid' } }]).revenue, 0);
+
+  // Плитки «Проверить» и «Без оплаты» при нуле не показываются: сводка отвечает
+  // на вопрос «что сейчас с заказами», а не перечисляет пустые состояния.
+  const clean = render.orderStatsBar(render.orderStats([{ total: 1000, payment: { status: 'paid' } }]), SETTINGS);
+  assert.doesNotMatch(clean, /Проверить|Без оплаты/);
+  assert.match(clean, /Оплачено/);
+  assert.match(clean, /Не оплачены/, 'состояние «счёт истёк» видно даже при нуле');
+  // У пустой плитки подписи нет вовсе: «Ждут оплату 0 · на 0 ₽» — объяснение
+  // того, чего не случилось.
+  assert.match(clean, /Не оплачены<\/span><strong>0<\/strong><small><\/small>/);
+  assert.doesNotMatch(render.orderStatsBar(render.orderStats([]), SETTINGS), /на 0\s?₽|деньги получены/);
+});
+
+test('счётчики и выручка одинаковы на «Обзоре» и в «Заказах», а строка красится по оплате', () => {
+  const orders = statsOrders();
+  const db = statsDb(orders);
+  const dash = adminViews.dashboard(SETTINGS, db);
+  const list = adminViews.ordersList(SETTINGS, db, null, 1);
+
+  // Разметка сводки одна на обе страницы: разъехавшиеся счётчики читались бы
+  // как разные числа об одном и том же.
+  const bar = html => html.slice(html.indexOf('<div class="o-stats">'), html.indexOf('</div></div>', html.indexOf('<div class="o-stats">')));
+  assert.equal(bar(dash), bar(list));
+  for (const html of [dash, list]) {
+    assert.match(html, /Выручка<\/span><strong>150\s?000\s?₽/);
+    assert.match(html, /всего 9 заказов/);
+    assert.match(html, /o-stat-ok"><span class="o-stat-k"><i><\/i>Оплачено<\/span><strong>2/);
+    assert.match(html, /o-stat-off"><span class="o-stat-k"><i><\/i>Не оплачены<\/span><strong>2/);
+  }
+
+  // Счётчики считаются по ВСЕМУ списку, а не по показанной странице: «оплачено
+  // 12» на седьмой странице означало бы двенадцать из пятидесяти.
+  const many = Array.from({ length: render.ADMIN_PER_PAGE * 2 }, (_, i) => ({
+    id: 'm' + i, number: String(600000 + i), total: 1000, items: [], createdAt: 9000 - i,
+    payment: { status: 'paid' }
+  }));
+  assert.match(adminViews.ordersList(SETTINGS, statsDb(many), null, 2), /всего 100 заказов/);
+
+  // Строка заказа красится по состоянию оплаты: оплаченную от отменённой надо
+  // отличать с одного взгляда, не вчитываясь в плашку.
+  assert.equal(render.orderRowClass({ payment: { status: 'paid' } }), 'o-row o-row-ok');
+  assert.equal(render.orderRowClass({ payment: { status: 'expired' } }), 'o-row o-row-off');
+  assert.equal(render.orderRowClass({}), 'o-row', 'заявка без оплаты остаётся белой');
+  assert.match(list, /<tr id="order-o1" class="o-row o-row-ok">/);
+  assert.match(list, /<tr id="order-o6" class="o-row o-row-off">/);
+  assert.match(list, /<tr id="order-o9" class="o-row">/);
+
+  // На «Обзоре» у каждой заявки сразу видно состояние и сумму — за этим туда и
+  // заходят. Строка ведёт к якорю этой же заявки в разделе заказов.
+  assert.match(dash, /<a class="o-recent-row o-row o-row-ok" href="\/admin\/orders#order-o1">/);
+  assert.match(dash, /o-recent-state"><span class="pay-tag pay-ok"><i><\/i>оплачено<\/span>/);
+  assert.match(dash, /o-recent-sum">100\s?000\s?₽/);
+  assert.match(list, /<tr id="order-o1"/, 'якорь на месте, иначе ссылка с «Обзора» ведёт в пустоту');
+
+  // Пустой магазин не показывает выдуманных чисел и не ломает раскладку.
+  const empty = adminViews.dashboard(SETTINGS, statsDb([]));
+  assert.match(empty, /заказов пока нет/);
+  assert.match(empty, /o-recent-empty/);
+  assert.doesNotMatch(empty, /o-recent-row/);
+});
+
+test('состояние оплаты красит панель одним набором цветов, и на телефоне это карточки', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Цвет тона задан ОДИН раз: по нему красятся плашка, строка и точка сводки.
+  // Разъезжаются такие вещи молча — увидеть это можно только глазами.
+  for (const tone of ['ok', 'wait', 'warn', 'off']) {
+    const rule = new RegExp(`\\.o-stat-${tone},\\.o-row-${tone},\\.pay-tag\\.pay-${tone}\\{--tone:`);
+    assert.match(css, rule, 'тон ' + tone + ' раскрашен не одним правилом');
+  }
+  assert.match(css, /\.pay-tag\{[^}]*background:var\(--tone-soft\)/);
+  assert.match(css, /\.a-orders tr\.o-row td\{background:var\(--tone-row,transparent\)\}/);
+  assert.match(css, /\.a-orders tr\.o-row td:first-child\{box-shadow:inset 3px 0 0 var\(--tone,transparent\)\}/);
+  // Подсветка якоря обязана перебивать тон: по ссылке с «Обзора» открывается
+  // ровно эта заявка, и найти её в списке надо по подсветке. Специфичность у
+  // общего правила та же, поэтому у заказов оно своё.
+  assert.match(css, /\.a-orders tr\.o-row:target td\{background:#fff8df\}/);
+
+  // Мобильная карточка: подложка и полоска переезжают на саму строку, иначе
+  // полоска висела бы чёрточкой у номера заказа.
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.a-orders tr\{[^}]*background:var\(--tone-row,#fff\);box-shadow:inset 3px 0 0 var\(--tone,transparent\)/);
+  assert.match(mobile, /\.a-orders tr\.o-row td:first-child\{box-shadow:none\}/);
+  // Ряды карточки заданы явно: порядок ячеек в таблице задан столбцами, и
+  // автоматической раскладке взяться за «состояние справа от номера» неоткуда.
+  assert.match(mobile, /\.a-orders \.o-state\{grid-column:2;grid-row:1/);
+  assert.match(mobile, /\.a-orders \.o-sum\{grid-column:2;grid-row:4/);
+  // Выручка на телефоне — во всю ширину: это главное число страницы.
+  assert.match(mobile, /\.o-stat-money\{grid-column:1\/-1\}/);
+
+  // На «Обзоре» таблицы больше нет вовсе — значит, и листать её вбок нечего.
+  const db = statsDb(statsOrders());
+  assert.doesNotMatch(adminViews.dashboard(SETTINGS, db), /<table/);
+});
+
 test('счёт создаётся в минимальных единицах, а ответ кассы разбирается целиком', async () => {
   const croco = require('../lib/crocopay');
   const on = { crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
