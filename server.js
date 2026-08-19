@@ -21,7 +21,7 @@ const OSM = require('./lib/pickup-osm');
 const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
-const D = require('./lib/deals');
+const D = require('./lib/discount');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
 const { Analytics, clientDetails, normalizeIp } = require('./lib/analytics');
@@ -279,15 +279,15 @@ function validateProduct(body) {
   if (!String(body.name || '').trim()) errors.push({ field: 'name', text: 'Укажите название товара' });
   if (!String(body.category || '').trim()) errors.push({ field: 'category', text: 'Укажите категорию' });
   if (!Number.isFinite(price) || price <= 0 || price > PRICE_MAX) errors.push({ field: 'price', text: 'Базовая цена должна быть числом больше нуля' });
-  // Сравнение с NaN всегда ложно, поэтому «abc» в старой цене проходило проверку
-  // и потом молча превращалось в пустое поле. Число проверяем явно.
-  const oldPrice = String(body.oldPrice || '').trim();
-  if (oldPrice && (!Number.isFinite(Number(oldPrice)) || Number(oldPrice) > PRICE_MAX)) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть корректным числом' });
-  else if (oldPrice && Number(oldPrice) <= price) errors.push({ field: 'oldPrice', text: 'Старая цена должна быть выше базовой — иначе зачёркивать нечего' });
-  if (body.hotDeal !== undefined) {
-    const deal = String(body.hotDealPrice || '').trim();
-    if (!deal) errors.push({ field: 'hotDealPrice', text: 'Для горящей скидки нужна цена по акции' });
-    else if (!Number.isFinite(Number(deal)) || !(Number(deal) > 0) || Number(deal) >= price || Number(deal) > PRICE_MAX) errors.push({ field: 'hotDealPrice', text: 'Цена по акции должна быть меньше базовой' });
+  // Скидка — процент, и зачёркнутая цена выводится из него. Сравнение с NaN
+  // всегда ложно, поэтому «abc» проверяем явно: иначе мусор молча становился бы
+  // нулём, и скидка исчезала бы без объяснения.
+  const pct = String(body.discountPercent == null ? '' : body.discountPercent).trim().replace(',', '.');
+  if (pct) {
+    const n = Number(pct);
+    if (!Number.isFinite(n) || n < 0 || n > D.MAX_PCT) {
+      errors.push({ field: 'discountPercent', text: `Скидка — число от 0 до ${D.MAX_PCT}` });
+    }
   }
   return errors;
 }
@@ -671,15 +671,13 @@ app.post('/api/cart', (req, res) => {
       + optionsAdd(chosen);
     const price = D.effectivePrice(view) + adds;
     /* Цена для сравнения — та же, что зачёркнута на карточке и на странице
-     * товара, и считается ТЕМ ЖЕ способом: база сравнения плюс те же доплаты.
-     * Доплата за память и прочее одинакова в обеих ценах, поэтому выгода в
-     * рублях сохраняется, а процент от суммы честно уменьшается.
-     *
-     * Ноль означает «зачёркивать нечего»: у товара без старой цены и без
-     * активной акции сравнивать не с чем.
-     */
-    const cmpBase = D.comparePrice(view);
-    const compare = cmpBase ? cmpBase + adds : 0;
+      * товара, и считается ТЕМ ЖЕ способом: процент скидки товара от ПОЛНОЙ
+      * цены сборки. Поэтому выгода в процентах у любой сборки одна и та же, а
+      * в рублях у дорогой она больше — так скидка и работает.
+      *
+      * Ноль означает «зачёркивать нечего»: у товара без скидки сравнивать не с чем.
+      */
+    const compare = D.compareFor(price, D.discountPct(view));
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
       || (band && band.option.inStock === false)
       || (band && band.option.forColor && band.option.forColor !== color)
@@ -1299,10 +1297,12 @@ app.get('/admin/analytics/visitor/:key', (req, res) => {
 // одинаковых объекта стояли в двух маршрутах и успевали разойтись.
 function productFields(req) {
   return {
-    name: req.body.name, category: req.body.category, price: req.body.price, oldPrice: req.body.oldPrice,
+    name: req.body.name, category: req.body.category, price: req.body.price,
+    // Скидка приходит процентом, старая цена не приходит вовсе: она из него
+    // выводится (lib/discount.js), и второго источника у неё быть не должно.
+    discountPercent: String(req.body.discountPercent == null ? '' : req.body.discountPercent).trim().replace(',', '.'),
     inStock: req.body.inStock !== undefined, visible: req.body.visible !== undefined, stockLevel: req.body.stockLevel,
     shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
-    hotDeal: req.body.hotDeal !== undefined, hotDealPrice: req.body.hotDealPrice, hotDealUntil: parseDt(req.body.hotDealUntil),
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
     bands: parseBands(req.body.bands), options: parseOptions(req.body.options)
   };

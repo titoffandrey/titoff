@@ -68,10 +68,11 @@
   }
 
   /* Скидка позиции: цена для сравнения, процент и выгода в рублях — или null,
-   * когда сравнивать не с чем. Считается ровно так же, как на карточке каталога
-   * (`comparePrice`/`discountPct` в lib/deals.js): процент округляется от цены
-   * сравнения, поэтому одна и та же сборка показывает на витрине и в корзине
-   * одинаковые «−13%», а не расходится на процент из-за другого округления.
+   * когда сравнивать не с чем. Цену сравнения считает СЕРВЕР и присылает её в
+   * ответе /api/cart (`compareFor` в lib/discount.js): своей формулы у витрины
+   * нет, она разошлась бы с каталогом на первом же товаре с доплатой. Процент
+   * выводится обратно из пары чисел и совпадает со скидкой товара — старая цена
+   * округляется до десятки ровно ради этого.
    */
   function itemSale(i) {
     var cmp = Number(i.compare) || 0, price = Number(i.price) || 0;
@@ -1172,33 +1173,6 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); setTimeout(function () { t.hidden = true; }, 250); }, 2200);
   }
 
-  // Таймеры обратного отсчёта для горящих скидок
-  function initCountdowns() {
-    var els = document.querySelectorAll('[data-deal-until]');
-    if (!els.length) return;
-    function fmt(ms) {
-      if (ms <= 0) return null;
-      var s = Math.floor(ms / 1000);
-      var d = Math.floor(s / 86400); s -= d * 86400;
-      var h = Math.floor(s / 3600); s -= h * 3600;
-      var m = Math.floor(s / 60); s -= m * 60;
-      var pad = function (n) { return String(n).padStart(2, '0'); };
-      return (d > 0 ? d + 'д ' : '') + pad(h) + ':' + pad(m) + ':' + pad(s);
-    }
-    function tick() {
-      var now = Date.now();
-      els.forEach(function (el) {
-        var until = Number(el.getAttribute('data-deal-until'));
-        var left = fmt(until - now);
-        var target = el.querySelector('.dt-val') || el;
-        if (left === null) { el.classList.add('deal-ended'); target.textContent = 'Завершено'; }
-        else target.textContent = left;
-      });
-    }
-    tick();
-    setInterval(tick, 1000);
-  }
-
   function analyticsPayload(includeDetails, enableTracking) {
     var payload = { path: location.pathname };
     if (enableTracking) payload.enableTracking = '1';
@@ -1358,7 +1332,6 @@
     try {                                                          // благодарность после перезагрузки со свежим отзывом
       if (sessionStorage.getItem('review_thanks')) { sessionStorage.removeItem('review_thanks'); toast('Спасибо за отзыв!'); }
     } catch (e) {}
-    initCountdowns();
     startAnalytics(true);
     initAnalyticsControls();
     initCompactHeader();
@@ -1604,7 +1577,7 @@
     if (addBtn && (document.getElementById('colors') || document.getElementById('storages')
       || document.getElementById('bands') || document.getElementById('options'))) {
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
-      var baseCompare = Number(addBtn.dataset.baseCompare) || 0; // 0 — зачёркивать нечего
+      var discountPct = Number(addBtn.dataset.discountPct) || 0; // 0 — скидки нет, зачёркивать нечего
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0,
         options: [], optionsAdd: 0 };
@@ -1669,21 +1642,20 @@
         var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd + vstate.optionsAdd;
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
         addBtn.dataset.price = total;
-        // Зачёркнутая цена — та же сборка по старой цене, а не базовая сборка:
-        // доплата за память и доп. характеристики одинакова в обеих. Иначе рядом
-        // с ценой сборки за 93 990 ₽ висели старые 64 990 ₽ и «−12%» от базы —
-        // выходило, что дороже собранный вариант ещё и «выгоднее».
-        if (baseCompare) {
-          var cmpTotal = baseCompare + (total - basePrice);
+        /* Зачёркнутая цена выводится из процента для ВЫБРАННОЙ сборки — тем
+         * же способом, что и на сервере (`compareFor` в lib/discount.js).
+         * Скидка у товара одна и в процентах, поэтому сам процент при смене
+         * памяти или ремешка не меняется: меняется зачёркнутая сумма и выгода
+         * в рублях. Раньше зачёркнутая цена была «база сравнения + те же
+         * доплаты», и процент таял с каждой доплатой — дорогая сборка выглядела
+         * менее выгодной, чем базовая.
+         */
+        if (discountPct > 0) {
+          var cmpTotal = Math.round(total / (1 - discountPct / 100) / 10) * 10;
           var oe = document.getElementById('product-old-price');
           if (oe) oe.textContent = money(cmpTotal);
           var se = document.getElementById('product-save');
-          if (se) {
-            // Выгода в рублях та же, поэтому процент от суммы честно уменьшается.
-            var pct = Math.round((1 - total / cmpTotal) * 100);
-            se.textContent = '−' + pct + '%';
-            se.style.display = pct > 0 ? '' : 'none'; // у .save своё display
-          }
+          if (se) se.textContent = '−' + discountPct + '%';
         }
         // Название храним базовым, а вариант — в отдельных полях ниже. Иначе до
         // первого ответа /api/cart оформление показывало память/цвет дважды.

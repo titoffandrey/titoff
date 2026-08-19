@@ -16,47 +16,38 @@
     growSpecs();
   }
 
-  // ===== Цена: раскрытие блока акции и живой предпросмотр того, что увидит покупатель =====
-  var dealBox = document.getElementById('deal-box');
-  var dealToggle = document.getElementById('deal-toggle');
+  /* ===== Цена: живой предпросмотр того, что увидит покупатель =====
+   *
+   * Поля два — цена и процент скидки. Зачёркнутой цены среди них нет и быть не
+   * может: она выводится из этой пары («цена ÷ (1 − процент)», округление до
+   * десятки — см. compareFor в lib/discount.js) и потому показывается здесь
+   * только как предпросмотр, а не как ещё одно поле ввода.
+   */
   var priceInput = form.querySelector('input[name="price"]');
-  var oldInput = form.querySelector('input[name="oldPrice"]');
-  var dealInput = form.querySelector('input[name="hotDealPrice"]');
+  var pctInput = form.querySelector('input[name="discountPercent"]');
   var preview = document.getElementById('price-preview');
 
   function money(n) { return Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ₽'; }
-  function num(el) { var n = Number(el && el.value); return isFinite(n) && n > 0 ? n : 0; }
+  function num(el) { var n = Number(el && String(el.value).replace(',', '.')); return isFinite(n) && n > 0 ? n : 0; }
 
   function renderPreview() {
     if (!preview) return;
     var base = num(priceInput);
     if (!base) { preview.hidden = true; return; }
-    var deal = dealToggle && dealToggle.checked ? num(dealInput) : 0;
-    var old = num(oldInput);
-    var eff = (deal > 0 && deal < base) ? deal : base;          // та же логика, что в lib/deals.js
-    var cmp = (deal > 0 && deal < base) ? base : (old > eff ? old : 0);
-    var pct = cmp ? Math.round((1 - eff / cmp) * 100) : 0;
-    var html = 'Покупатель увидит: <b>' + money(eff) + '</b>';
-    if (cmp) html += '<span class="pp-old">' + money(cmp) + '</span><span class="pp-pct">−' + pct + '%</span>';
-    if (dealToggle && dealToggle.checked && !(deal > 0 && deal < base)) {
-      html += ' — <span class="pp-pct">скидка не сработает: цена по акции должна быть меньше базовой</span>';
-    } else if (old && old <= base) {
-      html += ' — <span class="pp-pct">старая цена ниже базовой, её не покажем</span>';
+    var pct = Math.round(num(pctInput));
+    var html = 'Покупатель увидит: <b>' + money(base) + '</b>';
+    if (pct > 0 && pct <= 90) {
+      var cmp = Math.round(base / (1 - pct / 100) / 10) * 10;
+      html += '<span class="pp-old">' + money(cmp) + '</span><span class="pp-pct">−' + pct + '%</span>';
+      html += ' — выгода ' + money(cmp - base) + '. У дорогих сборок она больше: процент один на все.';
+    } else if (pct > 90) {
+      html += ' — <span class="pp-pct">скидка больше 90% не бывает</span>';
     }
     preview.innerHTML = html;
     preview.hidden = false;
   }
 
-  if (dealToggle && dealBox) {
-    dealToggle.addEventListener('change', function () {
-      dealBox.classList.toggle('is-on', dealToggle.checked);
-      if (dealToggle.checked && dealInput && !dealInput.value && num(priceInput)) {
-        dealInput.value = Math.round(num(priceInput) * 0.9);   // подставим −10%, чтобы не заполнять вручную
-      }
-      renderPreview();
-    });
-  }
-  [priceInput, oldInput, dealInput].forEach(function (el) { if (el) el.addEventListener('input', renderPreview); });
+  [priceInput, pctInput].forEach(function (el) { if (el) el.addEventListener('input', renderPreview); });
   renderPreview();
 
   var MAX_FILE = 6 * 1024 * 1024;

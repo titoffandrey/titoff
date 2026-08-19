@@ -34,7 +34,7 @@ db.ensureSeeded();
 
 // Поля, которые слияние приводит к catalog.js. Цена в списке есть, но ручной
 // оверрайд сайта живёт отдельно (в настройках домена) и не затрагивается.
-const FIELDS = ['name', 'shortDesc', 'description', 'specs', 'badge', 'price', 'oldPrice', 'options'];
+const FIELDS = ['name', 'shortDesc', 'description', 'specs', 'badge', 'price', 'discountPercent', 'options'];
 const same = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
 
 let merged = 0, updated = 0, missing = 0;

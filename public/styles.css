@@ -579,13 +579,6 @@ body.admin{background:var(--bg2)}
 .switch-row input::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .18s}
 .switch-row input:checked::after{transform:translateX(16px)}
 
-/* блок акции раскрывается галочкой */
-.deal-box{border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:4px;transition:border-color .18s,background .18s}
-.deal-box.is-on{border-color:#ffd9cf;background:#fff8f6}
-.deal-fields{display:none;margin-top:14px}
-.deal-box.is-on .deal-fields{display:block}
-.deal-box .field:last-child{margin-bottom:0}
-
 /* панель действий прилипает к низу экрана */
 .form-actions-bar{position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;
   background:rgba(255,255,255,.86);backdrop-filter:saturate(180%) blur(16px);-webkit-backdrop-filter:saturate(180%) blur(16px);
@@ -631,33 +624,12 @@ body.admin{background:var(--bg2)}
 }
 
 /* =========================================================
-   ГОРЯЩИЕ СКИДКИ
+   СКИДКА
    ========================================================= */
-.card-hot{border-color:#ffd9d3}
-/* Цена со скидкой — тем же тёмно-зелёным, что и плашка «−13%» рядом: сумма и
-   выгода читаются как одно целое. Красный тут был бы заметнее, но рядом с
-   техникой Apple выглядит распродажей. Класс вешается на любую скидку, не
-   только на горящую акцию, — иначе обычная старая цена оставалась чёрной,
-   а плашка рядом зелёной. */
+/* Цена со скидкой красится отдельно от обычной (цвет задан ниже, в слое
+   карточки каталога). Класс вешается на любую скидку — она у товара одна,
+   процентом, и «горящих акций» со своей ценой и таймером больше нет. */
 .price-sale .price-now{color:#0b7a37}
-.deal-timer{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:12.5px;font-weight:600;color:#c21027;font-variant-numeric:tabular-nums}
-.deal-timer .dt-ico{font-size:12px}
-.deal-timer.deal-ended{color:var(--muted)}
-
-.deals-band{background:linear-gradient(180deg,#fff6f4 0%,#ffffff 100%);border-top:1px solid #ffe1db;border-bottom:1px solid #ffe1db;padding:28px 0;margin:6px 0 4px}
-.deals-head{margin-bottom:18px}
-.deals-title{display:flex;align-items:center;gap:10px;font-size:clamp(20px,4vw,28px);margin:0}
-.deals-sub{color:var(--muted);margin:6px 0 0;font-size:15px}
-.flame{display:inline-block;filter:drop-shadow(0 2px 6px rgba(255,90,0,.4));animation:flame 1.3s ease-in-out infinite}
-@keyframes flame{0%,100%{transform:scale(1) rotate(-3deg)}50%{transform:scale(1.14) rotate(3deg)}}
-
-.deal-banner{display:inline-flex;align-items:center;gap:8px;background:#fff1ef;color:#d70015;border:1px solid #ffd7d1;padding:9px 14px;border-radius:12px;font-size:14px;margin:0 0 14px;font-variant-numeric:tabular-nums}
-.deal-banner b{font-weight:700}
-
-/* блок управления акцией в админке */
-.a-deal-box{border:1px solid #ffe1db;background:#fff8f6;border-radius:12px;padding:14px 16px 4px;margin:6px 0 16px}
-.a-deal-box .a-form-grid{margin-top:2px}
-@media(prefers-reduced-motion:reduce){.flame{animation:none}}
 
 /* мультитенант: элементы админок */
 .swatch{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.15);margin-right:4px}
@@ -720,7 +692,7 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 /* заголовки */
 .hero h1{letter-spacing:-.035em;font-weight:660}
 .hero p{color:var(--muted)}
-.section-head h2,.deals-title{letter-spacing:-.025em;font-weight:660}
+.section-head h2{letter-spacing:-.025em;font-weight:660}
 
 /* карточки-плитки */
 .card{border:1px solid #ececf0;border-radius:var(--radius);box-shadow:var(--shadow)}
@@ -1275,13 +1247,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 }
 
 /* Специальные предложения */
-.deals-band{margin:0;padding:48px 0 52px;border-color:#f1d9d5;background:linear-gradient(180deg,#fff9f7,#fff)}
-.deals-head{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-bottom:22px}
-.deals-title{margin:0;font-size:clamp(28px,3vw,38px);line-height:1.08}
-.deals-sub{max-width:320px;margin:0;color:var(--muted);font-size:14px;text-align:right}
-.deals-band .grid{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
-.deal-timer{margin-top:9px;color:#b42318;font-variant-numeric:tabular-nums}
-.flame{animation:none;filter:none}
 
 /* Страница товара */
 .breadcrumb{display:flex;gap:7px;align-items:center;padding:22px 0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -1307,7 +1272,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .rating-summary b{margin-left:3px;font-size:14px;font-weight:600;color:#070707}
 .rating-summary .rt-bubble{width:18px;height:18px;margin-left:5px}
 .rating-summary .rating-count{padding-left:3px;font-size:13px}
-.deal-banner{display:flex;width:max-content;max-width:100%;margin:0 0 10px;padding:6px 10px;border:0;border-radius:10px;background:#fff0ed;color:#b42318;font-size:13px}
 .product-price{gap:8px;margin:0 0 10px;font-size:clamp(25px,2.4vw,32px);font-weight:730;letter-spacing:-.045em}
 .product-price .save{font-size:16px}
 /* На странице товара старая цена была 15px и терялась под чертой. Крупнее,
@@ -1911,7 +1875,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .a-form>.a-panel{padding:22px;background:#fbfbfc;box-shadow:none}
 .a-form-grid{gap:0 22px}
 .a-form-actions{position:sticky;bottom:0;z-index:8;display:flex;align-items:center;gap:10px;margin:26px -24px -24px;padding:14px 24px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border-soft);border-radius:0 0 18px 18px;background:rgba(255,255,255,.92);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
-.a-deal-box{padding:17px 18px 1px;border-color:#f1d7d2;border-radius:16px;background:#fff8f6}
 .product-options{padding:20px!important;background:#fff!important}
 .product-options-grid{gap:0 28px}
 .product-form .specs-input{min-height:300px}
@@ -1951,7 +1914,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .trust{grid-template-columns:1fr;padding-top:6px}
   .trust-item{justify-content:flex-start;padding:9px 0}
   .trust-item+.trust-item{border-left:0;border-top:1px solid var(--border-soft)}
-  .deals-band .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
 /* Телефоны и небольшие планшеты */
@@ -2014,13 +1976,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{min-height:40px;padding:9px 8px;font-size:13.5px}
 
-  .deals-band{padding:34px 0 38px}
-  .deals-head{display:block;margin-bottom:18px}
-  .deals-title{font-size:29px}
-  .deals-sub{margin-top:8px;text-align:left}
-  .deals-band .grid{display:grid;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(220px,76vw);gap:12px;margin-inline:-20px;padding:0 20px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
-  .deals-band .grid::-webkit-scrollbar{display:none}
-  .deals-band .card{scroll-snap-align:start}
 
   .breadcrumb{padding-top:16px;font-size:12px}
   .product{grid-template-columns:1fr;gap:20px;padding-top:10px}
@@ -2260,10 +2215,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .card-body{padding-inline:10px}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{font-size:13px}
-  .deals-band .grid{margin-inline:-16px;padding-inline:16px;grid-auto-columns:78vw}
   .product-name{font-size:34px}
   .product-price{font-size:30px}
-  .deal-banner{font-size:12px}
   .product .buy-row{margin-inline:-16px;padding-inline:16px}
   .a-cards{grid-template-columns:1fr 1fr}
   .a-stat{min-height:98px;padding:14px;font-size:13px}
@@ -2287,7 +2240,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 @media(min-width:640px) and (max-width:800px){
   .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .deals-band .grid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-flow:row;grid-auto-columns:auto;margin-inline:0;padding-inline:0;overflow:visible;scroll-snap-type:none}
 }
 
 @media(hover:none){

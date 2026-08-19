@@ -1,8 +1,8 @@
 'use strict';
 /*
- * Переносит цены (price, oldPrice, hotDealPrice) из catalog.js в живой каталог
- * на сервере. Фото, заказы, отзывы и порядок карточек не трогает — как
- * sync-options.js, sync-bands.js и sync-specs.js.
+ * Переносит цену и процент скидки из catalog.js в живой каталог на сервере.
+ * Фото, заказы, отзывы и порядок карточек не трогает — как sync-options.js,
+ * sync-bands.js и sync-specs.js.
  *
  * Нужен потому, что товары лежат в data/products.json и засеиваются из
  * catalog.js только при первом запуске: git pull сам по себе новую цену
@@ -16,6 +16,7 @@
  */
 const db = require('./lib/db');
 const catalog = require('./catalog');
+const D = require('./lib/discount');
 
 const apply = process.argv.includes('--apply');
 db.ensureSeeded();
@@ -24,54 +25,43 @@ const live = db.getProducts();
 const byId = new Map(live.map(p => [p.id, p]));
 const byName = new Map(live.map(p => [p.name, p]));
 
-// hotDealUntil намеренно не переносим: в catalog.js это `now + 4 * DAY`,
-// то есть каждый прогон сдвигал бы конец акции вперёд на четыре дня от
-// сегодняшнего числа. Срок задаётся в панели, скрипт правит только суммы.
+/* Скидка переносится ПРОЦЕНТОМ, а не суммой старой цены: зачёркнутая цена из
+ * него выводится для каждой сборки (lib/discount.js), и отдельного числа для
+ * неё в каталоге больше нет. Прежние поля (`oldPrice`, `hotDealPrice`,
+ * `hotDealUntil`) сняты вместе с горящими скидками.
+ */
 const money = (x) => (Number(x) > 0 ? Math.round(Number(x)) : 0);
 const rub = (x) => (money(x) ? money(x).toLocaleString('ru-RU') + ' ₽' : '—');
+const pctOf = (x) => {
+  const n = Math.round(Number(x));
+  return Number.isFinite(n) && n > 0 && n <= D.MAX_PCT ? n : 0;
+};
 
 let changed = 0, missing = 0, skipped = 0;
-const stale = [];
 
 for (const src of catalog.products) {
   const cur = byId.get(src.id) || byName.get(src.name);
   if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
 
-  // Цену по акции переносим только там, где акцию не выключали: у
-  // выключенной товар живёт по базовой цене, и вписывать ей сумму из catalog.js
-  // значит воскрешать снятую скидку. А у включённой сумму поправить обязательно —
-  // иначе после снижения базовой цены «скидка» окажется дороже товара.
-  const deal = cur.hotDeal === true;
-  const next = { price: money(src.price), oldPrice: money(src.oldPrice), hotDealPrice: deal ? money(src.hotDealPrice) : money(cur.hotDealPrice) };
-  const now = { price: money(cur.price), oldPrice: money(cur.oldPrice), hotDealPrice: money(cur.hotDealPrice) };
+  const next = { price: money(src.price), discountPercent: pctOf(src.discountPercent) };
+  // У товара на сервере процента может ещё не быть — тогда он выводится из
+  // сохранённой пары цен, ровно как это делает витрина. Иначе первый же прогон
+  // отчитался бы об изменении скидки у каждого товара подряд.
+  const now = { price: money(cur.price), discountPercent: D.discountPct(cur) };
   const diff = Object.keys(next).filter(k => next[k] !== now[k]);
   if (!diff.length) continue;
 
-  // Те же правила, что у validateProduct() в server.js: старая цена выше
-  // базовой, цена по акции ниже. Иначе на витрине выйдет «скидка» вверх.
-  // У выключенной акции сумма на витрину не выходит вовсе, поэтому проверяем её
-  // только у включённой: иначе давняя завершённая скидка держала бы базовую цену
-  // и не давала её снизить.
-  const bad = [];
-  if (next.oldPrice && next.oldPrice <= next.price) bad.push(`старая цена ${rub(next.oldPrice)} не выше базовой ${rub(next.price)}`);
-  if (deal && next.hotDealPrice && next.hotDealPrice >= next.price) bad.push(`цена по акции ${rub(next.hotDealPrice)} не ниже базовой ${rub(next.price)}`);
-  if (bad.length) { console.log(`! ${cur.name}: ${bad.join('; ')}. Пропускаем.`); skipped++; continue; }
-  if (!deal && next.hotDealPrice && next.hotDealPrice >= next.price) {
-    stale.push(`${cur.name}: ${rub(next.hotDealPrice)} при базовой ${rub(next.price)}`);
-  }
+  if (!next.price) { console.log(`! ${cur.name}: цена в catalog.js нулевая. Пропускаем.`); skipped++; continue; }
 
-  console.log(`✓ ${cur.name}: ` + diff.map(k => `${k} ${rub(now[k])} → ${rub(next[k])}`).join(', '));
+  const show = (k, v) => (k === 'price' ? rub(v) : (v ? '−' + v + '%' : 'нет'));
+  console.log(`✓ ${cur.name}: ` + diff.map(k => `${k} ${show(k, now[k])} → ${show(k, next[k])}`).join(', '));
 
-  if (apply) db.updateProduct(cur.id, { price: next.price, oldPrice: next.oldPrice || null, hotDealPrice: next.hotDealPrice || null });
+  if (apply) db.updateProduct(cur.id, { price: next.price, discountPercent: next.discountPercent });
   changed++;
 }
 
 console.log(`\n${apply ? 'Обновлено' : 'Будет обновлено'} товаров: ${changed}`
   + (missing ? `, нет в каталоге магазина: ${missing}` : '')
-  + (skipped ? `, пропущено из-за неверной пары цен: ${skipped}` : '') + '.');
-if (stale.length) {
-  console.log('\nУ этих товаров лежит цена выключенной акции выше новой базовой — включать её в панели нельзя, сначала поправить сумму:');
-  for (const line of stale) console.log('  • ' + line);
-}
+  + (skipped ? `, пропущено из-за нулевой цены: ${skipped}` : '') + '.');
 if (!apply && changed) console.log('Это был предпросмотр. Чтобы записать: node sync-prices.js --apply');
 if (apply && changed) console.log('Доплаты за память и SIM едут отдельно: node sync-options.js --apply');

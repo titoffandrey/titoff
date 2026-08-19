@@ -9,7 +9,7 @@ const { execFileSync } = require('child_process');
 const { Readable } = require('stream');
 
 const auth = require('../lib/auth');
-const deals = require('../lib/deals');
+const deals = require('../lib/discount');
 const dbCore = require('../lib/db');
 const render = require('../lib/render');
 const adminViews = require('../lib/admin-views');
@@ -111,10 +111,36 @@ test('утилита безопасно сбрасывает пароль пан
   assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
 });
 
-test('скидка применяется только при корректной активной цене', () => {
-  assert.equal(deals.effectivePrice({ price: 100, hotDeal: true, hotDealPrice: 80 }), 80);
-  assert.equal(deals.effectivePrice({ price: 100, hotDeal: true, hotDealPrice: 120 }), 100);
-  assert.equal(deals.effectivePrice({ price: 100, hotDeal: true, hotDealPrice: 80, hotDealUntil: 1 }), 100);
+test('скидка — один процент на все сборки, а старая цена из него выводится', () => {
+  // Скидка задаётся процентом, и зачёркнутая цена считается от ЛЮБОЙ суммы
+  // сборки. Поэтому «−13%» одинаковы и у базовой сборки, и у старшей — раньше
+  // зачёркивалась «старая цена базы + те же доплаты», и процент таял.
+  const p = { price: 66990, discountPercent: 13 };
+  assert.equal(deals.discountPct(p), 13);
+  assert.equal(deals.effectivePrice(p), 66990);
+  const back = (sum) => Math.round((1 - sum / deals.compareFor(sum, 13)) * 100);
+  for (const add of [0, 11500, 25000, 120000]) assert.equal(back(66990 + add), 13, 'процент не зависит от доплат');
+  // Округление старой цены до десятки: без него она выходит с копейками.
+  assert.equal(deals.compareFor(66990, 13) % 10, 0);
+  // Скидки нет — зачёркивать нечего.
+  assert.equal(deals.comparePrice({ price: 100 }), 0);
+  assert.equal(deals.compareFor(100, 0), 0);
+  assert.equal(deals.compareFor(100, 95), 0, 'больше 90% — опечатка, а не скидка');
+
+  // Старые данные знают только пару цен: процент выводится из неё, иначе
+  // витрина потеряла бы скидку у товара, который ещё не пересохраняли.
+  assert.equal(deals.discountPct({ price: 1000, oldPrice: 1200 }), 17);
+  assert.equal(deals.discountPct({ price: 1000, oldPrice: 900 }), 0);
+
+  // Перенос со старой модели: цена становится той, по которой товар РЕАЛЬНО
+  // продавался, — иначе снятие «горящей акции» молча подняло бы ценник.
+  assert.deepEqual(deals.fromLegacy({ price: 100, oldPrice: 120 }), { price: 100, percent: 17 });
+  assert.deepEqual(deals.fromLegacy({ price: 100, hotDeal: true, hotDealPrice: 80 }), { price: 80, percent: 20 });
+  assert.deepEqual(deals.fromLegacy({ price: 100, hotDeal: true, hotDealPrice: 120 }), { price: 100, percent: 0 });
+  assert.deepEqual(deals.fromLegacy({ price: 100, hotDeal: true, hotDealPrice: 80, hotDealUntil: 1 }), { price: 100, percent: 0 });
+  // Перенос идемпотентен: у уже переведённого товара он ничего не меняет.
+  // Без этого повторный прогон «не находил» старой цены и обнулял скидку.
+  assert.deepEqual(deals.fromLegacy({ price: 80, discountPercent: 20 }), { price: 80, percent: 20 });
 });
 
 test('тип изображения определяется по содержимому, а не имени', () => {
@@ -945,23 +971,28 @@ test('зачёркнутая цена пересчитывается вмест�
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = {
-    id: 'p1', name: 'Товар', category: 'Категория', price: 50000, oldPrice: 60000,
+    id: 'p1', name: 'Товар', category: 'Категория', price: 50000, discountPercent: 17,
     inStock: true, images: [], colors: [], storages: [{ label: '128 ГБ', add: 0 }, { label: '1 ТБ', add: 40000 }]
   };
   const html = render.productPage(settings, db, product, { origin: '' });
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  // Скрипт правит старую цену по id и берёт базу сравнения с кнопки: разъедется
+  // Скрипт правит старую цену по id и берёт процент с кнопки: разъедется
   // разметка с app.js — рядом с ценой сборки снова повиснет цена базовой.
   assert.match(html, /id="product-old-price"/);
   assert.match(html, /id="product-save"/);
-  assert.match(html, /data-base-compare="60000"/);
+  assert.match(html, /data-discount-pct="17"/);
   assert.match(js, /getElementById\('product-old-price'\)/);
   assert.match(js, /getElementById\('product-save'\)/);
-  assert.match(js, /baseCompare \+ \(total - basePrice\)/);
+  // Старая цена выводится из процента для ВЫБРАННОЙ сборки — тем же способом,
+  // что и на сервере (compareFor в lib/discount.js).
+  assert.match(js, /Math\.round\(total \/ \(1 - discountPct \/ 100\) \/ 10\) \* 10/);
+  // Процент при смене варианта не меняется: скидка у товара одна.
+  assert.match(js, /se\.textContent = '−' \+ discountPct \+ '%'/);
+  assert.doesNotMatch(js, /1 - total \/ cmpTotal/, 'процент больше не пересчитывается от суммы');
   // Зачёркивать нечего — атрибут нулевой, и скрипт ничего не трогает.
-  const plain = render.productPage(settings, db, Object.assign({}, product, { oldPrice: 0 }), { origin: '' });
+  const plain = render.productPage(settings, db, Object.assign({}, product, { discountPercent: 0 }), { origin: '' });
   assert.doesNotMatch(plain, /id="product-old-price"/);
-  assert.match(plain, /data-base-compare="0"/);
+  assert.match(plain, /data-discount-pct="0"/);
 });
 
 test('старую цену видно, а стрелки галереи не лежат на товаре', () => {
@@ -998,10 +1029,55 @@ test('старую цену видно, а стрелки галереи не л
   assert.match(css, /\.g-arrow:focus-visible\{outline/, 'кнопка должна быть видима с клавиатуры');
 });
 
+test('в форме товара задаётся процент, а старой цены и горящей скидки нет', () => {
+  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const db = { categories: () => ['iPhone'], getProducts: () => [], ratingFor: () => ({ avg: 0, count: 0 }), isVisible: () => true, pendingReviewCount: () => 0 };
+  const product = { id: 'p1', name: 'Товар', category: 'iPhone', price: 66990, discountPercent: 13, inStock: true, images: [], colors: [], storages: [], bands: [], options: [] };
+  const form = adminViews.productForm(settings, db, product);
+
+  // Вводится только процент. Старой цены как поля нет вовсе: она выводится из
+  // цены и процента, и второе поле для неё означало бы два источника у одного
+  // числа — они разъехались бы при первой же правке цены.
+  assert.match(form, /name="discountPercent"[^>]*value="13"/);
+  assert.equal(/name="oldPrice"/.test(form), false, 'старая цена снова стала полем');
+  assert.equal(/name="hotDeal"/.test(form), false, 'вернулась горящая скидка');
+  assert.equal(/hotDealPrice|hotDealUntil|deal-box/.test(form), false, 'остатки горящей скидки в форме');
+
+  // Товар со старой парой цен показывает выведенный процент, а не «скидки нет»:
+  // иначе первое же сохранение эту скидку молча стёрло бы.
+  const legacy = adminViews.productForm(settings, db, { id: 'p2', name: 'Б', category: 'iPhone', price: 1000, oldPrice: 1200, images: [], colors: [], storages: [], bands: [], options: [] });
+  assert.match(legacy, /name="discountPercent"[^>]*value="17"/);
+
+  // Маршрут сохранения принимает процент и не принимает старую цену.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const fields = source.slice(source.indexOf('function productFields'), source.indexOf('app.get(\'/admin/products\''));
+  assert.match(fields, /discountPercent: String\(req\.body\.discountPercent/);
+  assert.equal(/oldPrice|hotDeal/.test(fields), false, 'в поля товара вернулась старая цена или акция');
+  // Мусор в проценте — ошибка формы, а не молча ноль: сравнение с NaN всегда ложно.
+  const from = source.indexOf('function validateProduct');
+  const to = source.indexOf('\nfunction tgEsc');
+  const validateProduct = new Function('D', 'PRICE_MAX', source.slice(from, to) + ' return validateProduct;')(deals, 1e12);
+  assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: 'абв' }).map(e => e.field), ['discountPercent']);
+  assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: '95' }).map(e => e.field), ['discountPercent']);
+  assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: '13' }), []);
+  assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: '' }), []);
+
+  // Витрина: процент один на все сборки, полосы «Специальные цены» с таймером
+  // на главной больше нет.
+  const shop = { getProducts: () => [product], visibleProducts: () => [product], categories: () => ['iPhone'], visibleCategories: () => ['iPhone'], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const home = render.homePage(settings, shop, { category: '', q: '', origin: '' });
+  assert.equal(/deals-band|deal-timer|Специальные цены|data-deal-until/.test(home), false, 'остатки горящих скидок на главной');
+  assert.match(home, /class="save">−13%<\/span>/);
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.equal(/data-deal-until|initCountdowns/.test(js), false, 'таймер акции остался в скрипте витрины');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.equal(/deals-band|deal-timer|deal-banner|card-hot|deal-box/.test(css), false, 'остатки горящих скидок в стилях');
+});
+
 test('карточка каталога: строка отзывов, розовая цена и плашка «Распродажа»', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 67990, oldPrice: 71990, inStock: true, images: [] };
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 67990, discountPercent: 6, inStock: true, images: [] };
   const db = {
     getProducts: () => [product], visibleProducts: () => [product],
     categories: () => ['Категория'], visibleCategories: () => ['Категория'],
@@ -1408,14 +1484,18 @@ test('переезд на один магазин переносит домен 
   assert.equal(settings.ownerPasswordHash, undefined, 'вторая учётка из файла убрана');
 
   const byId = Object.fromEntries(store.getProducts().map(p => [p.id, p]));
-  assert.equal(byId.a.price, 1500, 'множитель вбит в базовую цену');
-  assert.equal(byId.a.oldPrice, 1800);
-  assert.equal(byId.a.hotDealPrice, 1350);
+  // Товар «a» продавался по горящей акции за 900 при базовой 1000 — значит на
+  // витрине стояло 900 и «−10%». После переезда это 1350 (множитель 1.5) и тот
+  // же процент: скидка переехала процентом, а не суммой.
+  assert.equal(byId.a.price, 1350, 'множитель вбит в цену продажи');
+  assert.equal(byId.a.discountPercent, 10);
+  assert.equal(byId.a.oldPrice, undefined, 'сумма старой цены снята вместе со старой моделью');
+  assert.equal(byId.a.hotDealPrice, undefined);
   assert.equal(byId.a.storages[0].add, 150, 'доплата за память масштабируется так же');
   assert.equal(byId.a.options[0].values[1].add, 300);
   assert.equal(byId.a.options[0].hint, 'подсказка', 'остальные поля не теряются');
   assert.equal(byId.b.price, 444, 'ручная цена домена становится базовой');
-  assert.equal(byId.b.hotDeal, false, 'у ручной цены акции не было и не появится');
+  assert.equal(byId.b.discountPercent, 0, 'у ручной цены скидки не было и не появится');
   assert.equal(byId.c.visible, false, 'снятая на домене видимость стала флагом товара');
   assert.equal(store.visibleProducts().length, 2);
 
@@ -1429,7 +1509,7 @@ test('переезд на один магазин переносит домен 
   assert.ok(!fs.existsSync(path.join(dir, 'sites.json')));
   // Повторный запуск ничего не пересчитывает второй раз.
   assert.equal(freshDb(dir).ensureSeeded(), null);
-  assert.equal(freshDb(dir).getProducts().find(p => p.id === 'a').price, 1500);
+  assert.equal(freshDb(dir).getProducts().find(p => p.id === 'a').price, 1350);
 });
 
 test('страница товара показывает доп. характеристики и прячет несовместимые значения', () => {
@@ -3689,23 +3769,22 @@ test('скидка на оформлении показана тем же язы
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const D = require('../lib/deals');
+  const D = require('../lib/discount');
 
   /* Цену для сравнения считает СЕРВЕР тем же способом, что и зачёркнутую на
-   * карточке: база сравнения плюс те же доплаты. Своей формулы у витрины нет —
-   * она разъехалась бы с каталогом на первом же товаре с доплатой за память. */
+   * карточке: процент товара от ПОЛНОЙ цены сборки. Своей формулы у витрины
+   * нет — она разъехалась бы с каталогом на первом же товаре с доплатой. */
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/address-suggest'"));
-  assert.match(cart, /const cmpBase = D\.comparePrice\(view\)/);
-  assert.match(cart, /const compare = cmpBase \? cmpBase \+ adds : 0/);
+  assert.match(cart, /const compare = D\.compareFor\(price, D\.discountPct\(view\)\)/);
   assert.match(cart, /price, compare,/);
-  // Доплата одна и та же в обеих ценах: выгода в рублях сохраняется, а процент
-  // от суммы честно уменьшается — ровно как на странице товара.
-  const p = { price: 66990, oldPrice: 76990 };
-  assert.equal(D.comparePrice(p), 76990);
+  // Процент одинаков у любой сборки, а выгода в рублях у дорогой больше — так
+  // скидка и работает. Раньше было наоборот: рубли те же, процент таял.
+  const p = { price: 66990, discountPercent: 13 };
   assert.equal(D.discountPct(p), 13);
-  const adds = 12000;
-  const pct = Math.round((1 - (D.effectivePrice(p) + adds) / (D.comparePrice(p) + adds)) * 100);
-  assert.equal(pct, 11, 'процент обязан считаться от цены выбранной сборки');
+  const back = sum => Math.round((1 - sum / D.compareFor(sum, D.discountPct(p))) * 100);
+  assert.equal(back(66990), 13);
+  assert.equal(back(66990 + 12000), 13, 'процент обязан остаться прежним у сборки с доплатой');
+  assert.ok(D.compareFor(78990, 13) - 78990 > D.compareFor(66990, 13) - 66990, 'в рублях дорогая сборка выгоднее');
 
   // Разметка позиции — те же классы, что и в карточке каталога: розовая цена,
   // зачёркнутая старая с наклонной чертой, розовый процент.
