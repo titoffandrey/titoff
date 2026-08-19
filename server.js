@@ -87,9 +87,12 @@ const pageQuery = (value) => {
 // `status` — состояние самого отзыва, — и два поля с одним именем ушли бы
 // массивом, из-за чего отзыв сохранялся бы «на модерации» что ни выбери.
 const REVIEW_TABS = ['pending', 'approved', 'all'];
+// Отбор по вложениям в ленте товара: с видео, только с фото, без медиа.
+const REVIEW_MEDIA = ['all', 'video', 'photo', 'none'];
 const backFrom = (src) => ({
   status: String((src && src.tab) || ''), page: src && src.page,
-  sort: String((src && src.sort) || ''), product: String((src && src.product) || '')
+  sort: String((src && src.sort) || ''), media: String((src && src.media) || ''),
+  product: String((src && src.product) || '')
 });
 const reviewsBackUrl = (body, flash, anchor) => {
   const product = String((body && body.product) || '');
@@ -105,6 +108,9 @@ const reviewsBackUrl = (body, flash, anchor) => {
   // оценки, админ после каждого действия оказывался бы снова в «Новых».
   const sort = String((body && body.sort) || '');
   if (R.REVIEW_SORTS.some(([key]) => key === sort) && sort !== R.REVIEW_SORTS[0][0]) params.push('sort=' + sort);
+  // Отбор по вложениям — там же и по той же причине. «Все» в адрес не пишем.
+  const media = String((body && body.media) || '');
+  if (REVIEW_MEDIA.includes(media) && media !== 'all') params.push('media=' + media);
   const n = Math.floor(Number(body && body.page));
   if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
   if (flash) params.push('flash=' + encodeURIComponent(flash));
@@ -1522,7 +1528,7 @@ app.get('/admin/reviews/product/:productId', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const p = db.getProduct(req.params.productId);
   if (!p) return res.redirect('/admin/reviews');
-  res.send(A.productReviews(settings(), db, p, req.query.status, req.query.flash, req.query.page, req.query.sort));
+  res.send(A.productReviews(settings(), db, p, req.query.status, req.query.flash, req.query.page, req.query.sort, req.query.media));
 });
 app.get('/admin/reviews/:id/edit', (req, res) => {
   if (!guardAdmin(req, res)) return;

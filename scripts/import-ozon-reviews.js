@@ -11,8 +11,13 @@
 //   node scripts/import-ozon-reviews.js bundle.json --apply --replace
 //
 // --replace  сначала удаляет ВСЕ отзывы этого товара (и их файлы).
-// Видео тяжёлое, поэтому берём не больше --videos-per-color штук на цвет:
-// остальные отзывы приезжают с одними фотографиями.
+//
+// Видео тяжёлое (ролик весит как сотня снимков), поэтому берётся ровно
+// столько, сколько для него мест в ленте: первые три страницы и последняя,
+// через один отзыв (`DATES.videoCapacity`). Остальные отзывы приезжают с одними
+// фотографиями. Раньше предел был 12 на цвет — у товара с тремя цветами это
+// 36 роликов и 289 МБ, из которых до второй страницы доживало полтора.
+// Длина ролика режется до минуты при заливке (см. lib/review-previews.js).
 
 const fs = require('fs');
 const path = require('path');
@@ -32,7 +37,9 @@ const numArg = (name, def) => {
   const n = Number(args[i + 1]);
   return Number.isFinite(n) ? n : def;
 };
-const VIDEOS_PER_COLOR = numArg('videos-per-color', 12);
+// Сколько роликов взять: по умолчанию — по числу мест в ленте, но не больше
+// того, что задали руками.
+const VIDEOS_MAX = numArg('max-videos', 0);
 const LIMIT = numArg('limit', 0);
 const MAX_PHOTOS = numArg('max-photos', 6);
 
@@ -160,22 +167,35 @@ async function fetchTo(url, dest, tries) {
 
 (async () => {
   const list = LIMIT ? bundle.reviews.slice(0, LIMIT) : bundle.reviews;
+  // Мест под ролики столько, сколько их в раскладке ленты этого товара.
+  const capacity = VIDEOS_MAX > 0 ? VIDEOS_MAX : DATES.videoCapacity(list.length);
+  // Раздаём места по кругу между цветами: иначе один цвет с сотней роликов
+  // забирает их все, и у остальных в ленте не остаётся ни одного.
   const byColor = new Map();
-  let videosPlanned = 0;
+  const queues = new Map();
   for (const rv of list) {
+    if (!(rv.videos && rv.videos.length)) continue;
     const color = colorOf(rv);
-    const taken = byColor.get(color) || 0;
-    if (rv.videos && rv.videos.length && taken < VIDEOS_PER_COLOR) {
-      byColor.set(color, taken + 1);
-      videosPlanned++;
-      rv._takeVideo = true;
+    if (!queues.has(color)) queues.set(color, []);
+    queues.get(color).push(rv);
+  }
+  let videosPlanned = 0;
+  for (let round = 0; videosPlanned < capacity; round++) {
+    let any = false;
+    for (const [color, queue] of queues) {
+      if (round >= queue.length) continue;
+      any = true;
+      queue[round]._takeVideo = true;
+      byColor.set(color, (byColor.get(color) || 0) + 1);
+      if (++videosPlanned >= capacity) break;
     }
+    if (!any) break;
   }
 
   const photosPlanned = list.reduce((n, r) => n + Math.min((r.photos || []).length, MAX_PHOTOS), 0);
   console.log(`Товар: ${product.name} (${productId})`);
   console.log(`Отзывов в пакете: ${list.length}, фото к загрузке: ${photosPlanned}, видео: ${videosPlanned}`);
-  console.log(`Лимит видео на цвет: ${VIDEOS_PER_COLOR} → ${[...byColor].map(([c, n]) => `${c} ${n}`).join(', ')}`);
+  console.log(`Мест под видео в ленте: ${capacity} → ${[...byColor].map(([c, n]) => `${c} ${n}`).join(', ') || 'нет роликов'}`);
 
   const ship = new Map();
   const colors = new Map();

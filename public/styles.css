@@ -1741,6 +1741,10 @@ body.admin{background:#f4f4f6;color:#242426}
   color:var(--muted);font-size:12.5px;line-height:1.4;white-space:nowrap;transition:border-color .14s,color .14s}
 .a-sort:hover{border-color:#c7c7cc;color:var(--text)}
 .a-sort.active{border-color:var(--text);background:var(--text);color:#fff}
+/* Счётчик у отбора по вложениям: сколько отзывов в наборе. Без него «С видео»
+   приходится открывать, чтобы узнать, есть ли там хоть что-то. */
+.a-sort i{margin-left:5px;font-style:normal;font-variant-numeric:tabular-nums;opacity:.62}
+.a-sort.active i{opacity:.75}
 
 .rv-list{display:flex;flex-direction:column;gap:10px}
 .rv-row{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:6px 16px;align-items:center;

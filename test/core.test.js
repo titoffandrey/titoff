@@ -1804,7 +1804,7 @@ test('списки отзывов в панелях листаются, а не 
   const one = Object.assign({}, db, { reviewsForProduct: () => many, ratingFor: () => ({ avg: 5, count: many.length }) });
   const page2 = adminViews.productReviews(SETTINGS, one, { id: 'p', name: 'Товар' }, 'all', null, 2);
   assert.equal(rows(page2), per);
-  assert.match(page2, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=new&amp;page=3"/);
+  assert.match(page2, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=new&amp;media=all&amp;page=3"/);
 });
 
 test('раздел отзывов открывается очередью модерации, и она подкрашена', () => {
@@ -1934,7 +1934,7 @@ test('в панели отзывы сортируются теми же трем
   // вернуться в «Новые».
   const one = sorted('low');
   assert.match(one, /name="sort" value="low"/);
-  assert.match(one, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=high"/);
+  assert.match(one, /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=high&amp;media=all"/);
 });
 
 test('форма правки отзыва меняет всё, что видит покупатель', () => {
@@ -2471,6 +2471,7 @@ test('модерация отзыва возвращает на ту же стр
   const to = source.indexOf('\n};', from);
   assert.ok(from > -1 && to > from, 'reviewsBackUrl не найдена в server.js');
   const build = new Function('db', 'R', 'const REVIEW_TABS = ["pending","approved","all"];'
+    + 'const REVIEW_MEDIA = ["all","video","photo","none"];'
     + source.slice(from, to + 3) + ' return reviewsBackUrl;')(
     { getProduct: id => id === 'p' ? { id: 'p' } : null }, render);
   assert.equal(build({ tab: 'approved', page: '3' }, 'Готово'), '/admin/reviews?status=approved&page=3&flash=' + encodeURIComponent('Готово'));
@@ -2489,6 +2490,11 @@ test('модерация отзыва возвращает на ту же стр
   assert.equal(build({ tab: 'all', sort: 'low', page: '1' }), '/admin/reviews?status=all&sort=low');
   assert.equal(build({ tab: 'all', sort: 'new', page: '1' }), '/admin/reviews?status=all');
   assert.equal(build({ tab: 'all', sort: 'мусор', page: '1' }), '/admin/reviews?status=all');
+  // Отбор по вложениям возвращается так же: разбирая ленту роликов, после
+  // каждого действия оказываться снова во «Всех» — то же, что терять место.
+  assert.equal(build({ tab: 'all', media: 'video', page: '2', product: 'p' }), '/admin/reviews/product/p?media=video&page=2');
+  assert.equal(build({ tab: 'all', media: 'all', page: '1', product: 'p' }), '/admin/reviews/product/p');
+  assert.equal(build({ tab: 'all', media: 'мусор', page: '1', product: 'p' }), '/admin/reviews/product/p');
   // Маршруты обязаны пользоваться именно им, а не фиксированным адресом.
   assert.match(source, /approve[\s\S]{0,120}reviewsBackUrl\(req\.body/);
   assert.match(source, /deleteReview\(req\.params\.id\); res\.redirect\(reviewsBackUrl\(req\.body/);
@@ -4906,6 +4912,102 @@ test('свежие даты достаются отзывам с фото и в�
   const plan2 = dates.plannedDates(two, now);
   assert.equal(plan2.get('x1'), now);
   assert.equal(plan2.get('x2'), now - 400 * day, 'товар со своей датой её и получил');
+});
+
+test('в ленте товара отзывы отбираются по вложениям: видео, фото, без медиа', () => {
+  const reviews = [
+    { id: 'v1', productId: 'p', author: 'А', rating: 5, text: 'т', status: 'approved', createdAt: 5, videos: ['a.mp4'], photos: ['a.webp'] },
+    { id: 'f1', productId: 'p', author: 'Б', rating: 5, text: 'т', status: 'approved', createdAt: 4, photos: ['b.webp'] },
+    { id: 'f2', productId: 'p', author: 'В', rating: 4, text: 'т', status: 'pending', createdAt: 3, photos: ['c.webp'] },
+    { id: 't1', productId: 'p', author: 'Г', rating: 5, text: 'т', status: 'approved', createdAt: 2 }
+  ];
+  const db = {
+    getReviews: () => reviews, reviewsForProduct: () => reviews,
+    getProducts: () => [{ id: 'p', name: 'Товар' }], ratingFor: () => ({ avg: 5, count: 3 }),
+    reviewStats: () => new Map(), pendingReviewCount: () => 1
+  };
+  const product = { id: 'p', name: 'Товар' };
+  const ids = html => [...html.matchAll(/id="rv-([a-z0-9]+)"/g)].map(m => m[1]);
+  const feed = (media, status) => adminViews.productReviews(SETTINGS, db, product, status || 'all', null, 1, 'new', media);
+
+  // Наборы не пересекаются: отзыв с видео и фотографиями лежит в «С видео»,
+  // иначе он попадался бы дважды и счётчики не сходились бы с длиной списка.
+  assert.deepEqual(ids(feed('video')), ['v1']);
+  assert.deepEqual(ids(feed('photo')), ['f1', 'f2']);
+  assert.deepEqual(ids(feed('none')), ['t1']);
+  assert.deepEqual(ids(feed('all')).sort(), ['f1', 'f2', 't1', 'v1']);
+  assert.deepEqual(ids(feed('мусор')).sort(), ['f1', 'f2', 't1', 'v1'], 'мусор в адресе — это «Все»');
+
+  // Счётчики считаются в пределах открытой вкладки: «С видео 1» на вкладке
+  // «На модерации» обещало бы то, чего там нет.
+  const pending = feed('all', 'pending');
+  assert.match(pending, /media=video"[^>]*>С видео<i>0<\/i>/);
+  assert.match(feed('all'), /media=video"[^>]*>С видео<i>1<\/i>/);
+  assert.match(feed('all'), /media=none"[^>]*>Без медиа<i>1<\/i>/);
+
+  // Выбранный отбор уезжает в формы действий и в ссылки листалки: разбирая
+  // ленту роликов, после каждого «Одобрить» возвращаться во «Все» нельзя.
+  assert.match(feed('video'), /name="media" value="video"/);
+  assert.match(feed('video'), /href="\/admin\/reviews\/product\/p\?status=all&amp;sort=low&amp;media=video"/);
+
+  // На входе в раздел отбора нет: там очередь модерации и ничего кроме неё.
+  const queue = adminViews.reviewsList(SETTINGS, db, null, 1);
+  // Именно класс ряда: `data-media` у ленты вложений — это другое.
+  assert.equal(/class="a-sorts a-media"/.test(queue), false);
+});
+
+test('ролики стоят через один на первых трёх страницах и на последней', () => {
+  const dates = require('../lib/review-dates');
+  const per = render.REVIEWS_PER_PAGE;
+  const now = Date.UTC(2026, 7, 19);
+  const make = (n, videos, photos) => Array.from({ length: n }, (_, i) => ({
+    id: 'r' + String(i).padStart(4, '0'), productId: 'p', sourceDate: now - i * 36e5,
+    videos: i < videos ? ['v' + i + '.mp4'] : [],
+    photos: (i >= videos && i < videos + photos) ? ['p' + i + '.webp'] : []
+  }));
+  const feed = list => {
+    const plan = dates.plannedDates(list, now);
+    for (const rv of list) if (plan.has(rv.id)) rv.createdAt = plan.get(rv.id);
+    return list.slice().sort((a, b) => b.createdAt - a.createdAt);
+  };
+  const pageOf = i => Math.floor(i / per) + 1;
+
+  // Ролик тяжелее снимка в сотню раз, и держать их по всей ленте — платить за
+  // то, чего никто не листает. Поэтому места у них только на первых трёх
+  // страницах и на последней, и там через один: сначала отзыв без видео.
+  const list = make(100, 14, 30);
+  const order = feed(list);
+  const pages = Math.ceil(order.length / per);
+  const videoAt = order.map((rv, i) => rv.videos.length ? i : -1).filter(i => i >= 0);
+  assert.ok(videoAt.length, 'ролики обязаны попасть в ленту');
+  for (const i of videoAt) {
+    const page = pageOf(i);
+    assert.ok(page <= 3 || page === pages, `ролик на странице ${page} — не по раскладке`);
+    assert.equal(i % 2, 1, 'ролик обязан стоять через один, а не подряд');
+  }
+  assert.ok(videoAt.some(i => pageOf(i) === pages), 'последняя страница осталась без роликов');
+  assert.equal(order[0].videos.length, 0, 'первым в ленте стоит отзыв без видео');
+  // Сразу за роликом — отзыв без него: два видео подряд читаются как заливка.
+  for (const i of videoAt) assert.ok(!order[i + 1] || !order[i + 1].videos.length, 'два ролика подряд');
+
+  // Мест ровно столько, сколько берёт импортёр: считает их одна и та же функция.
+  assert.equal(dates.videoCapacity(100), dates.videoSlots(100, per).length);
+  assert.ok(dates.videoCapacity(100) > 0, 'без размера страницы вместимость обязана считаться');
+  assert.ok(dates.videoCapacity(1225) < 20, '36 роликов на товар — это уже стена видео');
+
+  // Роликов больше, чем мест: чередование продолжается на следующих страницах,
+  // а не сваливается стеной в хвост.
+  const many = feed(make(100, 20, 30));
+  const tail = many.slice(-per);
+  assert.ok(tail.filter(rv => rv.videos.length).length <= per / 2, 'в хвосте собралась стена видео');
+  for (let i = 0; i < many.length - 1; i++) {
+    if (many[i].videos.length) assert.ok(!many[i + 1].videos.length, 'два ролика подряд при переливе');
+  }
+
+  // Раздача не зависит от порядка записей в файле и от повторного прогона.
+  const twice = make(100, 14, 30);
+  feed(twice);
+  assert.equal(dates.plannedDates(twice, now).size, 0, 'повторный прогон переставляет ленту');
 });
 
 test('даты привезённых отзывов сдвигаются к сегодня и сдвиг не накапливается', () => {
