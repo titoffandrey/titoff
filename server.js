@@ -921,7 +921,10 @@ app.post('/api/order', async (req, res) => {
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
   // покупатель, то есть вместе с доставкой. Витрина гасит кнопку заранее, но
   // проверяем и здесь: клиентским данным не верим, как и в цене заказа.
-  const limit = CROCO.limitError(grandTotal);
+  //
+  // Пределы принадлежат КАССЕ: пока оплата на витрине выключена, заказ уходит
+  // заявкой и ограничивать её суммой платёжки незачем (`CROCO.limitFor`).
+  const limit = CROCO.limitFor(settings(), grandTotal);
   if (limit) return res.json({ ok: false, error: limit }, 400);
 
   const visitorId = metrics.visitorId(req) || null;

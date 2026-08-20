@@ -1196,8 +1196,14 @@ test('шапка сворачивается при прокрутке, а Telegr
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
-  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+  // Знаки платёжных систем — обещание принять карту, поэтому показываются они
+  // только при включённой оплате на витрине. В режиме заявок платит покупатель
+  // уже по договорённости с менеджером, и обещать ему СБП в подвале нельзя.
+  const payOn = { storeName: 'Тест', tagline: '', currency: '₽', crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
+  const html = render.homePage(payOn, fakeDb, {});
   assert.equal((html.match(/class="pay /g) || []).length, 4);
+  const claims = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+  assert.doesNotMatch(claims, /footer-pay/, 'в режиме заявок подвал не обещает приём карт');
   assert.match(html, /class="pay pay-mc"[^>]*>[\s\S]*?<span class="sr-only">Mastercard<\/span>/);
   // Знаки — разметка, а не файлы: ни одной картинки грузить не нужно
   assert.doesNotMatch(html, /footer[\s\S]*?<img[^>]+pay/i);
@@ -3452,17 +3458,20 @@ test('витрина уводит на свою страницу оплаты т
 
 test('сборка дороже потолка недоступна, а количество упирается в него же', () => {
   const CROCO = require('../lib/crocopay');
-  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  // Потолок принадлежит кассе, поэтому и проверяем его при включённой оплате:
+  // в режиме заявок его нет вовсе (см. следующий тест).
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const base = { id: 'p1', name: 'Товар', category: 'К', inStock: true, images: [], colors: [], bands: [] };
 
   // Товар, у которого даже стартовая сборка дороже потолка, купить нельзя —
   // значит и на витрине он «Нет в наличии», а не кнопка, ведущая в отказ.
   const pricey = Object.assign({}, base, { price: CROCO.MAX_TOTAL + 10, storages: [], options: [] });
-  assert.equal(render.sellable(pricey), false);
+  assert.equal(render.sellable(pricey, ss), false);
   assert.match(render.productPage(ss, db, pricey, { origin: '' }), /Нет в наличии/);
   const fine = Object.assign({}, base, { price: 100000, storages: [], options: [] });
-  assert.equal(render.sellable(fine), true);
+  assert.equal(render.sellable(fine, ss), true);
 
   // Конфигурация и значение группы, выводящие сборку за потолок, гаснут как
   // распроданные — с той же подписью, чтобы покупателю не пришлось гадать.
@@ -3508,11 +3517,11 @@ test('заказ вне пределов одной покупки не офор
   assert.match(CROCO.limitError(250001), /не более 250\s000\s₽/);   // toLocaleString ставит неразрывный пробел
   assert.match(CROCO.limitError(999), /Минимальная сумма заказа — 1\s000\s₽/);
 
-  // Пределы уходят на витрину от сервера и НЕ зависят от того, включена ли
-  // онлайн-оплата: «один заказ — не больше 250 000 ₽» действует всегда. Они
-  // нужны на каждой странице (корзина открывается везде), поэтому идут
-  // глобальными, как валюта, а не атрибутом страницы оформления.
-  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  // Пределы уходят на витрину от сервера числами: они нужны на каждой странице
+  // (корзина открывается везде), поэтому идут глобальными, как валюта, а не
+  // атрибутом страницы оформления.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
   for (const html of [render.checkoutPage(ss, { origin: '', payOnline: true }), render.checkoutPage(ss, { origin: '' })]) {
     assert.match(html, /window\.__ORDER_MIN__=1000/);
     assert.match(html, /window\.__ORDER_MAX__=250000/);
@@ -3532,8 +3541,85 @@ test('заказ вне пределов одной покупки не офор
   assert.match(js, /var limitError = totalLimitError\(orderTotal\(\)\)/);
   // Сервер проверяет сумму заново — клиентским данным не верим.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const limit = CROCO\.limitError\(grandTotal\);[\s\S]{0,200}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
+  assert.match(server, /const limit = CROCO\.limitFor\(settings\(\), grandTotal\);[\s\S]{0,200}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
   assert.match(server, /const grandTotal = total \+ ship\.price;/);
+});
+
+test('оплату можно выключить: витрина принимает заявки, а пределы кассы уходят вместе с ней', () => {
+  const CROCO = require('../lib/crocopay');
+  // Ключи на месте, снята только галочка: именно так владелец «прячет платёжку».
+  const off = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    crocopayClientId: 'id', crocopayClientSecret: 'secret' };
+  const on = Object.assign({}, off, { crocopayEnabled: true });
+
+  // Пределы одной покупки принадлежат КАССЕ и вместе с ней исчезают: заявку
+  // разбирает менеджер, и ограничивать её суммой платёжки незачем. Ноль — «нет
+  // предела»: так это число читает и public/app.js.
+  assert.deepEqual(CROCO.limits(on), { min: CROCO.MIN_TOTAL, max: CROCO.MAX_TOTAL });
+  assert.deepEqual(CROCO.limits(off), { min: 0, max: 0 });
+  assert.deepEqual(CROCO.limits({ crocopayEnabled: true }), { min: 0, max: 0 }, 'галочка без ключей — те же заявки');
+  assert.match(CROCO.limitFor(on, CROCO.MAX_TOTAL + 1), /не более/);
+  assert.equal(CROCO.limitFor(off, CROCO.MAX_TOTAL + 1), '');
+  assert.equal(CROCO.limitFor(off, 1), '');
+  // Сама касса своих пределов не теряет: /api/pay/crocopay/start спрашивает
+  // именно её, и там оплата заведомо включена.
+  assert.match(CROCO.limitError(CROCO.MAX_TOTAL + 1), /не более/);
+
+  // Товар дороже потолка в режиме заявок продаётся наравне с остальными.
+  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
+  const pricey = { id: 'vision', name: 'Дорогой', category: 'К', inStock: true, images: [], colors: [], bands: [], storages: [], options: [], price: CROCO.MAX_TOTAL + 100000 };
+  assert.equal(render.sellable(pricey, off), true);
+  assert.equal(render.sellable(pricey, on), false);
+  const page = render.productPage(off, db, pricey, { origin: '' });
+  assert.match(page, /Добавить в корзину/);
+  assert.doesNotMatch(page, /Нет в наличии/);
+  assert.match(page, /window\.__ORDER_MIN__=0;window\.__ORDER_MAX__=0/, 'пределы уходят на витрину нулями');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(js, /if \(!ORDER_MAX\)/, 'ноль в скрипте означает «предела нет»');
+
+  // Оформление говорит про заявку и менеджера, а не про оплату, и знаков
+  // платёжных систем в подвале нет: обещать приём карт в этом режиме нельзя.
+  const co = render.checkoutPage(off, { origin: '' });
+  assert.doesNotMatch(co, /data-pay="1"/);
+  assert.doesNotMatch(co, /footer-pay/);
+  assert.match(co, /менеджер свяжется с вами и подтвердит наличие/);
+  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
+  assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
+
+  // Заявка сразу настоящая: черновиком заказ становится только ради выбора
+  // способа оплаты, а выбирать в этом режиме нечего.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /const draft = CROCO\.enabled\(settings\(\)\);/);
+});
+
+test('в настройках видно режим витрины, а касса переживает выключение целиком', () => {
+  const db = { pendingReviewCount: () => 0 };
+  const base = Object.assign(dbCore.defaultSettings(), {
+    crocopayClientId: 'ID-КАССЫ', crocopayClientSecret: 'СЕКРЕТ', payMethods: ['SBP']
+  });
+  const offHtml = adminViews.settingsPage(base, db, null);
+  assert.match(offHtml, /Сейчас: заявки без оплаты/);
+  assert.doesNotMatch(offHtml, /Сейчас: оплата на витрине/);
+  // Вернуть оплату — одна галочка: ключи, валюта и способы остаются в форме.
+  // Убрать их со страницы нельзя вовсе — снятые галочки в теле формы просто
+  // отсутствуют, и пропавшая секция стёрла бы выбор владельца первым же
+  // «Сохранить». Свёрнутый <details> при этом отправляется как обычно.
+  assert.match(offHtml, /name="crocopayClientId" value="ID-КАССЫ"/);
+  assert.match(offHtml, /name="crocopayClientSecret" value="СЕКРЕТ"/);
+  assert.match(offHtml, /name="payMethodsForm"/);
+  assert.match(offHtml, /name="payMethods" value="SBP" checked/);
+  assert.match(offHtml, /name="crocopayCurrencyChoice"/);
+  assert.match(offHtml, /<details class="pay-fold">/, 'в режиме заявок настройки кассы свёрнуты');
+
+  const onHtml = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true }), db, null);
+  assert.match(onHtml, /Сейчас: оплата на витрине/);
+  assert.match(onHtml, /<details class="pay-fold" open>/);
+
+  // Плашка говорит про то, что видит ПОКУПАТЕЛЬ, а не про саму галочку:
+  // включённая без ключей оставляет витрину в режиме заявок.
+  const noKeys = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true, crocopayClientSecret: '' }), db, null);
+  assert.match(noKeys, /Сейчас: заявки без оплаты/);
+  assert.match(noKeys, /ключи кассы не заданы/);
 });
 
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
