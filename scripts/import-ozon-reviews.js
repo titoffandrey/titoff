@@ -95,6 +95,11 @@ const COLOR_ALIASES = {
   'blue': 'Туманно-синий',
   'white': 'Белый',
   'black': 'Чёрный',
+  // iPhone 16 Pro и Pro Max — титановые корпуса.
+  'desert titanium': 'Песочный титан',
+  'natural titanium': 'Натуральный титан',
+  'white titanium': 'Белый титан',
+  'black titanium': 'Чёрный титан',
   // AirPods Max: у Ozon цвет записан двумя словами через дефис, у нас — одним.
   // «Тёмно-серый» — это Space Gray прежнего поколения: Apple переименовала его
   // в Midnight, когда перевела наушники на USB-C, так что цвет тот же самый.
