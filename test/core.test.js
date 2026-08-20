@@ -3582,7 +3582,7 @@ test('оплату можно выключить: витрина принима�
   const co = render.checkoutPage(off, { origin: '' });
   assert.doesNotMatch(co, /data-pay="1"/);
   assert.doesNotMatch(co, /footer-pay/);
-  assert.match(co, /менеджер позвонит и подтвердит наличие/);
+  assert.match(co, /менеджер свяжется с вами и подтвердит наличие/);
   assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
   assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
 
@@ -3637,7 +3637,7 @@ test('на оформлении нет «обсудим при подтверж�
   // Оплата не настроена — прежний путь «заявка» обязан остаться: иначе кнопка
   // вела бы в платёжку, которой нет.
   const off = render.checkoutPage(ss, { origin: '' });
-  assert.match(off, /менеджер позвонит и подтвердит наличие/);
+  assert.match(off, /менеджер свяжется с вами и подтвердит наличие/);
 });
 
 test('имя, фамилия, адрес и способ доставки обязательны', () => {
@@ -3747,6 +3747,27 @@ test('телефон обязателен и разбирается одним �
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.field input\[type=tel\]/);
   assert.match(css, /\.field \.phone-box input\[type=tel\]\{padding-left/, 'отступ слева обязан перебивать общее правило поля');
+
+  /* Телефон и второй контакт стоят ОДНИМ РЯДОМ, как имя с фамилией, и
+   * складываются в столбик на узком экране: два поля об одном и том же
+   * растягивали шаг «Получатель» вдвое. */
+  assert.match(js, /<div class="co-contacts">/);
+  assert.match(css, /\.co-names,\.co-contacts\{display:grid/);
+  assert.match(css, /\.co-contacts\{grid-template-columns:1fr\}/, 'на узком экране ряд обязан складываться');
+  /* Значок способа связи берёт цвет и размер у текста подписи — иначе он
+   * разъедется с ней в первой же правке палитры. Своего цвета у него нет. */
+  assert.match(css, /\.note-ico\{width:1\.15em;height:1\.15em;[^}]*fill:currentColor\}/);
+  assert.doesNotMatch(css, /\.note-ico\{[^}]*fill:#/, 'цвет значка задаётся только текстом');
+  assert.match(css, /\.ico-word\{white-space:nowrap\}/, 'значок не отрывается от своего слова');
+  for (const name of ['whatsapp', 'mobile', 'telegram', 'mail']) {
+    assert.ok(js.indexOf(name + ':') > -1, 'нет глифа ' + name);
+  }
+  assert.match(js, /Введите номер ' \+ iconWord\('whatsapp', 'WhatsApp'\)/);
+  assert.match(js, /iconWord\('telegram', 'Telegram'\)/);
+  // Подписи, которые убрали: телефон больше не обещает трек-номер, а у второго
+  // контакта нет строки «по желанию» — её заменяет отсутствие звёздочки.
+  assert.doesNotMatch(js, /пришлём трек-номер/);
+  assert.doesNotMatch(js, /переписываться удобнее/);
 
   // Хранилище держит одну форму номера: искать заказ по телефону можно только
   // когда номер записан одинаково.
