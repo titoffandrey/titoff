@@ -3582,7 +3582,7 @@ test('оплату можно выключить: витрина принима�
   const co = render.checkoutPage(off, { origin: '' });
   assert.doesNotMatch(co, /data-pay="1"/);
   assert.doesNotMatch(co, /footer-pay/);
-  assert.match(co, /менеджер свяжется с вами и подтвердит наличие/);
+  assert.match(co, /менеджер позвонит и подтвердит наличие/);
   assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
   assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
 
@@ -3637,7 +3637,7 @@ test('на оформлении нет «обсудим при подтверж�
   // Оплата не настроена — прежний путь «заявка» обязан остаться: иначе кнопка
   // вела бы в платёжку, которой нет.
   const off = render.checkoutPage(ss, { origin: '' });
-  assert.match(off, /менеджер свяжется с вами и подтвердит наличие/);
+  assert.match(off, /менеджер позвонит и подтвердит наличие/);
 });
 
 test('имя, фамилия, адрес и способ доставки обязательны', () => {
@@ -3678,6 +3678,97 @@ test('имя, фамилия, адрес и способ доставки обя
   assert.equal(delivery.isValid('почта'), false);
   assert.equal(delivery.nameOf('ozon'), 'OZON');
   assert.equal(delivery.nameOf(''), '', 'заказ без доставки не даёт «undefined»');
+});
+
+test('телефон обязателен и разбирается одним модулем на витрину и сервер', () => {
+  const P = require('../public/phone.js');
+
+  // Россия — страна по умолчанию и она же в приоритете: «+7» это она, а
+  // Казахстан, который делит с ней код, узнаётся по «+7 7…» и «+7 6…».
+  assert.equal(P.check('+7 999 123-45-67').country, 'RU');
+  assert.equal(P.check('+7 705 123-45-67').country, 'KZ');
+  assert.equal(P.check('+7 999 123-45-67').e164, '+79991234567');
+  assert.equal(P.format('+79991234567'), '+7 999 123-45-67');
+  // Привычная местная запись исправляется сама — ради этого всё и затевалось.
+  assert.equal(P.check('8 (999) 123-45-67').e164, '+79991234567');
+  assert.equal(P.check('9991234567').e164, '+79991234567');
+  assert.equal(P.check('+7 8 999 123-45-67').e164, '+79991234567', 'местная восьмёрка после кода страны');
+  // …но честную восьмёрку в самом номере трогать нельзя.
+  assert.equal(P.check('+7 800 555-35-35').e164, '+78005553535');
+  // Соседи по СНГ узнаются и форматируются по своим маскам.
+  assert.equal(P.check('+375 29 123-45-67').country, 'BY');
+  assert.equal(P.check('+380501234567').country, 'UA');
+  assert.equal(P.format('+998901234567'), '+998 90 123-45-67');
+  assert.equal(P.check('+37491234567').country, 'AM');
+  // Страна без маски принимается как есть: врать про формат хуже, чем показать
+  // номер как есть, а отказать верному номеру — хуже всего.
+  assert.equal(P.check('+4915112345678').ok, true);
+  // Недобранный, пустой и с неизвестным кодом — отказ, и текст один на всех.
+  assert.equal(P.check('+7 999').ok, false);
+  assert.equal(P.check('').error, 'Укажите номер телефона');
+  assert.equal(P.check('+999123456789').ok, false);
+  // Флаг — эмодзи из пары региональных индикаторов, как у карточек метрики.
+  assert.equal(P.flag('RU'), '🇷🇺');
+  assert.equal(P.flag('чужое'), '');
+  // Лишние цифры в поле не копятся: скопированный номер с добавочным
+  // становится нормальным номером, а не отказом на верном номере.
+  assert.equal(P.format('+7 (999) 123-45-67 доб. 12'), '+7 999 123-45-67');
+
+  // Сервер проверяет сам и ДО записи: клиентским данным не верим, как и в цене.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ====================== ОПЛАТА'));
+  assert.match(route, /PHONE\.check\(req\.body\.phone\)/);
+  assert.ok(route.indexOf('PHONE.check(req.body.phone)') < route.indexOf('db.createOrder'),
+    'телефон обязан проверяться до записи заказа');
+  // Второй контакт стал необязательным: телефон уже обязателен, и требовать
+  // ещё и Telegram значило бы спрашивать одно и то же дважды.
+  assert.doesNotMatch(route, /Укажите контакт для связи/);
+
+  // Витрина шлёт номер отдельным полем и проверяет тем же модулем.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(js, /phone: phoneValue\(\)/);
+  assert.match(js, /id="co-phone"/);
+  assert.match(js, /type="tel"/);
+  assert.match(js, /autocomplete="tel"/);
+  assert.match(js, /window\.Phone\.check\(value\)/);
+  assert.match(js, /window\.Phone\.attach\(document\.getElementById\('co-phone'\)\)/);
+  /* Своей таблицы кодов у витрины нет — то же правило, что у способов доставки:
+   * разъехавшись, она приняла бы номер, который сервер потом отверг. */
+  assert.doesNotMatch(js, /'375'|'998'|\+375|\bDEFAULT = 'RU'/, 'коды стран не дублируются в скрипте');
+  // Файл подключается только на оформлении: на остальных страницах он был бы
+  // лишним запросом.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const co = render.checkoutPage(ss, { origin: '' });
+  assert.match(co, /\/static\/phone\.js\?v=/);
+  assert.doesNotMatch(render.notFoundPage(ss, { origin: '' }), /phone\.js/);
+
+  // Поле телефона — обычный `.field`, и общее правило ширины обязано его
+  // накрывать: `input[type=tel]` в этом списке не было вовсе.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.field input\[type=tel\]/);
+  assert.match(css, /\.field \.phone-box input\[type=tel\]\{padding-left/, 'отступ слева обязан перебивать общее правило поля');
+
+  // Хранилище держит одну форму номера: искать заказ по телефону можно только
+  // когда номер записан одинаково.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-phone-'));
+  const fresh = freshDb(dir);
+  const order = fresh.createOrder({
+    items: [], total: 68500, firstName: 'Иван', lastName: 'Петров', phone: '8 (999) 123-45-67'
+  });
+  assert.equal(order.phone, '+79991234567');
+  assert.equal(fresh.createOrder({ items: [], total: 100, phone: 'позвоните вечером' }).phone, '',
+    'не номер — пустая строка, а не мусор в заказе');
+  // Прежние заявки телефона не имеют вовсе и читаются как были.
+  const old = fresh.createOrder({ items: [], total: 100, contact: '@severov' });
+  assert.equal(old.phone, '');
+
+  // В панели номер показывается тем же форматом, что и в поле ввода: два
+  // формата одного номера читались бы как два разных номера.
+  const row = render.orderClient(order);
+  assert.match(row, /\+7 999 123-45-67/);
+  assert.match(row, /🇷🇺/);
+  assert.match(render.orderClient(old), /@severov/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('зона доставки определяется по адресу, а улицы её не сбивают', () => {

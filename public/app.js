@@ -169,9 +169,24 @@
         + '<div class="field"><label for="co-last-name">Фамилия <span class="req">*</span></label>'
         + '<input type="text" id="co-last-name" maxlength="60" placeholder="Петров" autocomplete="family-name" required></div>'
         + '</div>'
-        + '<div class="field"><label for="co-contact">Контакт для связи <span class="req">*</span></label>'
-        + '<input type="text" id="co-contact" maxlength="120" placeholder="Telegram, телефон или e-mail" required>'
-        + '<p class="field-note">Сюда придёт подтверждение и трек-номер.</p></div>'
+        /* Телефон — отдельное обязательное поле, а не строка «контакт для
+         * связи», куда писали что угодно. По нему менеджер подтверждает заказ,
+         * его же перевозчик ставит в накладную, и годится для этого только
+         * номер. Флаг и формат подставляются сами по набранному коду страны —
+         * см. `public/phone.js`; своей разметки скрипт телефона не создаёт,
+         * поэтому без него поле остаётся обычным вводом. */
+        + '<div class="field"><label for="co-phone">Телефон <span class="req">*</span></label>'
+        + '<div class="phone-box">'
+        + '<span class="phone-flag" aria-hidden="true"></span>'
+        + '<input type="tel" id="co-phone" inputmode="tel" autocomplete="tel" maxlength="24"'
+        + ' placeholder="+7 900 000-00-00" required>'
+        + '</div>'
+        + '<p class="field-note">По нему подтвердим заказ и пришлём трек-номер.</p></div>'
+        // Второй канал связи — по желанию: телефон уже обязателен, и требовать
+        // ещё и Telegram значило бы спрашивать одно и то же дважды.
+        + '<div class="field"><label for="co-contact">Telegram или e-mail</label>'
+        + '<input type="text" id="co-contact" maxlength="120" placeholder="@nickname или mail@example.com">'
+        + '<p class="field-note">По желанию — если переписываться удобнее, чем созваниваться.</p></div>'
         /* Адрес покупателя — ЕГО ДАННЫЕ, наравне с именем и контактом, поэтому
          * стоит здесь, а не в доставке. Выбор пункта выдачи его не трогает: по
          * нему считается зона, ищутся ближайшие пункты и везёт курьер. Пока поле
@@ -206,6 +221,7 @@
         + '<p class="form-legal-note">' + payNote()
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
+      initPhoneInput();
       initAddressSuggest();
       initDeliveryChoice();
       initAddressQuote();
@@ -251,6 +267,29 @@
     input.addEventListener('input', function () { dropPickup(); setGeo(null, null); quoteDelivery(); });
     input.addEventListener('change', function () { quoteDelivery(0); });
     input.addEventListener('blur', function () { quoteDelivery(0); });
+  }
+
+  /* Телефон: код страны, флаг и форматирование по ходу набора. Всё это живёт в
+   * `public/phone.js` — ОДНОМ файле на витрину и сервер: своя таблица кодов в
+   * скрипте разъехалась бы с серверной, и форма приняла бы номер, который
+   * `/api/order` потом отверг (то же правило, что у способов доставки).
+   *
+   * Файл не загрузился — поле остаётся обычным вводом: разметку скрипт не
+   * создаёт, а номер всё равно проверит и приведёт к общему виду сервер.
+   */
+  function initPhoneInput() {
+    if (window.Phone) window.Phone.attach(document.getElementById('co-phone'));
+  }
+  function phoneValue() {
+    var input = document.getElementById('co-phone');
+    return input ? input.value.trim() : '';
+  }
+  // Проверка та же, что на сервере, и текст отказа тот же — просто без ожидания
+  // ответа. Без загруженного модуля остаётся одно требование: поле не пустое.
+  function phoneCheck() {
+    var value = phoneValue();
+    if (window.Phone) return window.Phone.check(value);
+    return value ? { ok: true } : { ok: false, error: 'Укажите номер телефона' };
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
@@ -2123,7 +2162,7 @@
       + '<h3>Спасибо за заказ!</h3>'
       + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
       + '<div class="order-success-number"><span>Заказ</span><strong>' + escapeHtml(orderNo(number)) + '</strong></div>'
-      + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
+      + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер позвонит по указанному номеру, чтобы подтвердить наличие и детали заказа.</p></div></div>'
       + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
       + '</section>';
     var ok = document.getElementById('order-success');
@@ -2138,7 +2177,6 @@
     var checks = [
       ['co-first-name', 'Укажите имя получателя'],
       ['co-last-name', 'Укажите фамилию получателя'],
-      ['co-contact', 'Укажите контакт для связи'],
       ['co-address', 'Укажите адрес или пункт выдачи']
     ];
     for (var c = 0; c < checks.length; c++) {
@@ -2148,6 +2186,15 @@
         if (field) { try { field.focus(); } catch (e) {} }
         return;
       }
+    }
+    // Телефон проверяем не на «непусто», а тем же разбором, что и сервер:
+    // недобранный номер («+7 999») пустым не выглядит, а заказом не станет.
+    var phone = phoneCheck();
+    if (!phone.ok) {
+      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = phone.error; }
+      var phoneField = document.getElementById('co-phone');
+      if (phoneField) { try { phoneField.focus(); } catch (e) {} }
+      return;
     }
     // Адрес разбирает сервер, и его ответ мы уже знаем — если он про ЭТУ строку.
     // Про другую (покупатель дописал адрес и нажал кнопку, не дождавшись ответа)
@@ -2188,6 +2235,10 @@
       items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '', options: i.options || [] }; }),
       firstName: val('co-first-name'),
       lastName: val('co-last-name'),
+      // Номер уходит как есть: приводит его к единому виду сервер — тем же
+      // модулем, что отформатировал поле. Двух разборов одной строки быть не
+      // должно, даже если оба дают один результат.
+      phone: phoneValue(),
       contact: val('co-contact'),
       address: val('co-address'),
       delivery: deliveryChoice(),
@@ -2229,7 +2280,7 @@
               + '<h3>Спасибо за заказ!</h3>'
               + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
               + '<div class="order-success-number"><span>Заказ</span><strong>' + escapeHtml(orderNo(number)) + '</strong></div>'
-              + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер свяжется с вами по указанному контакту, чтобы подтвердить наличие и детали заказа.</p></div></div>'
+              + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер позвонит по указанному номеру, чтобы подтвердить наличие и детали заказа.</p></div></div>'
               + '</section>';
             var success = document.getElementById('order-success');
             if (success) success.focus();

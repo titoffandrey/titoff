@@ -297,7 +297,7 @@ body.lb-open{overflow:hidden}
 .rate-star.on{color:var(--gold)}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:14px;font-weight:500;margin-bottom:6px}
-.field input[type=text],.field input[type=search],.field input[type=password],.field input[type=number],.field input[type=date],.field input:not([type]),.field textarea,.field select{
+.field input[type=text],.field input[type=search],.field input[type=tel],.field input[type=password],.field input[type=number],.field input[type=date],.field input:not([type]),.field textarea,.field select{
   width:100%;border:1px solid var(--border);border-radius:12px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;background:#fff;color:var(--text)
 }
 .field textarea{resize:vertical}
@@ -2733,6 +2733,22 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-line-wait{font-style:normal;color:var(--muted)}
 .order-success .form-msg{margin:4px auto 14px;max-width:34em}
 .checkout-done{background:#fff;border:1px solid var(--border);border-radius:22px;padding:14px}
+
+/* Телефон: флаг страны слева ВНУТРИ поля — так же, как в формах регистрации
+   Ozon, Яндекса и Telegram. Списка стран нет намеренно: страна определяется по
+   набранному коду, а флаг только показывает, что она узнана. Поэтому он
+   `aria-hidden`, не ловит ни клик, ни фокус и ничего не открывает.
+
+   Ширина у флага фиксированная: где системного набора флагов нет (Windows),
+   эмодзи показывается двумя буквами кода — поле от этого не должно ни
+   расширяться, ни съезжать. */
+.phone-box{position:relative}
+/* Селектор обязан быть НЕ СЛАБЕЕ общего `.field input[type=tel]`: у того своё
+   `padding` шоркатом, и при меньшей специфичности отступ слева не применяется
+   вовсе — номер уезжает под флаг. */
+.field .phone-box input[type=tel]{padding-left:48px}
+.phone-flag{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  width:26px;text-align:center;font-size:18px;line-height:1;pointer-events:none;user-select:none}
 
 /* Подсказки адреса: список привязан к самому полю, а не ко всему блоку —
    иначе он уезжал бы вниз на высоту подписи под полем. */

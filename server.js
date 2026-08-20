@@ -16,6 +16,10 @@ const CROCO = require('./lib/crocopay');
 const DELIVERY = require('./lib/delivery');
 const SHIP = require('./lib/delivery-price');
 const ADDRESS = require('./lib/address');
+// Телефон покупателя разбирает тот же файл, что и витрина: одна таблица кодов,
+// один формат и один текст отказа. Лежит он в `public/`, потому что его грузит
+// браузер (см. шапку самого файла).
+const PHONE = require('./public/phone.js');
 const PICKUP = require('./lib/pickup');
 const OSM = require('./lib/pickup-osm');
 const PAY = require('./lib/pay-methods');
@@ -790,7 +794,11 @@ function notifyNewOrder(order) {
   const ss = settings();
   const lines = (order.items || []).map(i => `• ${tgEsc(i.name)} — ${i.qty} × ${R.money(i.price, ss)}`).join('\n');
   const msg = `🛒 <b>Новый заказ ${tgEsc(R.orderNo(order.number))}</b>\n`
-    + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n📞 Контакт: ${tgEsc(order.contact)}\n`
+    // Телефон — первым: по нему менеджер и звонит. Прежние заявки телефона не
+    // имеют вовсе, у них остаётся только строка контакта.
+    + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n`
+    + (order.phone ? `📞 Телефон: ${tgEsc(R.phoneText(order.phone))}\n` : '')
+    + (order.contact ? `✉️ Ещё контакт: ${tgEsc(order.contact)}\n` : '')
     + (order.delivery ? `🚚 Доставка: ${tgEsc([DELIVERY.nameOf(order.delivery), DELIVERY.shortModeOf(order.delivery, order.deliveryMode)].filter(Boolean).join(', '))}`
       + `${order.deliveryPrice ? ` — ${R.money(order.deliveryPrice, ss)}` : ''}\n` : '')
     // Куда везти и с кем связываться — две разные строки: у заказа в пункт
@@ -862,8 +870,20 @@ app.post('/api/order', async (req, res) => {
   }
   if (!items.length) return res.json({ ok: false, error: 'В корзине нет доступных товаров' }, 400);
   if (!Number.isFinite(total) || total > 1e12) return res.json({ ok: false, error: 'Сумма заказа некорректна' }, 400);
+  /* Телефон — обязателен и отдельным полем. По нему менеджер подтверждает
+   * заказ, его же перевозчик ставит в накладную, и он единственный контакт,
+   * который годится и для того, и для другого. Проверяет и приводит к
+   * международному виду тот же модуль, что и витрина, — своей копии правил у
+   * сервера нет, иначе форма приняла бы номер, который маршрут потом отверг.
+   *
+   * `contact` (Telegram или почта) остался, но стал НЕОБЯЗАТЕЛЬНЫМ: это
+   * дополнительный канал, а не замена телефону. У всех прежних заявок он
+   * единственный, и переписывать их незачем.
+   */
+  const phoneCheck = PHONE.check(req.body.phone);
+  if (!phoneCheck.ok) return res.json({ ok: false, error: phoneCheck.error }, 400);
+  const phone = phoneCheck.e164;
   const contact = String(req.body.contact || '').trim();
-  if (!contact) return res.json({ ok: false, error: 'Укажите контакт для связи' }, 400);
   // Получатель и доставка обязательны: заказ идёт с предоплатой и уезжает
   // перевозчиком, а не «уточним при подтверждении», как было у заявки.
   const firstName = String(req.body.firstName || '').trim();
@@ -950,7 +970,7 @@ app.post('/api/order', async (req, res) => {
     draft,
     host: db.normHost(req.headers.host),
     items, total: grandTotal, itemsTotal: total,
-    firstName, lastName, contact, address, delivery, comment: req.body.comment,
+    firstName, lastName, phone, contact, address, delivery, comment: req.body.comment,
     deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
     // Код пункта выдачи — то, по чему менеджер оформляет накладную: адрес у
     // перевозчика может быть записан иначе, а код у пункта один. Пишем только
@@ -1018,7 +1038,8 @@ function notifyPayment(order, state, note) {
   const head = { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
   if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
   const msg = `${head} ${tgEsc(R.orderNo(order.number))}</b>\n`
-    + `👤 ${tgEsc(order.customerName) || '—'}\n📞 ${tgEsc(order.contact)}\n`
+    + `👤 ${tgEsc(order.customerName) || '—'}\n`
+    + `📞 ${tgEsc(R.phoneText(order.phone) || order.contact) || '—'}\n`
     + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
     + (note ? `❗ ${tgEsc(note)}\n` : '');
   sendTelegram(ss, msg).catch(() => {});
