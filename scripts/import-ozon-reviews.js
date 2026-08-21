@@ -138,13 +138,23 @@ const SIM_ALIASES = {
 const ourColors = (product.colors || []).map(c => String(c.name || ''));
 const unknownColors = new Set();
 
+// Сравнение названий цветов. «Ё» приводится к «е»: у нас «Чёрный», а площадка
+// пишет «черный», и без этого один и тот же цвет считался бы разным — на
+// витрине отзыв получал подпись «Черный», которой в выборе цвета нет.
+function sameColor(a, b) {
+  const norm = s => String(s || '').trim().toLowerCase().replace(/ё/g, 'е');
+  return norm(a) === norm(b);
+}
+
 function ourColorName(sourceColor, configColor) {
   const key = String(sourceColor || '').trim().toLowerCase();
   const mapped = COLOR_ALIASES[key];
   // Название берём только то, что реально есть у товара: выдумать цвет,
   // которого магазин не продаёт, хуже, чем оставить исходный.
-  if (mapped && ourColors.some(c => c.toLowerCase() === mapped.toLowerCase())) return mapped;
-  const near = ourColors.find(c => c.toLowerCase() === String(configColor || '').trim().toLowerCase());
+  if (mapped && ourColors.some(c => sameColor(c, mapped))) return mapped;
+  // Подпись площадки могла совпасть с нашей и без таблицы — тогда берём наше
+  // написание, а не её (та же «ё»).
+  const near = ourColors.find(c => sameColor(c, configColor)) || ourColors.find(c => sameColor(c, sourceColor));
   if (near) return near;
   if (sourceColor) unknownColors.add(sourceColor);
   return configColor || '';
