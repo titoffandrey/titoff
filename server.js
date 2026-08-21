@@ -418,13 +418,23 @@ const TOO_MANY = 'Слишком много попыток входа. Подо�
 
 // Антиспам публичных форм (отзывы, заказы): не больше N запросов с одного IP за окно.
 const rateHits = new Map();
-function rateLimited(req, bucket, limit, windowMs) {
-  const key = bucket + ':' + clientIp(req);
+function rateLimited(req, bucket, limit, windowMs, identity) {
+  // Публичные формы ограничиваем по IP. Действия со своим заказом можно
+  // привязать к его случайному id после проверки подписанной сессии: иначе три
+  // покупателя за одним Tor-exit делили один лимит polling и ловили чужой 429.
+  const key = bucket + ':' + (identity ? String(identity) : clientIp(req));
   const now = Date.now();
   const r = rateHits.get(key);
   if (!r || now - r.start > windowMs) { rateHits.set(key, { start: now, count: 1 }); return false; }
   r.count++;
   return r.count > limit;
+}
+function anonymousSessionId(req) {
+  const current = String(req.session && req.session.buyerId || '');
+  if (/^[a-f0-9]{32}$/.test(current)) return current;
+  const id = crypto.randomBytes(16).toString('hex');
+  req.session.buyerId = id;
+  return id;
 }
 // Раз в 30 минут выметаем протухшие записи, чтобы карты не росли бесконечно.
 const sweep = setInterval(() => {
@@ -470,7 +480,7 @@ function payRemind(req) {
     if (!order || order.draft) continue;                       // черновик заказом ещё не стал
     const pay = order.payment;
     if (!pay) continue;
-    if (R.payLive(pay, now) && pay.expiresAt) return card(order, pay.expiresAt);
+    if (R.payLive(pay, now)) return card(order, R.payUntil(pay));
     if (pay.status === 'paid' || pay.status === 'mismatch') continue;
     if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
     return card(order, 0);
@@ -828,8 +838,46 @@ function notifyNewOrder(order) {
   sendTelegram(ss, msg).catch(() => {});
 }
 
+// После отказа кассы покупатель часто возвращается на оформление и нажимает
+// кнопку ещё раз. Его подписанная сессия уже знает прежний заказ; если весь
+// нормализованный заказ совпадает, переиспользуем его вместо дубля и возвращаем
+// на ту же страницу оплаты. Изменился хоть один товар, контакт, адрес или тариф
+// — это уже новый заказ.
+const ORDER_REUSE_TTL = 24 * 60 * 60 * 1000;
+function reusableOrder(req, data) {
+  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
+  const scalars = [
+    'total', 'itemsTotal', 'firstName', 'lastName', 'phone', 'contact', 'address',
+    'delivery', 'deliveryMode', 'deliveryPrice', 'deliveryZone', 'pickupCode', 'pickupAddress', 'comment'
+  ];
+  const itemKey = items => JSON.stringify((items || []).map(item => ({
+    id: item.id, name: item.name, price: item.price, qty: item.qty
+  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  const now = Date.now();
+  for (const id of mine) {
+    const order = db.getOrder(id);
+    const pay = order && order.payment;
+    const age = order ? now - Number(order.createdAt || 0) : NaN;
+    if (!order || !Number.isFinite(age) || age < 0 || age >= ORDER_REUSE_TTL) continue;
+    if (!['new', 'processing'].includes(order.status)
+      || (pay && (pay.status === 'paid' || pay.status === 'mismatch'))) continue;
+    if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
+    if (scalars.some(key => String(order[key] == null ? '' : order[key]) !== String(data[key] == null ? '' : data[key]))) continue;
+    if (itemKey(order.items) !== itemKey(data.items)) continue;
+    return order;
+  }
+  return null;
+}
+
 app.post('/api/order', async (req, res) => {
-  if (rateLimited(req, 'order', 10, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  // Tor/proxy не должен превращать лимит одного общего IP в лимит всего
+  // магазина. Основной счётчик — случайная подписанная сессия; широкий IP-лимит
+  // остаётся только против бота, который удаляет cookie после каждого запроса.
+  const buyerRateId = anonymousSessionId(req);
+  if (rateLimited(req, 'order', 10, 10 * 60 * 1000, buyerRateId)
+    || rateLimited(req, 'order-ip', 120, 10 * 60 * 1000)) {
+    return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  }
   const rawItems = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = []; let total = 0;
   for (const it of rawItems) {
@@ -897,11 +945,11 @@ app.post('/api/order', async (req, res) => {
   const phoneCheck = PHONE.check(req.body.phone);
   if (!phoneCheck.ok) return res.json({ ok: false, error: phoneCheck.error }, 400);
   const phone = phoneCheck.e164;
-  const contact = String(req.body.contact || '').trim();
+  const contact = String(req.body.contact || '').trim().slice(0, 120);
   // Получатель и доставка обязательны: заказ идёт с предоплатой и уезжает
   // перевозчиком, а не «уточним при подтверждении», как было у заявки.
-  const firstName = String(req.body.firstName || '').trim();
-  const lastName = String(req.body.lastName || '').trim();
+  const firstName = String(req.body.firstName || '').trim().slice(0, 60);
+  const lastName = String(req.body.lastName || '').trim().slice(0, 60);
   if (!firstName) return res.json({ ok: false, error: 'Укажите имя получателя' }, 400);
   if (!lastName) return res.json({ ok: false, error: 'Укажите фамилию получателя' }, 400);
   const delivery = String(req.body.delivery || '').trim();
@@ -915,7 +963,7 @@ app.post('/api/order', async (req, res) => {
    * Адрес обязан быть полным: населённый пункт, улица и дом. По «Екатеринбургу»
    * нельзя ни оформить накладную, ни посчитать доставку, а заказ уже оплачен.
    */
-  const address = String(req.body.address || '').trim();
+  const address = String(req.body.address || '').trim().slice(0, 400);
   if (!address) return res.json({ ok: false, error: 'Укажите адрес' }, 400);
   const addressCheck = ADDRESS.checkAddress(address);
   if (!addressCheck.ok) return res.json({ ok: false, error: addressCheck.error }, 400);
@@ -961,6 +1009,33 @@ app.post('/api/order', async (req, res) => {
   const limit = CROCO.limitFor(settings(), grandTotal);
   if (limit) return res.json({ ok: false, error: limit }, 400);
 
+  const s = settings();
+  const draft = CROCO.enabled(s);
+  const orderData = {
+    draft,
+    host: db.normHost(req.headers.host),
+    items, total: grandTotal, itemsTotal: total,
+    firstName, lastName, phone, contact, address, delivery,
+    comment: String(req.body.comment || '').slice(0, 1000),
+    deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
+    pickupCode: point && point.official ? point.code : '', pickupAddress
+  };
+
+  // Повтор после невыданных реквизитов ведёт к прежнему заказу. Это делаем
+  // после ВСЕХ серверных пересчётов: совпадают реальные товары, цена и доставка,
+  // а не присланная браузером догадка.
+  const reused = draft ? reusableOrder(req, orderData) : null;
+  if (reused) {
+    const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
+    req.session.myOrders = [reused.id].concat(mine.filter(x => x !== reused.id)).slice(0, 20);
+    return res.json({
+      ok: true, reused: true, id: reused.id, number: reused.number,
+      total: reused.total, itemsTotal: reused.itemsTotal,
+      delivery: { price: reused.deliveryPrice, zone: reused.deliveryZone, zoneName: ship.zoneName },
+      pay: true, telegram: 'already_queued'
+    });
+  }
+
   const visitorId = metrics.visitorId(req) || null;
   const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
   const requestIp = clientIp(req);
@@ -979,24 +1054,17 @@ app.post('/api/order', async (req, res) => {
   // Без онлайн-оплаты выбирать нечего: заявка сразу настоящая, как и раньше.
   // Сумма здесь заведомо в пределах кассы — заказ вне их не доходит до этой
   // строки, его отвергает проверка выше.
-  const draft = CROCO.enabled(settings());
-  const order = db.createOrder({
-    draft,
-    host: db.normHost(req.headers.host),
-    items, total: grandTotal, itemsTotal: total,
-    firstName, lastName, phone, contact, address, delivery, comment: req.body.comment,
-    deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
+  const order = db.createOrder(Object.assign(orderData, {
     // Код пункта выдачи — то, по чему менеджер оформляет накладную: адрес у
     // перевозчика может быть записан иначе, а код у пункта один. Пишем только
     // код от самого перевозчика: у точки из OpenStreetMap это идентификатор
     // объекта карты, накладной он не поможет, а в заказе будет шумом. Вписанный
     // руками пункт кода не имеет тем более — только адрес.
-    pickupCode: point && point.official ? point.code : '', pickupAddress,
     visitorId, clientIp: client.ip, clientCity: client.city, clientRegion: client.region,
     clientCountry: client.country, clientCountryCode: client.countryCode, clientIsp: client.isp, clientDevice: client.device,
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
     clientSource: (metricVisitor && metricVisitor.source) || client.source
-  });
+  }));
   if (!draft) metrics.markOrder(visitorId, order);
   // Медленные геобаза и Telegram больше не держат покупателя на «Отправляем».
   // Заказ уже записан; технические поля безопасно обогащаются в фоне.
@@ -1049,7 +1117,11 @@ function ownOrder(req, id) {
 // приводят к одному и тому же изменению, и дублировать текст незачем.
 function notifyPayment(order, state, note) {
   const ss = settings();
-  const head = { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
+  const paidAttempts = state === 'paid'
+    ? db.paymentAttempts(order).filter(attempt => attempt.status === 'paid').length : 0;
+  const head = state === 'paid' && paidAttempts > 1
+    ? '⚠️ <b>Повторно оплачен заказ'
+    : { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
   if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
   const msg = `${head} ${tgEsc(R.orderNo(order.number))}</b>\n`
     + `👤 ${tgEsc(order.customerName) || '—'}\n`
@@ -1057,6 +1129,111 @@ function notifyPayment(order, state, note) {
     + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
     + (note ? `❗ ${tgEsc(note)}\n` : '');
   sendTelegram(ss, msg).catch(() => {});
+}
+
+function notifyPaymentProblem(order, method, code) {
+  const ss = settings();
+  const msg = `⚠️ <b>Касса не выдала реквизиты для заказа ${tgEsc(R.orderNo(order.number))}</b>\n`
+    + `Способ: ${tgEsc(PAY.nameOf(method) || method) || '—'}\n`
+    + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
+    + `Причина: ${tgEsc(code)}\n`
+    + `Заказ сохранён — с покупателем можно связаться.`;
+  sendTelegram(ss, msg).catch(() => {});
+}
+
+function paymentAlternative(methods, current) {
+  const list = (methods || []).filter(m => m.id !== current && PAY.isDomestic(m.id));
+  const preferred = ['SBP', 'TO_CARD'];
+  return preferred.map(id => list.find(m => m.id === id)).find(Boolean) || list[0] || null;
+}
+
+function terminalPaymentBody(order) {
+  const status = order && order.payment && order.payment.status;
+  if (status !== 'paid' && status !== 'mismatch') return null;
+  return {
+    ok: true, placed: true, reused: true, terminal: status,
+    url: '/pay/' + encodeURIComponent(order.id)
+  };
+}
+
+const paymentStartJobs = new Map();
+const paymentReconcileJobs = new Map();
+const UNRESOLVED_PAYMENT_TTL = 5 * 60 * 1000;
+function shortPause(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+/* Сверить ОДНУ адресную попытку с GET /invoices/{id}. Это единственное место,
+ * которое принимает ответ кассы за факт оплаты: и browser polling, и webhook,
+ * и фоновая проверка приходят сюда. Подписанный webhook сам по себе суммы больше
+ * не трактует — двусмысленность «рубли или копейки» допускала оплату одним
+ * процентом суммы. */
+async function reconcilePaymentAttempt(s, orderId, attempt) {
+  if (!attempt || !attempt.invoiceId || !CROCO.configured(s)) {
+    return { ok: false, error: 'not_reconcilable' };
+  }
+  const invoiceId = String(attempt.invoiceId);
+  const reconcileKey = String(orderId) + ':' + String(attempt.id || '') + ':' + invoiceId;
+  if (paymentReconcileJobs.has(reconcileKey)) return paymentReconcileJobs.get(reconcileKey);
+  const job = (async () => {
+    const r = await CROCO.invoice(s, invoiceId);
+    const state = r.ok && r.invoice ? (r.invoice.state || 'pending') : '';
+    // Отмечаем каждый фактический GET, включая timeout: так зависшие первые
+    // сорок счетов не голодают всю очередь. Это ещё и CAS-проверка, что попытка
+    // существует и по-прежнему связана именно с этим invoice.
+    const touched = db.refreshOrderPaymentAttempt(orderId, {
+      attemptId: attempt.id, invoiceId,
+      lastCheckedAt: Date.now(),
+      lastCheckError: r.ok ? '' : CROCO.startErrorCode(r.error),
+      lastProviderState: state,
+      expiresAt: r.ok && r.invoice && String(r.invoice.id || '') === invoiceId
+        ? r.invoice.expiresAt : 0
+    });
+    if (!touched) return { ok: false, error: 'stale_attempt' };
+    if (!r.ok) return { ok: false, error: r.error };
+    const match = CROCO.matchesInvoice(attempt, r.invoice);
+    if (!match.ok) {
+      console.error('crocopay reconcile: не совпал', match.reason, '| счёт', invoiceId, '| заказ', orderId);
+      // GET по конкретному пути обязан вернуть тот же invoice id. Чужой/пустой
+      // id не вправе даже закрыть попытку как Expired: старый счёт может быть
+      // ещё платёжным, а закрытие покажет кнопку нового и создаст дубль.
+      if (match.reason === 'invoice_id') {
+        return { ok: false, error: 'invoice_id_mismatch' };
+      }
+      // Чужой Success никогда не становится paid. Состояние mismatch будит
+      // менеджера, но только если касса утверждает, что деньги уже пришли.
+      if (state === 'paid') {
+        const note = `Сверка счёта: не совпали ${match.reason}`;
+        const result = db.settleOrderPayment(orderId, {
+          attemptId: attempt.id, invoiceId, status: 'mismatch', total: r.invoice.amount, note
+        });
+        if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
+        if (result && result.changed) notifyPayment(result.order, 'mismatch', note);
+        return { ok: true, state: (result.attempt && result.attempt.status) || 'mismatch' };
+      }
+      // Закрывающий НЕуспешный статус безопасно записать даже при сломанной
+      // метаинформации ответа: он не выдаёт товар и прекращает бессмысленный
+      // фоновый polling этой попытки. Только `paid` требует полного совпадения.
+      if (['expired', 'cancelled', 'failed'].includes(state)) {
+        const result = db.settleOrderPayment(orderId, {
+          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: ''
+        });
+        if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
+        return { ok: true, state: (result.attempt && result.attempt.status) || state };
+      }
+      return { ok: true, state: attempt.status || 'pending', mismatch: match.reason };
+    }
+    if (!state || state === 'pending') {
+      return { ok: true, state: 'pending', expires: r.invoice.expiresAt || attempt.expiresAt || 0 };
+    }
+    const result = db.settleOrderPayment(orderId, {
+      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: ''
+    });
+    if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
+    if (result && result.changed) notifyPayment(result.order, state, '');
+    return { ok: true, state: (result.attempt && result.attempt.status) || state };
+  })();
+  paymentReconcileJobs.set(reconcileKey, job);
+  try { return await job; }
+  finally { paymentReconcileJobs.delete(reconcileKey); }
 }
 
 /* Что реально включено у кассы — способы и валюты. Спрашивается и на странице
@@ -1087,9 +1264,12 @@ async function payContext(s, order, wanted) {
   const base = PAY.BASE;
   const def = PAY.currencyCode(s.crocopayCurrency) || base;
   const rates = s.crocopayRates || {};
-  let codes = (live && live.currencies.length ? live.currencies : [def]).filter(c => PAY.rateOf(rates, c) > 0);
-  if (!codes.includes(def) && PAY.rateOf(rates, def) > 0) codes.unshift(def);
-  if (!s.crocopayCurrencyChoice) codes = codes.filter(c => c === def);
+  const liveCodes = live && live.currencies.length ? live.currencies : null;
+  let codes = (liveCodes || [def]).filter(c => PAY.rateOf(rates, c) > 0);
+  // Живой ответ важнее сохранённого default: раньше недоступная у кассы валюта
+  // насильно добавлялась обратно, а при выключенном выборе оставляла страницу
+  // без способов, хотя другая валюта была рабочей.
+  if (!s.crocopayCurrencyChoice && codes.length) codes = [codes.includes(def) ? def : codes[0]];
   if (!codes.length) codes = [base];
   const asked = PAY.currencyCode(wanted);
   const currency = codes.includes(asked) ? asked : (codes.includes(def) ? def : codes[0]);
@@ -1109,23 +1289,26 @@ async function payContext(s, order, wanted) {
 
 // Выставить счёт по уже созданному заказу и отдать реквизиты.
 app.post('/api/pay/crocopay/start', async (req, res) => {
-  if (rateLimited(req, 'pay', 20, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   const s = settings();
   if (!CROCO.enabled(s)) return res.json({ ok: false, error: 'Онлайн-оплата отключена' }, 400);
   const id = String((req.body && req.body.orderId) || '');
   const order = ownOrder(req, id);
   if (!order) return res.json({ ok: false, error: 'Заказ не найден' }, 404);
-  if (order.status === 'cancelled') return res.json({ ok: false, error: 'Заказ отменён' }, 400);
-  if (order.payment && order.payment.status === 'paid') return res.json({ ok: false, error: 'Заказ уже оплачен' }, 400);
+  const terminal = terminalPaymentBody(order);
+  if (terminal) return res.json(terminal);
+  if (rateLimited(req, 'pay', 20, 10 * 60 * 1000, id)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  if (!['new', 'processing'].includes(order.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Пределы кассы проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму она всё равно не выставит.
   if (!CROCO.payable(order.total)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
-  // Способ оплаты проверяем по своему закрытому списку до запроса: чужое
-  // значение касса всё равно отвергнет, а поймать это лучше у себя.
   // Способ проверяем не только по своему закрытому списку, но и по тому, что
   // владелец оставил на витрине: скрытый в настройках способ не должен
   // проходить запросом мимо интерфейса.
   const method = String((req.body && req.body.method) || '');
+  const requestId = String(req.body && req.body.requestId || '');
+  if (!/^[a-f0-9]{32}$/.test(requestId)) {
+    return res.json({ ok: false, error: 'Обновите страницу оплаты и попробуйте ещё раз' }, 400);
+  }
   // Валюта счёта проверяется тем же местом, что и рисует выбор: подставить в
   // запрос валюту, которой у кассы нет или для которой не задан курс, нельзя.
   const ctx = await payContext(s, order, req.body && req.body.currency);
@@ -1135,82 +1318,228 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   if (!(ctx.amount > 0)) {
     return res.json({ ok: false, error: 'Оплата в этой валюте сейчас недоступна — выберите другую' }, 400);
   }
-
-  // Способ выбран — черновик становится заказом. Именно здесь, ДО обращения к
-  // кассе: покупатель уже сказал, чем платит, и если касса откажет (у неё
-  // кончились свободные реквизиты — штатный ответ), менеджер всё равно увидит
-  // готового покупателя с заполненным адресом. А вот тот, кто просто открыл
-  // страницу оплаты и ушёл, заказом не станет — и товары останутся у него в
-  // корзине.
-  const grown = db.promoteOrder(id);
-  if (grown.promoted) {
-    metrics.markOrder(grown.order.visitorId, grown.order);
-    notifyNewOrder(grown.order);
+  // payContext ходит в кассу и может ждать сеть. За это время менеджер мог
+  // отменить заказ, а webhook — оплатить его; перечитываем перед единственным
+  // местом, где создаётся новая попытка.
+  const currentOrder = ownOrder(req, id);
+  if (!currentOrder) return res.json({ ok: false, error: 'Заказ не найден' }, 404);
+  const currentTerminal = terminalPaymentBody(currentOrder);
+  if (currentTerminal) return res.json(currentTerminal);
+  if (!['new', 'processing'].includes(currentOrder.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
+  // Сначала живая работа: после startOrderPayment попытка уже есть в файле, и
+  // поиск known иначе возвращал 409 вместо ожидания того же Promise.
+  const running = paymentStartJobs.get(id);
+  if (running) {
+    const same = running.requestId === requestId && CROCO.sameStartRequest(running, {
+      method, currency: ctx.currency, amount: ctx.amount
+    });
+    if (same) {
+      const result = await running.promise;
+      return res.json(result.body, result.status);
+    }
+    if (running.requestId === requestId) {
+      return res.json({ ok: false, placed: true, errorCode: 'idempotency_conflict', error: 'Этот идентификатор уже используется для другого запроса.' }, 409);
+    }
+    return res.json({ ok: false, placed: true, errorCode: 'payment_processing', error: 'Уже подбираем реквизиты. Подождите несколько секунд.' }, 409);
   }
 
-  // Token записываем ДО создания счёта: он уходит в callback_url, а id счёта
-  // появляется только в ответе платёжки. У заказа с прежним платежом
-  // startOrderPayment сохранит старый token — см. комментарий в lib/db.js.
-  // Сумму храним в ОСНОВНЫХ единицах — в тех же, в которых её понимает касса
-  // (документация обещает копейки и врёт, см. lib/crocopay.js).
-  // Ожидаемая сумма пишется в ВАЛЮТЕ СЧЁТА: с ней потом сверяется вебхук, а
-  // приходит он про тот счёт, который касса и выставила.
-  const started = db.startOrderPayment(id, {
-    provider: 'crocopay', token: crypto.randomBytes(16).toString('hex'),
-    method, amount: ctx.amount, currency: ctx.currency
-  });
-  if (!started || !started.payment || !started.payment.token) return res.json({ ok: false, error: 'Не удалось начать оплату' }, 500);
-
-  const r = await CROCO.createInvoice(s, {
-    amount: ctx.amount,
-    currency: ctx.currency,
-    method,
-    // Своего идентификатора заказа в теле вебхука нет вовсе — есть только
-    // GET-параметры этого адреса, платёжка их сохраняет. Подпись подтверждает,
-    // что вебхук от CrocoPAY, а token — что он про ЭТОТ заказ: без него хватило
-    // бы одного перехваченного вебхука на любую заявку с той же суммой.
-    callbackUrl: originOf(req) + '/api/pay/crocopay/callback?order=' + encodeURIComponent(id) + '&token=' + started.payment.token
-  });
-  if (!r.ok) {
-    // В логе — способ и сумма: без них по одной строке «Requisites not found»
-    // не понять, на чём именно споткнулась касса.
-    console.error('crocopay invoice:', r.error, '| способ', method, '| сумма', ctx.amount, ctx.currency, '| заказ', R.orderNo(order.number));
-    // Текст для покупателя собирает lib/crocopay.js: разбор чужих английских
-    // ответов — знание об их API, и живёт оно рядом с остальным.
-    // `placed` — заказ уже настоящий, даже если счёт не вышел: менеджер его
-    // видит и может довести оплату руками. Корзину витрина при этом НЕ чистит
-    // (см. pay.js): покупателю нужно чем-то попробовать ещё раз.
-    return res.json({ ok: false, placed: true, error: CROCO.startError(r.error) }, 502);
+  // Потерянный ответ повторяется с тем же requestId. Уже известный исход
+  // возвращаем без второго POST к кассе.
+  const known = db.findPaymentAttempt(currentOrder, { requestId });
+  if (known) {
+    const same = CROCO.sameStartRequest(known, {
+      method, currency: ctx.currency, amount: ctx.amount
+    });
+    if (!same) {
+      return res.json({ ok: false, placed: true, errorCode: 'idempotency_conflict', error: 'Этот идентификатор уже использован для другого запроса.' }, 409);
+    }
+    if (known.status === 'pending' && R.payLive(known) && !known.lastErrorCode) {
+      return res.json({ ok: true, placed: true, reused: true, url: '/pay/' + encodeURIComponent(id) });
+    }
+    if (known.lastErrorCode) {
+      const alt = paymentAlternative(ctx.methods, method);
+      return res.json({
+        ok: false, placed: true, reused: true,
+        error: CROCO.startError(known.lastErrorCode),
+        errorCode: known.lastErrorCode,
+        suggestedMethod: alt && alt.id, suggestedName: alt && alt.name
+      }, 502);
+    }
+    return res.json({
+      ok: false, placed: true,
+      errorCode: 'payment_processing',
+      error: 'Касса ещё обрабатывает предыдущий запрос. Подождите немного — новый счёт сейчас не создаём.'
+    }, 409);
   }
-  // Способ пишем тот, что ВЕРНУЛА касса: на запрос TO_CARD она вправе выдать
-  // TO_CARD_TRANSGRAN, и подпись реквизита должна соответствовать выданному.
-  db.attachOrderInvoice(id, {
-    invoiceId: r.invoice.id, requisite: r.invoice.requisite, bank: r.invoice.bank,
-    owner: r.invoice.owner, method: r.invoice.method || method, expiresAt: r.invoice.expiresAt
+
+  const activeAttempt = currentOrder.payment && db.findPaymentAttempt(currentOrder, {
+    attemptId: currentOrder.payment.attemptId
   });
-  res.json({ ok: true, placed: true, url: '/pay/' + encodeURIComponent(id) });
+  const replaceInvoiceId = String((req.body && req.body.replaceInvoiceId) || '');
+  const replace = !!replaceInvoiceId
+    && R.payReplaceInvoice(activeAttempt, true) === replaceInvoiceId;
+  // `?choose=1` мог оставаться открытым в другой вкладке, пока там уже выпустили
+  // новый счёт. Разрешение связано с увиденным invoice: устаревшая страница не
+  // обходит защиту живой/неразрешённой попытки.
+  if (replaceInvoiceId && !replace) {
+    return res.json({
+      ok: false, placed: true, errorCode: 'stale_replace',
+      error: 'Счёт уже изменился. Обновите страницу перед выбором другого способа.'
+    }, 409);
+  }
+  // Потерянный ответ после attach не создаёт второй invoice: обычная страница
+  // просто откроет уже действующие реквизиты. Замена разрешена только с явно
+  // показанного покупателю экрана «Выбрать другой способ».
+  if (!replace && activeAttempt && R.payLive(activeAttempt)) {
+    return res.json({ ok: true, placed: true, reused: true, url: '/pay/' + encodeURIComponent(id) });
+  }
+  // После timeout/рестарта invoice id мог не сохраниться. Новый запрос ТЕМ ЖЕ
+  // способом на пять минут блокируем независимо от requestId; другой выбранный
+  // способ остаётся доступным как путь спасения покупки.
+  const now = Date.now();
+  const unresolved = db.paymentAttempts(currentOrder).find(attempt => {
+    const age = now - Number(attempt.startedAt || 0);
+    return attempt.status === 'pending' && !attempt.invoiceId && attempt.method === method
+      && attempt.requestId !== requestId && age >= 0 && age < UNRESOLVED_PAYMENT_TTL
+      && (!attempt.lastErrorCode || ['timeout', 'provider_error'].includes(attempt.lastErrorCode));
+  });
+  if (!replace && unresolved) {
+    const alt = paymentAlternative(ctx.methods, method);
+    return res.json({
+      ok: false, placed: true,
+      errorCode: 'payment_processing',
+      error: 'Предыдущий запрос ещё может обрабатываться кассой. Новый счёт тем же способом пока не создаём.',
+      suggestedMethod: alt && alt.id, suggestedName: alt && alt.name
+    }, 409);
+  }
+
+  // Лимит по order id не мешает нескольким покупателям за одним Tor-exit, но
+  // сам по себе обходится созданием множества своих заказов. До реального POST
+  // ставим ещё широкий IP-предел и общий бюджет процесса. Idempotent/reuse/live
+  // ответы дошли сюда раньше и бюджет кассы не расходуют.
+  if (rateLimited(req, 'pay-provider-ip', 80, 10 * 60 * 1000)
+    || rateLimited(req, 'pay-provider-global', 160, 10 * 60 * 1000, 'all')) {
+    return res.json({
+      ok: false, placed: true, errorCode: 'rate_limited',
+      error: 'Касса временно перегружена. Подождите минуту и попробуйте снова.'
+    }, 429);
+  }
+
+  const promise = (async () => {
+    // Способ выбран — черновик становится заказом ДО обращения к кассе: даже при
+    // отказе менеджер видит готового покупателя и может довести оплату вручную.
+    const grown = db.promoteOrder(id);
+    if (grown.promoted) {
+      metrics.markOrder(grown.order.visitorId, grown.order);
+      notifyNewOrder(grown.order);
+    }
+
+    const attemptId = crypto.randomBytes(12).toString('hex');
+    const started = db.startOrderPayment(id, {
+      provider: 'crocopay', attemptId, requestId,
+      token: crypto.randomBytes(16).toString('hex'),
+      method, amount: ctx.amount, currency: ctx.currency
+    });
+    const attempt = db.findPaymentAttempt(started, { attemptId });
+    if (!started || !attempt || !attempt.token) {
+      return { status: 500, body: { ok: false, error: 'Не удалось начать оплату' } };
+    }
+
+    const callbackUrl = originOf(req) + '/api/pay/crocopay/callback?order=' + encodeURIComponent(id)
+      + '&attempt=' + encodeURIComponent(attemptId) + '&token=' + attempt.token;
+    let r, tries = 0;
+    do {
+      tries++;
+      r = await CROCO.createInvoice(s, {
+        amount: ctx.amount, currency: ctx.currency, method, callbackUrl
+      });
+      // Явное «реквизитов нет» означает, что invoice не создан. Один короткий
+      // повтор снимает часть ручных повторов; timeout и частичный invoice сюда
+      // намеренно не попадают.
+      if (tries < 2 && CROCO.retryableStart(r)) {
+        await shortPause(700 + crypto.randomInt(0, 500));
+        // За короткую паузу мог оплатиться прежний счёт. Второй POST уже не
+        // нужен; ниже terminal-факт победит этот no_requisite.
+        if (terminalPaymentBody(db.getOrder(id))) break;
+      } else break;
+    } while (true);
+
+    if (!r.ok) {
+      if (r.invoice && CROCO.validInvoiceId(r.invoice.id)) {
+        // Частичный/подменённый счёт адресно сохраняем, но иностранный реквизит
+        // в верхнее состояние и на страницу покупателя не переносим.
+        db.attachOrderInvoice(id, {
+          attemptId, invoiceId: r.invoice.id, requisite: '', bank: r.invoice.bank,
+          owner: '', method, actualMethod: r.invoice.method || '',
+          expiresAt: r.invoice.expiresAt, providerTries: tries
+        });
+      }
+      const code = CROCO.startErrorCode(r.error);
+      const failed = db.failOrderPaymentAttempt(id, { attemptId, errorCode: code, providerTries: tries });
+      // Пока POST ждал кассу, мог успешно закрыться прежний invoice. Финансовый
+      // факт важнее отказа нового запроса: покупателя ведём на terminal-страницу,
+      // а не оставляем с ложным «не удалось оплатить».
+      const terminalAfterFailure = terminalPaymentBody(db.getOrder(id));
+      if (terminalAfterFailure) return { status: 200, body: terminalAfterFailure };
+      console.error('crocopay invoice:', code, '| способ', method, '| сумма', ctx.amount, ctx.currency, '| заказ', R.orderNo(order.number));
+      notifyPaymentProblem((failed || started), method, code);
+      const alt = paymentAlternative(ctx.methods, method);
+      return {
+        status: 502,
+        body: {
+          ok: false, placed: true, error: CROCO.startError(code),
+          errorCode: code,
+          suggestedMethod: alt && alt.id, suggestedName: alt && alt.name
+        }
+      };
+    }
+
+    const attached = db.attachOrderInvoice(id, {
+      attemptId, invoiceId: r.invoice.id, requisite: r.invoice.requisite,
+      bank: r.invoice.bank, owner: r.invoice.owner,
+      method, actualMethod: r.invoice.method, expiresAt: r.invoice.expiresAt,
+      providerTries: tries
+    });
+    if (!attached) return { status: 409, body: { ok: false, placed: true, errorCode: 'stale_attempt', error: 'Попытка оплаты устарела — обновите страницу' } };
+    const terminalAfterCreate = terminalPaymentBody(db.getOrder(id));
+    if (terminalAfterCreate) return { status: 200, body: terminalAfterCreate };
+    return { status: 200, body: { ok: true, placed: true, url: '/pay/' + encodeURIComponent(id) } };
+  })();
+  paymentStartJobs.set(id, { requestId, method, currency: ctx.currency, amount: ctx.amount, promise });
+  try {
+    const result = await promise;
+    res.json(result.body, result.status);
+  } finally {
+    const active = paymentStartJobs.get(id);
+    if (active && active.promise === promise) paymentStartJobs.delete(id);
+  }
 });
 
 // Статус счёта — то, ради чего затевался переход на H2H. Спрашиваем кассу и
 // записываем изменение у себя; страница оплаты дёргает этот адрес по таймеру.
 app.get('/api/pay/crocopay/status', async (req, res) => {
-  if (rateLimited(req, 'pay-status', 240, 10 * 60 * 1000)) return res.json({ ok: false, error: 'Слишком часто' }, 429);
   const s = settings();
   const order = ownOrder(req, req.query.order);
   const pay = order && order.payment;
   if (!pay) return res.json({ ok: false, error: 'Оплата не запускалась' }, 404);
   // Уже оплаченный заказ кассу не тревожим: 'paid' у нас липкий.
-  if (pay.status === 'paid' || pay.status === 'mismatch') return res.json({ ok: true, state: pay.status });
-  if (!CROCO.enabled(s) || !pay.invoiceId) return res.json({ ok: true, state: pay.status || 'pending' });
-
-  const r = await CROCO.invoice(s, pay.invoiceId);
-  if (!r.ok) return res.json({ ok: true, state: pay.status || 'pending', stale: true });
-  const state = r.invoice.state;
-  if (!state || state === 'pending') return res.json({ ok: true, state: 'pending', expires: pay.expiresAt || 0 });
-
-  const result = db.settleOrderPayment(order.id, { status: state, total: r.invoice.amount });
-  if (result && result.changed) notifyPayment(result.order, state, '');
-  res.json({ ok: true, state });
+  if (pay.status === 'paid') return res.json({ ok: true, state: pay.status });
+  if (rateLimited(req, 'pay-status', 240, 10 * 60 * 1000, order.id)) return res.json({ ok: false, error: 'Слишком часто' }, 429);
+  // Снятая галочка отключает НОВЫЕ счета, но ключи остаются и прежний счёт
+  // обязан сверяться до конца. Поэтому configured(), а не enabled().
+  if (!CROCO.configured(s) || !pay.invoiceId) return res.json({ ok: true, state: pay.status || 'pending' });
+  const attempt = db.findPaymentAttempt(order, { attemptId: pay.attemptId })
+    || db.findPaymentAttempt(order, { invoiceId: pay.invoiceId });
+  // Один живой счёт штатно даёт около 86 GET за десять минут. Пределы высокие,
+  // чтобы общий Tor-exit не мешал покупателям, но не позволяют сотне созданных
+  // ботом заказов умножить запросы к внешней кассе без границы.
+  if (rateLimited(req, 'pay-status-provider-ip', 1800, 10 * 60 * 1000)
+    || rateLimited(req, 'pay-status-provider-global', 3600, 10 * 60 * 1000, 'all')) {
+    return res.json({ ok: false, error: 'Слишком много проверок. Повторим автоматически.' }, 429);
+  }
+  const result = await reconcilePaymentAttempt(s, order.id, attempt);
+  if (!result.ok) return res.json({ ok: true, state: pay.status || 'pending', stale: true });
+  res.json(result);
 });
 
 // Страница оплаты: реквизиты выставленного счёта либо выбор способа. Своя, а не
@@ -1238,42 +1567,83 @@ app.get('/pay/:id', async (req, res) => {
   })));
 });
 
-// Вебхук об успешной оплате. Приходит только на успех (так в документации),
-// поэтому «не оплатил» здесь не обрабатывается — такой заказ просто остаётся
-// в 'pending', и его разбирает менеджер.
-app.post('/api/pay/crocopay/callback', (req, res) => {
+// Вебхук об успешной оплате. Неуспешные состояния сюда не приходят — их вместе
+// с поздним Success добирают браузерный и фоновый GET статуса ниже.
+app.post('/api/pay/crocopay/callback', async (req, res) => {
   const s = settings();
   const secret = String(s.crocopayClientSecret || '').trim();
   const id = String(req.query.order || '');
+  const attemptId = String(req.query.attempt || '');
   const token = String(req.query.token || '');
   const order = secret ? db.getOrder(id) : null;
-  const pay = order && order.payment;
-  const expectedToken = String((pay && pay.token) || '');
-  const tokenOk = !!expectedToken && expectedToken.length === token.length
-    && crypto.timingSafeEqual(Buffer.from(expectedToken), Buffer.from(token));
+  // Новые callback адресуют попытку по attemptId. У уже выданных до обновления
+  // счетов параметра нет — их находим по прежнему token, не теряя живые оплаты.
+  const hasAttempt = attemptId !== '';
+  const attempt = order && (hasAttempt
+    ? (/^[a-f0-9]{24,64}$/.test(attemptId) ? db.findPaymentAttempt(order, { attemptId }) : null)
+    : db.findPaymentAttempt(order, { token }));
+  const expectedToken = String((attempt && attempt.token) || '');
+  const expectedTokenBuffer = Buffer.from(expectedToken, 'utf8');
+  const tokenBuffer = Buffer.from(token, 'utf8');
+  const tokenOk = !!expectedToken && expectedTokenBuffer.length === tokenBuffer.length
+    && crypto.timingSafeEqual(expectedTokenBuffer, tokenBuffer);
   if (!tokenOk || !CROCO.verify(secret, req.body, req.rawBody)) {
     // Как в документации: неподтверждённый вебхук — 403 и ничего не меняем.
     return res.json({ ok: false }, 403);
   }
 
-  // Ожидаемую сумму мы записали в рублях, а в каких единицах её пришлёт вебхук —
-  // проверить, не проведя настоящий платёж, невозможно: документация обещает
-  // минимальные, но на счёте она уже соврала. `paidEnough()` принимает оба
-  // прочтения и на недоплате не срабатывает ни по одному из них.
-  const expected = Number(pay.amount) || 0;
-  const raw = req.body && req.body.total;
-  const check = CROCO.paidEnough(expected, raw);
-  const note = check.major === null ? 'Платёжка не передала сумму'
-    : (Math.abs(check.major - expected) < 0.01 ? '' : `Пришло ${raw}, ожидали ${expected} ${pay.currency || ''}`.trim());
-  const state = check.ok ? 'paid' : 'mismatch';
-  const result = db.settleOrderPayment(id, { status: state, total: check.major, timestamp: req.body && req.body.timestamp, note });
-  if (!result) return res.json({ ok: false }, 404);
-
-  // Платёжка вправе повторить вызов, да и опрос статуса приходит к тому же
-  // изменению — второй раз менеджера не дёргаем.
-  if (result.changed) notifyPayment(order, state, note);
-  res.json({ ok: true });
+  // HMAC подтверждает отправителя, но не единицы суммы и не invoice id. Поэтому
+  // webhook — только сигнал немедленно запросить конкретный счёт по API.
+  if (!attempt || !attempt.invoiceId) return res.json({ ok: false, retry: true }, 503);
+  const result = await reconcilePaymentAttempt(s, id, attempt);
+  if (!result.ok) return res.json({ ok: false, retry: true }, 503);
+  res.json({ ok: true, state: result.state });
 });
+
+// Оплата не должна зависеть от открытой вкладки покупателя. Раз в минуту
+// сверяем недавние незакрытые счета; webhook и браузер используют тот же
+// reconcile, поэтому повторное уведомление исключает changed в хранилище.
+let paymentSweepBusy = false;
+async function reconcileOpenPayments() {
+  if (paymentSweepBusy) return;
+  const s = settings();
+  if (!CROCO.configured(s)) return;
+  paymentSweepBusy = true;
+  try {
+    const now = Date.now();
+    const edge = now - 7 * 24 * 60 * 60 * 1000;
+    const queue = [];
+    for (const order of db.getOrders()) {
+      if (!order.payment) continue;
+      for (const attempt of db.paymentAttempts(order)) {
+        if (!attempt.invoiceId || attempt.status === 'paid') continue;
+        const startedAt = Number(attempt.startedAt || order.createdAt || 0);
+        if (!Number.isFinite(startedAt) || startedAt < edge || startedAt > now) continue;
+        // Pending проверяем часто. Терминальные и mismatch ещё несколько дней
+        // пересверяем реже: касса/webhook могут опоздать, а исправленный точный
+        // Success должен дорасти до paid без ручного вмешательства.
+        const interval = attempt.status === 'pending' ? 60 * 1000 : 15 * 60 * 1000;
+        const checkedAt = Number(attempt.lastCheckedAt || 0);
+        if (checkedAt > 0 && now - checkedAt < interval) continue;
+        if (!['pending', 'expired', 'cancelled', 'failed', 'mismatch'].includes(attempt.status)) continue;
+        queue.push([order.id, attempt]);
+      }
+    }
+    // Сначала давно не проверенные: после каждого GET lastCheckedAt обновляется,
+    // поэтому даже при очереди >40 следующие счета не голодают. Четыре запроса
+    // параллельно держат проход короче минуты без шквала в кассу.
+    queue.sort((a, b) => Number(a[1].lastCheckedAt || 0) - Number(b[1].lastCheckedAt || 0)
+      || Number(a[1].startedAt || 0) - Number(b[1].startedAt || 0));
+    const selected = queue.slice(0, 40);
+    for (let i = 0; i < selected.length; i += 4) {
+      await Promise.all(selected.slice(i, i + 4).map(async ([orderId, attempt]) => {
+        try { await reconcilePaymentAttempt(s, orderId, attempt); } catch (e) {}
+      }));
+    }
+  } finally { paymentSweepBusy = false; }
+}
+const paymentSweep = setInterval(() => { reconcileOpenPayments().catch(() => {}); }, 60 * 1000);
+if (paymentSweep.unref) paymentSweep.unref();
 /* ====================== /ОПЛАТА: CrocoPAY (схема H2H) ====================== */
 
 /* =========================== ПАНЕЛЬ (/admin) =========================== *
@@ -1636,7 +2006,13 @@ app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res))
 
 /* ---------- Заказы ---------- */
 app.get('/admin/orders', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.ordersList(settings(), db, req.query.flash, req.query.page)); });
-app.post('/admin/orders/:id/delete', (req, res) => { if (!guardAdmin(req, res)) return; db.deleteOrder(req.params.id); res.redirect('/admin/orders' + pageQuery(req.body.page)); });
+app.post('/admin/orders/:id/delete', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const deleted = db.deleteOrder(req.params.id);
+  const page = pageQuery(req.body.page);
+  const join = page ? '&' : '?';
+  res.redirect('/admin/orders' + page + (deleted ? '' : join + 'flash=' + encodeURIComponent('Заказ с платёжной историей нельзя удалить')));
+});
 
 /* ---------- Настройки магазина ---------- */
 

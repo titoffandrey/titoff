@@ -18,6 +18,9 @@
   // приезжает готовой — скрипт только передаёт её вместе со способом, чтобы
   // счёт вышел в той же валюте, сумму которой покупатель видел на странице.
   var currency = page.dataset.currency || '';
+  // Разрешение заменить живой счёт привязано к invoice, который был на странице
+  // в момент её открытия. Старая вкладка не вправе заменить уже новый счёт.
+  var replaceInvoiceId = page.dataset.replaceInvoice || '';
 
   /* ------------------------------ Копирование ------------------------------ */
   // Номер карты покупатель переносит в банковское приложение — это главное
@@ -93,17 +96,94 @@
     var on = document.querySelector('input[name="pay-method"]:checked');
     return on ? on.value : '';
   }
+  var REQUEST_TTL = 5 * 60 * 1000;
+  var REQUEST_ROOT = 'pay_request_v1:' + orderId;
+  function requestKey(method) { return REQUEST_ROOT + ':' + currency + ':' + method; }
+  function newRequestId() {
+    var bytes = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return Array.prototype.map.call(bytes, function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+  }
+  function paymentRequestId(method) {
+    var key = requestKey(method);
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
+    if (saved && /^[a-f0-9]{32}$/.test(String(saved.id || ''))
+      && saved.method === method && saved.currency === currency
+      && Date.now() - Number(saved.at || 0) >= 0
+      && Date.now() - Number(saved.at || 0) < REQUEST_TTL) return saved.id;
+    var id = newRequestId();
+    var at = Date.now();
+    try { localStorage.setItem(key, JSON.stringify({ id: id, method: method, currency: currency, at: at })); } catch (e) {}
+    schedulePaymentRequestExpiry(key, id, at);
+    return id;
+  }
+  function clearPaymentRequest(key, expectedId) {
+    if (expectedId) {
+      var current = null;
+      try { current = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
+      // Другая вкладка уже начала новую попытку — старый ответ не вправе стереть
+      // её защитный ключ.
+      if (current && String(current.id || '') !== String(expectedId)) return;
+    }
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
+  function schedulePaymentRequestExpiry(key, id, at) {
+    var age = Date.now() - Number(at || 0);
+    setTimeout(function () { clearPaymentRequest(key, id); }, Math.max(0, REQUEST_TTL - age) + 50);
+  }
+  // Просроченный/битый ключ не содержит платёжных данных, но и бессрочно лежать
+  // в браузере не должен. Свежий удалим точно по TTL, пока страница открыта;
+  // после закрытия — при следующем открытии своей страницы заказа.
+  (function cleanPaymentRequest() {
+    var keys = [];
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        if (key === REQUEST_ROOT || (key && key.indexOf(REQUEST_ROOT + ':') === 0)) keys.push(key);
+      }
+    } catch (e) {}
+    keys.forEach(function (key) {
+      var saved = null;
+      try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) {}
+      var age = saved && typeof saved.at === 'number' ? Date.now() - saved.at : NaN;
+      if (!saved || !/^[a-f0-9]{32}$/.test(String(saved.id || ''))
+        || !isFinite(age) || age < 0 || age >= REQUEST_TTL) {
+        clearPaymentRequest(key, saved && saved.id);
+        return;
+      }
+      schedulePaymentRequestExpiry(key, saved.id, saved.at);
+    });
+  })();
   function startPayment(btn, label) {
     var method = chosenMethod();
     if (!method) { showMsg('Выберите способ оплаты'); return; }
+    var requestStorageKey = requestKey(method);
+    var requestId = paymentRequestId(method);
     btn.disabled = true;
-    btn.textContent = 'Выставляем счёт…';
+    btn.textContent = 'Ищем доступные реквизиты…';
     fetch('/api/pay/crocopay/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: orderId, method: method, currency: currency })
+      body: JSON.stringify({
+        orderId: orderId, method: method, currency: currency,
+        requestId: requestId, replaceInvoiceId: replaceInvoiceId
+      })
     })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
+      .then(function (r) {
+        return r.json().then(function (d) { return { status: r.status, data: d }; });
+      })
+      .then(function (reply) {
+        var d = reply.data;
+        // 409 означает, что прежний запрос ещё работает; timeout и неизвестная
+        // ошибка тоже двусмысленны — касса могла выпустить invoice до обрыва.
+        // Ключ сохраняем, чтобы повтор не создал второй счёт. Явный отказ
+        // (например, no_requisite) — однозначный и освобождает следующий клик.
+        var uncertain = d && ['payment_processing', 'timeout', 'provider_error'].indexOf(d.errorCode) !== -1;
+        // Совместимость на время обновления процесса: старая версия сервера не
+        // присылала code у 409, и такой ответ безопаснее считать незавершённым.
+        if (reply.status === 409 && d && !d.errorCode) uncertain = true;
+        if (!uncertain) clearPaymentRequest(requestStorageKey, requestId);
         /* Корзину чистим ТОЛЬКО когда счёт реально выставлен.
          *
          * Раньше она чистилась и на отказе кассы (по флагу `placed`): заказ ведь
@@ -121,8 +201,16 @@
         // может остаться ?choose=1, и тогда покупатель после выставления счёта
         // снова увидел бы выбор способа вместо реквизитов.
         if (d && d.ok) { location.href = d.url || ('/pay/' + encodeURIComponent(orderId)); return; }
-        showMsg((d && d.error) || 'Не удалось выставить счёт');
-        btn.disabled = false; btn.textContent = label;
+        var error = (d && d.error) || 'Не удалось выставить счёт';
+        var next = d && d.suggestedMethod
+          ? document.querySelector('input[name="pay-method"][value="' + String(d.suggestedMethod).replace(/"/g, '') + '"]') : null;
+        if (next) {
+          next.checked = true;
+          error += ' Мы уже выбрали запасной вариант «' + (d.suggestedName || d.suggestedMethod) + '» — осталось получить реквизиты.';
+        }
+        showMsg(error);
+        btn.disabled = false;
+        btn.textContent = next ? 'Попробовать ' + (d.suggestedName || d.suggestedMethod) : label;
       })
       .catch(function () {
         showMsg('Ошибка сети. Попробуйте ещё раз');
@@ -169,7 +257,8 @@
   // «Выбрать другой способ» — обычный переход с ?choose=1: по нему сервер рисует
   // выбор даже при действующем счёте. Прежний счёт у кассы при этом не
   // отменяется и остаётся оплачиваемым — если покупатель всё же переведёт по
-  // нему, платёж дойдёт вебхуком: token один на заказ, а не на счёт.
+  // нему, платёж дойдёт вебхуком: callback адресует именно прежнюю попытку по её
+  // собственным attemptId и token.
   var swap = document.getElementById('pay-switch');
   if (swap) swap.addEventListener('click', function () {
     location.href = '/pay/' + encodeURIComponent(orderId) + '?choose=1';

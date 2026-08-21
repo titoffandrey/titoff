@@ -312,7 +312,8 @@
    *
    * Лежит всё в браузере самого покупателя, рядом с корзиной, и никуда не
    * уходит: на сервер эти поля попадают только вместе с заказом, который он сам
-   * отправил. Через неделю запись протухает.
+   * отправил. Через неделю запись протухает и при следующем открытии оформления
+   * удаляется из браузера.
    *
    * Значения возвращаются событием `change`, а не присваиванием: по нему
    * телефон переформатирует себя и поднимает флаг страны, а адрес пересчитывает
@@ -322,34 +323,64 @@
   var FORM_KEY = 'checkout_v1';
   var FORM_TTL = 7 * 24 * 60 * 60 * 1000;
   var FORM_FIELDS = ['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'];
+  var FORM_LIMITS = { 'co-first-name': 60, 'co-last-name': 60, 'co-phone': 24, 'co-contact': 120, 'co-address': 400 };
+  function rememberCheckout() {
+    var data = { at: Date.now() };
+    var found = false;
+    FORM_FIELDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      found = true;
+      data[id] = cleanText(el.value, FORM_LIMITS[id] || 400);
+    });
+    // После успешного оформления разметка формы уже снята. Не затираем в этот
+    // момент сохранённые поля одной пустой отметкой времени.
+    if (!found) return;
+    try { localStorage.setItem(FORM_KEY, JSON.stringify(data)); } catch (e) {}
+  }
   function initCheckoutMemory() {
+    var raw = null;
     var saved = null;
-    try { saved = JSON.parse(localStorage.getItem(FORM_KEY) || 'null'); } catch (e) {}
-    if (saved && typeof saved === 'object' && Date.now() - Number(saved.at || 0) < FORM_TTL) {
+    try { raw = localStorage.getItem(FORM_KEY); } catch (e) {}
+    if (raw !== null) {
+      try { saved = JSON.parse(raw); } catch (e) {}
+    }
+    var now = Date.now();
+    var at = saved && typeof saved.at === 'number' ? saved.at : NaN;
+    var age = now - at;
+    var fieldsValid = !!saved && FORM_FIELDS.every(function (id) {
+      return saved[id] === undefined || typeof saved[id] === 'string';
+    });
+    var fresh = !!saved && typeof saved === 'object' && !Array.isArray(saved)
+      && fieldsValid && isFinite(at) && at > 0 && age >= 0 && age < FORM_TTL;
+    // Битая, просроченная или датированная будущим запись не должна оставлять
+    // имя, телефон и адрес в браузере навсегда.
+    if (raw !== null && !fresh) {
+      try { localStorage.removeItem(FORM_KEY); } catch (e) {}
+    }
+    if (fresh) {
       FORM_FIELDS.forEach(function (id) {
         var el = document.getElementById(id);
-        var value = cleanText(saved[id], 400);
+        // JSON с объектом/массивом вместо строки — битая запись, а не имя
+        // «[object Object]». Не восстанавливаем и минимизируем каждое поле до
+        // того же maxlength, который видит покупатель.
+        var value = typeof saved[id] === 'string'
+          ? cleanText(saved[id], FORM_LIMITS[id] || 400) : '';
         // Уже набранное не трогаем: своё всегда важнее запомненного.
         if (!el || !value || el.value) return;
         el.value = value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
       });
     }
-    function remember() {
-      var data = { at: Date.now() };
-      FORM_FIELDS.forEach(function (id) {
-        var el = document.getElementById(id);
-        if (el) data[id] = cleanText(el.value, 400);
-      });
-      try { localStorage.setItem(FORM_KEY, JSON.stringify(data)); } catch (e) {}
-    }
     // На `change`, то есть при уходе из поля, а не на каждую букву: запись в
     // localStorage синхронная, и делать её на каждый набранный символ адреса
-    // незачем.
+    // незачем. Перед отправкой и уходом со страницы сохраняем ещё раз: активное
+    // поле и автозаполнение браузера могли не успеть дать `change`.
     FORM_FIELDS.forEach(function (id) {
       var el = document.getElementById(id);
-      if (el) el.addEventListener('change', remember);
+      if (el) el.addEventListener('change', rememberCheckout);
     });
+    window.addEventListener('pagehide', rememberCheckout);
   }
 
   function initAddressQuote() {
@@ -2276,6 +2307,9 @@
   }
 
   function submitOrder(btn) {
+    // В активном поле `change` мог ещё не случиться (Enter, автозаполнение), а
+    // после ответа страница уйдёт на оплату. Снимаем полный снимок прямо сейчас.
+    rememberCheckout();
     var msg = document.getElementById('order-msg');
     var val = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
     // Те же требования, что и на сервере, — просто без ожидания ответа. Сервер

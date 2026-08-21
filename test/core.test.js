@@ -2430,10 +2430,15 @@ test('строка заказа: свой столбец у каждого во�
     // Свёртки «Откуда зашёл» больше нет: строка значков и есть ссылка в метрику,
     // а IP с провайдером лежат там же, в карточке посетителя.
     assert.doesNotMatch(html, /Откуда зашёл|o-tech/, name);
-    // Удаление доступно только в режиме правки, но сама форма в разметке есть.
+    // Финансовая история неизменяема: у оплаченного заказа вместо удаления замок.
     assert.match(html, /id="orders-edit" class="edit-switch/, name);
-    assert.match(html, /orders\/o1\/delete/, name);
+    assert.match(html, /aria-label="Удаление запрещено"/, name);
+    assert.doesNotMatch(html, /orders\/o1\/delete/, name);
   }
+  const unpaid = Object.assign({}, long, { payment: null });
+  const unpaidDb = Object.assign({}, db, { getOrders: () => [unpaid], visibleOrders: () => [unpaid] });
+  assert.match(adminViews.ordersList(SETTINGS, unpaidDb, null, 1), /orders\/o1\/delete/,
+    'заявку без платёжной истории по-прежнему можно удалить');
 
   // Раскрывать нечего — стрелки нет: у заявки без адреса и техники она открывала
   // бы пустоту.
@@ -2823,7 +2828,8 @@ test('отказ кассы объяснён покупателю, а «нет �
   // Маршрут берёт текст оттуда же: разбор чужих ответов живёт рядом с остальным
   // знанием об их API, а не размазан по server.js.
   const start = server.slice(server.indexOf("app.post('/api/pay/crocopay/start'"), server.indexOf("app.get('/api/pay/crocopay/status'"));
-  assert.match(start, /CROCO\.startError\(r\.error\)/);
+  assert.match(start, /const code = CROCO\.startErrorCode\(r\.error\)/);
+  assert.match(start, /error: CROCO\.startError\(code\)/);
   // Заказ при отказе кассы остаётся настоящим — иначе покупатель оформит второй.
   assert.match(start, /placed: true/);
   // В логе — способ и сумма: по одной строке «Requisites not found» не понять,
@@ -2940,7 +2946,13 @@ test('неоплаченный счёт напоминает о себе на в
   assert.match(appJs, /if \(!box \|\| payRemindDead\(\)\) return ''/);
   const live = { status: 'pending', invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 60000 };
   assert.equal(render.payLive(live), true);
+  assert.equal(render.payReplaceInvoice(live, true), 'inv');
+  assert.equal(render.payReplaceInvoice(live, false), '', 'обычная страница не разрешает замену');
+  assert.notEqual(render.payReplaceInvoice(Object.assign({}, live, { invoiceId: 'new-inv' }), true), 'inv',
+    'разрешение старой вкладки не совпадает с уже новым invoice');
   assert.equal(render.payLive(Object.assign({}, live, { expiresAt: Date.now() - 1 })), false, 'у сгоревшего счёта реквизиты уже чужие');
+  assert.equal(render.payLive(Object.assign({}, live, { expiresAt: 0, startedAt: Date.now() })), false,
+    'без подтверждённого срока реквизиты не показываем по угаданному TTL');
   assert.equal(render.payLive(Object.assign({}, live, { invoiceId: '', requisite: '' })), false, 'счёт так и не выставили');
   assert.equal(render.payLive(Object.assign({}, live, { status: 'paid' })), false);
   assert.equal(render.payLive(null), false);
@@ -2968,23 +2980,64 @@ test('неоплаченный счёт напоминает о себе на в
   assert.match(css, /\.pay-remind-go-short\{display:inline\}/);
 });
 
-test('единицы суммы вебхука угадываются, а недоплата не проходит ни в каких', () => {
+test('сумма вебхука читается строго в минимальных единицах', () => {
   const croco = require('../lib/crocopay');
-  // Ожидаем 239 990 ₽. Касса вправе прислать и рубли, и копейки — документация
-  // обещает копейки, но она же врёт про единицы счёта, так что верим обеим.
-  assert.deepEqual(croco.paidEnough(239990, 239990), { ok: true, major: 239990 });
-  assert.deepEqual(croco.paidEnough(239990, 23999000), { ok: true, major: 23999000 });
+  // Webhook документирован в минимальных единицах. Угадывать второе прочтение
+  // опасно: raw=12200 может означать 122 ₽, а не полную оплату заказа 12 200 ₽.
+  assert.deepEqual(croco.paidEnough(239990, 23999000), { ok: true, major: 239990 });
+  assert.deepEqual(croco.paidEnough(239990, 239990), { ok: false, major: 2399.9 });
+  assert.deepEqual(croco.paidEnough(12200, 12200), { ok: false, major: 122 });
   assert.equal(croco.paidEnough(100, 10000).ok, true, 'копейки распознаются');
-  assert.equal(croco.paidEnough(100, 10000).major, 10000);
-  // Переплата законна: при пересчёте по курсу сумма приходит больше рублёвой.
-  assert.equal(croco.paidEnough(1000, 1200).ok, true);
-  // Недоплата мала сразу в обоих прочтениях, поэтому ложного «оплачено» нет.
-  assert.equal(croco.paidEnough(239990, 1000).ok, false);
-  assert.equal(croco.paidEnough(239990, 239989).ok, false);
-  assert.equal(croco.paidEnough(100, 99).ok, false);
+  assert.equal(croco.paidEnough(100, 10000).major, 100);
+  // Переплата законна, но и она передаётся в минимальных единицах.
+  assert.equal(croco.paidEnough(1000, 120000).ok, true);
+  assert.equal(croco.paidEnough(239990, 23998998).ok, false, 'двух копеек недоплаты достаточно для отказа');
+  assert.equal(croco.paidEnough(100, 9998).ok, false);
   // Суммы нет вовсе — это не оплата.
   assert.deepEqual(croco.paidEnough(100, undefined), { ok: false, major: null });
   assert.deepEqual(croco.paidEnough(100, 'вообще не число'), { ok: false, major: null });
+});
+
+test('сверка счёта принимает только совпавшие id, валюту, сумму и способ', () => {
+  const croco = require('../lib/crocopay');
+  const expected = {
+    invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc',
+    currency: 'RUB', amount: 12200, method: 'TO_CARD'
+  };
+  const actual = {
+    id: expected.invoiceId, currency: 'RUB', amount: 12200, method: 'TO_CARD'
+  };
+
+  assert.deepEqual(croco.matchesInvoice(expected, actual), { ok: true });
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' })),
+    { ok: false, reason: 'invoice_id' });
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { currency: 'USD' })),
+    { ok: false, reason: 'currency' });
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { amount: 122 })),
+    { ok: false, reason: 'amount' }, 'один процент суммы не становится полной оплатой');
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { amount: 12200.02 })),
+    { ok: false, reason: 'amount' });
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { amount: 12199.99 })),
+    { ok: false, reason: 'amount' }, 'даже одна копейка недоплаты не является точным совпадением');
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { method: 'TO_CARD_TRANSGRAN' })),
+    { ok: false, reason: 'method' });
+  // GET старых счетов может не содержать способ; остальные три поля всё равно
+  // обязаны совпасть, а при наличии способа подмена запрещена.
+  assert.deepEqual(croco.matchesInvoice(expected, Object.assign({}, actual, { method: '' })), { ok: true });
+  assert.deepEqual(croco.matchesInvoice(Object.assign({}, expected, { actualMethod: 'TO_CARD_TRANSGRAN' }),
+    Object.assign({}, actual, { method: '' })), { ok: false, reason: 'method' },
+  'GET без paymentOption не стирает уже замеченную трансграничную подмену POST');
+  assert.deepEqual(croco.matchesInvoice(Object.assign({}, expected, { actualMethod: '' }),
+    Object.assign({}, actual, { method: '' })), { ok: false, reason: 'method' },
+  'новый POST без подтверждённого способа не принимается по такому же пустому GET');
+  assert.deepEqual(croco.matchesInvoice(Object.assign({}, expected, { actualMethod: '' }), actual),
+    { ok: true }, 'явный точный способ в GET может подтвердить неполный POST');
+  assert.deepEqual(croco.matchesInvoice(Object.assign({}, expected, { amount: 0 }), actual),
+    { ok: false, reason: 'amount' });
+  assert.equal(croco.sameStartRequest(expected, actual), true);
+  assert.equal(croco.sameStartRequest(expected, Object.assign({}, actual, { method: 'SBP' })), false);
+  assert.equal(croco.sameStartRequest(expected, Object.assign({}, actual, { currency: 'USD' })), false);
+  assert.equal(croco.sameStartRequest(expected, Object.assign({}, actual, { amount: 12200.01 })), false);
 });
 
 test('статусы счёта переводятся в наши состояния, а чужой id в адрес не уходит', () => {
@@ -3233,10 +3286,10 @@ test('счёт выставляется в валюте по курсу мага
   // уходил бы на другую.
   const ctx = source.slice(source.indexOf('async function payContext'), source.indexOf('// Выставить счёт по уже созданному заказу'));
   assert.match(ctx, /filter\(c => PAY\.rateOf\(rates, c\) > 0\)/);
-  assert.match(ctx, /if \(!s\.crocopayCurrencyChoice\) codes = codes\.filter\(c => c === def\)/);
+  assert.match(ctx, /if \(!s\.crocopayCurrencyChoice && codes\.length\) codes = \[codes\.includes\(def\) \? def : codes\[0\]\]/);
   // Сумма счёта — пересчитанная, а не рублёвая: иначе доллары ушли бы в кассу
   // числом рублей.
-  assert.match(source, /amount: ctx\.amount,\s*\n\s*currency: ctx\.currency/);
+  assert.match(source, /amount: ctx\.amount, currency: ctx\.currency, method, callbackUrl/);
   assert.match(source, /method, amount: ctx\.amount, currency: ctx\.currency/);
 
   // Проверка курса идёт ДО записи настроек — то же правило, что у всей формы.
@@ -3252,6 +3305,14 @@ test('счёт выставляется в валюте по курсу мага
   assert.match(invoice, /Сумма перевода<\/span><b>756,91 \$<\/b>/);
   // Разряды в toLocaleString('ru-RU') разделяет неразрывный пробел — отсюда \s.
   assert.match(invoice, /Заказ на 68\s500\s₽ — счёт выставлен в валюте Доллар США/);
+
+  // После оплаты счёт уже не live, но его историческую валюту нельзя заменять
+  // текущим выбором страницы или новым курсом.
+  const paid = render.payPage(ss, Object.assign({}, order, {
+    payment: Object.assign({}, order.payment, { status: 'paid' })
+  }), { origin: '', methods: [], currencies: ['RUB'], currency: 'RUB', amount: 68500 });
+  assert.match(paid, /Касса подтвердила перевод на 756,91 \$/);
+  assert.doesNotMatch(paid, /Касса подтвердила перевод на 68\s500\s₽/);
 
   // Выбор валюты — ссылки с суммой у каждой: выбирают, уже видя, сколько
   // переводить. Одна валюта — выбора нет вовсе.
@@ -3370,7 +3431,7 @@ test('оформление с онлайн-оплатой не чистит ко
   assert.match(start, /grown\.promoted[\s\S]{0,160}notifyNewOrder\(grown\.order\)/);
   // Черновик — только когда есть что выбирать. Без онлайн-оплаты заявка
   // настоящая сразу, как и была.
-  assert.match(source, /const draft = CROCO\.enabled\(settings\(\)\)/);
+  assert.match(source, /const draft = CROCO\.enabled\(s\)/);
   assert.match(source, /if \(!draft\) metrics\.markOrder/);
 });
 
@@ -3393,6 +3454,151 @@ test('оформление помнит введённое — после неу
   assert.doesNotMatch(js, /dispatchEvent\(new Event\('input'/);
   // Уже набранное не трогаем: своё важнее запомненного.
   assert.match(js, /if \(!el \|\| !value \|\| el\.value\) return/);
+
+  // Исполняем ровно функции из browser-файла на фейковом DOM/localStorage:
+  // regex по исходнику не поймал бы неверный TTL или удаление не того ключа.
+  const from = js.indexOf("var FORM_KEY = 'checkout_v1';");
+  const to = js.indexOf('function initAddressQuote()', from);
+  assert.ok(from > -1 && to > from, 'блок памяти оформления найден');
+  const factory = new Function('document', 'localStorage', 'window', 'Event', 'cleanText',
+    js.slice(from, to) + '\nreturn { rememberCheckout, initCheckoutMemory };');
+  function harness(initial, preset, broken) {
+    const values = new Map(Object.entries(initial || {}));
+    const events = [];
+    const fields = {};
+    for (const id of ['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address']) {
+      fields[id] = {
+        value: (preset && preset[id]) || '', listeners: {},
+        addEventListener(type, fn) { this.listeners[type] = fn; },
+        dispatchEvent(event) { events.push([id, event.type]); }
+      };
+    }
+    const storage = broken ? {
+      getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); }
+    } : {
+      getItem(key) { return values.has(key) ? values.get(key) : null; },
+      setItem(key, value) { values.set(key, String(value)); },
+      removeItem(key) { values.delete(key); }
+    };
+    const page = { listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } };
+    const api = factory({ getElementById: id => fields[id] || null }, storage, page,
+      class FakeEvent { constructor(type) { this.type = type; } },
+      (value, max) => String(value == null ? '' : value).trim().slice(0, max));
+    return { api, fields, events, values, page };
+  }
+
+  const fresh = harness({ checkout_v1: JSON.stringify({
+    at: Date.now(), 'co-first-name': ' Иван ', 'co-last-name': 'Из памяти',
+    'co-phone': '+79990000000', 'co-contact': '', 'co-address': 'Москва, Тверская, 1'
+  }) }, { 'co-last-name': 'Уже введено' });
+  fresh.api.initCheckoutMemory();
+  assert.equal(fresh.fields['co-first-name'].value, 'Иван');
+  assert.equal(fresh.fields['co-last-name'].value, 'Уже введено', 'своё значение не перезаписано');
+  assert.ok(fresh.events.some(([id, type]) => id === 'co-first-name' && type === 'change'));
+  fresh.fields['co-phone'].value = '+79991112233';
+  fresh.page.listeners.pagehide();
+  assert.equal(JSON.parse(fresh.values.get('checkout_v1'))['co-phone'], '+79991112233',
+    'активное поле сохраняется при уходе со страницы');
+
+  const stale = harness({ checkout_v1: JSON.stringify({
+    at: Date.now() - 8 * 24 * 60 * 60 * 1000, 'co-first-name': 'Старое'
+  }) });
+  stale.api.initCheckoutMemory();
+  assert.equal(stale.values.has('checkout_v1'), false, 'просроченные персональные данные удалены');
+  const malformed = harness({ checkout_v1: JSON.stringify({ at: Date.now() + 60000, 'co-first-name': {} }) });
+  malformed.api.initCheckoutMemory();
+  assert.equal(malformed.values.has('checkout_v1'), false, 'будущая/битая запись удалена');
+  const blocked = harness({}, {}, true);
+  assert.doesNotThrow(() => blocked.api.initCheckoutMemory(), 'запрет localStorage не ломает оформление');
+  assert.doesNotThrow(() => blocked.page.listeners.pagehide());
+  const submit = js.slice(js.indexOf('function submitOrder(btn)'), js.indexOf('function initCheckout()', js.indexOf('function submitOrder(btn)')));
+  const rememberAt = submit.indexOf('rememberCheckout()');
+  const readFieldsAt = submit.indexOf("document.getElementById(id)");
+  assert.ok(rememberAt > -1 && readFieldsAt > rememberAt,
+    'активное поле сохраняется непосредственно перед чтением/submit');
+});
+
+test('повтор оформления возвращает тот же свой неоплаченный заказ, а не создаёт дубль', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const from = source.indexOf('const ORDER_REUSE_TTL');
+  const to = source.indexOf("app.post('/api/order'", from);
+  assert.ok(from > -1 && to > from, 'reusableOrder найден');
+  const orders = new Map();
+  const reusableOrder = new Function('db', source.slice(from, to) + '\nreturn reusableOrder;')({
+    getOrder: id => orders.get(id) || null
+  });
+  const base = {
+    items: [
+      { id: 'phone', name: 'iPhone', price: 60000, qty: 1 },
+      { id: 'case', name: 'Чехол', price: 2000, qty: 1 }
+    ],
+    total: 62500, itemsTotal: 62000, firstName: 'Иван', lastName: 'Петров',
+    phone: '+79990000000', contact: '@ivan', address: 'Москва, Тверская, 1',
+    delivery: 'cdek', deliveryMode: 'pickup', deliveryPrice: 500,
+    deliveryZone: 'center', pickupCode: 'MSK1', pickupAddress: 'Тверская, 2', comment: 'Позвонить'
+  };
+  const order = Object.assign({ id: 'mine', status: 'new', draft: true, createdAt: Date.now() }, base, {
+    items: base.items.slice().reverse()
+  });
+  orders.set(order.id, order);
+  const req = { session: { myOrders: [order.id] } };
+  assert.equal(reusableOrder(req, base), order, 'порядок одинаковых позиций не создаёт дубль');
+  assert.equal(reusableOrder(req, Object.assign({}, base, { comment: 'Без звонка' })), null,
+    'изменённый значимый параметр — новый заказ');
+  order.draft = false;
+  order.payment = { status: 'pending' };
+  assert.equal(reusableOrder(req, base), order, 'повтор оплаты существующего заказа переиспользуется');
+  order.payment.status = 'paid';
+  assert.equal(reusableOrder(req, base), null, 'оплаченный заказ не оживает');
+  order.payment.status = 'pending';
+  order.status = 'done';
+  assert.equal(reusableOrder(req, base), null, 'выполненный заказ не оживает');
+  order.status = 'new';
+  order.createdAt = Date.now() + 1000;
+  assert.equal(reusableOrder(req, base), null, 'запись из будущего не переиспользуется');
+  assert.equal(reusableOrder({ session: { myOrders: [] } }, base), null, 'чужая сессия заказ не видит');
+});
+
+test('идентификатор запроса кассы хранится отдельно по способу и удаляется адресно', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  const from = js.indexOf('var REQUEST_TTL');
+  const to = js.indexOf('function startPayment', from);
+  assert.ok(from > -1 && to > from, 'блок browser-idempotency найден');
+  const factory = new Function('orderId', 'currency', 'window', 'localStorage', 'setTimeout',
+    js.slice(from, to) + '\nreturn { requestKey, paymentRequestId, clearPaymentRequest };');
+  function storage(initial) {
+    const values = new Map(Object.entries(initial || {}));
+    return {
+      values,
+      get length() { return values.size; },
+      key(i) { return Array.from(values.keys())[i] || null; },
+      getItem(key) { return values.has(key) ? values.get(key) : null; },
+      setItem(key, value) { values.set(key, String(value)); },
+      removeItem(key) { values.delete(key); }
+    };
+  }
+  let seed = 1;
+  const browser = { crypto: { getRandomValues(bytes) {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = (seed++ % 255) || 1;
+  } } };
+  const local = storage();
+  const api = factory('order-1', 'RUB', browser, local, () => 1);
+  const card1 = api.paymentRequestId('TO_CARD');
+  assert.equal(api.paymentRequestId('TO_CARD'), card1, 'потерянный ответ повторяет тот же requestId');
+  const sbp = api.paymentRequestId('SBP');
+  assert.notEqual(sbp, card1, 'другой способ не перезаписывает ключ карты');
+  const cardKey = api.requestKey('TO_CARD');
+  local.setItem(cardKey, JSON.stringify({ id: 'f'.repeat(32), method: 'TO_CARD', currency: 'RUB', at: Date.now() }));
+  api.clearPaymentRequest(cardKey, card1);
+  assert.equal(JSON.parse(local.getItem(cardKey)).id, 'f'.repeat(32),
+    'ответ старой вкладки не удаляет более новый requestId');
+
+  const staleKey = 'pay_request_v1:order-2:RUB:TO_CARD';
+  const stale = storage({ [staleKey]: JSON.stringify({
+    id: 'a'.repeat(32), method: 'TO_CARD', currency: 'RUB', at: Date.now() - 6 * 60 * 1000
+  }) });
+  factory('order-2', 'RUB', browser, stale, () => 1);
+  assert.equal(stale.getItem(staleKey), null, 'просроченный технический ключ удаляется при открытии');
 });
 
 test('номера заказов случайные, не маленькие и не повторяются', () => {
@@ -3440,24 +3646,33 @@ test('номер заказа везде пишется как «Заказ №�
   assert.doesNotMatch(js, /<span>Номер заказа<\/span>/);
 });
 
-test('оплата живёт отдельным полем и закрывается один раз', () => {
+test('оплата хранит отдельные попытки и закрывается идемпотентно', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-pay-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
   const order = fresh.createOrder({ items: [{ id: 'p1', name: 'Товар', price: 100, qty: 1 }], total: 100, contact: 'tg' });
   assert.equal(order.payment, null, 'заказ без оплаты читается как «не запускалась»');
   assert.equal(order.status, 'new');
 
-  const token = 'a'.repeat(32);
-  const started = fresh.startOrderPayment(order.id, { provider: 'crocopay', token, method: 'SBP', amount: 10000, currency: 'RUB' });
+  const firstId = '1'.repeat(24);
+  const firstRequest = 'a'.repeat(32);
+  const firstToken = 'b'.repeat(32);
+  const started = fresh.startOrderPayment(order.id, {
+    provider: 'crocopay', attemptId: firstId, requestId: firstRequest,
+    token: firstToken, method: 'SBP', amount: 10000, currency: 'RUB'
+  });
   assert.equal(started.payment.status, 'pending');
-  assert.equal(started.payment.token, token);
+  assert.equal(started.payment.attemptId, firstId);
+  assert.equal(started.payment.token, firstToken);
   assert.equal(started.payment.amount, 10000);
   assert.equal(started.payment.method, 'SBP');
+  assert.equal(started.payment.attempts.length, 1);
   assert.equal(started.status, 'new', 'статус заказа оплата не подменяет');
 
   // Реквизиты приезжают отдельным шагом: token нужен ДО создания счёта (он
   // уходит в callback_url), а id счёта появляется только в ответе кассы.
   fresh.attachOrderInvoice(order.id, {
+    attemptId: firstId,
     invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc', requisite: '4276 1234 5678 9012',
     bank: 'Сбербанк', owner: 'IVAN PETROV', method: 'TO_CARD', expiresAt: 1893456000000
   });
@@ -3466,83 +3681,253 @@ test('оплата живёт отдельным полем и закрывае�
   assert.equal(withInvoice.requisite, '4276 1234 5678 9012');
   assert.equal(withInvoice.expiresAt, 1893456000000);
 
-  // Token — один на ЗАКАЗ, а не на счёт: покупатель вправе сменить способ, и по
-  // прежнему счёту вебхук придёт с прежним токеном. Перевыпуск отверг бы такой
-  // вебхук, то есть потерял бы реально прошедший платёж.
-  const second = fresh.startOrderPayment(order.id, { token: 'b'.repeat(32), method: 'SBP', amount: 10000 });
-  assert.equal(second.payment.token, token, 'токен заказа не перевыпускается');
+  // Каждая попытка адресуется своим id/token/requestId. Старый token остаётся в
+  // истории: поздний webhook найдёт именно старый счёт, не новую сумму.
+  const secondId = '2'.repeat(24);
+  const secondRequest = 'c'.repeat(32);
+  const secondToken = 'd'.repeat(32);
+  const second = fresh.startOrderPayment(order.id, {
+    attemptId: secondId, requestId: secondRequest, token: secondToken,
+    method: 'SBP', amount: 10000, currency: 'RUB'
+  });
+  assert.equal(second.payment.attemptId, secondId);
+  assert.equal(second.payment.token, secondToken);
   assert.equal(second.payment.invoiceId, '', 'новый счёт начинается с чистых реквизитов');
-  fresh.attachOrderInvoice(order.id, { invoiceId: 'bbbbbbbb-0000-0000-0000-000000000000', requisite: '+79001234567', method: 'SBP' });
+  assert.equal(second.payment.attempts.length, 2);
+  const old = fresh.findPaymentAttempt(second, { attemptId: firstId });
+  assert.equal(old.token, firstToken);
+  assert.equal(old.invoiceId, '911c2823-f55b-43b5-9881-d5653107f7dc');
+
+  // Повтор потерянного HTTP-ответа с тем же requestId не создаёт третий счёт.
+  const retried = fresh.startOrderPayment(order.id, {
+    attemptId: '3'.repeat(24), requestId: secondRequest, token: 'e'.repeat(32), method: 'SBP', amount: 10000
+  });
+  assert.equal(retried.payment.attempts.length, 2);
+  assert.equal(fresh.findPaymentAttempt(retried, { requestId: secondRequest }).id, secondId);
+
+  fresh.attachOrderInvoice(order.id, {
+    attemptId: secondId, invoiceId: 'bbbbbbbb-0000-0000-0000-000000000000',
+    requisite: '+79001234567', method: 'SBP'
+  });
 
   // 'pending' закрытием не бывает, иначе вебхук мог бы «разоплатить» заказ.
-  assert.equal(fresh.settleOrderPayment(order.id, { status: 'pending' }), null);
+  assert.equal(fresh.settleOrderPayment(order.id, { attemptId: secondId, status: 'pending' }), null);
   assert.equal(fresh.settleOrderPayment(order.id, { status: 'выдумка' }), null);
   assert.equal(fresh.settleOrderPayment('чужой-id', { status: 'paid' }), null);
 
-  const first = fresh.settleOrderPayment(order.id, { status: 'paid', total: 10000 });
-  assert.equal(first.changed, true);
-  assert.equal(first.order.payment.status, 'paid');
+  const paid = fresh.settleOrderPayment(order.id, {
+    attemptId: secondId, invoiceId: 'bbbbbbbb-0000-0000-0000-000000000000', status: 'paid', total: 10000
+  });
+  assert.equal(paid.changed, true);
+  assert.equal(paid.order.payment.status, 'paid');
   // Платёжка вправе повторить вызов, да и опрос статуса идёт каждые несколько
   // секунд — второй раз менеджера дёргать нельзя.
-  assert.equal(fresh.settleOrderPayment(order.id, { status: 'paid', total: 10000 }).changed, false);
+  assert.equal(fresh.settleOrderPayment(order.id, {
+    attemptId: secondId, invoiceId: 'bbbbbbbb-0000-0000-0000-000000000000', status: 'paid', total: 10000
+  }).changed, false);
   // Оплаченный заказ новым счётом не сбрасывается.
-  assert.equal(fresh.startOrderPayment(order.id, { token: 'c'.repeat(32) }).payment.token, token);
+  assert.equal(fresh.startOrderPayment(order.id, { token: 'f'.repeat(32) }).payment.token, secondToken);
   assert.equal(fresh.getOrder(order.id).payment.status, 'paid');
-  assert.equal(fresh.attachOrderInvoice(order.id, { invoiceId: 'ffffffff-0000-0000-0000-000000000000' }).payment.invoiceId,
-    'bbbbbbbb-0000-0000-0000-000000000000', 'реквизиты поверх оплаченного заказа не пишем');
+  assert.equal(fresh.attachOrderInvoice(order.id, {
+    attemptId: 'f'.repeat(24), invoiceId: 'ffffffff-0000-0000-0000-000000000000'
+  }), null, 'неизвестная попытка не превращается в активную');
+  assert.equal(fresh.getOrder(order.id).payment.invoiceId,
+    'bbbbbbbb-0000-0000-0000-000000000000', 'чужие реквизиты поверх оплаченного заказа не пишем');
+  assert.equal(fresh.deleteOrder(order.id), false, 'финансовую историю нельзя удалить из панели');
+  assert.equal(fresh.getOrder(order.id).payment.status, 'paid');
+  const disposable = fresh.createOrder({ items: [], total: 1, contact: 'tg' });
+  assert.equal(fresh.deleteOrder(disposable.id), true, 'обычная заявка без кассы удаляется');
+  assert.equal(fresh.getOrder(disposable.id), null);
 
-  // Липким сделано только 'paid'. Из 'expired' в 'paid' дорасти можно и нужно:
-  // вебхук об успехе вполне приходит после того, как опрос увидел истёкший счёт.
+  // Из 'expired' в 'paid' дорасти можно и нужно: webhook об успехе вполне
+  // приходит после того, как опрос увидел истёкший счёт.
   const other = fresh.createOrder({ items: [], total: 50, contact: 'tg' });
-  fresh.startOrderPayment(other.id, { token: 'd'.repeat(32), amount: 5000, currency: 'RUB' });
-  assert.equal(fresh.settleOrderPayment(other.id, { status: 'expired' }).changed, true);
-  assert.equal(fresh.settleOrderPayment(other.id, { status: 'expired' }).changed, false, 'то же состояние — не изменение');
-  assert.equal(fresh.settleOrderPayment(other.id, { status: 'paid', total: 5000 }).changed, true);
+  const otherId = '4'.repeat(24);
+  fresh.startOrderPayment(other.id, { attemptId: otherId, token: '5'.repeat(32), amount: 5000, currency: 'RUB' });
+  assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, true);
+  assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, false, 'то же состояние — не изменение');
+  assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'paid', total: 5000 }).changed, true);
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
-  assert.equal(fresh.settleOrderPayment(other.id, { status: 'expired' }).changed, false, 'оплаченное не истекает');
+  assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, false, 'оплаченное не истекает');
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
-  fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('вебхук оплаты сверяет token заказа до записи и отвечает 403', () => {
+test('поздние ответы старого счёта не перезаписывают новую попытку', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-pay-race-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  const order = fresh.createOrder({ items: [], total: 12200, contact: 'tg' });
+  const oldId = '6'.repeat(24);
+  const newId = '7'.repeat(24);
+  const oldInvoice = 'aaaaaaaa-0000-0000-0000-000000000000';
+  const newInvoice = 'bbbbbbbb-0000-0000-0000-000000000000';
+
+  fresh.startOrderPayment(order.id, {
+    attemptId: oldId, requestId: '6'.repeat(32), token: 'a'.repeat(32),
+    method: 'TO_CARD', amount: 12200, currency: 'RUB'
+  });
+  fresh.attachOrderInvoice(order.id, {
+    attemptId: oldId, invoiceId: oldInvoice, requisite: '4276 0000 0000 0001',
+    method: 'TO_CARD', expiresAt: 1000
+  });
+  fresh.startOrderPayment(order.id, {
+    attemptId: newId, requestId: '7'.repeat(32), token: 'b'.repeat(32),
+    method: 'SBP', amount: 12200, currency: 'RUB'
+  });
+  fresh.attachOrderInvoice(order.id, {
+    attemptId: newId, invoiceId: newInvoice, requisite: '+79000000002',
+    method: 'SBP', expiresAt: 2000
+  });
+
+  // Поздний attach/refresh старого POST меняет только его строку истории.
+  fresh.attachOrderInvoice(order.id, {
+    attemptId: oldId, invoiceId: oldInvoice, requisite: '4276 0000 0000 0009',
+    method: 'TO_CARD', expiresAt: 3000
+  });
+  let saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.attemptId, newId);
+  assert.equal(saved.payment.invoiceId, newInvoice);
+  assert.equal(saved.payment.requisite, '+79000000002');
+  assert.equal(fresh.findPaymentAttempt(saved, { attemptId: oldId }).requisite, '4276 0000 0000 0009');
+  assert.equal(fresh.attachOrderInvoice(order.id, {
+    attemptId: oldId, invoiceId: newInvoice, requisite: 'чужой реквизит'
+  }), null, 'уже связанная попытка не перепривязывается к другому invoice');
+  assert.equal(fresh.failOrderPaymentAttempt(order.id, {
+    attemptId: oldId, errorCode: 'provider_error'
+  }), null, 'ошибка позднего POST не затирает уже выданные реквизиты');
+
+  // CAS включает и attemptId, и invoiceId: перепутанный ответ — stale/no-op.
+  assert.equal(fresh.refreshOrderPaymentAttempt(order.id, {
+    attemptId: oldId, invoiceId: newInvoice, expiresAt: 4000
+  }), null);
+  const stale = fresh.settleOrderPayment(order.id, {
+    attemptId: oldId, invoiceId: newInvoice, status: 'paid', total: 12200
+  });
+  assert.equal(stale.changed, false);
+  assert.equal(stale.stale, true);
+  saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.attemptId, newId);
+  assert.equal(saved.payment.status, 'pending');
+
+  // Истечение старого счёта не гасит новый. Но подтверждённая оплата старого
+  // счёта законна и становится липким фактом всего заказа.
+  assert.equal(fresh.settleOrderPayment(order.id, {
+    attemptId: oldId, invoiceId: oldInvoice, status: 'expired'
+  }).changed, true);
+  saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.attemptId, newId);
+  assert.equal(saved.payment.status, 'pending');
+  assert.equal(fresh.findPaymentAttempt(saved, { attemptId: oldId }).status, 'expired');
+
+  assert.equal(fresh.settleOrderPayment(order.id, {
+    attemptId: oldId, invoiceId: oldInvoice, status: 'paid', total: 12200
+  }).changed, true);
+  saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.attemptId, oldId);
+  assert.equal(saved.payment.invoiceId, oldInvoice);
+  assert.equal(saved.payment.status, 'paid');
+  assert.equal(fresh.settleOrderPayment(order.id, {
+    attemptId: newId, invoiceId: newInvoice, status: 'expired'
+  }).changed, true, 'истёкшую попытку закрываем в истории, чтобы фон больше её не опрашивал');
+  saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.status, 'paid', 'агрегат заказа остаётся оплаченным');
+  assert.equal(saved.payment.attemptId, oldId);
+  assert.equal(fresh.findPaymentAttempt(saved, { attemptId: newId }).status, 'expired');
+
+  const mismatchOrder = fresh.createOrder({ items: [], total: 12200, contact: 'tg' });
+  const mismatchId = '8'.repeat(24);
+  fresh.startOrderPayment(mismatchOrder.id, {
+    attemptId: mismatchId, requestId: '8'.repeat(32), token: 'c'.repeat(32),
+    method: 'TO_CARD', amount: 12200, currency: 'RUB'
+  });
+  assert.equal(fresh.settleOrderPayment(mismatchOrder.id, {
+    attemptId: mismatchId, status: 'mismatch', total: 122
+  }).changed, true);
+  assert.equal(fresh.settleOrderPayment(mismatchOrder.id, {
+    attemptId: mismatchId, status: 'expired'
+  }).changed, false, 'после возможного прихода денег Expired не предлагает заплатить повторно');
+  assert.equal(fresh.getOrder(mismatchOrder.id).payment.status, 'mismatch');
+  assert.equal(fresh.settleOrderPayment(mismatchOrder.id, {
+    attemptId: mismatchId, status: 'paid', total: 12200
+  }).changed, true, 'исправленная точная сверка доращивает mismatch до paid');
+});
+
+test('вебхук сверяет token попытки и подтверждает оплату только через центральную сверку', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const route = source.slice(source.indexOf("app.post('/api/pay/crocopay/callback'"), source.indexOf('/ОПЛАТА: CrocoPAY'));
+  const reconcile = source.slice(source.indexOf('async function reconcilePaymentAttempt'), source.indexOf('async function livePayMethods'));
   assert.ok(route.length > 200, 'маршрут вебхука не найден');
-  // Подпись покрывает только суммы и время, но не заказ, поэтому одной её мало:
-  // какой это заказ, решает token в адресе callback.
+  // Подпись сама не адресует нашу попытку: какой это счёт, решают attemptId и
+  // отдельный token в callback_url.
   assert.match(route, /timingSafeEqual/);
   assert.match(route, /CROCO\.verify\(secret, req\.body, req\.rawBody\)/);
   assert.match(route, /403/);
-  assert.ok(route.indexOf('!tokenOk') < route.indexOf('db.settleOrderPayment'), 'проверка обязана идти до записи');
-  // Меньше ожидаемого — не «оплачено». Больше бывает законно: при пересчёте по
-  // курсу сумма приходит в валюте плательщика. Единицы вебхука неизвестны,
-  // поэтому сверку делает CROCO.paidEnough, принимающий оба прочтения.
-  assert.match(route, /CROCO\.paidEnough\(expected, raw\)/);
-  assert.match(route, /check\.ok \? 'paid' : 'mismatch'/);
-  // Уведомляем только на реальное изменение — вебхук повторяется.
-  assert.match(route, /if \(result\.changed\)/);
+  assert.match(route, /db\.findPaymentAttempt\(order, \{ attemptId \}\)/);
+  assert.ok(route.indexOf('!tokenOk') < route.indexOf('reconcilePaymentAttempt'), 'проверка обязана идти до сверки');
+
+  // Webhook — только сигнал. Сумме и invoice id из его тела не доверяем: GET
+  // конкретного счёта проходит одну и ту же проверку для webhook, polling и sweep.
+  assert.doesNotMatch(route, /paidEnough|req\.body\.(amount|sum|invoice)/);
+  assert.match(reconcile, /const r = await CROCO\.invoice\(s, invoiceId\)/);
+  assert.match(reconcile, /CROCO\.matchesInvoice\(attempt, r\.invoice\)/);
+  assert.match(reconcile, /attemptId: attempt\.id, invoiceId, status: state/);
+  assert.match(reconcile, /if \(result && result\.changed\) notifyPayment/);
+  const identityGuard = reconcile.indexOf("if (match.reason === 'invoice_id')");
+  const terminalClose = reconcile.indexOf("if (['expired', 'cancelled', 'failed'].includes(state))");
+  assert.ok(identityGuard > -1 && terminalClose > identityGuard,
+    'чужой id от GET отсекается до закрытия нашей попытки terminal-статусом');
+  assert.match(reconcile.slice(identityGuard, terminalClose), /return \{ ok: false, error: 'invoice_id_mismatch' \}/);
 
   const start = source.slice(source.indexOf("app.post('/api/pay/crocopay/start'"), source.indexOf("app.get('/api/pay/crocopay/status'"));
   // Платить можно только за свой заказ: id лежит в подписанной cookie-сессии.
   assert.match(start, /ownOrder\(req, id\)/);
   assert.match(source, /function ownOrder[\s\S]*req\.session\.myOrders/);
   assert.match(start, /CROCO\.enabled\(s\)/, 'выключенная оплата не должна ходить в платёжку');
-  // Способ проверяем по своему списку до запроса: чужое значение касса всё
-  // равно отвергнет, а поймать это дешевле у себя.
-  assert.ok(start.indexOf('PAY.isValid(method)') < start.indexOf('CROCO.createInvoice'));
-  // Токен в callback_url — из записанного платежа, а не из локальной переменной:
-  // startOrderPayment сохраняет прежний токен заказа.
-  assert.match(start, /token=' \+ started\.payment\.token/);
-  // Реквизиты записываем только после успешного ответа кассы.
+  // Способ проверяем по живому пересечению кассы и настроек до запроса.
+  assert.ok(start.indexOf('ctx.methods.some(m => m.id === method)') < start.indexOf('CROCO.createInvoice'));
+  // Callback адресует ровно созданную попытку, а не изменяемую верхушку payment.
+  assert.match(start, /'&attempt=' \+ encodeURIComponent\(attemptId\) \+ '&token=' \+ attempt\.token/);
+  // Ответ кассы записывается адресно только после её запроса.
   assert.ok(start.indexOf('CROCO.createInvoice') < start.indexOf('db.attachOrderInvoice'));
+  assert.match(start, /db\.attachOrderInvoice\(id, \{[\s\S]{0,80}attemptId/);
+  assert.match(start, /R\.payReplaceInvoice\(activeAttempt, true\) === replaceInvoiceId/,
+    'замена привязана к invoice, увиденному именно этой вкладкой');
+  assert.match(start, /terminalAfterFailure[\s\S]{0,120}status: 200/,
+    'оплатившийся во время POST старый счёт побеждает ошибку нового запроса');
+  const providerCap = start.indexOf("rateLimited(req, 'pay-provider-ip'");
+  const providerCall = start.indexOf('CROCO.createInvoice');
+  const reuseGuard = start.indexOf('if (!replace && activeAttempt && R.payLive(activeAttempt))');
+  assert.ok(reuseGuard > -1 && providerCap > reuseGuard && providerCall > providerCap,
+    'широкий лимит стоит после безопасного reuse, но до внешнего POST кассы');
+  assert.match(start, /pay-provider-global[\s\S]{0,80}'all'/,
+    'ротация cookie/IP всё равно упирается в общий бюджет процесса');
 
   // Опрос статуса — то, ради чего затевался H2H. Оплаченный заказ кассу не
-  // тревожит, а уведомление уходит только на реальное изменение.
+  // тревожит и использует ту же центральную сверку, а не свою трактовку суммы.
   const status = source.slice(source.indexOf("app.get('/api/pay/crocopay/status'"), source.indexOf("app.get('/pay/:id'"));
   assert.match(status, /ownOrder\(req, req\.query\.order\)/);
   assert.match(status, /pay\.status === 'paid'/);
-  assert.match(status, /CROCO\.invoice\(s, pay\.invoiceId\)/);
-  assert.match(status, /result\.changed.*notifyPayment/);
+  assert.match(status, /reconcilePaymentAttempt\(s, order\.id, attempt\)/);
+  assert.doesNotMatch(status, /CROCO\.invoice|settleOrderPayment/);
+  assert.match(status, /pay-status-provider-ip/);
+  assert.match(status, /pay-status-provider-global/);
+
+  const sweep = source.slice(source.indexOf('async function reconcileOpenPayments'), source.indexOf('/ОПЛАТА: CrocoPAY'));
+  assert.match(sweep, /db\.paymentAttempts\(order\)/);
+  assert.match(sweep, /reconcilePaymentAttempt\(s, orderId, attempt\)/);
+});
+
+test('terminal-состояние оплаты возвращает успех, а не ложную ошибку повторного клика', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const from = source.indexOf('function terminalPaymentBody(');
+  const to = source.indexOf('const paymentStartJobs', from);
+  assert.ok(from > -1 && to > from, 'terminalPaymentBody найден');
+  const terminalPaymentBody = new Function(source.slice(from, to) + '\nreturn terminalPaymentBody;')();
+  assert.equal(terminalPaymentBody({ id: 'o1', payment: { status: 'pending' } }), null);
+  assert.deepEqual(terminalPaymentBody({ id: 'o1', payment: { status: 'paid' } }), {
+    ok: true, placed: true, reused: true, terminal: 'paid', url: '/pay/o1'
+  });
+  assert.equal(terminalPaymentBody({ id: 'o1', payment: { status: 'mismatch' } }).terminal, 'mismatch');
 });
 
 test('витрина уводит на свою страницу оплаты только после того, как заказ записан', () => {
@@ -3697,7 +4082,7 @@ test('оплату можно выключить: витрина принима�
   // Заявка сразу настоящая: черновиком заказ становится только ради выбора
   // способа оплаты, а выбирать в этом режиме нечего.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const draft = CROCO\.enabled\(settings\(\)\);/);
+  assert.match(server, /const draft = CROCO\.enabled\(s\);/);
 });
 
 test('в настройках видно режим витрины, а касса переживает выключение целиком', () => {
@@ -4965,7 +5350,7 @@ test('состояние оплаты красит панель одним на�
   assert.doesNotMatch(adminViews.dashboard(SETTINGS, db), /<table/);
 });
 
-test('счёт создаётся в минимальных единицах, а ответ кассы разбирается целиком', async () => {
+test('счёт создаётся в основных единицах и только для подтверждённого способа', async () => {
   const croco = require('../lib/crocopay');
   const on = { crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
   const real = global.fetch;
@@ -4983,25 +5368,35 @@ test('счёт создаётся в минимальных единицах, а
     // Формат — тот, что РЕАЛЬНО отдаёт касса (проверено на боевой 17.08.2026):
     // вложенный response.transaction + paymentRequisites, camelCase, сумма
     // строкой в рублях. В документации показан плоский snake_case — он ниже.
-    stub(json({ message: 'Data successfully received', response: {
+    const providerExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const providerInvoice = paymentOption => ({ message: 'Data successfully received', response: {
       transaction: {
         id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending',
-        currency: 'RUB', amount: '67990.00000000', expiredAt: '2026-01-15T12:30:00Z'
+        currency: 'RUB', amount: '67990.00000000', expiredAt: providerExpiry
       },
       paymentRequisites: {
-        paymentOption: 'TO_CARD_TRANSGRAN', paymentMethod: 'Сбербанк',
+        paymentOption, paymentMethod: 'Сбербанк',
         card: '4276 1234 5678 9012', cardOwner: 'IVAN PETROV'
       }
-    } }));
+    } });
+
+    // Ответ TO_CARD_TRANSGRAN на запрос TO_CARD раньше показывал покупателю
+    // иностранную карту вопреки настройкам. Частичный счёт сохраняется для
+    // аудита/сверки, но реквизиты такого маршрута принимать нельзя.
+    stub(json(providerInvoice('TO_CARD_TRANSGRAN')));
+    const mismatch = await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD', callbackUrl: 'https://shop/cb?order=1&token=t' });
+    assert.equal(mismatch.ok, false);
+    assert.equal(mismatch.error, 'method_mismatch');
+    assert.equal(mismatch.invoice.method, 'TO_CARD_TRANSGRAN');
+
+    stub(json(providerInvoice('TO_CARD')));
     const ok = await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD', callbackUrl: 'https://shop/cb?order=1&token=t' });
     assert.equal(ok.ok, true);
     assert.equal(ok.invoice.requisite, '4276 1234 5678 9012');
     assert.equal(ok.invoice.owner, 'IVAN PETROV');
     assert.equal(ok.invoice.state, 'pending');
-    assert.equal(ok.invoice.expiresAt, Date.parse('2026-01-15T12:30:00Z'));
-    // Касса вправе подменить способ — записываем возвращённый, иначе подпись
-    // реквизита будет от другого способа.
-    assert.equal(ok.invoice.method, 'TO_CARD_TRANSGRAN');
+    assert.equal(ok.invoice.expiresAt, Date.parse(providerExpiry));
+    assert.equal(ok.invoice.method, 'TO_CARD');
     // Сумма уходит в ОСНОВНЫХ единицах. Документация обещает копейки и врёт:
     // с копейками счёт вышел бы в сто раз больше заказа.
     const body = JSON.parse(sent.opts.body);
@@ -5013,15 +5408,49 @@ test('счёт создаётся в минимальных единицах, а
     assert.equal(sent.opts.headers['Client-Secret'], 'secret');
     assert.match(sent.url, /\/api\/v2\/h2h\/invoices$/);
 
+    // Без подтверждённого будущего срока показывать реквизиты нельзя: после
+    // фактического expiry они могут уже принадлежать другому получателю.
+    const noExpiry = providerInvoice('TO_CARD');
+    delete noExpiry.response.transaction.expiredAt;
+    stub(json(noExpiry));
+    assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'bad_expiry');
+    const pastExpiry = providerInvoice('TO_CARD');
+    pastExpiry.response.transaction.expiredAt = new Date(Date.now() - 1000).toISOString();
+    stub(json(pastExpiry));
+    assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'bad_expiry');
+
+    // Реквизит приходит с внешней границы и для QR становится href. Неизвестную
+    // схему нельзя принимать даже из поля с ожидаемым именем.
+    const unsafe = providerInvoice('QR_NSPK');
+    unsafe.response.paymentRequisites = { paymentOption: 'QR_NSPK', qr: 'javascript:alert(1)' };
+    stub(json(unsafe));
+    const unsafeQr = await croco.createInvoice(on, { amount: 67990, method: 'QR_NSPK' });
+    assert.equal(unsafeQr.ok, false);
+    assert.equal(croco.startErrorCode(unsafeQr.error), 'no_requisite');
+
     // Касса вернула другую сумму — реквизиты показывать нельзя: покупатель
     // переведёт не столько, и платёж не сойдётся.
-    stub(json({ response: { transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', amount: '6799000.00' },
-      paymentRequisites: { card: '4276 1234 5678 9012' } } }));
+    stub(json({ response: { transaction: {
+      id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', currency: 'RUB', amount: '6799000.00',
+      expiredAt: providerExpiry
+    }, paymentRequisites: { paymentOption: 'TO_CARD', card: '4276 1234 5678 9012' } } }));
     assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'amount_mismatch');
 
     // Счёт без реквизитов бесполезен: показывать покупателю нечего.
     stub(json({ response: { transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending' }, paymentRequisites: { paymentMethod: 'Сбербанк' } } }));
     assert.equal((await croco.createInvoice(on, { amount: 1, method: 'SBP' })).error, 'no_requisite');
+
+    // На крупных чеках касса реально отвечает HTTP 200, но сообщает отказ в
+    // message без response. Это именно явный no_requisite: его можно один раз
+    // безопасно повторить, в отличие от timeout/500.
+    stub(json({ message: 'Requisites not found' }));
+    const noPool = await croco.createInvoice(on, { amount: 70700, method: 'TO_CARD' });
+    assert.equal(croco.startErrorCode(noPool.error), 'no_requisite');
+    assert.equal(croco.retryableStart(noPool), true);
+    assert.equal(croco.retryableStart({ ok: false, error: 'timeout' }), false);
+    assert.equal(croco.retryableStart({
+      ok: false, error: 'Requisites not found', invoice: { id: '911c2823-f55b-43b5-9881-d5653107f7dc' }
+    }), false, 'частичный invoice вторым POST не дублируем');
 
     // Ошибки кассы: и с полем status, и просто кодом ответа.
     stub({ ok: false, status: 422, json: async () => ({ status: 'error', message: 'payment_option TO_CARD is not enabled for currency UZS' }) });
@@ -5076,7 +5505,8 @@ test('счёт создаётся в минимальных единицах, а
     // терпимо.
     stub(json({ message: 'ok', invoice: {
       invoice_id: '911c2823-f55b-43b5-9881-d5653107f7dc', state: 'Pending',
-      account: '+7 900 123-45-67', bank: 'Т-Банк', receiver: 'IVAN PETROV', expire_at: '2026-01-15T12:30:00Z'
+      currency: 'RUB', amount: '1.00', payment_option: 'SBP',
+      account: '+7 900 123-45-67', bank: 'Т-Банк', receiver: 'IVAN PETROV', expire_at: providerExpiry
     } }));
     const alt = await croco.createInvoice(on, { amount: 1, method: 'SBP' });
     assert.equal(alt.ok, true, 'счёт с другими именами полей всё равно разбирается');
