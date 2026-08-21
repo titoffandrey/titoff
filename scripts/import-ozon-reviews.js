@@ -107,6 +107,15 @@ const COLOR_ALIASES = {
   // iPhone 17e. Розовый у него свой, «нежный», — от розового шестнадцатого он
   // отличается и названием, и оттенком.
   'soft pink': 'Нежно-розовый',
+  // MacBook Neo. Площадка описывает оттенок словами («горчичный»,
+  // «светло-розовый»), у Apple же у цветов свои имена. Все три встречаются
+  // только у этого ноутбука, поэтому другим товарам они не грозят.
+  'светло-розовый': 'Румяный',
+  'желтый': 'Цитрусовый',
+  'горчичный': 'Цитрусовый',
+  'синий': 'Индиго',
+  'синий-фиолетовый': 'Индиго',
+  'голубой-синий': 'Индиго',
   // AirPods Max: у Ozon цвет записан двумя словами через дефис, у нас — одним.
   // «Тёмно-серый» — это Space Gray прежнего поколения: Apple переименовала его
   // в Midnight, когда перевела наушники на USB-C, так что цвет тот же самый.
@@ -146,9 +155,14 @@ function sameColor(a, b) {
   return norm(a) === norm(b);
 }
 
+// Ключи таблицы тоже приводятся к «е»: площадка пишет и «жёлтый», и «желтый»,
+// а это один цвет — двумя записями в таблице их разводить незачем.
+const ALIASES = new Map(Object.keys(COLOR_ALIASES).map(
+  k => [k.toLowerCase().replace(/ё/g, 'е'), COLOR_ALIASES[k]]));
+
 function ourColorName(sourceColor, configColor) {
-  const key = String(sourceColor || '').trim().toLowerCase();
-  const mapped = COLOR_ALIASES[key];
+  const key = String(sourceColor || '').trim().toLowerCase().replace(/ё/g, 'е');
+  const mapped = ALIASES.get(key);
   // Название берём только то, что реально есть у товара: выдумать цвет,
   // которого магазин не продаёт, хуже, чем оставить исходный.
   if (mapped && ourColors.some(c => sameColor(c, mapped))) return mapped;
