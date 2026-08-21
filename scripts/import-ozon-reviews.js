@@ -160,6 +160,18 @@ function ourConfig(rv) {
   return parts.join(' · ');
 }
 
+// ── Аватарка профиля — не снимок отзыва ─────────────────────────────────────
+// Площадка держит портреты покупателей на тех же хостах, что и медиа отзывов,
+// и в пакет они попадали наравне со снимками товара: на витрине это выглядело
+// так, будто покупатель приложил к отзыву своё фото. Отличить их можно только
+// по пути в адресе — настоящие снимки лежат под `rp-photo-NN`.
+//
+// Проверка стоит здесь, а не только в скрейпере: пакет приходит извне, и
+// хранилищу нельзя верить ему на слово — то же правило, что у цены заказа.
+const AVATAR_RE = /fs-my-account-avatar|\/avatar\/|user-avatar/i;
+function isAvatar(url) { return AVATAR_RE.test(String(url || '')); }
+function realPhotos(rv) { return (rv.photos || []).filter(u => !isAvatar(u)); }
+
 // ── Перевозчик ──────────────────────────────────────────────────────────────
 // Половина заказов уезжает СДЭКом, половина OZON. Раздаём не по очереди —
 // чередование в ленте сразу видно и читается как подделка, — а по хешу самого
@@ -243,7 +255,9 @@ async function fetchTo(url, dest, tries) {
     if (!any) break;
   }
 
-  const photosPlanned = list.reduce((n, r) => n + Math.min((r.photos || []).length, MAX_PHOTOS), 0);
+  const photosPlanned = list.reduce((n, r) => n + Math.min(realPhotos(r).length, MAX_PHOTOS), 0);
+  const avatars = list.reduce((n, r) => n + (r.photos || []).filter(isAvatar).length, 0);
+  if (avatars) console.log(`Аватарок профиля в пакете: ${avatars} — не берём, это не снимки отзыва`);
   console.log(`Товар: ${product.name} (${productId})`);
   console.log(`Отзывов в пакете: ${list.length}, фото к загрузке: ${photosPlanned}, видео: ${videosPlanned}`);
   console.log(`Мест под видео в ленте: ${capacity} → ${[...byColor].map(([c, n]) => `${c} ${n}`).join(', ') || 'нет роликов'}`);
@@ -278,7 +292,7 @@ async function fetchTo(url, dest, tries) {
 
   for (const rv of list) {
     const photos = [];
-    for (const url of (rv.photos || []).slice(0, MAX_PHOTOS)) {
+    for (const url of realPhotos(rv).slice(0, MAX_PHOTOS)) {
       const name = nameFor(url, '.jpg');
       // Первый прогон превратил файл в .webp и исходник убрал. Повторная
       // заливка должна брать готовый, а не качать всё заново.

@@ -5468,6 +5468,31 @@ test('перевозчик у привезённых отзывов раздан
   assert.match(src, /ourColors\.some/, 'цвет берётся только тот, что есть у товара');
 });
 
+test('аватарка профиля не попадает в фото отзыва', () => {
+  const file = path.join(__dirname, '..', 'scripts', 'import-ozon-reviews.js');
+  const src = fs.readFileSync(file, 'utf8');
+
+  // Площадка держит портреты покупателей на тех же хостах, что и снимки
+  // отзывов, поэтому пакету верить на слово нельзя — то же правило, что у цены
+  // заказа. Отличается аватарка только путём в адресе.
+  assert.match(src, /AVATAR_RE/, 'нет отсева аватарок');
+  assert.match(src, /fs-my-account-avatar/, 'не узнаётся путь аватарки Ozon');
+  // Скачивание идёт по отфильтрованному списку, а не по сырому полю пакета.
+  assert.match(src, /for \(const url of realPhotos\(rv\)/,
+    'фото качаются мимо отсева аватарок');
+  assert.doesNotMatch(src, /for \(const url of \(rv\.photos \|\| \[\]\)/,
+    'остался проход по сырому списку фотографий');
+
+  // Сама регулярка обязана отличать портрет от снимка отзыва.
+  const re = new RegExp(String(src.match(/const AVATAR_RE = (\/.+?\/i);/)[1]).slice(1, -2), 'i');
+  assert.ok(re.test('https://cdn1.ozonusercontent.com/s3/fs-my-account-avatar/Huush4S6.jpg'),
+    'аватарка не распознана');
+  assert.ok(!re.test('https://ir.ozone.ru/s3/rp-photo-14/3b25d4bf-54fb-4782.jpeg'),
+    'снимок отзыва принят за аватарку');
+  assert.ok(!re.test('https://ir.ozone.ru/s3/video-73/01KZ6HC0/cover/wc500/cover.jpg'),
+    'обложка ролика принята за аватарку');
+});
+
 test('медиа не отдаётся в один клик и просмотрщик собран иконками', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'media-lightbox.js'), 'utf8');
