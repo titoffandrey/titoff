@@ -3290,9 +3290,15 @@ test('черновик не считается заказом, пока не в�
   const real = fresh.createOrder({ items: [], total: 100, contact: 'tg' });
   const draft = fresh.createOrder({ draft: true, items: [], total: 200, contact: 'tg' });
 
-  // В панелях черновика нет: покупатель мог просто заглянуть на страницу оплаты.
-  assert.deepEqual(fresh.visibleOrders().map(o => o.id), [real.id]);
-  // Но сам он записан: на него вешается счёт, и по id его надо находить.
+  /* В списке заказов черновик виден — своим состоянием: данные покупателя в нём
+   * уже полные, вместе с телефоном, и это брошенная на последнем шаге покупка.
+   * Заказом он при этом не стал: ни уведомления менеджеру, ни отметки в
+   * метрике, ни выручки. */
+  assert.deepEqual(fresh.visibleOrders().map(o => o.id).sort(), [real.id, draft.id].sort());
+  assert.equal(render.orderTone({ draft: true }), 'draft');
+  assert.match(render.orderStatus({ draft: true }), /pay-draft/);
+  assert.match(render.orderStatus({ draft: true }), /способ не выбран/);
+  assert.equal(render.orderStats([{ draft: true, total: 200 }]).revenue, 0, 'черновик — не выручка');
   assert.equal(fresh.getOrder(draft.id).id, draft.id);
   assert.equal(fresh.getOrders().length, 2, 'внутренний список отдаёт всё — иначе запись стёрла бы черновики');
 
@@ -3304,16 +3310,26 @@ test('черновик не считается заказом, пока не в�
   assert.equal(fresh.visibleOrders().length, 2);
   assert.equal('draft' in fresh.getOrder(draft.id), false, 'признак снимается, а не остаётся false');
 
-  // Брошенные черновики не копятся: их больше, чем купивших.
+  // Брошенные черновики не копятся: их больше, чем купивших. Но живут неделю, а
+  // не сутки: раз менеджер их видит, они должны дожить до его звонка.
   const stale = fresh.createOrder({ draft: true, items: [], total: 300, contact: 'tg' });
+  const kept = fresh.createOrder({ draft: true, items: [], total: 350, contact: 'tg' });
   const file = path.join(dir, 'orders.json');
   const list = JSON.parse(fs.readFileSync(file, 'utf8'));
-  list.find(o => o.id === stale.id).createdAt = Date.now() - 25 * 60 * 60 * 1000;
+  list.find(o => o.id === stale.id).createdAt = Date.now() - 8 * 24 * 60 * 60 * 1000;
+  list.find(o => o.id === kept.id).createdAt = Date.now() - 3 * 24 * 60 * 60 * 1000;
   fs.writeFileSync(file, JSON.stringify(list));
   fresh.createOrder({ items: [], total: 400, contact: 'tg' });
-  assert.equal(fresh.getOrder(stale.id), null, 'сутки — и брошенный черновик убран');
+  assert.equal(fresh.getOrder(stale.id), null, 'неделя — и брошенный черновик убран');
+  assert.equal(fresh.getOrder(kept.id).id, kept.id, 'трёхдневный черновик менеджер ещё увидит');
   assert.equal(fresh.getOrder(real.id).id, real.id, 'настоящие заказы уборка не трогает');
   fs.rmSync(dir, { recursive: true, force: true });
+
+  // А вот в «Покупках» посетителя черновика нет: блок называется так не зря, и
+  // брошенная заявка читалась бы в нём как состоявшийся заказ.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const lookup = source.slice(source.indexOf('function lookupVisitor('), source.indexOf("app.get('/admin/analytics/visitor/:key'"));
+  assert.match(lookup, /filter\(o => !o\.draft\)/);
 });
 
 test('оформление с онлайн-оплатой не чистит корзину до выбора способа', () => {
@@ -4725,6 +4741,15 @@ test('состояние оплаты видно в обеих панелях и
     getOrders: () => [paid, bad], visibleOrders: () => [paid, bad],
     getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   };
+  // Черновик виден в списке своим состоянием и своей плиткой в сводке.
+  const withDraft = adminViews.ordersList(SETTINGS, {
+    getOrders: () => [paid, Object.assign({}, paid, { id: 'o9', number: 'ORD-9', payment: null, draft: true })],
+    visibleOrders: () => [paid, Object.assign({}, paid, { id: 'o9', number: 'ORD-9', payment: null, draft: true })],
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
+  }, null, 1);
+  assert.match(withDraft, /pay-draft/);
+  assert.match(withDraft, /o-stat-draft"><span class="o-stat-k"><i><\/i>Способ не выбран<\/span><strong>1/);
+
   for (const html of [adminViews.ordersList(SETTINGS, db, null, 1)]) {
     assert.match(html, /pay-ok/);
     assert.match(html, /pay-warn/);

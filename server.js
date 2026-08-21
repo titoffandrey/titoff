@@ -1309,7 +1309,11 @@ function lookupVisitor(rawKey) {
   let visitor = /^[a-f0-9]{32}$/.test(key) ? metrics.findVisitor(key) : null;
   if (!visitor) visitor = metrics.findByIp(key)[0] || null;
   if (!visitor) return { key, visitor: null, orders: [], alsoOnIp: [] };
+  // Черновиков здесь нет: блок называется «Покупки», и заявка, брошенная на
+  // выборе способа оплаты, читалась бы в нём как состоявшийся заказ. Увидеть её
+  // можно в списке заказов — там у неё своё состояние.
   const orders = db.visibleOrders()
+    .filter(o => !o.draft)
     .filter(o => o.visitorId === visitor.id || (!o.visitorId && visitor.ip && o.clientIp === visitor.ip))
     .slice(0, 20);
   // За одним адресом сидит целая квартира или офис — соседние карточки полезны

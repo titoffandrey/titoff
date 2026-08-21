@@ -440,6 +440,8 @@ body.admin{background:var(--bg2)}
    Синевато-серый: это не тревога (оранжевый) и не «денег не будет» (серый), а
    заявка, которую надо довести руками. */
 .o-stat-idle,.o-row-idle,.pay-tag.pay-idle{--tone:#5b6f9c;--tone-ink:#4a5c85;--tone-soft:#eef1f8;--tone-row:#f9fafd}
+/* Черновик — та же семья цвета, но бледнее: заявка есть, а заказа ещё нет. */
+.o-stat-draft,.o-row-draft,.pay-tag.pay-draft{--tone:#94a1bb;--tone-ink:#5f6d8a;--tone-soft:#f3f5fa;--tone-row:#fcfcfe}
 .o-stat-none{--tone:#d2d2d7;--tone-ink:#8e8e93;--tone-soft:#f4f4f6}
 /* Плашка — точка и подпись цветом тона на бледной заливке. Прежде заливка была
    сплошной, а слева стоял глиф (⏳ ✓ ⚠): эмодзи приезжали цветными из
@@ -1700,7 +1702,9 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders tr.o-row:target td{background:#fff8df}
 /* Деньги отменённого заказа — не деньги: сумма гасится до подписи, иначе строка
    «истёк» с чёрной суммой читается как выручка. */
-.a-orders tr.o-row-off .o-sum b,.a-orders tr.o-row-idle .o-sum b{color:var(--muted)}
+/* Деньги, которых не будет (истёк, не завершена, черновик), гасим до подписи:
+   чёрная сумма в такой строке читается как выручка. */
+.a-orders tr.o-row-off .o-sum b,.a-orders tr.o-row-idle .o-sum b,.a-orders tr.o-row-draft .o-sum b{color:var(--muted)}
 
 /* Клиент: открыто «имя · контакт», остальное — по клику. Адрес пункта выдачи
    бывает длиннее всей остальной строки, и заказ разрастался из-за него одного. */
