@@ -5526,6 +5526,29 @@ test('перевозчик у привезённых отзывов раздан
   assert.match(src, /ourColors\.some/, 'цвет берётся только тот, что есть у товара');
 });
 
+test('товар без единой даты в источнике всё равно попадает под раздачу', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'import-ozon-reviews.js'), 'utf8');
+
+  /* Дату площадка отдаёт не всегда, и бывает, что её нет ни у одного отзыва
+   * карточки. Без `sourceDate` отзыв не попадает под раздачу вовсе, то есть
+   * мимо него проходит вся раскладка ленты, а сам он получает отметку
+   * «сейчас» — тридцать отзывов с одним временем и в случайном порядке.
+   */
+  assert.match(src, /FALLBACK_DAYS/, 'нет запасного отрезка для карточки совсем без дат');
+  assert.doesNotMatch(src, /if \(known\.length\) \{\s*\n\s*const from/,
+    'раздача дат снова спрятана под «есть хоть одна дата»');
+
+  // Отрезок обязан кончаться сегодня и быть непустым.
+  const days = Number(String(src.match(/FALLBACK_DAYS = (\d+)/)[1]));
+  assert.ok(days > 0 && days <= 400, 'запасной отрезок должен быть в пределах года');
+
+  // Сама выдумка даты — детерминированная: иначе отзыв прыгал бы по ленте
+  // при каждом прогоне.
+  const dates = require('../lib/review-dates');
+  const rv = { id: 'r1', author: 'Кто-то' };
+  assert.equal(dates.inventDate(rv, 1000, 2000), dates.inventDate(rv, 1000, 2000));
+});
+
 test('аватарка профиля не попадает в фото отзыва', () => {
   const file = path.join(__dirname, '..', 'scripts', 'import-ozon-reviews.js');
   const src = fs.readFileSync(file, 'utf8');

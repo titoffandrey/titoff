@@ -372,17 +372,36 @@ async function fetchTo(url, dest, tries) {
     if (done % 100 === 0) console.log(`  залито ${done}/${list.length} (фото ${photosOk}, видео ${videosOk})`);
   }
 
-  // Отзывам без даты в источнике раздаём даты по тому же отрезку, потом сдвигаем всё разом.
+  /* Отзывам без даты в источнике раздаём даты по тому же отрезку, потом
+   * сдвигаем всё разом.
+   *
+   * Дату площадка отдаёт не всегда, и бывает, что её нет НИ У ОДНОГО отзыва
+   * карточки — так пришёл MacBook Air 13", все тридцать без даты. Раньше в
+   * таком случае не проставлялось ничего, и это тихо ломало ленту: без
+   * `sourceDate` отзыв не попадает под раздачу вовсе (`isShiftable` в
+   * lib/review-dates.js), то есть мимо него проходит вся раскладка — снимки,
+   * ролики, недовольные, — а сам он получает отметку «сейчас». Тридцать
+   * отзывов с одним и тем же временем и в случайном порядке.
+   *
+   * Поэтому, когда якорной даты нет совсем, берём отрезок в полгода до
+   * сегодня. Дата и так выдуманная (`inventDate` от id, детерминированно), но
+   * тридцать РАЗНЫХ дат честнее тридцати одинаковых.
+   */
+  const FALLBACK_DAYS = 180;
   const all = db.getReviews();
   const mine = all.filter(r => r.productId === productId && r.source);
   const known = mine.map(r => Number(r.sourceDate)).filter(Number.isFinite);
-  if (known.length) {
-    const from = Math.min.apply(null, known), to = Math.max.apply(null, known);
-    let invented = 0;
-    for (const rv of mine) {
-      if (!Number.isFinite(Number(rv.sourceDate))) { rv.sourceDate = DATES.inventDate(rv, from, to); invented++; }
-    }
-    if (invented) { db.saveReviews(all); console.log(`Дат не было в источнике: ${invented} — проставлены случайные по тому же отрезку`); }
+  const now = Date.now();
+  const from = known.length ? Math.min.apply(null, known) : now - FALLBACK_DAYS * 24 * 3600 * 1000;
+  const to = known.length ? Math.max.apply(null, known) : now;
+  let invented = 0;
+  for (const rv of mine) {
+    if (!Number.isFinite(Number(rv.sourceDate))) { rv.sourceDate = DATES.inventDate(rv, from, to); invented++; }
+  }
+  if (invented) {
+    db.saveReviews(all);
+    const where = known.length ? 'тому же отрезку' : `последним ${FALLBACK_DAYS} дням`;
+    console.log(`Дат не было в источнике: ${invented} — проставлены случайные по ${where}`);
   }
 
   const shifted = require('./shift-review-dates').shift();
