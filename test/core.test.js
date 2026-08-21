@@ -2922,6 +2922,22 @@ test('неоплаченный счёт напоминает о себе на в
   // напоминания и плашка в панели обязаны считать «ждём перевод» одинаково —
   // иначе у покупателя счёт сгорел, а менеджер всё ещё ждёт деньги.
   assert.match(fn, /R\.payLive\(pay, now\)/, 'своей копии условия у напоминания быть не должно');
+
+  /* Заказ, счёт по которому не выставился (касса не ответила) или уже сгорел,
+   * тоже напоминает о себе — но без срока: отсчитывать нечего, а вернуться на
+   * страницу оплаты и выставить новый счёт покупатель должен уметь. Иначе
+   * ссылки на свой заказ у него нет нигде. */
+  assert.match(fn, /pay\.status === 'paid' \|\| pay\.status === 'mismatch'/, 'оплаченному напоминать нечего');
+  assert.match(fn, /REMIND_TTL/, 'без срока давности напоминание превращается в навязчивость');
+  assert.match(fn, /card\(order, 0\)/);
+  const noTimer = render.homePage(ss, db, { category: '', q: '', origin: '', payRemind: { id: 'a1b2', number: '482913', total: 68200, expiresAt: 0 } }, null);
+  assert.match(noTimer, /id="pay-remind" data-until="0"/);
+  assert.match(noTimer, /ждёт оплаты/);
+  // Ноль в data-until — это «срока нет», а не «время вышло»: полоса без срока
+  // не должна исчезать сразу после загрузки страницы.
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(appJs, /function payRemindDead\(\)[\s\S]{0,220}return !!until && until - Date\.now\(\) <= 0/);
+  assert.match(appJs, /if \(!box \|\| payRemindDead\(\)\) return ''/);
   const live = { status: 'pending', invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 60000 };
   assert.equal(render.payLive(live), true);
   assert.equal(render.payLive(Object.assign({}, live, { expiresAt: Date.now() - 1 })), false, 'у сгоревшего счёта реквизиты уже чужие');
@@ -3340,7 +3356,11 @@ test('оформление с онлайн-оплатой не чистит ко
   // Корзина остаётся до выбора способа: иначе ушедший со страницы оплаты
   // покупатель теряет и заказ, и товары разом.
   assert.match(js, /if \(!online\) Cart\.clear\(\)/);
-  assert.match(pay, /d\.placed[\s\S]{0,80}Cart\.clear\(\)/);
+  // А при отказе кассы корзина ОСТАЁТСЯ: заплатить не вышло, и покупателю нужно
+  // чем-то попробовать ещё раз. Раньше она чистилась и здесь — по флагу
+  // `placed`, — и «назад» возвращало пустую корзину с пустой формой.
+  assert.match(pay, /d\.ok && window\.Cart[\s\S]{0,40}Cart\.clear\(\)/);
+  assert.doesNotMatch(pay, /d\.placed[\s\S]{0,80}Cart\.clear\(\)/);
 
   // Заказ становится настоящим при выборе способа — ДО обращения к кассе:
   // отказ кассы (у неё кончились свободные реквизиты) не должен прятать от
@@ -3352,6 +3372,27 @@ test('оформление с онлайн-оплатой не чистит ко
   // настоящая сразу, как и была.
   assert.match(source, /const draft = CROCO\.enabled\(settings\(\)\)/);
   assert.match(source, /if \(!draft\) metrics\.markOrder/);
+});
+
+test('оформление помнит введённое — после неудачной оплаты его не набирают заново', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+  /* Покупатель, у которого касса не выставила счёт, возвращается на оформление.
+   * Пять полей, из них адрес длинный, — набирать всё заново на этом шаге значит
+   * потерять покупку. Память лежит в браузере самого покупателя, рядом с
+   * корзиной, и протухает. */
+  assert.match(js, /FORM_FIELDS = \['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'\]/);
+  assert.match(js, /FORM_TTL/);
+  assert.match(js, /initCheckoutMemory\(\);/, 'память подключается при сборке формы');
+
+  /* Значения возвращаются событием `change`: по нему телефон переформатирует
+   * себя и поднимает флаг, а адрес пересчитывает доставку и отпирает выбор
+   * способа. `input` для этого не годится — он ещё и раскрыл бы список
+   * подсказок адреса поверх формы. */
+  assert.match(js, /dispatchEvent\(new Event\('change', \{ bubbles: true \}\)\)/);
+  assert.doesNotMatch(js, /dispatchEvent\(new Event\('input'/);
+  // Уже набранное не трогаем: своё важнее запомненного.
+  assert.match(js, /if \(!el \|\| !value \|\| el\.value\) return/);
 });
 
 test('номера заказов случайные, не маленькие и не повторяются', () => {

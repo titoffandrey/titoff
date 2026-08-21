@@ -267,6 +267,8 @@
       initAddressSuggest();
       initDeliveryChoice();
       initAddressQuote();
+      // Последней: она подставляет сохранённое и будит обработчики выше.
+      initCheckoutMemory();
     }
     renderRail();
     syncSubmit();
@@ -301,6 +303,55 @@
   // Адрес меняет зону, а зона — цену. Слушаем и ввод (с задержкой внутри
   // quoteDelivery), и потерю фокуса: вставленный из буфера адрес события ввода
   // тоже даёт, а вот выбор подсказки — нет, его дёргает сам список.
+  /* ===== Память формы оформления =====
+   *
+   * Покупатель, у которого не вышло оплатить (касса не ответила, свободных
+   * реквизитов не нашлось), возвращается на оформление — и не должен набирать
+   * заново имя, телефон и адрес. Пять полей, из них адрес длинный; после отказа
+   * платёжки это ровно та мелочь, на которой покупку бросают.
+   *
+   * Лежит всё в браузере самого покупателя, рядом с корзиной, и никуда не
+   * уходит: на сервер эти поля попадают только вместе с заказом, который он сам
+   * отправил. Через неделю запись протухает.
+   *
+   * Значения возвращаются событием `change`, а не присваиванием: по нему
+   * телефон переформатирует себя и поднимает флаг страны, а адрес пересчитывает
+   * доставку и отпирает выбор способа. Событие `input` для этого не годится —
+   * оно ещё и раскрыло бы список подсказок адреса поверх формы.
+   */
+  var FORM_KEY = 'checkout_v1';
+  var FORM_TTL = 7 * 24 * 60 * 60 * 1000;
+  var FORM_FIELDS = ['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'];
+  function initCheckoutMemory() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(FORM_KEY) || 'null'); } catch (e) {}
+    if (saved && typeof saved === 'object' && Date.now() - Number(saved.at || 0) < FORM_TTL) {
+      FORM_FIELDS.forEach(function (id) {
+        var el = document.getElementById(id);
+        var value = cleanText(saved[id], 400);
+        // Уже набранное не трогаем: своё всегда важнее запомненного.
+        if (!el || !value || el.value) return;
+        el.value = value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+    function remember() {
+      var data = { at: Date.now() };
+      FORM_FIELDS.forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) data[id] = cleanText(el.value, 400);
+      });
+      try { localStorage.setItem(FORM_KEY, JSON.stringify(data)); } catch (e) {}
+    }
+    // На `change`, то есть при уходе из поля, а не на каждую букву: запись в
+    // localStorage синхронная, и делать её на каждый набранный символ адреса
+    // незачем.
+    FORM_FIELDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('change', remember);
+    });
+  }
+
   function initAddressQuote() {
     var input = document.getElementById('co-address');
     if (!input) return;
@@ -960,6 +1011,16 @@
     var until = box ? Number(box.dataset.until) : 0;
     return until ? until - Date.now() : 0;
   }
+  /* Сгорело ли напоминание. Ноль в `data-until` — это НЕ «время вышло», а «срока
+   * нет»: так приходит заказ, счёт по которому не выставился или уже сгорел, —
+   * платить по нему по-прежнему надо, просто отсчитывать нечего. Пока это
+   * различали одним `payRemindLeft() <= 0`, полоса без срока исчезала сразу
+   * после загрузки страницы. */
+  function payRemindDead() {
+    var box = payRemindBox();
+    var until = box ? Number(box.dataset.until) : 0;
+    return !!until && until - Date.now() <= 0;
+  }
   // Сколько осталось словами. Секунды не показываем: тикающие «14:59» на каждой
   // странице отвлекают сильнее, чем помогают, а точность тут ни на что не влияет.
   function payRemindMin() {
@@ -972,7 +1033,7 @@
   // подставляет её первой строкой.
   function payRemindCard() {
     var box = payRemindBox();
-    if (!box || payRemindLeft() <= 0) return '';
+    if (!box || payRemindDead()) return '';
     var left = payRemindMin();
     return '<a class="cart-remind" href="' + escapeHtml(box.dataset.href || '#') + '">'
       + '<span class="cart-remind-top">Заказ ' + escapeHtml(box.dataset.no || '') + ' ждёт оплаты</span>'
@@ -986,13 +1047,16 @@
     // Счёт сгорел прямо на открытой странице — напоминание обязано исчезнуть:
     // реквизиты по нему уже чужие. Страницу при этом не трогаем, покупатель
     // мог быть занят чем-то другим.
-    if (payRemindLeft() <= 0) {
+    if (payRemindDead()) {
       box.remove();
       if (window.Cart && Cart.render) Cart.render();
       return;
     }
     // Меняем только само число: разметку строки держит сервер, а срок тикает.
-    setText('pay-remind-min', payRemindMin());
+    // Строка со сроком остаётся скрытой, когда срока нет вовсе.
+    var text = payRemindMin();
+    if (!text) return;
+    setText('pay-remind-min', text);
     var left = document.getElementById('pay-remind-left');
     if (left) left.hidden = false;
   }
