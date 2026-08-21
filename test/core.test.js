@@ -5538,6 +5538,24 @@ test('товар без единой даты в источнике всё ра�
   assert.doesNotMatch(src, /if \(known\.length\) \{\s*\n\s*const from/,
     'раздача дат снова спрятана под «есть хоть одна дата»');
 
+  /* Ноль — не дата. `Number(null)` даёт НОЛЬ, а ноль конечен, поэтому проверка
+   * через `Number.isFinite(Number(v))` пропускала отзыв без даты: он получал
+   * `sourceDate: 0`, а дальше выпадал из раздачи, где дата обязана быть больше
+   * нуля. Раскладка ленты шла мимо него молча.
+   */
+  assert.match(src, /function realDate/, 'нет общей проверки «настоящая дата»');
+  assert.doesNotMatch(src, /Number\.isFinite\(Number\(rv\.date\)\)/,
+    'дата снова проверяется через isFinite — ноль пройдёт');
+  assert.doesNotMatch(src, /Number\.isFinite\(Number\(rv\.sourceDate\)\)/,
+    'исходная дата снова проверяется через isFinite — ноль пройдёт');
+
+  // И сама проверка обязана считать ноль отсутствием даты.
+  const realDate = new Function('value', src.match(/function realDate\(value\) \{[^}]*\}/)[0] + '; return realDate(value);');
+  assert.equal(realDate(null), null, 'null принят за дату');
+  assert.equal(realDate(0), null, 'ноль принят за дату');
+  assert.equal(realDate('нет'), null, 'мусор принят за дату');
+  assert.equal(realDate(1755000000000), 1755000000000, 'настоящая дата отвергнута');
+
   // Отрезок обязан кончаться сегодня и быть непустым.
   const days = Number(String(src.match(/FALLBACK_DAYS = (\d+)/)[1]));
   assert.ok(days > 0 && days <= 400, 'запасной отрезок должен быть в пределах года');

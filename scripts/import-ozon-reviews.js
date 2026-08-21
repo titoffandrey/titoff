@@ -199,6 +199,19 @@ function ourConfig(rv) {
 //
 // Проверка стоит здесь, а не только в скрейпере: пакет приходит извне, и
 // хранилищу нельзя верить ему на слово — то же правило, что у цены заказа.
+/* Настоящая дата или её отсутствие.
+ *
+ * Проверять через `Number.isFinite(Number(v))` нельзя: `Number(null)` даёт
+ * НОЛЬ, а ноль конечен — отзыв без даты проходил такую проверку и получал
+ * `sourceDate: 0`. Дальше он выпадал из раздачи дат, потому что там дата
+ * обязана быть больше нуля (`isShiftable` в lib/review-dates.js), и вся
+ * раскладка ленты шла мимо него. Соседняя грабля с `NaN` описана в CLAUDE.md.
+ */
+function realDate(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const AVATAR_RE = /fs-my-account-avatar|\/avatar\/|user-avatar/i;
 function isAvatar(url) { return AVATAR_RE.test(String(url || '')); }
 function realPhotos(rv) { return (rv.photos || []).filter(u => !isAvatar(u)); }
@@ -363,8 +376,8 @@ async function fetchTo(url, dest, tries) {
       delivery: deliveryFor(rv),
       source: bundle.source || 'ozon',
       // Своя дата отзыва. На витрину она попадёт сдвинутой — см. lib/review-dates.js.
-      sourceDate: Number.isFinite(Number(rv.date)) ? Number(rv.date) : null,
-      createdAt: Number.isFinite(Number(rv.date)) ? Number(rv.date) : Date.now(),
+      sourceDate: realDate(rv.date),
+      createdAt: realDate(rv.date) || Date.now(),
       status: 'approved'
     });
 
@@ -390,13 +403,13 @@ async function fetchTo(url, dest, tries) {
   const FALLBACK_DAYS = 180;
   const all = db.getReviews();
   const mine = all.filter(r => r.productId === productId && r.source);
-  const known = mine.map(r => Number(r.sourceDate)).filter(Number.isFinite);
+  const known = mine.map(r => realDate(r.sourceDate)).filter(Boolean);
   const now = Date.now();
   const from = known.length ? Math.min.apply(null, known) : now - FALLBACK_DAYS * 24 * 3600 * 1000;
   const to = known.length ? Math.max.apply(null, known) : now;
   let invented = 0;
   for (const rv of mine) {
-    if (!Number.isFinite(Number(rv.sourceDate))) { rv.sourceDate = DATES.inventDate(rv, from, to); invented++; }
+    if (!realDate(rv.sourceDate)) { rv.sourceDate = DATES.inventDate(rv, from, to); invented++; }
   }
   if (invented) {
     db.saveReviews(all);
