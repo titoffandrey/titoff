@@ -1730,6 +1730,49 @@ test('наличие учитывает совместимость ремешк�
   assert.doesNotMatch(html, /class="btn btn-primary btn-block add-to-cart"\s+data-id="watch"/);
 });
 
+test('карточка каталога показывает цену самой дешёвой ДОСТУПНОЙ сборки', () => {
+  const ss = { storeName: 'Тест', tagline: '', currency: '₽' };
+  const phone = {
+    id: 'ph', name: 'Телефон', category: 'iPhone', price: 60000, discountPercent: 20, inStock: true, images: [],
+    colors: [{ name: 'Чёрный', hex: '#111' }],
+    storages: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 8000 }],
+    options: [{ name: 'SIM-карта', values: [{ label: 'Только eSIM', add: 0 }, { label: 'eSIM + SIM', add: 3000 }] }]
+  };
+  const db = {
+    getProducts: () => [phone], visibleProducts: () => [phone], categories: () => ['iPhone'],
+    visibleCategories: () => ['iPhone'], ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const price = html => (html.match(/class="price-now"[^>]*>([^<]+)</) || [])[1] || '';
+  const nbsp = s => s.replace(/\s/g, ' ');
+
+  // Всё в наличии — цена та же, что и раньше: базовая.
+  assert.equal(nbsp(price(render.homePage(ss, db, {}))), '60 000 ₽');
+
+  /* Дешёвая конфигурация кончилась — карточка обязана показать следующую
+   * доступную, а не обещать цену, которой на странице товара уже нет: страница
+   * открывается с первого ДОСТУПНОГО варианта. */
+  phone.storages[0].inStock = false;
+  const out = render.homePage(ss, db, {});
+  assert.equal(nbsp(price(out)), '68 000 ₽');
+  // Зачёркнутая цена считается от той же суммы: процент у товара один на все
+  // сборки, а рубли выгоды у дорогой сборки свои.
+  assert.match(nbsp(out), /class="old-price">85 000 ₽/);
+  assert.equal(render.startPrice(phone), 68000);
+
+  // То же число стоит и на самой странице товара: раньше сервер рисовал базовую
+  // цену, а скрипт тут же исправлял её — сумма дёргалась на глазах.
+  assert.equal(nbsp(price(render.productPage(ss, db, phone, {}))), '68 000 ₽');
+
+  // Распроданное значение доп. характеристики двигает цену так же.
+  phone.storages[0].inStock = true;
+  phone.options[0].values[0].inStock = false;
+  assert.equal(nbsp(price(render.homePage(ss, db, {}))), '63 000 ₽');
+
+  // Базовая цена остаётся базовой: скрипт считает сумму как «база + доплаты
+  // выбранного», и подменить её ценой стартовой сборки нельзя.
+  assert.match(render.productPage(ss, db, phone, {}), /data-base-price="60000"/);
+});
+
 test('счётчик отзывов склоняется по-русски', () => {
   const db = {
     reviewsForProduct: () => [{ id: 'r1', author: 'Тест', rating: 5, text: '', status: 'approved', createdAt: Date.now() }],
@@ -2875,8 +2918,16 @@ test('неоплаченный счёт напоминает о себе на в
   const fn = server.slice(server.indexOf('function payRemind('), server.indexOf('app.get(\'/product/:id\''));
   assert.match(fn, /req\.session && req\.session\.myOrders/, 'ключ — та же подписанная сессия, что у /pay/:id');
   assert.match(fn, /order\.draft/, 'черновик заказом ещё не стал');
-  assert.match(fn, /pay\.status !== 'pending'/);
-  assert.match(fn, /pay\.expiresAt <= now/, 'у сгоревшего счёта реквизиты уже чужие');
+  // Условие живого счёта одно на весь проект: страница оплаты, полоса
+  // напоминания и плашка в панели обязаны считать «ждём перевод» одинаково —
+  // иначе у покупателя счёт сгорел, а менеджер всё ещё ждёт деньги.
+  assert.match(fn, /R\.payLive\(pay, now\)/, 'своей копии условия у напоминания быть не должно');
+  const live = { status: 'pending', invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 60000 };
+  assert.equal(render.payLive(live), true);
+  assert.equal(render.payLive(Object.assign({}, live, { expiresAt: Date.now() - 1 })), false, 'у сгоревшего счёта реквизиты уже чужие');
+  assert.equal(render.payLive(Object.assign({}, live, { invoiceId: '', requisite: '' })), false, 'счёт так и не выставили');
+  assert.equal(render.payLive(Object.assign({}, live, { status: 'paid' })), false);
+  assert.equal(render.payLive(null), false);
 
   // Напоминание собирает pageOpts() — одна обвязка на все страницы витрины.
   // Раньше поле протаскивалось в каждый layout() поимённо, и забытая страница
@@ -4623,7 +4674,38 @@ test('состояние оплаты видно в обеих панелях и
   assert.match(render.orderStatus(paid), /pay-ok/);
   assert.match(render.orderStatus(bad), /pay-warn/);
   assert.match(render.orderStatus(bad), /ожидали 10000/);
-  assert.match(render.orderStatus({ payment: { status: 'pending' } }), /pay-wait/);
+  /* «Ждём оплату» — только у ДЕЙСТВУЮЩЕГО счёта: реквизиты выданы и срок идёт.
+   * Статус 'pending' в данных значит всего лишь «оплату начали» — он пишется до
+   * обращения к кассе, а дальше двигает его только опрос со страницы оплаты,
+   * которого ушедший покупатель не делает. */
+  const liveInvoice = { status: 'pending', method: 'SBP', invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 9 * 60000 };
+  const waiting = render.orderStatus({ payment: liveInvoice });
+  assert.match(waiting, /pay-wait/);
+  // Сколько осталось видно прямо в строке, а дальше тикает public/admin-ui.js.
+  assert.match(waiting, /data-pay-until="\d+"/);
+  assert.match(waiting, /осталось <b>[89]:\d\d<\/b>/);
+  assert.match(waiting, /data-over="счёт истёк"/, 'подпись на ноль отсчёта берётся из разметки, а не из скрипта');
+
+  // Реквизитов не выдали (касса отказала) — покупатель не платил вовсе, и это
+  // не «ждём оплату», а незавершённая оплата: заявку надо довести руками.
+  const idle = render.orderStatus({ payment: { status: 'pending', method: 'SBP', startedAt: Date.now() } });
+  assert.match(idle, /pay-idle/);
+  assert.match(idle, /не завершена/);
+  assert.doesNotMatch(idle, /data-pay-until/, 'отсчитывать нечего: счёта нет');
+  assert.equal(render.orderTone({ payment: { status: 'pending' } }), 'idle');
+
+  // Срок вышел, а вебхука об успехе не пришло — счёт истёк, даже если в данных
+  // так и осталось 'pending'. Раньше такая заявка висела «ждём оплату» вечно.
+  const stale = render.orderStatus({ payment: Object.assign({}, liveInvoice, { expiresAt: Date.now() - 60000 }) });
+  assert.match(stale, /pay-off/);
+  assert.match(stale, /счёт истёк/);
+  assert.match(stale, /срок вышел/);
+  assert.doesNotMatch(stale, /data-pay-until/);
+
+  // Оплаченный заказ говорит, КОГДА пришли деньги: «оплачено» без времени в
+  // списке из полусотни строк ничего не подсказывает.
+  assert.match(render.orderStatus({ payment: { status: 'paid', paidAt: Date.now() } }), /деньги пришли · \d\d\.\d\d в \d\d:\d\d/);
+
   // Состояния, которых в схеме Express не было вовсе: касса отдаёт настоящий
   // статус счёта, и «истёк» больше не выглядит как «ждём оплату».
   assert.match(render.orderStatus({ payment: { status: 'expired' } }), /pay-off/);
@@ -4654,22 +4736,35 @@ test('состояние оплаты видно в обеих панелях и
   assert.match(css, /\.pay-tag\.pay-ok/);
   assert.match(css, /\.pay-tag\.pay-warn/);
   assert.match(css, /\.pay-tag\.pay-off/);
+  assert.match(css, /\.pay-tag\.pay-idle/, 'у незавершённой оплаты свой тон, а не чужой');
+  // Отсчёт тикает скриптом панели, и подпись он берёт из разметки.
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /\.o-left\[data-pay-until\]/);
+  assert.match(ui, /getAttribute\('data-over'\)/);
+  assert.doesNotMatch(ui, /ждём оплату/, 'слова про состояние оплаты живут в lib/render.js');
 });
 
 // Заказы, на которых считается сводка. Все шесть состояний кассы плюс заявка,
 // у которой оплаты не было вовсе, — как у всех прежних заказов.
+//
+// У «ждём оплату» обязан быть ДЕЙСТВУЮЩИЙ счёт: без реквизитов заказ попадает в
+// «не завершены», и это разные плитки — покупатель либо переводит деньги прямо
+// сейчас, либо не начинал вовсе.
 function statsOrders() {
-  const make = (id, total, status) => ({
+  const make = (id, total, status, extra) => ({
     id, number: String(480000 + Number(id.slice(1))), createdAt: 1000 - Number(id.slice(1)),
     customerName: 'Клиент ' + id, contact: '@u' + id, total, items: [{ name: 'Товар', price: total, qty: 1 }],
-    payment: status ? { status, method: 'SBP' } : null
+    payment: status ? Object.assign({ status, method: 'SBP' }, extra || {}) : null
   });
+  const invoice = { invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 600000 };
   return [
     make('o1', 100000, 'paid'), make('o2', 50000, 'paid'),
-    make('o3', 30000, 'pending'), make('o4', 20000, 'pending'),
+    make('o3', 30000, 'pending', invoice), make('o4', 20000, 'pending', invoice),
     make('o5', 70000, 'expired'), make('o6', 60000, 'cancelled'),
     make('o7', 40000, 'mismatch'), make('o8', 10000, 'failed'),
-    make('o9', 90000, null)
+    make('o9', 90000, null),
+    // Нажал «Оплатить», реквизитов не получил: касса отказала, покупатель ушёл.
+    make('o10', 80000, 'pending', { startedAt: Date.now() })
   ];
 }
 function statsDb(orders) {
@@ -4682,16 +4777,21 @@ function statsDb(orders) {
 
 test('сводка по заказам считает выручку по оплаченным и складывает состояния по тонам', () => {
   const stats = render.orderStats(statsOrders());
-  assert.equal(stats.count, 9);
+  assert.equal(stats.count, 10);
   // Выручка — только оплаченные, и это рублёвый `total` вместе с доставкой:
   // `payment.amount` лежит в валюте счёта и в общую сумму не годится.
   assert.equal(stats.revenue, 150000);
   assert.equal(stats.paid, 2);
   // «Истёк» и «отменён» для менеджера одно и то же, «сумма не сошлась» и
-  // «платёж не прошёл» — тоже: шесть состояний кассы складываются в четыре тона.
+  // «платёж не прошёл» — тоже: шесть состояний кассы складываются в тона.
   assert.equal(stats.tones.ok.n, 2);
+  // «Ждут оплату» — только действующие счета, и сумма в плитке та же: это
+  // деньги, которые прямо сейчас переводят.
   assert.equal(stats.tones.wait.n, 2);
   assert.equal(stats.tones.wait.sum, 50000);
+  // Незавершённая оплата считается отдельно: покупатель до перевода не дошёл.
+  assert.equal(stats.tones.idle.n, 1);
+  assert.equal(stats.tones.idle.sum, 80000);
   assert.equal(stats.tones.off.n, 2);
   assert.equal(stats.tones.warn.n, 2);
   // Заказ без оплаты (и любой прежний) — свой тон, а не «ждём оплату».
@@ -4730,7 +4830,7 @@ test('счётчики и выручка одинаковы на «Обзоре�
   assert.equal(bar(dash), bar(list));
   for (const html of [dash, list]) {
     assert.match(html, /Выручка<\/span><strong>150\s?000\s?₽/);
-    assert.match(html, /всего 9 заказов/);
+    assert.match(html, /всего 10 заказов/);
     assert.match(html, /o-stat-ok"><span class="o-stat-k"><i><\/i>Оплачено<\/span><strong>2/);
     assert.match(html, /o-stat-off"><span class="o-stat-k"><i><\/i>Не оплачены<\/span><strong>2/);
   }

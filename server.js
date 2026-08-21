@@ -457,8 +457,10 @@ function payRemind(req) {
     const order = db.getOrder(String(id || ''));
     if (!order || order.draft) continue;                       // черновик заказом ещё не стал
     const pay = order.payment;
-    if (!pay || pay.status !== 'pending' || !pay.invoiceId || !pay.requisite) continue;
-    if (!pay.expiresAt || pay.expiresAt <= now) continue;
+    // Условие живого счёта — общее с панелью и со страницей оплаты (`payLive` в
+    // lib/render.js): «ждёт оплаты» обязано значить одно и то же везде.
+    // Полосе нужен ещё и срок: без него отсчитывать нечего.
+    if (!R.payLive(pay, now) || !pay.expiresAt) continue;
     return { id: order.id, number: order.number, total: order.total, expiresAt: pay.expiresAt };
   }
   return null;

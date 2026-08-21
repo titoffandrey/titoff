@@ -436,6 +436,10 @@ body.admin{background:var(--bg2)}
 .o-stat-wait,.o-row-wait,.pay-tag.pay-wait{--tone:#e8940c;--tone-ink:#8a5600;--tone-soft:#fff4e2;--tone-row:#fffbf3}
 .o-stat-warn,.o-row-warn,.pay-tag.pay-warn{--tone:#bf4800;--tone-ink:#a83f00;--tone-soft:#ffefe6;--tone-row:#fff7f2}
 .o-stat-off,.o-row-off,.pay-tag.pay-off{--tone:#b0b0b6;--tone-ink:#6e6e73;--tone-soft:#f0f0f2;--tone-row:#f8f8f9}
+/* «Оплата не завершена» — покупатель дошёл до кассы, но реквизитов не получил.
+   Синевато-серый: это не тревога (оранжевый) и не «денег не будет» (серый), а
+   заявка, которую надо довести руками. */
+.o-stat-idle,.o-row-idle,.pay-tag.pay-idle{--tone:#5b6f9c;--tone-ink:#4a5c85;--tone-soft:#eef1f8;--tone-row:#f9fafd}
 .o-stat-none{--tone:#d2d2d7;--tone-ink:#8e8e93;--tone-soft:#f4f4f6}
 /* Плашка — точка и подпись цветом тона на бледной заливке. Прежде заливка была
    сплошной, а слева стоял глиф (⏳ ✓ ⚠): эмодзи приезжали цветными из
@@ -1676,6 +1680,11 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
 .a-orders .o-sum b{font-size:14.5px;font-variant-numeric:tabular-nums}
 .a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
+/* Время под плашкой: обратный отсчёт живого счёта и момент, когда всё
+   случилось. Цифры табличные — иначе отсчёт дёргает соседние столбцы на каждой
+   секунде. */
+.o-left,.o-when{margin-top:3px;font-variant-numeric:tabular-nums}
+.o-left b{font-weight:650;color:#48484a}
 
 /* Строка красится по состоянию оплаты: оплаченную от отменённой надо отличать с
    одного взгляда, не вчитываясь в плашку. Полоска у левого края — inset-тень
@@ -1691,7 +1700,7 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders tr.o-row:target td{background:#fff8df}
 /* Деньги отменённого заказа — не деньги: сумма гасится до подписи, иначе строка
    «истёк» с чёрной суммой читается как выручка. */
-.a-orders tr.o-row-off .o-sum b{color:var(--muted)}
+.a-orders tr.o-row-off .o-sum b,.a-orders tr.o-row-idle .o-sum b{color:var(--muted)}
 
 /* Клиент: открыто «имя · контакт», остальное — по клику. Адрес пункта выдачи
    бывает длиннее всей остальной строки, и заказ разрастался из-за него одного. */
@@ -1737,7 +1746,10 @@ body.admin{background:#f4f4f6;color:#242426}
 /* Приписка к состоянию («Пришло 10 000, ожидали 67 990») здесь не показывается:
    она длиннее всей правой колонки и разваливает ряд. Разбираются с таким
    заказом в разделе заказов, где приписка и стоит. */
-.o-recent-state .o-note{display:none}
+/* И момент («деньги 21.08 в 14:05») — тоже: дата заявки стоит слева в той же
+   строке, а обратный отсчёт живого счёта остаётся: он и есть то, ради чего в
+   «Обзор» заглядывают. */
+.o-recent-state .o-note,.o-recent-state .o-when{display:none}
 /* Имя с контактом обрезается многоточием: длинный ник иначе разваливает строку
    на две и ряд заявок перестаёт читаться сверху вниз. */
 .o-recent-who{grid-column:1;grid-row:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
