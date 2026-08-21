@@ -5323,6 +5323,64 @@ test('ролики стоят через один на первых трёх с�
   assert.equal(dates.plannedDates(coarse, now).size, 0, 'повторный прогон снова тасует ленту');
 });
 
+test('снимки идут вперемешку с текстом, а недовольные попадаются с первых страниц', () => {
+  const dates = require('../lib/review-dates');
+  const per = render.REVIEWS_PER_PAGE;
+  const now = Date.UTC(2026, 7, 21);
+  // Похоже на живой товар: ролики, снимки и текстовые отзывы, низкие оценки
+  // лежат в источнике глубоко — при раздаче по дате их не увидит никто.
+  const make = (n, videos, photos, low) => Array.from({ length: n }, (_, i) => ({
+    id: 'r' + String(i).padStart(4, '0'), productId: 'p', sourceDate: now - i * 36e5,
+    rating: low.includes(i) ? 2 : 5,
+    videos: i < videos ? ['v' + i + '.mp4'] : [],
+    photos: (i >= videos && i < videos + photos) ? ['p' + i + '.webp'] : []
+  }));
+  const feed = list => {
+    const plan = dates.plannedDates(list, now);
+    for (const rv of list) if (plan.has(rv.id)) rv.createdAt = plan.get(rv.id);
+    return list.slice().sort((a, b) => b.createdAt - a.createdAt);
+  };
+  const hasMedia = rv => rv.photos.length || rv.videos.length;
+
+  const order = feed(make(221, 14, 100, [40, 90, 150]));
+  const pages = Math.ceil(order.length / per);
+
+  /* Снимки раздаются по всей ленте, а не пачкой в начале. Раньше было
+   * «сначала все с вложениями, потом все текстовые», и лента разваливалась на
+   * две половины: у товара с 221 отзывом четырнадцать страниц подряд со
+   * снимком в каждом отзыве и тринадцать подряд вообще без единого. К середине
+   * это читается так, будто фотографии кончились.
+   */
+  for (let p = 1; p <= pages; p++) {
+    const page = order.slice((p - 1) * per, p * per);
+    assert.ok(page.some(hasMedia), `страница ${p} осталась без единого вложения`);
+    assert.ok(page.some(rv => !hasMedia(rv)) || p <= 3,
+      `страница ${p} состоит из одних вложений — это уже не вперемешку`);
+  }
+
+  // Недовольные: один на первой странице и ещё один на второй-третьей.
+  const lowAt = order.map((rv, i) => (rv.rating <= 3 ? i : -1)).filter(i => i >= 0);
+  assert.ok(lowAt.some(i => i < per), 'на первой странице ни одной низкой оценки');
+  assert.ok(lowAt.some(i => i >= per && i < 3 * per), 'на второй-третьей странице ни одной низкой оценки');
+  // Но не подборка жалоб: две подряд в начале читаются хуже, чем ни одной.
+  assert.ok(lowAt.filter(i => i < per).length <= 2, 'первая страница завалена низкими оценками');
+
+  // Обмен идёт с отзывом того же состава вложений, поэтому места роликов
+  // остаются за роликами, а раскладка медиа не съезжает.
+  for (const i of order.map((rv, k) => (rv.videos.length ? k : -1)).filter(i => i >= 0)) {
+    const page = Math.floor(i / per) + 1;
+    assert.ok(page <= 3 || page === pages, `ролик уехал на страницу ${page}`);
+  }
+
+  // Даты по-прежнему строго по убыванию: витрина сортирует именно по ним.
+  const when = order.map(r => r.createdAt);
+  assert.deepEqual(when, when.slice().sort((a, b) => b - a));
+
+  // Низких оценок нет вовсе — раскладка не должна падать.
+  const calm = feed(make(40, 6, 15, []));
+  assert.equal(calm.length, 40);
+});
+
 test('даты привезённых отзывов сдвигаются к сегодня и сдвиг не накапливается', () => {
   const dates = require('../lib/review-dates');
   const day = 24 * 60 * 60 * 1000;
