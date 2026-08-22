@@ -2854,6 +2854,12 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .btn-plain:hover{border-color:var(--border)}
 .pay-choice .co-choice{margin-bottom:0}
 .pay-choice .btn-lg{width:100%;margin-top:18px}
+.pay-draft-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;padding-top:14px;
+  border-top:1px solid var(--border-soft,var(--border))}
+.pay-draft-actions .btn{width:100%}
+.pay-draft-actions p{grid-column:1/-1;margin:0;color:var(--muted);font-size:12.5px;line-height:1.45;text-align:center}
+.checkout-return-note{margin:-4px 0 16px;padding:11px 14px;border:1px solid #b9dfc5;border-radius:12px;
+  background:#f3fbf5;color:#176b35}
 /* Выбор валюты счёта. Стоит НАД способами и сделан ссылками: от валюты зависит
    и список способов, и сумма перевода, а всю разметку состояния на этой
    странице рисует сервер (см. public/pay.js). Сумма подписана у каждой валюты —
@@ -2946,10 +2952,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .pay-amount{gap:4px 10px;padding:13px 14px}
   .pay-amount span{width:100%}
   .pay-amount b{font-size:23px}
-  /* Два действия в строку не встают: «Выбрать другой способ» вылезало за
-     кнопку, потому что подпись длиннее её минимальной ширины. */
+  /* Действия оплаты и возврата на узком экране идут по одному на строку. */
   .pay-actions{flex-direction:column}
   .pay-actions .btn{width:100%}
+  .pay-draft-actions{grid-template-columns:1fr}
+  .pay-draft-actions p{grid-column:auto}
 }
 
 /* ===== Выбор ремешка часов (страница товара) ===== */

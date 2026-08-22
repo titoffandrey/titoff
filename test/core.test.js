@@ -2927,7 +2927,8 @@ test('неоплаченный счёт напоминает о себе на в
   // Условие живого счёта одно на весь проект: страница оплаты, полоса
   // напоминания и плашка в панели обязаны считать «ждём перевод» одинаково —
   // иначе у покупателя счёт сгорел, а менеджер всё ещё ждёт деньги.
-  assert.match(fn, /R\.payLive\(pay, now\)/, 'своей копии условия у напоминания быть не должно');
+  assert.match(fn, /R\.payDisplay\(pay, now\)/, 'напоминание должно видеть живой старый invoice из истории');
+  assert.match(fn, /R\.payLive\(shown, now\)/, 'своей копии условия у напоминания быть не должно');
 
   /* Заказ, счёт по которому не выставился (касса не ответила) или уже сгорел,
    * тоже напоминает о себе — но без срока: отсчитывать нечего, а вернуться на
@@ -2946,10 +2947,15 @@ test('неоплаченный счёт напоминает о себе на в
   assert.match(appJs, /if \(!box \|\| payRemindDead\(\)\) return ''/);
   const live = { status: 'pending', invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 60000 };
   assert.equal(render.payLive(live), true);
-  assert.equal(render.payReplaceInvoice(live, true), 'inv');
-  assert.equal(render.payReplaceInvoice(live, false), '', 'обычная страница не разрешает замену');
-  assert.notEqual(render.payReplaceInvoice(Object.assign({}, live, { invoiceId: 'new-inv' }), true), 'inv',
-    'разрешение старой вкладки не совпадает с уже новым invoice');
+  const olderLive = Object.assign({ id: 'a'.repeat(24), startedAt: 1 }, live);
+  const failedTop = {
+    status: 'failed', attemptId: 'b'.repeat(24), attempts: [
+      olderLive,
+      { id: 'b'.repeat(24), status: 'failed', startedAt: 2, lastErrorCode: 'no_requisite' }
+    ]
+  };
+  assert.equal(render.payDisplay(failedTop), olderLive,
+    'failed наверху не скрывает прежние реквизиты, которые всё ещё можно оплатить');
   assert.equal(render.payLive(Object.assign({}, live, { expiresAt: Date.now() - 1 })), false, 'у сгоревшего счёта реквизиты уже чужие');
   assert.equal(render.payLive(Object.assign({}, live, { expiresAt: 0, startedAt: Date.now() })), false,
     'без подтверждённого срока реквизиты не показываем по угаданному TTL');
@@ -3320,8 +3326,8 @@ test('счёт выставляется в валюте по курсу мага
     origin: '', methods: pay.allowed(null, ['SBP']), currencies: ['RUB', 'USD'], currency: 'RUB',
     amount: 68500, amounts: { RUB: 68500, USD: 756.91 }
   });
-  assert.match(choice, /class="pay-cur-opt active" href="\/pay\/o1\?choose=1&amp;currency=RUB"/);
-  assert.match(choice, /href="\/pay\/o1\?choose=1&amp;currency=USD"[\s\S]{0,120}756,91 \$/);
+  assert.match(choice, /class="pay-cur-opt active" href="\/pay\/o1\?currency=RUB"/);
+  assert.match(choice, /href="\/pay\/o1\?currency=USD"[\s\S]{0,120}756,91 \$/);
   const single = render.payPage(ss, Object.assign({}, order, { payment: null }), {
     origin: '', methods: pay.allowed(null, ['SBP']), currencies: ['RUB'], currency: 'RUB', amount: 68500
   });
@@ -3409,6 +3415,63 @@ test('черновик не считается заказом, пока не в�
   assert.match(lookup, /filter\(o => !o\.draft\)/);
 });
 
+test('клиент удаляет только чистый черновик до первого запроса реквизитов', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'discard-draft-'));
+  const fresh = freshDb(dir);
+  const draft = fresh.createOrder({ draft: true, items: [], total: 200, contact: 'tg' });
+  const ordinary = fresh.createOrder({ items: [], total: 300, contact: 'tg' });
+
+  assert.equal(fresh.canDiscardDraftOrder(draft), true);
+  assert.equal(fresh.canDiscardDraftOrder(ordinary), false, 'обычный заказ без payment — не черновик');
+  const removed = fresh.discardDraftOrder(draft.id);
+  assert.equal(removed.ok, true);
+  assert.equal(fresh.getOrder(draft.id), null, 'чистый черновик удалён атомарно');
+  assert.equal(fresh.discardDraftOrder(draft.id).reason, 'not_found');
+  assert.equal(fresh.getOrder(ordinary.id).id, ordinary.id, 'настоящая заявка не затронута');
+
+  const started = fresh.createOrder({ draft: true, items: [], total: 400, contact: 'tg' });
+  fresh.startOrderPayment(started.id, {
+    attemptId: 'a'.repeat(24), requestId: 'b'.repeat(32), token: 'c'.repeat(32),
+    provider: 'crocopay', method: 'SBP', amount: 400, currency: 'RUB'
+  });
+  const withAttempt = fresh.getOrder(started.id);
+  assert.equal(fresh.canDiscardDraftOrder(withAttempt), false,
+    'даже попытка без invoice блокирует отмену: потерянный ответ мог создать счёт');
+  assert.equal(fresh.discardDraftOrder(started.id).reason, 'locked');
+  assert.equal(fresh.getOrder(started.id).id, started.id, 'платёжная история не удалена');
+
+  const processing = fresh.createOrder({ draft: true, items: [], total: 500, contact: 'tg' });
+  fresh.setOrderStatus(processing.id, 'processing');
+  assert.equal(fresh.discardDraftOrder(processing.id).reason, 'locked', 'взятый в работу черновик не удаляется');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('возврат с оплаты проверяет владельца и перечитывает заказ после сети', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.post('/pay/:id/draft'"), source.indexOf('/* Сверить ОДНУ адресную попытку'));
+  assert.match(route, /ownOrder\(req, req\.params\.id\)/);
+  assert.ok(route.indexOf('ownOrder(req, req.params.id)') < route.indexOf("rateLimited(req, 'order-draft'"),
+    'чужой id отсекается до различимого rate-limit ответа');
+  assert.match(route, /intent !== 'edit' && intent !== 'cancel'/, 'назначение кнопки — закрытый список');
+  assert.match(route, /db\.discardDraftOrder\(order\.id\)/, 'проверка и удаление — одна DB-операция');
+  assert.match(route, /req\.session\.myOrders = mine\.filter/);
+  assert.match(route, /res\.redirect\('\/checkout\?returned=' \+ intent, 303\)/);
+
+  const payRoute = source.slice(source.indexOf("app.get('/pay/:id'"), source.indexOf("app.post('/api/pay/crocopay/callback'"));
+  const awaited = payRoute.indexOf('await payContext');
+  const reread = payRoute.indexOf('const currentOrder = ownOrder', awaited);
+  assert.ok(awaited > -1 && reread > awaited,
+    'другая вкладка могла запустить invoice, пока страница ждала список способов');
+  assert.match(payRoute.slice(reread), /canDiscardDraft: db\.canDiscardDraftOrder\(currentOrder\)/);
+
+  const browser = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  assert.doesNotMatch(browser, /pay-switch|replaceInvoiceId|\?choose=1/,
+    'при запущенном таймере клиент не создаёт второй счёт');
+  const serverLib = fs.readFileSync(path.join(__dirname, '..', 'lib', 'server-lib.js'), 'utf8');
+  assert.match(serverLib, /\[301, 302, 303, 307, 308\]\.includes\(wanted\)/,
+    'POST-форма возвращается GET-запросом через настоящий 303');
+});
+
 test('оформление с онлайн-оплатой не чистит корзину до выбора способа', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const pay = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
@@ -3439,10 +3502,10 @@ test('оформление помнит введённое — после неу
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
   /* Покупатель, у которого касса не выставила счёт, возвращается на оформление.
-   * Пять полей, из них адрес длинный, — набирать всё заново на этом шаге значит
-   * потерять покупку. Память лежит в браузере самого покупателя, рядом с
-   * корзиной, и протухает. */
+   * Контакты, адрес и выбранная доставка восстанавливаются из браузера самого
+   * покупателя и протухают через неделю. */
   assert.match(js, /FORM_FIELDS = \['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'\]/);
+  assert.match(js, /FORM_RADIOS = \['co-delivery', 'co-delivery-mode'\]/);
   assert.match(js, /FORM_TTL/);
   assert.match(js, /initCheckoutMemory\(\);/, 'память подключается при сборке формы');
 
@@ -3460,7 +3523,7 @@ test('оформление помнит введённое — после неу
   const from = js.indexOf("var FORM_KEY = 'checkout_v1';");
   const to = js.indexOf('function initAddressQuote()', from);
   assert.ok(from > -1 && to > from, 'блок памяти оформления найден');
-  const factory = new Function('document', 'localStorage', 'window', 'Event', 'cleanText',
+  const factory = new Function('document', 'localStorage', 'window', 'Event', 'cleanText', 'pickup',
     js.slice(from, to) + '\nreturn { rememberCheckout, initCheckoutMemory };');
   function harness(initial, preset, broken) {
     const values = new Map(Object.entries(initial || {}));
@@ -3473,6 +3536,15 @@ test('оформление помнит введённое — после неу
         dispatchEvent(event) { events.push([id, event.type]); }
       };
     }
+    const radios = [
+      { name: 'co-delivery', value: 'cdek', checked: false },
+      { name: 'co-delivery', value: 'ozon', checked: false },
+      { name: 'co-delivery-mode', value: 'pvz', checked: false },
+      { name: 'co-delivery-mode', value: 'courier', checked: false }
+    ];
+    radios.forEach(radio => {
+      radio.dispatchEvent = event => events.push([radio.name + ':' + radio.value, event.type]);
+    });
     const storage = broken ? {
       getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); }
     } : {
@@ -3481,24 +3553,40 @@ test('оформление помнит введённое — после неу
       removeItem(key) { values.delete(key); }
     };
     const page = { listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } };
-    const api = factory({ getElementById: id => fields[id] || null }, storage, page,
+    const pickup = { code: '', restoredCode: '', open: true };
+    const doc = {
+      getElementById: id => fields[id] || null,
+      querySelectorAll(selector) {
+        const match = /input\[name="([^"]+)"\]/.exec(selector);
+        return match ? radios.filter(radio => radio.name === match[1]) : [];
+      }
+    };
+    const api = factory(doc, storage, page,
       class FakeEvent { constructor(type) { this.type = type; } },
-      (value, max) => String(value == null ? '' : value).trim().slice(0, max));
-    return { api, fields, events, values, page };
+      (value, max) => String(value == null ? '' : value).trim().slice(0, max), pickup);
+    return { api, fields, radios, pickup, events, values, page };
   }
 
   const fresh = harness({ checkout_v1: JSON.stringify({
     at: Date.now(), 'co-first-name': ' Иван ', 'co-last-name': 'Из памяти',
-    'co-phone': '+79990000000', 'co-contact': '', 'co-address': 'Москва, Тверская, 1'
+    'co-phone': '+79990000000', 'co-contact': '', 'co-address': 'Москва, Тверская, 1',
+    'co-delivery': 'ozon', 'co-delivery-mode': 'courier', 'co-pickup-code': 'PVZ_42'
   }) }, { 'co-last-name': 'Уже введено' });
   fresh.api.initCheckoutMemory();
   assert.equal(fresh.fields['co-first-name'].value, 'Иван');
   assert.equal(fresh.fields['co-last-name'].value, 'Уже введено', 'своё значение не перезаписано');
   assert.ok(fresh.events.some(([id, type]) => id === 'co-first-name' && type === 'change'));
+  assert.equal(fresh.radios.find(radio => radio.value === 'ozon').checked, true);
+  assert.equal(fresh.radios.find(radio => radio.value === 'courier').checked, true);
+  assert.equal(fresh.pickup.code, '', 'сохранённый код ещё не подтверждён актуальным списком');
+  assert.equal(fresh.pickup.restoredCode, 'PVZ_42');
+  assert.equal(fresh.pickup.open, true);
   fresh.fields['co-phone'].value = '+79991112233';
   fresh.page.listeners.pagehide();
   assert.equal(JSON.parse(fresh.values.get('checkout_v1'))['co-phone'], '+79991112233',
     'активное поле сохраняется при уходе со страницы');
+  assert.equal(JSON.parse(fresh.values.get('checkout_v1'))['co-delivery'], 'ozon');
+  assert.equal(JSON.parse(fresh.values.get('checkout_v1'))['co-pickup-code'], 'PVZ_42');
 
   const stale = harness({ checkout_v1: JSON.stringify({
     at: Date.now() - 8 * 24 * 60 * 60 * 1000, 'co-first-name': 'Старое'
@@ -3511,11 +3599,16 @@ test('оформление помнит введённое — после неу
   const blocked = harness({}, {}, true);
   assert.doesNotThrow(() => blocked.api.initCheckoutMemory(), 'запрет localStorage не ломает оформление');
   assert.doesNotThrow(() => blocked.page.listeners.pagehide());
-  const submit = js.slice(js.indexOf('function submitOrder(btn)'), js.indexOf('function initCheckout()', js.indexOf('function submitOrder(btn)')));
+  const submit = js.slice(js.indexOf('function submitOrder(btn)'), js.indexOf("fetch('/api/order'", js.indexOf('function submitOrder(btn)')));
   const rememberAt = submit.indexOf('rememberCheckout()');
   const readFieldsAt = submit.indexOf("document.getElementById(id)");
   assert.ok(rememberAt > -1 && readFieldsAt > rememberAt,
     'активное поле сохраняется непосредственно перед чтением/submit');
+  const empty = js.slice(js.indexOf('if (!Cart.items.length) {'), js.indexOf('var count = Cart.count()'));
+  assert.ok(empty.indexOf('rememberCheckout()') < empty.indexOf("form.innerHTML = ''"),
+    'форма сохраняется до программного удаления при пустой корзине');
+  assert.match(js, /window\.addEventListener\('pageshow'[\s\S]{0,180}event\.persisted[\s\S]{0,180}Cart\.load\(\)[\s\S]{0,100}Cart\.render\(\)/,
+    'возврат из BFCache перечитывает актуальную корзину');
 });
 
 test('повтор оформления возвращает тот же свой неоплаченный заказ, а не создаёт дубль', () => {
@@ -3890,13 +3983,15 @@ test('вебхук сверяет token попытки и подтверждае
   // Ответ кассы записывается адресно только после её запроса.
   assert.ok(start.indexOf('CROCO.createInvoice') < start.indexOf('db.attachOrderInvoice'));
   assert.match(start, /db\.attachOrderInvoice\(id, \{[\s\S]{0,80}attemptId/);
-  assert.match(start, /R\.payReplaceInvoice\(activeAttempt, true\) === replaceInvoiceId/,
-    'замена привязана к invoice, увиденному именно этой вкладкой');
+  assert.doesNotMatch(start, /replaceInvoiceId|payReplaceInvoice|stale_replace/,
+    'живой invoice не заменяется вторым до конца таймера');
+  assert.match(start, /const activeAttempt = R\.payDisplay\(currentOrder\.payment\)/,
+    'guard ищет живой invoice во всей legacy-истории, а не только наверху');
   assert.match(start, /terminalAfterFailure[\s\S]{0,120}status: 200/,
     'оплатившийся во время POST старый счёт побеждает ошибку нового запроса');
   const providerCap = start.indexOf("rateLimited(req, 'pay-provider-ip'");
   const providerCall = start.indexOf('CROCO.createInvoice');
-  const reuseGuard = start.indexOf('if (!replace && activeAttempt && R.payLive(activeAttempt))');
+  const reuseGuard = start.indexOf('if (activeAttempt && R.payLive(activeAttempt))');
   assert.ok(reuseGuard > -1 && providerCap > reuseGuard && providerCall > providerCap,
     'широкий лимит стоит после безопасного reuse, но до внешнего POST кассы');
   assert.match(start, /pay-provider-global[\s\S]{0,80}'all'/,
@@ -3906,11 +4001,23 @@ test('вебхук сверяет token попытки и подтверждае
   // тревожит и использует ту же центральную сверку, а не свою трактовку суммы.
   const status = source.slice(source.indexOf("app.get('/api/pay/crocopay/status'"), source.indexOf("app.get('/pay/:id'"));
   assert.match(status, /ownOrder\(req, req\.query\.order\)/);
-  assert.match(status, /pay\.status === 'paid'/);
+  assert.match(status, /pay\.status === 'paid' \|\| pay\.status === 'mismatch'/,
+    'старая вкладка прекращает polling после любой уже пришедшей суммы');
   assert.match(status, /reconcilePaymentAttempt\(s, order\.id, attempt\)/);
   assert.doesNotMatch(status, /CROCO\.invoice|settleOrderPayment/);
   assert.match(status, /pay-status-provider-ip/);
   assert.match(status, /pay-status-provider-global/);
+  assert.match(status, /req\.query\.attempt[\s\S]{0,260}db\.findPaymentAttempt\(order, \{ attemptId: askedAttempt \}\)/,
+    'polling адресован попытке, реквизиты которой показаны на странице');
+  const statusAwait = status.indexOf('await reconcilePaymentAttempt');
+  const statusReread = status.indexOf('const latest = db.getOrder(order.id)', statusAwait);
+  const statusReply = status.indexOf('if (!result.ok)', statusAwait);
+  assert.ok(statusAwait > -1 && statusReread > statusAwait && statusReply > statusReread,
+    'webhook по другой попытке, пришедший во время GET, получает terminal-приоритет');
+  assert.match(status.slice(statusReread, statusReply), /latestState === 'paid' \|\| latestState === 'mismatch'/);
+  const payBrowser = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  assert.match(payBrowser, /page\.dataset\.attempt/);
+  assert.match(payBrowser, /'&attempt=' \+ encodeURIComponent\(attemptId\)/);
 
   const sweep = source.slice(source.indexOf('async function reconcileOpenPayments'), source.indexOf('/ОПЛАТА: CrocoPAY'));
   assert.match(sweep, /db\.paymentAttempts\(order\)/);
@@ -4766,7 +4873,7 @@ test('список пунктов витрина берёт у сервера и
   // Выбранный пункт снимается со сменой адреса или перевозчика: пункт в прежнем
   // городе или чужой сети — не выбор покупателя.
   assert.match(js, /input\.addEventListener\('input', function \(\) \{ dropPickup\(\); setGeo\(null, null\); quoteDelivery\(\); \}\)/);
-  assert.match(js, /box\.addEventListener\('change', function \(\) \{ dropPickup\(\); syncDelivery\(\); \}\)/);
+  assert.match(js, /box\.addEventListener\('change', function \(\) \{ dropPickup\(\); syncDelivery\(\); rememberCheckout\(\); \}\)/);
 
   // «Рядом ничего нет» и «списка этого перевозчика у нас нет» — разные ответы.
   assert.match(server, /ready: PICKUP\.has\(method\)/);
@@ -4828,6 +4935,70 @@ test('список пунктов витрина берёт у сервера и
     assert.match(js, new RegExp(name + ':\\s*\'<path'), 'нет значка ' + name);
   }
   assert.match(js, /stroke-width="1\.6"/);
+});
+
+test('сохранённый ПВЗ подтверждается сервером, а старый ответ не стирает новый список', async () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const from = js.indexOf('var pickup = {');
+  const to = js.indexOf('function pointDistance', from);
+  assert.ok(from > -1 && to > from, 'блок загрузки пунктов найден');
+  const factory = new Function(
+    'document', 'deliveryChoice', 'deliveryModeChoice', 'ship', 'addressValue',
+    'fetch', 'renderPoints', 'rememberCheckout',
+    js.slice(from, to) + '\nreturn { pickup: pickup, loadPoints: loadPoints };'
+  );
+  function harness() {
+    let address = 'A';
+    let renders = 0; let remembers = 0;
+    const requests = [];
+    const api = factory(
+      { getElementById: id => id === 'co-points' ? { hidden: false } : null },
+      () => 'cdek', () => 'pvz', { valid: true }, () => address,
+      () => new Promise((resolve, reject) => { requests.push({ resolve, reject }); }),
+      () => { renders++; }, () => { remembers++; }
+    );
+    return {
+      api, requests,
+      setAddress(value) { address = value; },
+      renders: () => renders, remembers: () => remembers
+    };
+  }
+  const answer = data => ({ json: () => Promise.resolve(data) });
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+
+  const stale = harness();
+  stale.api.pickup.restoredCode = 'CLOSED_42';
+  stale.api.loadPoints();
+  stale.requests[0].resolve(answer({ ok: true, ready: true, items: [] }));
+  await flush();
+  assert.equal(stale.api.pickup.code, '', 'удалённый пункт не считается выбранным');
+  assert.equal(stale.api.pickup.restoredCode, '', 'протухшее предпочтение очищено после точного ответа');
+  assert.equal(stale.remembers(), 1, 'очистка попала в checkout_v1');
+
+  const valid = harness();
+  valid.api.pickup.restoredCode = 'PVZ_42';
+  valid.api.loadPoints();
+  valid.requests[0].resolve(answer({ ok: true, ready: true, items: [{ code: 'PVZ_42' }] }));
+  await flush();
+  assert.equal(valid.api.pickup.code, 'PVZ_42', 'актуальный пункт восстановлен после подтверждения');
+  assert.equal(valid.api.pickup.restoredCode, '');
+  assert.equal(valid.api.pickup.open, false);
+
+  const raced = harness();
+  raced.api.loadPoints();                                      // A₁ ещё в сети
+  raced.setAddress('B');
+  raced.api.loadPoints();                                      // B ещё в сети
+  raced.setAddress('A');
+  raced.api.loadPoints();                                      // актуальный A₂
+  raced.requests[2].resolve(answer({ ok: true, ready: true, items: [{ code: 'A2' }] }));
+  await flush();
+  raced.requests[0].reject(new Error('late A1 failure'));
+  raced.requests[1].resolve(answer({ ok: true, ready: true, items: [{ code: 'B1' }] }));
+  await flush();
+  assert.match(raced.api.pickup.key, /\|A\|/);
+  assert.deepEqual(raced.api.pickup.items, [{ code: 'A2' }],
+    'поздние A₁ и B не стирают успешный список A₂ при возврате к тому же ключу');
+  assert.equal(raced.api.pickup.pending, false);
 });
 
 test('координаты для поиска пунктов приходят от подсказки адреса, а не от геокодера', () => {
@@ -5071,15 +5242,44 @@ test('страница оплаты показывает реквизиты, п�
   assert.doesNotMatch(stale, /4276 1234 5678 9012/);
   assert.match(stale, /name="pay-method"/, 'вместо мёртвых реквизитов — выбор способа заново');
 
-  // «Выбрать другой способ»: выбор поверх ещё действующего счёта.
+  // Даже старый URL с ?choose=1 не показывает выбор поверх действующего счёта:
+  // у кассы нет отмены invoice, и второй оставил бы два оплачиваемых реквизита.
   const choose = render.payPage(ss, Object.assign({}, order, { payment: live }), { methods, origin: '', choose: true });
-  assert.match(choose, /name="pay-method"/);
-  assert.doesNotMatch(choose, /4276 1234 5678 9012/);
+  assert.doesNotMatch(choose, /name="pay-method"/);
+  assert.match(choose, /4276 1234 5678 9012/);
+  assert.doesNotMatch(choose, /id="pay-switch"|Выбрать другой способ/);
+
+  // Данные прежней версии могли содержать живой A под более новой failed B.
+  // Показываем и адресно опрашиваем A, а не предлагаем выпустить третий счёт.
+  const oldLive = Object.assign({ id: 'a'.repeat(24), startedAt: Date.now() - 2000 }, live);
+  const legacyHistory = {
+    status: 'failed', attemptId: 'b'.repeat(24), method: 'SBP', attempts: [
+      oldLive,
+      { id: 'b'.repeat(24), status: 'failed', method: 'SBP', startedAt: Date.now() - 1000, lastErrorCode: 'no_requisite' }
+    ]
+  };
+  const recovered = render.payPage(ss, Object.assign({}, order, { payment: legacyHistory }), { methods, origin: '' });
+  assert.match(recovered, /4276 1234 5678 9012/);
+  assert.match(recovered, new RegExp('data-attempt="' + 'a'.repeat(24) + '"'));
+  assert.doesNotMatch(recovered, /name="pay-method"/);
 
   // Оплата ещё не начиналась — только выбор способа.
   const fresh = render.payPage(ss, order, { methods, origin: '' });
   assert.match(fresh, /name="pay-method"/);
   assert.match(fresh, /id="pay-create"/);
+  assert.doesNotMatch(fresh, /Номер карты на сайте вводить не нужно/);
+  // Вернуться к оформлению можно только из чистого черновика до первого
+  // запроса кассы. Обе POST-кнопки оставляют корзину/checkout_v1 в браузере.
+  const draft = Object.assign({}, order, { status: 'new', draft: true, payment: null });
+  const editable = render.payPage(ss, draft, { methods, origin: '', canDiscardDraft: true });
+  assert.match(editable, /method="post" action="\/pay\/ord1\/draft"/);
+  assert.match(editable, /name="intent" value="edit">Вернуться и изменить заказ/);
+  assert.match(editable, /name="intent" value="cancel">Отменить заказ/);
+  assert.match(editable, /Корзина и заполненные данные останутся/);
+  const forgedFlag = render.payPage(ss, Object.assign({}, draft, { draft: false, payment: live }),
+    { methods, origin: '', canDiscardDraft: true });
+  assert.doesNotMatch(forgedFlag, /pay-draft-actions|Отменить заказ/,
+    'ошибочный флаг не рисует отмену поверх платёжной попытки');
   // Способов нет вовсе — не оставляем покупателя перед пустым блоком.
   const none = render.payPage(ss, order, { methods: [], origin: '' });
   assert.doesNotMatch(none, /id="pay-create"/);

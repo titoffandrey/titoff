@@ -127,6 +127,10 @@
         + '<h2>В корзине пока пусто</h2>'
         + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
         + '<a class="btn btn-primary btn-lg" href="/">Перейти в каталог</a></div>';
+      // Удаление последнего товара снимает DOM формы без navigation/pagehide.
+      // Сохраняем активное поле прямо перед этим, иначе последняя правка могла
+      // исчезнуть вместе с элементом, не успев дать `change`.
+      rememberCheckout();
       if (form) { form.innerHTML = ''; delete form.dataset.ready; }
       side.innerHTML = '';
       return;
@@ -307,8 +311,8 @@
    *
    * Покупатель, у которого не вышло оплатить (касса не ответила, свободных
    * реквизитов не нашлось), возвращается на оформление — и не должен набирать
-   * заново имя, телефон и адрес. Пять полей, из них адрес длинный; после отказа
-   * платёжки это ровно та мелочь, на которой покупку бросают.
+   * заново имя, телефон, адрес, доставку и пункт выдачи. После отказа платёжки
+   * это ровно та повторная работа, на которой покупку бросают.
    *
    * Лежит всё в браузере самого покупателя, рядом с корзиной, и никуда не
    * уходит: на сервер эти поля попадают только вместе с заказом, который он сам
@@ -323,7 +327,23 @@
   var FORM_KEY = 'checkout_v1';
   var FORM_TTL = 7 * 24 * 60 * 60 * 1000;
   var FORM_FIELDS = ['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'];
+  var FORM_RADIOS = ['co-delivery', 'co-delivery-mode'];
   var FORM_LIMITS = { 'co-first-name': 60, 'co-last-name': 60, 'co-phone': 24, 'co-contact': 120, 'co-address': 400 };
+  function checkedValue(name) {
+    var radios = document.querySelectorAll ? document.querySelectorAll('input[name="' + name + '"]') : [];
+    for (var i = 0; i < radios.length; i++) if (radios[i].checked) return String(radios[i].value || '');
+    return '';
+  }
+  function restoreChecked(name, value) {
+    if (!value || !document.querySelectorAll) return;
+    var radios = document.querySelectorAll('input[name="' + name + '"]');
+    for (var i = 0; i < radios.length; i++) {
+      if (String(radios[i].value || '') !== value) continue;
+      radios[i].checked = true;
+      radios[i].dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+  }
   function rememberCheckout() {
     var data = { at: Date.now() };
     var found = false;
@@ -333,6 +353,9 @@
       found = true;
       data[id] = cleanText(el.value, FORM_LIMITS[id] || 400);
     });
+    FORM_RADIOS.forEach(function (name) { data[name] = checkedValue(name); });
+    data['co-pickup-code'] = typeof pickup !== 'undefined' && pickup
+      ? cleanText(pickup.code || pickup.restoredCode, 32) : '';
     // После успешного оформления разметка формы уже снята. Не затираем в этот
     // момент сохранённые поля одной пустой отметкой времени.
     if (!found) return;
@@ -351,8 +374,11 @@
     var fieldsValid = !!saved && FORM_FIELDS.every(function (id) {
       return saved[id] === undefined || typeof saved[id] === 'string';
     });
+    var choicesValid = !!saved && FORM_RADIOS.concat(['co-pickup-code']).every(function (name) {
+      return saved[name] === undefined || typeof saved[name] === 'string';
+    });
     var fresh = !!saved && typeof saved === 'object' && !Array.isArray(saved)
-      && fieldsValid && isFinite(at) && at > 0 && age >= 0 && age < FORM_TTL;
+      && fieldsValid && choicesValid && isFinite(at) && at > 0 && age >= 0 && age < FORM_TTL;
     // Битая, просроченная или датированная будущим запись не должна оставлять
     // имя, телефон и адрес в браузере навсегда.
     if (raw !== null && !fresh) {
@@ -371,6 +397,21 @@
         el.value = value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
       });
+      // Перевозчик и вариант доставки восстанавливаются после адреса: его
+      // `change` запускает серверный расчёт цены, а выбранные радио уже будут на
+      // месте к моменту ответа. Значения ищем перебором, не вставляя строку из
+      // localStorage в CSS-селектор.
+      FORM_RADIOS.forEach(function (name) {
+        restoreChecked(name, cleanText(saved[name], 40));
+      });
+      // Код пункта считается лишь предпочтением: список придёт с сервера и
+      // renderPoints оставит выбор только если такой пункт всё ещё существует.
+      var pickupCode = cleanText(saved['co-pickup-code'], 32);
+      if (typeof pickup !== 'undefined' && pickup && /^[A-Za-z0-9_-]{1,32}$/.test(pickupCode)) {
+        // Это лишь кандидат. Настоящим выбором он станет после совпадения с
+        // актуальным ответом /api/delivery/points.
+        pickup.restoredCode = pickupCode;
+      }
     }
     // На `change`, то есть при уходе из поля, а не на каждую букву: запись в
     // localStorage синхронная, и делать её на каждый набранный символ адреса
@@ -381,6 +422,9 @@
       if (el) el.addEventListener('change', rememberCheckout);
     });
     window.addEventListener('pagehide', rememberCheckout);
+    // События восстановления выше могли разбудить обработчики доставки до
+    // подстановки пункта. Финальный снимок собирает уже целое состояние.
+    if (fresh) rememberCheckout();
   }
 
   function initAddressQuote() {
@@ -626,14 +670,14 @@
     syncDelivery();
     // Пункты выдачи у перевозчиков свои, поэтому смена перевозчика — это и новый
     // список: syncDelivery перезапросит его сам.
-    box.addEventListener('change', function () { dropPickup(); syncDelivery(); });
+    box.addEventListener('change', function () { dropPickup(); syncDelivery(); rememberCheckout(); });
     var modes = document.getElementById('co-modes');
     // Смена варианта перевозчика не меняет список вариантов — перерисовывать их
     // не нужно, достаточно обновить сумму и подсказку под адресом. А вот выбор
     // пункта нужен только у «в пункт выдачи»: у курьера посылка едет по адресу
     // покупателя, и трогать этот адрес больше некому.
     if (modes) modes.addEventListener('change', function () {
-      renderRail(); syncSubmit(); syncAddressNote(); loadPoints();
+      renderRail(); syncSubmit(); syncAddressNote(); loadPoints(); rememberCheckout();
     });
     initPointsChoice();
   }
@@ -648,14 +692,13 @@
    * уходит ни одного запроса, как и при расчёте цены доставки. Витрина ничего
    * про пункты не решает: ни расстояний, ни сортировки здесь нет.
    *
-   * У любого исхода есть выход. Рядом пусто, базы этого перевозчика у нас нет,
-   * сеть подвела, нужного пункта нет в пятёрке — покупатель вписывает адрес
-   * пункта руками. Отказывать в заказе из-за того, что у нас нет чужого
-   * справочника, нельзя.
+   * У любого исхода есть выход. Рядом пусто, базы этого перевозчика у нас нет
+   * или сеть подвела — покупатель выбирает курьера либо повторяет загрузку после
+   * смены адреса/перевозчика. Непроверенный код пункта в заказ не пропускаем.
    */
   var pickup = {
     key: '', wanted: '', retriedKey: '', items: [], ready: false, done: false, pending: false,
-    code: '', open: true, geo: null
+    requestSeq: 0, code: '', restoredCode: '', open: true, geo: null
   };
 
   // Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
@@ -667,6 +710,7 @@
   // прежнем городе или чужой сети — это не выбор покупателя, а мусор.
   function dropPickup() {
     pickup.code = '';
+    pickup.restoredCode = '';
     // Выбирать снова — значит снова показать из чего: свёрнутый пустой список
     // выглядел бы как уже сделанный выбор.
     pickup.open = true;
@@ -686,6 +730,7 @@
     if (key === pickup.key) { renderPoints(); return; }
     if (pickup.pending && pickup.wanted === key) return;
     pickup.wanted = key; pickup.pending = true;
+    var requestSeq = ++pickup.requestSeq;
     var body = { method: deliveryChoice(), address: addressValue() };
     if (pickup.geo) { body.lat = pickup.geo.lat; body.lon = pickup.geo.lon; }
     fetch('/api/delivery/points', {
@@ -693,9 +738,29 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
+        // Ни успех, ни ошибка старого A не вправе менять состояние более нового
+        // запроса B. Проверяем адресность ДО pending/items и отрисовки.
+        if (pickup.requestSeq !== requestSeq || pickup.wanted !== key) return;
         pickup.pending = false;
-        if (!d || !d.ok || pickup.wanted !== key) return;      // ответ устарел
+        if (!d || !d.ok) {
+          pickup.done = true; pickup.items = [];
+          renderPoints();
+          return;
+        }
         pickup.key = key; pickup.items = d.items || []; pickup.ready = !!d.ready; pickup.done = true;
+        // Восстановленный код считается выбранным только после подтверждения
+        // актуальным списком. Удалённый ПВЗ очищаем и из памяти формы.
+        if (pickup.restoredCode) {
+          var restored = pickup.items.some(function (item) { return item.code === pickup.restoredCode; });
+          pickup.code = restored ? pickup.restoredCode : '';
+          pickup.open = !restored;
+          pickup.restoredCode = '';
+          rememberCheckout();
+        } else if (pickup.code && !pickup.items.some(function (item) { return item.code === pickup.code; })) {
+          pickup.code = '';
+          pickup.open = true;
+          rememberCheckout();
+        }
         renderPoints();
         /* У OZON точки подтягиваются из OpenStreetMap в фоне, и сервер сказал,
          * что список сейчас обновляется. Переспрашиваем один раз: ждать ответа
@@ -709,8 +774,9 @@
         }
       })
       .catch(function () {
-        // Сеть подвела — списка не будет, но ручной ввод останется: заказ
-        // оформить всё равно можно.
+        // Сеть подвела — непроверенный ПВЗ выбранным не считаем. Покупатель
+        // сможет выбрать курьера либо повторить загрузку сменой адреса/способа.
+        if (pickup.requestSeq !== requestSeq || pickup.wanted !== key) return;
         pickup.pending = false; pickup.done = true; pickup.items = [];
         renderPoints();
       });
@@ -771,6 +837,9 @@
     }
     var picked = null;
     for (var i = 0; i < pickup.items.length; i++) if (pickup.items[i].code === pickup.code) picked = pickup.items[i];
+    // Сохранённый пункт мог закрыться или выпасть из списка перевозчика. Не
+    // оставляем невидимый старый код, который потом ушёл бы в заказ.
+    if (pickup.code && !picked) { pickup.code = ''; pickup.open = true; rememberCheckout(); }
     // Пока не выбрано — список открыт: закрытый требовал бы лишнего нажатия там,
     // где выбор обязателен.
     var open = picked ? pickup.open : true;
@@ -848,10 +917,12 @@
       var row = e.target.closest && e.target.closest('.co-point[data-code]');
       if (!row) return;
       pickup.code = row.getAttribute('data-code');
+      pickup.restoredCode = '';
       // Выбор сделан — список сворачивается: дальше на экране нужна кнопка, а
       // не перечень, из которого уже выбрали.
       pickup.open = false;
       renderPoints();
+      rememberCheckout();
     });
     // Поворот телефона меняет перенос адреса, а с ним и высоту списка. Меряем
     // заново — иначе после поворота он остался бы обрезанным.
@@ -1494,6 +1565,20 @@
       if (t && (t.tagName === 'IMG' || t.tagName === 'VIDEO')) e.preventDefault();
     });
   }
+
+  // Safari и Firefox могут вернуть /checkout из back-forward cache целиком,
+  // вместе со старым JS-объектом корзины. Сначала сохраняем видимую форму,
+  // затем перечитываем cart_v1 и перерисовываем страницу по актуальному
+  // состоянию: после выданного invoice корзина уже могла быть очищена в другой
+  // записи истории.
+  window.addEventListener('pageshow', function (event) {
+    if (!event.persisted) return;
+    rememberCheckout();
+    Cart.load();
+    Cart.updateBadge();
+    Cart.render();
+    refreshCartFromServer();
+  });
 
   /* Просмотрщик вложений живёт в public/media-lightbox.js: тот же просмотрщик
      нужен в панели отзывов, а витринный скрипт панель не грузит. Он сам

@@ -13,14 +13,12 @@
 
   var orderId = page.dataset.order || '';
   var state = page.dataset.state || '';
+  var attemptId = /^[a-f0-9]{24,64}$/.test(page.dataset.attempt || '') ? page.dataset.attempt : '';
   var expires = Number(page.dataset.expires || 0) || 0;
   // Валюта счёта. Её выбирают ссылками (разметку рисует сервер), сюда она
   // приезжает готовой — скрипт только передаёт её вместе со способом, чтобы
   // счёт вышел в той же валюте, сумму которой покупатель видел на странице.
   var currency = page.dataset.currency || '';
-  // Разрешение заменить живой счёт привязано к invoice, который был на странице
-  // в момент её открытия. Старая вкладка не вправе заменить уже новый счёт.
-  var replaceInvoiceId = page.dataset.replaceInvoice || '';
 
   /* ------------------------------ Копирование ------------------------------ */
   // Номер карты покупатель переносит в банковское приложение — это главное
@@ -167,7 +165,7 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         orderId: orderId, method: method, currency: currency,
-        requestId: requestId, replaceInvoiceId: replaceInvoiceId
+        requestId: requestId
       })
     })
       .then(function (r) {
@@ -196,10 +194,8 @@
          * напоминает полоса под шапкой (`payRemind` в server.js) — так что
          * второй такой же заказ покупатель оформит разве что нарочно. */
         if (d && d.ok && window.Cart && Cart.clear) Cart.clear();
-        // Реквизиты рисует сервер, поэтому на успех просто открываем страницу
-        // заново — но ИМЕННО по адресу из ответа, а не reload: в текущем адресе
-        // может остаться ?choose=1, и тогда покупатель после выставления счёта
-        // снова увидел бы выбор способа вместо реквизитов.
+        // Реквизиты рисует сервер, поэтому на успех открываем выданный им адрес.
+        // Это заодно убирает из URL прежний выбор валюты.
         if (d && d.ok) { location.href = d.url || ('/pay/' + encodeURIComponent(orderId)); return; }
         var error = (d && d.error) || 'Не удалось выставить счёт';
         var next = d && d.suggestedMethod
@@ -229,7 +225,8 @@
   function poll(manual) {
     if (busy || state !== 'pending') return;
     busy = true;
-    fetch('/api/pay/crocopay/status?order=' + encodeURIComponent(orderId), { headers: { Accept: 'application/json' } })
+    fetch('/api/pay/crocopay/status?order=' + encodeURIComponent(orderId)
+      + (attemptId ? '&attempt=' + encodeURIComponent(attemptId) : ''), { headers: { Accept: 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         busy = false;
@@ -254,13 +251,4 @@
     poll(true);
   });
 
-  // «Выбрать другой способ» — обычный переход с ?choose=1: по нему сервер рисует
-  // выбор даже при действующем счёте. Прежний счёт у кассы при этом не
-  // отменяется и остаётся оплачиваемым — если покупатель всё же переведёт по
-  // нему, платёж дойдёт вебхуком: callback адресует именно прежнюю попытку по её
-  // собственным attemptId и token.
-  var swap = document.getElementById('pay-switch');
-  if (swap) swap.addEventListener('click', function () {
-    location.href = '/pay/' + encodeURIComponent(orderId) + '?choose=1';
-  });
 })();
