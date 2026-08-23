@@ -34,11 +34,14 @@
  * следующем открытии страницы, а сама строка отсчёта уходит: считать больше
  * нечего. Подпись берётся из разметки (`data-over`), а не пишется здесь — все
  * слова про состояние оплаты живут в одном месте, в lib/render.js.
+ *
+ * Список строк ищется ЗАНОВО на каждом такте, а не запоминается при загрузке:
+ * живое обновление (`public/admin-live.js`) подменяет строки списка прямо на
+ * открытой странице, и у приехавшего таким образом заказа отсчёт иначе не шёл
+ * бы вовсе. Полсотни строк в секунду — это доли миллисекунды.
  */
 (function () {
   'use strict';
-  var boxes = [].slice.call(document.querySelectorAll('.o-left[data-pay-until]'));
-  if (!boxes.length) return;
 
   function left(ms) {
     var total = Math.max(0, Math.floor(ms / 1000));
@@ -64,20 +67,16 @@
   }
 
   function tick() {
-    var live = 0;
+    var boxes = document.querySelectorAll('.o-left[data-pay-until]');
     for (var i = 0; i < boxes.length; i++) {
       var box = boxes[i];
-      if (!box) continue;                                  // этот уже сгорел
       var ms = Number(box.getAttribute('data-pay-until') || 0) - Date.now();
-      if (ms <= 0) { expire(box); boxes[i] = null; continue; }
+      if (ms <= 0) { expire(box); continue; }
       var b = box.querySelector('b');
       if (b) b.textContent = left(ms);
-      live++;
     }
-    // Считать больше нечего — таймер незачем держать до ухода со страницы.
-    if (!live) clearInterval(timer);
   }
 
-  var timer = setInterval(tick, 1000);
+  setInterval(tick, 1000);
   tick();
 })();

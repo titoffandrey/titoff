@@ -37,7 +37,12 @@ const { Analytics, clientDetails } = require('./lib/analytics');
 // Адрес посетителя и доверие forwarded-заголовкам: отдельный модуль, потому что
 // от него зависят блокировка перебора пароля и все антиспам-лимиты.
 const CLIENT_IP = require('./lib/client-ip');
+// Живые обновления панели: один SSE-канал на вкладку. Каталог данных модуль
+// получает снаружи — своего расчёта пути у него нет, чтобы не разойтись с
+// хранилищем.
+const LIVE = require('./lib/live');
 const { App } = require('./lib/server-lib');
+LIVE.watch(db.DATA_DIR);
 
 // Возвращает отчёт, если рядом лежала установка прежней мультидоменной версии.
 const migration = db.ensureSeeded();
@@ -1962,6 +1967,18 @@ app.post('/admin/login', async (req, res) => {
   res.redirect('/admin');
 });
 app.post('/admin/logout', (req, res) => { req.session = null; res.redirect('/admin/login'); });
+
+/* Живые обновления: вкладка панели держит этот ответ открытым и получает по нему
+ * номера версий тем, за которыми следит (`lib/live.js`). Сама разметка приходит
+ * потом обычным запросом той же страницы — здесь ходят только числа.
+ *
+ * guardApi, а не guardAdmin: редирект на страницу входа EventSource прочитал бы
+ * как поток данных и молча зациклился бы на нём.
+ */
+app.get('/admin/live', (req, res) => {
+  if (!guardApi(req, res)) return;
+  LIVE.subscribe(req, res, req.query.topics);
+});
 
 app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db)); });
 app.get('/admin/analytics', (req, res) => {

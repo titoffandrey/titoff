@@ -613,7 +613,12 @@ test('раздел метрики защищён панелью и показы�
   assert.match(html, /Среднее время/);
   assert.match(html, /UTM-кампании/);
   assert.match(html, /Операционные системы/);
-  assert.match(html, /Обновить/);
+  // Кнопки «Обновить» и подписи «Обновлено 16:36» здесь больше нет: страница
+  // обновляется сама, и кнопка предлагала бы сделать руками уже сделанное.
+  assert.doesNotMatch(html, /Обновить|location\.reload/, 'обновление метрики руками снято');
+  assert.doesNotMatch(html, /Обновлено \d/, 'время последнего обновления всегда «только что»');
+  assert.match(html, /data-live="analytics/, 'раздел метрики обязан обновляться сам');
+  assert.match(html, /admin-live\.js/);
   assert.match(html, /Боты и технические запросы/);
   assert.match(html, /не влияют на основную метрику/);
 });
@@ -2534,7 +2539,7 @@ test('меню панели — одна кнопка в шапке и выпа�
   const html = adminViews.dashboard(SETTINGS, db);
   // Кнопка стоит в шапке, список выпадает под ней. Ни боковой колонки, ни ленты
   // разделов, ни кнопки выхода рядом с ними.
-  assert.match(html, /<div class="a-topbar"><details class="a-menu" id="a-menu">/);
+  assert.match(html, /<div class="a-topbar" data-live-part="topbar"><details class="a-menu" id="a-menu">/);
   assert.match(html, /<summary class="a-menu-btn"/);
   assert.match(html, /<div class="a-menu-drop">/);
   assert.equal(/a-sidebar/.test(html), false, 'боковой колонки больше нет');
@@ -5597,7 +5602,7 @@ test('состояние оплаты видно в обеих панелях и
     getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   }, null, 1);
   assert.match(withDraft, /pay-draft/);
-  assert.match(withDraft, /o-stat-draft"><span class="o-stat-k"><i><\/i>Способ не выбран<\/span><strong>1/);
+  assert.match(withDraft, /o-leg o-stat-draft"><i><\/i><span class="o-leg-k">Способ не выбран<\/span><b>1<\/b>/);
 
   for (const html of [adminViews.ordersList(SETTINGS, db, null, 1)]) {
     assert.match(html, /pay-ok/);
@@ -5680,15 +5685,32 @@ test('сводка по заказам считает выручку по опл
   // Битая сумма не превращается в NaN на всю сводку.
   assert.equal(render.orderStats([{ total: 'абв', payment: { status: 'paid' } }]).revenue, 0);
 
-  // Плитки «Проверить» и «Без оплаты» при нуле не показываются: сводка отвечает
-  // на вопрос «что сейчас с заказами», а не перечисляет пустые состояния.
+  // Средний чек считается по ОПЛАЧЕННЫМ, а не по всем заявкам: брошенные
+  // черновики и сгоревшие счета денег не принесли и среднее только занижают.
+  assert.equal(stats.avg, 75000);
+  assert.equal(render.orderStats([]).avg, 0, 'делить на ноль оплаченных нечего');
+  // «Сегодня» — только заявки текущих суток. У тестовых заказов дата 1970 года,
+  // поэтому сегодняшних среди них нет ни одной.
+  assert.equal(stats.today.n, 0);
+  const now = Date.now();
+  const fresh = render.orderStats([
+    { total: 5000, createdAt: now, payment: { status: 'paid' } },
+    { total: 3000, createdAt: now, payment: null },
+    { total: 9000, createdAt: 1000, payment: { status: 'paid' } }
+  ]);
+  assert.equal(fresh.today.n, 2);
+  assert.equal(fresh.today.sum, 8000);
+  assert.equal(fresh.today.revenue, 5000, 'сегодняшняя выручка — только оплаченное');
+
+  // Состояния «Проверить» и «Без оплаты» при нуле не показываются: сводка
+  // отвечает на вопрос «что сейчас с заказами», а не перечисляет пустые.
   const clean = render.orderStatsBar(render.orderStats([{ total: 1000, payment: { status: 'paid' } }]), SETTINGS);
   assert.doesNotMatch(clean, /Проверить|Без оплаты/);
   assert.match(clean, /Оплачено/);
   assert.match(clean, /Не оплачены/, 'состояние «счёт истёк» видно даже при нуле');
-  // У пустой плитки подписи нет вовсе: «Ждут оплату 0 · на 0 ₽» — объяснение
-  // того, чего не случилось.
-  assert.match(clean, /Не оплачены<\/span><strong>0<\/strong><small><\/small>/);
+  // У пустого состояния подписи нет вовсе: «Ждут оплату 0 · на 0 ₽» — объяснение
+  // того, чего не случилось. Само оно остаётся в списке, но приглушено.
+  assert.match(clean, /o-stat-off is-zero"><i><\/i><span class="o-leg-k">Не оплачены<\/span><b>0<\/b><\/li>/);
   assert.doesNotMatch(render.orderStatsBar(render.orderStats([]), SETTINGS), /на 0\s?₽|деньги получены/);
 });
 
@@ -5700,13 +5722,27 @@ test('счётчики и выручка одинаковы на «Обзоре�
 
   // Разметка сводки одна на обе страницы: разъехавшиеся счётчики читались бы
   // как разные числа об одном и том же.
-  const bar = html => html.slice(html.indexOf('<div class="o-stats">'), html.indexOf('</div></div>', html.indexOf('<div class="o-stats">')));
+  const bar = html => {
+    const from = html.indexOf('<div class="o-stats">');
+    return html.slice(from, html.indexOf('</section></div>', from) + 16);
+  };
   assert.equal(bar(dash), bar(list));
   for (const html of [dash, list]) {
-    assert.match(html, /Выручка<\/span><strong>150\s?000\s?₽/);
-    assert.match(html, /всего 10 заказов/);
-    assert.match(html, /o-stat-ok"><span class="o-stat-k"><i><\/i>Оплачено<\/span><strong>2/);
-    assert.match(html, /o-stat-off"><span class="o-stat-k"><i><\/i>Не оплачены<\/span><strong>2/);
+    assert.match(html, /Выручка<\/span>\s*<strong>150\s?000\s?₽/);
+    // Доля оплаченных — и словами, и полосой: «2 из 10» читается за секунду,
+    // полоса — с одного взгляда.
+    assert.match(html, /<dd>2 из 10 заказов · 20%<\/dd>/);
+    assert.match(html, /<i class="o-stat-ok" style="width:20%">/);
+    // Средний чек считается по оплаченным: 150 000 на два заказа.
+    assert.match(html, /<dt>Средний чек<\/dt><dd>75\s?000\s?₽<\/dd>/);
+    assert.match(html, /o-leg o-stat-ok"><i><\/i><span class="o-leg-k">Оплачено<\/span><b>2<\/b>/);
+    assert.match(html, /o-leg o-stat-off"><i><\/i><span class="o-leg-k">Не оплачены<\/span><b>2<\/b>/);
+    // Сумма стоит у КАЖДОГО состояния: «не оплачены 2 · 130 000 ₽» — ровно те
+    // деньги, которых магазин не получил, и знать их так же полезно, как выручку.
+    assert.match(html, /Не оплачены<\/span><b>2<\/b><small><span>счёт истёк или отменён<\/span><em>130\s?000\s?₽<\/em>/);
+    // Составная полоса: доли задаёт flex-grow, чтобы сумма сходилась без
+    // округлений, дающих щель в конце.
+    assert.match(html, /<div class="o-share"><i class="o-stat-ok" style="flex-grow:2"/);
   }
 
   // Счётчики считаются по ВСЕМУ списку, а не по показанной странице: «оплачено
@@ -5715,7 +5751,7 @@ test('счётчики и выручка одинаковы на «Обзоре�
     id: 'm' + i, number: String(600000 + i), total: 1000, items: [], createdAt: 9000 - i,
     payment: { status: 'paid' }
   }));
-  assert.match(adminViews.ordersList(SETTINGS, statsDb(many), null, 2), /всего 100 заказов/);
+  assert.match(adminViews.ordersList(SETTINGS, statsDb(many), null, 2), /<dd>100 из 100 заказов · 100%<\/dd>/);
 
   // Строка заказа красится по состоянию оплаты: оплаченную от отменённой надо
   // отличать с одного взгляда, не вчитываясь в плашку.
@@ -5728,14 +5764,16 @@ test('счётчики и выручка одинаковы на «Обзоре�
 
   // На «Обзоре» у каждой заявки сразу видно состояние и сумму — за этим туда и
   // заходят. Строка ведёт к якорю этой же заявки в разделе заказов.
-  assert.match(dash, /<a class="o-recent-row o-row o-row-ok" href="\/admin\/orders#order-o1">/);
+  // data-live-key — чтобы при живом обновлении свежая заявка вставлялась сверху,
+  // а остальные строки оставались теми же узлами, а не переписывались заново.
+  assert.match(dash, /<a class="o-recent-row o-row o-row-ok" data-live-key="recent-o1" href="\/admin\/orders#order-o1">/);
   assert.match(dash, /o-recent-state"><span class="pay-tag pay-ok"><i><\/i>оплачено<\/span>/);
   assert.match(dash, /o-recent-sum">100\s?000\s?₽/);
   assert.match(list, /<tr id="order-o1"/, 'якорь на месте, иначе ссылка с «Обзора» ведёт в пустоту');
 
   // Пустой магазин не показывает выдуманных чисел и не ломает раскладку.
   const empty = adminViews.dashboard(SETTINGS, statsDb([]));
-  assert.match(empty, /заказов пока нет/);
+  assert.match(empty, /Заказов пока нет/);
   assert.match(empty, /o-recent-empty/);
   assert.doesNotMatch(empty, /o-recent-row/);
 });
@@ -5765,8 +5803,13 @@ test('состояние оплаты красит панель одним на�
   // автоматической раскладке взяться за «состояние справа от номера» неоткуда.
   assert.match(mobile, /\.a-orders \.o-state\{grid-column:2;grid-row:1/);
   assert.match(mobile, /\.a-orders \.o-sum\{grid-column:2;grid-row:4/);
-  // Выручка на телефоне — во всю ширину: это главное число страницы.
-  assert.match(mobile, /\.o-stat-money\{grid-column:1\/-1\}/);
+  // Сводка на телефоне — карточками друг под другом, список состояний в одну
+  // колонку: в две подпись вроде «Способ не выбран» переносится посреди слова.
+  assert.match(mobile, /\.o-stats\{grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(mobile, /\.o-legend\{grid-template-columns:minmax\(0,1fr\)/);
+  // Ряд одинаковых плиток ушёл целиком: их число плавало от четырёх до семи,
+  // и лишняя переносилась на вторую строку, оставляя рядом полосу пустоты.
+  assert.doesNotMatch(css, /\.o-stat\{|\.o-stat-money/, 'прежние плитки сводки должны быть сняты');
 
   // На «Обзоре» таблицы больше нет вовсе — значит, и листать её вбок нечего.
   const db = statsDb(statsOrders());
@@ -7419,4 +7462,146 @@ test('запись хранилища идёт через fsync и не оста
   assert.equal(saved.length, 1, 'файл обязан содержать записанный товар целиком');
   assert.deepEqual(fs.readdirSync(dir).filter(f => f.endsWith('.tmp')), [], 'временные файлы после записи не остаются');
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+/* ===================== Живые обновления панели ============================
+ *
+ * Панель смотрит на то, что меняется само: приходят заказы, кассы двигают их
+ * состояние, посетители ходят по витрине. Раньше всё это появлялось только по
+ * F5, а на «Метрике» ради этого стояла кнопка «Обновить» — то есть работу за нас
+ * делал человек.
+ */
+
+// Подписчик SSE: тот же объект ответа, что видит lib/live.js, только всё
+// записанное складывается в массив сообщений.
+function liveClient() {
+  const closers = [];
+  return {
+    chunks: [], headers: null, statusCode: null,
+    writeHead(code, headers) { this.statusCode = code; this.headers = headers; },
+    write(chunk) { this.chunks.push(String(chunk)); return true; },
+    end() { this.ended = true; },
+    on(event, fn) { if (event === 'close') closers.push(fn); },
+    close() { for (const fn of closers) fn(); },
+    // Только строки данных: комментарии-пинги и `retry:` к содержимому не относятся.
+    messages() {
+      return this.chunks.filter(c => c.startsWith('data: ')).map(c => JSON.parse(c.slice(6)));
+    }
+  };
+}
+
+function liveWait(client, count, live) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (client.messages().length >= count) { clearInterval(timer); return resolve(client.messages()); }
+      if (Date.now() - started > live.POLL_MS * 6) { clearInterval(timer); reject(new Error('сообщение так и не пришло')); }
+    }, 50);
+  });
+}
+
+test('живой канал панели: файл изменился — подписчику этой темы уходит новый номер версии', async () => {
+  // Свой экземпляр модуля: он держит общий набор подписчиков на процесс, и
+  // соседние тесты не должны видеть чужих клиентов.
+  const key = require.resolve('../lib/live');
+  delete require.cache[key];
+  const live = require('../lib/live');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-live-'));
+  live.watch(dir);
+  fs.writeFileSync(path.join(dir, 'orders.json'), '[]');
+  fs.writeFileSync(path.join(dir, 'reviews.json'), '[]');
+
+  const onOrders = liveClient();
+  const onReviews = liveClient();
+  live.subscribe({ socket: {} }, onOrders, 'orders');
+  live.subscribe({ socket: {} }, onReviews, 'reviews');
+
+  // Заголовки обязаны говорить «поток», и никакой прокси не должен его копить:
+  // иначе «живое обновление» приходило бы пачками через минуту.
+  assert.equal(onOrders.statusCode, 200);
+  assert.match(onOrders.headers['Content-Type'], /text\/event-stream/);
+  assert.match(onOrders.headers['Cache-Control'], /no-transform/);
+
+  // Первое сообщение — отсчётная точка: страницу браузер только что получил
+  // свежей и перерисовывать её незачем.
+  assert.deepEqual(Object.keys(onOrders.messages()[0]), ['orders']);
+  const first = onOrders.messages()[0].orders;
+
+  fs.writeFileSync(path.join(dir, 'orders.json'), '[{"id":"o1"}]');
+  const got = await liveWait(onOrders, 2, live);
+  assert.ok(got[1].orders > first, 'номер версии заказов обязан вырасти');
+  // Чужая тема молчит: перерисовывать страницу отзывов из-за нового заказа
+  // незачем, а лишний перезапрос страницы — это лишний рендер на сервере.
+  assert.equal(onReviews.messages().length, 1, 'подписчику отзывов заказ не касается');
+
+  // Метрика лежит в памяти и на диск уходит раз в полминуты — про её изменение
+  // сообщает сам модуль метрики.
+  const onMetrics = liveClient();
+  live.subscribe({ socket: {} }, onMetrics, 'analytics');
+  live.bump('analytics');
+  const metric = await liveWait(onMetrics, 2, live);
+  assert.ok(metric[1].analytics > metric[0].analytics);
+
+  // Темы приходят строкой из адреса запроса, поэтому список закрытый.
+  const junk = liveClient();
+  live.subscribe({ socket: {} }, junk, 'orders,<script>,выдумка');
+  assert.deepEqual(Object.keys(junk.messages()[0]), ['orders'], 'чужое слово в подписку не попадает');
+
+  // Новая вкладка не должна проглатывать чужое накопленное изменение: она
+  // сверяет файлы, чтобы не получить «изменилось всё» первым же сообщением, —
+  // но соседняя вкладка, открытая раньше, своё обновление обязана получить.
+  const before = onOrders.messages().length;
+  fs.writeFileSync(path.join(dir, 'orders.json'), '[{"id":"o1"},{"id":"o2"}]');
+  const late = liveClient();
+  live.subscribe({ socket: {} }, late, 'orders');
+  await liveWait(onOrders, before + 1, live);
+
+  for (const c of [onOrders, onReviews, onMetrics, junk, late]) c.close();
+  assert.equal(live.clientCount(), 0, 'закрытая вкладка не должна оставаться в списке');
+  fs.rmSync(dir, { recursive: true, force: true });
+  delete require.cache[key];
+});
+
+test('живое обновление рисуется сервером, а страницы правки его не грузят', () => {
+  const script = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+
+  // Главное правило: разметку рисует сервер и только он. Второй рендер в
+  // браузере разъехался бы с серверным на первой же правке, а увидеть это можно
+  // было бы только глазами.
+  assert.doesNotMatch(script, /<(tr|td|li|article|section)\b/i, 'разметки строк в скрипте быть не должно');
+  // Сравнивать innerHTML можно (это дешёвая проверка «а изменилось ли вообще»),
+  // а присваивать — нет: сплошная замена сбрасывает всё, чем владеет человек.
+  assert.doesNotMatch(script, /innerHTML\s*=[^=]/, 'сплошная замена сбрасывает всё, чем владеет человек');
+  // Состояние, которым владеет человек: раскрытая свёртка, отмеченная галочка,
+  // набранный текст. Ответ сервера его отменять не вправе.
+  assert.match(script, /ownedByUser/);
+  assert.match(script, /'open' && el\.tagName === 'DETAILS'/);
+
+  const db = {
+    getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [], getOrders: () => [],
+    getReviews: () => [], reviewStats: () => new Map(), pendingReviewCount: () => 0,
+    categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  // Разделы, которые меняются сами, обязаны подписываться — и оба блока панели
+  // обязаны быть размечены. Перечислять блоки по разделам значило бы забыть
+  // один и молча остаться без обновлений именно там.
+  for (const html of [adminViews.dashboard(SETTINGS, db), adminViews.ordersList(SETTINGS, db, null, 1),
+    adminViews.reviewsList(SETTINGS, db, null, 1)]) {
+    assert.match(html, /<body class="admin" data-live="/);
+    assert.match(html, /data-live-part="topbar"/);
+    assert.match(html, /data-live-part="content"/);
+    assert.match(html, /admin-live\.js/);
+  }
+  // А формы правки — не обязаны и не должны: подмена под руками стирала бы
+  // набранное. Скрипт туда не приезжает вовсе.
+  for (const html of [adminViews.productForm(SETTINGS, db, null), adminViews.settingsPage(SETTINGS, db)]) {
+    assert.doesNotMatch(html, /admin-live\.js/, 'форму правки обновлять из-под руки нельзя');
+    assert.doesNotMatch(html, /<body class="admin" data-live=/);
+  }
+
+  // Отсчёт у строк, приехавших живым обновлением, обязан идти так же: список
+  // ищется заново на каждом такте, а не запоминается при загрузке страницы.
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  const ticker = ui.slice(ui.indexOf('function tick()'));
+  assert.match(ticker, /document\.querySelectorAll\('\.o-left\[data-pay-until\]'\)/);
 });
