@@ -1819,10 +1819,16 @@
     // Ввод рейтинга (звёзды): общая оценка + аспекты (доставка/сервис/цена)
     document.querySelectorAll('.rate-input').forEach(function (rate) {
       var hidden = rate.parentNode.querySelector('input[type="hidden"]');
+      // Слово рядом со звёздами («Отлично», «Плохо»). Подписи приезжают из
+      // разметки атрибутом data-note — список живёт в lib/render.js, и своей
+      // копии здесь быть не должно.
+      var note = rate.parentNode.querySelector('.rate-note');
       function paint(v) {
         rate.querySelectorAll('.rate-star').forEach(function (s) {
-          s.classList.toggle('on', Number(s.dataset.v) <= v);
+          var on = Number(s.dataset.v) <= v;
+          s.classList.toggle('on', on);
           s.setAttribute('aria-checked', Number(s.dataset.v) === v ? 'true' : 'false');
+          if (note && Number(s.dataset.v) === v && s.dataset.note) note.textContent = s.dataset.note;
         });
       }
       paint(Number(hidden ? hidden.value : 5) || 5);
@@ -2245,81 +2251,24 @@
       });
     }
 
-    // Согласия на обработку и публикацию показываются последовательно,
-    // отдельными действиями и без перегруженных чекбоксов в форме.
+    // Согласие даётся одной галочкой в самой форме. Прежде вместо неё после
+    // нажатия кнопки открывалось окно с двумя шагами: на последнем шаге покупки
+    // отзыва это лишний диалог поверх страницы, а сама форма при этом врала —
+    // выглядела заполненной до конца, хотя главное действие было ещё впереди.
     var rf = document.getElementById('review-form');
     if (rf) {
-      function requestReviewConsents(onConfirmed) {
-        var overlay = document.getElementById('review-consent-overlay');
-        var closeBtn = document.getElementById('review-consent-close');
-        var cancelBtn = document.getElementById('review-consent-cancel');
-        var nextBtn = document.getElementById('review-consent-next');
-        var progress = document.getElementById('review-consent-progress');
-        var title = document.getElementById('review-consent-title');
-        var copy = document.getElementById('review-consent-text');
-        var link = document.getElementById('review-consent-link');
-        if (!overlay || !closeBtn || !cancelBtn || !nextBtn || !progress || !title || !copy || !link) return false;
-        if (!overlay.hidden) return true;
-
-        var previousFocus = document.activeElement;
-        var step = 0;
-        var steps = [
-          {
-            progress: 'Шаг 1 из 2', title: 'Обработка данных',
-            copy: 'Подтвердите согласие на обработку имени, оценок, текста и фотографий, указанных в отзыве.',
-            href: '/personal-data-consent', button: 'Согласен'
-          },
-          {
-            progress: 'Шаг 2 из 2', title: 'Публикация отзыва',
-            copy: 'Подтвердите отдельное согласие на публикацию имени или псевдонима, оценки, текста и фотографий после модерации.',
-            href: '/personal-data-publication-consent', button: 'Согласен и отправить'
-          }
-        ];
-
-        function renderStep() {
-          var current = steps[step];
-          progress.textContent = current.progress;
-          title.textContent = current.title;
-          copy.textContent = current.copy;
-          link.href = current.href;
-          nextBtn.textContent = current.button;
-        }
-        function finish(confirmed) {
-          overlay.hidden = true;
-          document.body.classList.remove('review-consent-open');
-          closeBtn.removeEventListener('click', cancel);
-          cancelBtn.removeEventListener('click', cancel);
-          nextBtn.removeEventListener('click', next);
-          overlay.removeEventListener('click', backdrop);
-          document.removeEventListener('keydown', keyboard);
-          if (confirmed) onConfirmed();
-          else if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
-        }
-        function cancel() { finish(false); }
-        function next() {
-          if (step === 0) { step = 1; renderStep(); nextBtn.focus(); return; }
-          finish(true);
-        }
-        function backdrop(e) { if (e.target === overlay) cancel(); }
-        function keyboard(e) {
-          if (e.key === 'Escape') { cancel(); return; }
-          if (e.key !== 'Tab') return;
-          var focusable = [closeBtn, link, cancelBtn, nextBtn];
-          var index = focusable.indexOf(document.activeElement);
-          if (e.shiftKey && index <= 0) { e.preventDefault(); nextBtn.focus(); }
-          else if (!e.shiftKey && index === focusable.length - 1) { e.preventDefault(); closeBtn.focus(); }
-        }
-
-        renderStep();
-        closeBtn.addEventListener('click', cancel);
-        cancelBtn.addEventListener('click', cancel);
-        nextBtn.addEventListener('click', next);
-        overlay.addEventListener('click', backdrop);
-        document.addEventListener('keydown', keyboard);
-        overlay.hidden = false;
-        document.body.classList.add('review-consent-open');
-        nextBtn.focus();
-        return true;
+      // Сколько снимков выбрано. Предел берём из data-max: он серверный
+      // (REVIEW_PHOTOS_MAX), и своя копия числа в скрипте разошлась бы с ним.
+      var rvPhotos = document.getElementById('rv-photos');
+      var rvNote = document.getElementById('rv-photos-note');
+      if (rvPhotos && rvNote) {
+        rvPhotos.addEventListener('change', function () {
+          var n = rvPhotos.files ? rvPhotos.files.length : 0;
+          var max = Number(rvPhotos.dataset.max) || 0;
+          // «фото» не склоняется, поэтому одна форма подходит любому числу
+          rvNote.textContent = !n ? ''
+            : (max && n > max ? 'Выбрано ' + n + ' фото — отправим первые ' + max : 'Выбрано ' + n + ' фото');
+        });
       }
 
       function sendReview() {
@@ -2328,8 +2277,9 @@
         if (submit && submit.disabled) return;
         if (submit) { submit.disabled = true; submit.textContent = 'Отправляем...'; }
         var fd = new FormData(rf);
-        fd.append('privacyAccepted', '1');
-        fd.append('publicationAccepted', '1');
+        // privacyAccepted приезжает самой галочкой формы; публикация подтверждается
+        // ею же — в подписи названы оба согласия, и оба лежат по ссылкам рядом.
+        fd.set('publicationAccepted', '1');
         fetch('/api/reviews', { method: 'POST', body: fd })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -2340,6 +2290,7 @@
               rf.reset();
               var h = document.getElementById('rating-value'); if (h) h.value = 5;
               document.querySelectorAll('.rate-star').forEach(function (s) { s.classList.add('on'); });
+              if (rvNote) rvNote.textContent = '';
               // перезагружаем страницу: сервер отдаст список отзывов уже с этим отзывом
               try { sessionStorage.setItem('review_thanks', '1'); } catch (e) {}
               setTimeout(function () { location.reload(); }, 400);
@@ -2356,10 +2307,17 @@
         e.preventDefault();
         var submit = rf.querySelector('button[type="submit"]');
         if (submit && submit.disabled) return;
-        if (!requestReviewConsents(sendReview)) {
+        // Галочка помечена required, поэтому до submit браузер обычно не доводит.
+        // Проверка всё равно своя: у формы есть путь без неё (кнопка вне формы,
+        // отправка из скрипта), а согласие — не то, что можно получить молча.
+        var consent = document.getElementById('rv-consent');
+        if (consent && !consent.checked) {
           var msg = document.getElementById('review-msg');
-          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Не удалось открыть подтверждение. Обновите страницу.'; }
+          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Отметьте согласие — без него отзыв отправить нельзя'; }
+          try { consent.focus(); } catch (err) {}
+          return;
         }
+        sendReview();
       });
     }
   });

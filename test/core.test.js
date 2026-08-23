@@ -826,7 +826,7 @@ test('каталог не показывает технический счётч
   assert.doesNotMatch(html, />\s*1 товаров\s*</);
 });
 
-test('формы не содержат галочек, а отзыв требует последовательные отдельные согласия', () => {
+test('согласие на отзыв даётся галочкой в самой форме, а у заказа галочек нет', () => {
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
@@ -834,13 +834,28 @@ test('формы не содержат галочек, а отзыв требу�
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const orderRoute = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* =========================== ПАНЕЛЬ ВЛАДЕЛЬЦА'));
-  assert.doesNotMatch(html, /type="checkbox"[^>]*name="(?:privacyAccepted|publicationAccepted)"/);
-  assert.match(html, /id="review-consent-overlay"/);
-  assert.match(js, /\/personal-data-publication-consent/);
+
+  // Галочка обязательная и названы оба согласия — обработка и публикация.
+  assert.match(html, /<input type="checkbox" id="rv-consent" name="privacyAccepted" value="1" required>/);
+  assert.match(html, /href="\/personal-data-consent"[^>]*>обработку данных<\/a>/);
+  assert.match(html, /href="\/personal-data-publication-consent"[^>]*>публикацию отзыва<\/a>/);
+  // Окна с двумя шагами больше нет ни в разметке, ни в скрипте: диалог поверх
+  // страницы на последнем шаге отзыва — лишний, галочка стоит в самой форме.
+  assert.doesNotMatch(html, /review-consent/);
+  assert.doesNotMatch(js, /review-consent-overlay/);
+  // Публикация уезжает тем же запросом, а согласие на обработку — самой галочкой,
+  // поэтому пустая галочка означает отказ и на сервере (поля в теле просто нет).
+  assert.match(js, /fd\.set\('publicationAccepted', '1'\)/);
+  assert.doesNotMatch(js, /fd\.append\('privacyAccepted'/);
+  // Сервер по-прежнему требует оба согласия — форме на слово он не верит.
+  const reviewRoute = server.slice(server.indexOf("app.post('/api/reviews'"), server.indexOf("app.post('/api/cart'"));
+  assert.match(reviewRoute, /consentAccepted\(req\.body\.privacyAccepted\)/);
+  assert.match(reviewRoute, /consentAccepted\(req\.body\.publicationAccepted\)/);
+
+  // У формы заказа галочек нет вовсе: заказ — исполнение договора, и согласия
+  // для него не спрашиваются (в маршруте их проверки тоже нет).
   assert.doesNotMatch(js, /id="co-privacy"|privacyAccepted:\s*true/);
   assert.doesNotMatch(orderRoute, /consentAccepted|privacyConsentAt/);
-  assert.match(js, /fd\.append\('privacyAccepted', '1'\)/);
-  assert.match(js, /fd\.append\('publicationAccepted', '1'\)/);
 });
 
 test('значение можно привязать к выбору в другой группе', () => {
@@ -5989,10 +6004,13 @@ test('покупатель снова может приложить фото к 
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
   const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
-  assert.match(html, /<input type="file" id="rv-photos" name="photos" accept="image\/\*" multiple>/);
-  // Предел стоит прямо в подписи поля: отдельной строкой-подсказкой под ним он
-  // добавлял форме ряд на ровном месте.
-  assert.match(html, new RegExp('<label for="rv-photos">Фото <span class="rf-sub">до ' + render.REVIEW_PHOTOS_MAX));
+  assert.match(html, /<input class="rf-file-input" type="file" id="rv-photos" name="photos" accept="image\/\*" multiple data-max="\d+">/);
+  // Подписи «до 6, по желанию» в форме нет: сколько снимков выбрано, пишет
+  // public/app.js уже по факту выбора — на месте технической строки браузера.
+  assert.doesNotMatch(html, /по желанию/);
+  assert.match(html, new RegExp('data-max="' + render.REVIEW_PHOTOS_MAX + '"'));
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(app, /Number\(rvPhotos\.dataset\.max\)/, 'предел в скрипте свой, а должен приезжать из разметки');
 
   // Предел с витрины свой и меньше панельного: здесь грузит кто угодно, а один
   // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
@@ -6003,26 +6021,34 @@ test('покупатель снова может приложить фото к 
   assert.match(route.slice(0, 1600), /previews: await reviewPreviews\(photos\)/);
 });
 
-test('форма отзыва идёт во всю ширину и в три ряда', () => {
+test('форма отзыва идёт во всю ширину и четырьмя рядами', () => {
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = { id: 'p', name: 'Товар', category: 'Тест', price: 100, inStock: true, images: [] };
   const html = render.productPage({ storeName: 'Тест', currency: '₽' }, db, product, {});
-  // Оценка, имя и фото стоят рядом, текст и кнопка — во всю ширину.
+  // Оценка и имя рядом, ниже текст, ниже снимки, внизу согласие с кнопкой.
   assert.match(html, /<form id="review-form" class="rf-grid"/);
-  for (const cls of ['rf-rate', 'rf-name', 'rf-photos', 'rf-text', 'rf-send']) {
+  for (const cls of ['rf-rate', 'rf-name', 'rf-text', 'rf-photos', 'rf-foot']) {
     assert.ok(html.includes('class="field ' + cls + '"') || html.includes('class="' + cls + '"'), 'нет блока ' + cls);
   }
-  // Длинного объяснения про согласия больше нет — они и так спрашиваются
-  // отдельными окнами сразу после нажатия кнопки.
-  assert.equal(/После нажатия кнопки мы отдельно попросим/.test(html), false);
+  // Порядок рядов задаёт разметка, а не только сетка: текст стоит выше фото.
+  assert.ok(html.indexOf('rf-text') < html.indexOf('rf-photos'), 'фото поднялось выше текста отзыва');
+  assert.ok(html.indexOf('rf-photos') < html.indexOf('rf-foot'), 'согласие и кнопка обязаны быть последними');
+  // Подсказок в форме не осталось: ни про согласия «на следующем шаге», ни про
+  // предел снимков — их место заняли сама галочка и счётчик выбранных файлов.
+  assert.doesNotMatch(html, /следующем шаге/);
+  assert.doesNotMatch(html, /form-legal-note/);
+  // Слово рядом со звёздами приезжает из разметки, а не из своего списка в app.js
+  assert.match(html, /class="rate-star" data-v="5" data-note="Отлично"/);
+  assert.match(html, /<span class="rate-note" id="rate-note">Отлично<\/span>/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   // Ширину блок больше ничем не режет: половина страницы пустовала.
   for (const rule of css.match(/\.review-form-wrap\{[^}]*\}/g) || []) {
     assert.equal(/max-width/.test(rule), false, 'у формы отзыва снова появился предел ширины: ' + rule);
   }
-  // На телефоне три поля в ряд не встают — там один столбец и широкая кнопка.
+  // На телефоне два поля в ряд не встают — там один столбец и широкая кнопка.
   assert.match(css, /@media\(max-width:800px\)\{[^]*\.rf-grid\{grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(css, /@media\(max-width:800px\)\{[^]*\.rf-foot\{[^}]*flex-direction:column/);
 });
 
 test('в порядке «Новые» лента идёт строго по дате и ничем не переставляется', () => {

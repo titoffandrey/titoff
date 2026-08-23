@@ -1397,49 +1397,57 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .review-author{font-size:14.5px;letter-spacing:-.01em}
 .review-name .stars{font-size:12.5px}
 .review-text{font-size:14.5px;line-height:1.55}
-/* Форма отзыва — во всю ширину раздела и в три ряда: оценка, имя и фото стоят
-   рядом, под ними текст, внизу кнопка. Пятью полями в столбик она занимала
-   полтора экрана, а половина ширины страницы при этом пустовала. */
-.review-form-wrap{margin-top:28px;padding:22px 24px;border:1px solid var(--border-soft);background:var(--surface-soft)}
-.review-form-wrap h3{margin-bottom:16px;font-size:22px}
-.rf-grid{display:grid;grid-template-columns:max-content minmax(220px,1fr) minmax(210px,.8fr);gap:14px 24px;align-items:start}
+/* Форма отзыва — во всю ширину раздела и четырьмя рядами сверху вниз: оценка и
+   имя, текст, снимки, внизу согласие с кнопкой. Пятью полями в столбик она
+   занимала полтора экрана, а половина ширины страницы при этом пустовала.
+   Фото уехали из первого ряда под текст: это необязательное вложение, и рядом
+   с обязательными полями оно читалось как ещё одно обязательное. */
+.review-form-wrap{margin-top:28px;padding:24px 26px;border:1px solid var(--border-soft);background:var(--surface-soft)}
+.review-form-wrap h3{margin-bottom:18px;font-size:22px}
+.rf-grid{display:grid;grid-template-columns:max-content minmax(240px,1fr);gap:16px 28px;align-items:start}
 .rf-grid>*{min-width:0}
 .rf-grid .field{margin:0}
-.rf-text,.rf-send,.rf-grid .form-msg{grid-column:1/-1}
-/* Уточнение прямо в подписи поля — отдельной строкой-подсказкой под ним оно
-   добавляло форме ряд на ровном месте. */
-.rf-sub{margin-left:6px;color:var(--muted);font-size:12px;font-weight:400}
-.rf-rate .rate-input{height:44px;align-items:center}
-.rf-text textarea{min-height:88px}
-.rf-send{display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap}
-.rf-send .btn{min-width:210px}
-.rf-send .form-legal-note{margin:0}
+.rf-text,.rf-photos,.rf-foot,.rf-grid .form-msg{grid-column:1/-1}
+/* Звёзды и слово оценки стоят в строке, подпись поля — над ними */
+.rf-rate{display:flex;flex-wrap:wrap;align-items:center;column-gap:12px}
+.rf-rate>label{flex-basis:100%}
+.rf-rate .rate-input{height:46px;align-items:center}
+/* Пять звёзд одинаково выглядят и при наведении, и при выборе; слово говорит,
+   что именно выбрано. Ширина зафиксирована, чтобы строка не дёргалась. */
+.rate-note{min-width:82px;color:#48484a;font-size:14px;font-weight:650;letter-spacing:-.01em}
+.rf-text textarea{min-height:104px}
 .rate-star{transition:color .1s,transform .1s}
 .rate-star:hover{transform:scale(1.08)}
-/* Выбор фото к отзыву. Родная кнопка браузера выглядит чужой рядом с полями
-   формы, поэтому красим только её (::file-selector-button) — сам ввод остаётся
-   обычным, и там, где псевдоэлемент не поддержан, всё работает как раньше. */
-.review-form-wrap input[type=file]{display:block;width:100%;color:var(--muted);font-size:13.5px}
-.review-form-wrap input[type=file]::file-selector-button{margin-right:10px;padding:9px 15px;border:1px solid var(--border);
-  border-radius:11px;background:#fff;color:var(--text);font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
-  transition:background .14s,border-color .14s}
-.review-form-wrap input[type=file]::file-selector-button:hover{background:var(--bg2);border-color:#c7c7cc}
+/* Выбор снимков. Родной ввод показывал «Обзор… Файлы не выбраны» — чужую
+   кнопку и техническую подпись рядом с полями формы, поэтому он спрятан
+   (но остаётся в потоке фокуса), а нажимается подпись-кнопка. Сколько файлов
+   выбрано, пишет рядом public/app.js — на месте той самой технической строки. */
+.rf-file-input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.rf-file-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.field .rf-file{display:inline-flex;align-items:center;gap:9px;min-height:44px;margin:0;padding:10px 17px;
+  border:1px solid var(--border);border-radius:13px;background:#fff;color:var(--text);
+  font-size:14px;font-weight:650;letter-spacing:-.01em;cursor:pointer;
+  transition:border-color .16s ease,background .16s ease,color .16s ease}
+.field .rf-file:hover{border-color:#c7c7cd;background:var(--bg2)}
+.rf-file-input:focus-visible+.rf-file-row .rf-file{outline:2px solid var(--accent);outline-offset:2px}
+.rf-file-ico{flex:none;width:19px;height:19px;color:var(--muted)}
+.rf-file-note{color:var(--muted);font-size:13px}
+/* Согласие и кнопка — один ряд внизу, отделённый волосяной линией: сначала
+   отмечают, потом отправляют, и оба действия видны разом. */
+.rf-foot{display:flex;align-items:center;justify-content:space-between;gap:14px 26px;flex-wrap:wrap;
+  padding-top:18px;border-top:1px solid var(--border-soft)}
+/* По верхней кромке, а не по центру: на узком экране подпись переносится на две
+   строки, и центрированная галочка уезжала бы к середине абзаца. */
+.rf-agree{display:flex;align-items:flex-start;gap:11px;max-width:540px;color:#48484a;font-size:13px;line-height:1.45;cursor:pointer}
+/* Галочка родная и видимая: свою рисовать пришлось бы через :has(), а его
+   поддерживают не все версии Safari, доходящие до витрины. */
+.rf-agree input[type=checkbox]{flex:none;width:19px;height:19px;margin:0;accent-color:var(--accent);cursor:pointer}
+.rf-agree a{color:var(--text);text-decoration:underline;text-decoration-color:#b7b7bd;text-underline-offset:3px}
+.rf-agree a:hover{text-decoration-color:currentColor}
+.rf-foot .btn{min-width:210px}
 .form-legal-note{margin:12px 0 16px;color:var(--muted);font-size:12px;line-height:1.5}
 .form-legal-note a{color:var(--text);text-decoration:underline;text-decoration-color:#b7b7bd;text-underline-offset:3px}
 .form-legal-note a:hover{text-decoration-color:currentColor}
-
-/* Два отдельных подтверждения перед публикацией отзыва */
-body.review-consent-open{overflow:hidden}
-.review-consent-overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(17,17,26,.42);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
-.review-consent-overlay[hidden]{display:none!important}
-.review-consent-dialog{position:relative;width:min(480px,100%);padding:28px;border:1px solid rgba(255,255,255,.75);border-radius:24px;background:#fff;box-shadow:0 28px 90px rgba(17,17,26,.24)}
-.review-consent-close{position:absolute;top:14px;right:14px;width:34px;height:34px;align-items:center;justify-content:center;background:var(--bg2);font-size:24px;line-height:1}
-.review-consent-progress{margin:0 44px 9px 0;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
-.review-consent-dialog h2{margin:0 40px 12px 0;font-size:28px;letter-spacing:-.04em}
-.review-consent-dialog>p:not(.review-consent-progress){margin:0;color:#48484a;font-size:15px;line-height:1.6}
-.review-consent-link{display:inline-block;margin-top:14px;color:var(--accent);font-size:13px;text-decoration:underline;text-underline-offset:3px}
-.review-consent-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:26px}
-.review-consent-actions .btn{min-height:44px}
 
 /* Подвал */
 .site-footer{margin-top:30px;padding:42px 0 calc(34px + env(safe-area-inset-bottom));border-color:var(--border-soft);background:#f5f5f7;text-align:left}
@@ -2226,16 +2234,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .spec-item{padding:10px 0}
   .review-form-wrap{padding:18px 16px}
   .review-form-wrap h3{margin-bottom:14px;font-size:20px}
-  /* В узкую ленту три поля рядом не встают: столбиком, кнопка во всю ширину. */
-  .rf-grid{grid-template-columns:minmax(0,1fr);gap:13px}
-  .rf-send{align-items:stretch;flex-direction:column;gap:10px}
-  .rf-send .btn{width:100%;min-width:0;min-height:48px}
-  .rf-send .form-legal-note{text-align:center}
-  .review-consent-overlay{align-items:flex-end;padding:0}
-  .review-consent-dialog{width:100%;padding:25px 20px calc(20px + env(safe-area-inset-bottom));border-width:1px 0 0;border-radius:24px 24px 0 0}
-  .review-consent-dialog h2{font-size:25px}
-  .review-consent-actions{display:grid;grid-template-columns:1fr 1fr}
-  .review-consent-actions .btn{width:100%;padding-inline:10px;white-space:normal}
+  /* В узкую ленту два поля рядом не встают: столбиком, кнопка во всю ширину. */
+  .rf-grid{grid-template-columns:minmax(0,1fr);gap:14px}
+  .rf-foot{align-items:stretch;flex-direction:column;gap:14px;padding-top:16px}
+  .rf-foot .btn{width:100%;min-width:0;min-height:48px}
+  .rf-agree{max-width:none}
+  .rf-file-row{width:100%}
+  .field .rf-file{flex:1;justify-content:center}
   .rating-overview{align-items:flex-start;padding:18px}
   .rating-bars{min-width:180px}
   .reviews-toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
