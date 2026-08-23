@@ -4293,7 +4293,7 @@ test('оплату можно выключить: витрина принима�
   assert.deepEqual(CROCO.limits({ crocopayEnabled: true }), { min: 0, max: 0 }, 'галочка без ключей — те же заявки');
   // Вторая касса включает те же пределы: они принадлежат режиму оплаты, а не
   // конкретной платёжке.
-  assert.deepEqual(CROCO.limits({ meridianpayEnabled: true, meridianpayApiKey: 'k', meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d' }),
+  assert.deepEqual(CROCO.limits({ meridianpayEnabled: true, meridianpayApiKey: 'k', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40' }),
     { min: CROCO.MIN_TOTAL, max: CROCO.MAX_TOTAL });
   assert.match(CROCO.limitFor(on, CROCO.MAX_TOTAL + 1), /не более/);
   assert.equal(CROCO.limitFor(off, CROCO.MAX_TOTAL + 1), '');
@@ -4366,7 +4366,7 @@ test('в настройках видно режим витрины, а касс�
   assert.match(onHtml, /Работает одна касса — CrocoPAY/);
   const both = adminViews.settingsPage(Object.assign({}, base, {
     crocopayEnabled: true, meridianpayEnabled: true,
-    meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d'
+    meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   }), db, null);
   assert.match(both, /Работают обе кассы \(CrocoPAY и MeridianPay\)/);
   // Ключи второй кассы так же переживают выключение и так же не теряются.
@@ -5902,7 +5902,7 @@ test('MeridianPay: сумма уходит в рублях, а приходит 
   const mp = require('../lib/meridianpay');
   const on = {
     meridianpayEnabled: true, meridianpayApiKey: 'k',
-    meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d'
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   };
   const real = global.fetch;
   let sent = null;
@@ -5932,7 +5932,7 @@ test('MeridianPay: сумма уходит в рублях, а приходит 
     const body = JSON.parse(sent.opts.body);
     assert.equal(body.amount, 67990);
     assert.equal(body.currency, 'rub');
-    assert.equal(body.merchant_id, 'bf8820d7-47af-4726-be4c-650c94072f6d');
+    assert.equal(body.merchant_id, '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40');
     // Базовый путь проверен на живом API: второго `/api` в нём нет, хотя
     // документация показывает `GET /api/api/currencies` (он отвечает 404).
     assert.equal(sent.url, 'https://meridianpay.top/api/h2h/order');
@@ -5962,7 +5962,7 @@ test('MeridianPay: способ переводится в параметры к�
   const mp = require('../lib/meridianpay');
   const on = {
     meridianpayEnabled: true, meridianpayApiKey: 'k',
-    meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d'
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   };
   const real = global.fetch;
   const now = Math.floor(Date.now() / 1000);
@@ -6016,7 +6016,7 @@ test('MeridianPay: у НСПК реквизит — ссылка, а не кар
   const mp = require('../lib/meridianpay');
   const on = {
     meridianpayEnabled: true, meridianpayApiKey: 'k',
-    meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d'
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   };
   const real = global.fetch;
   const now = Math.floor(Date.now() / 1000);
@@ -6081,7 +6081,7 @@ test('очередь касс: отказ первой уводит ко вто�
   const both = {
     crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 's',
     meridianpayEnabled: true, meridianpayApiKey: 'k',
-    meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d'
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   };
   // Порядок задаёт владелец, а не порядок в коде.
   assert.deepEqual(PAYMENTS.chainFor(both, null, 'SBP', 'RUB').map(p => p.id), ['crocopay', 'meridianpay']);
@@ -6098,7 +6098,7 @@ test('очередь касс: отказ первой уводит ко вто�
   assert.deepEqual(PAYMENTS.chainFor(both, null, 'NEW_FANCY_PAY', 'RUB').map(p => p.id), ['crocopay']);
 
   // Оплата на витрине включена, если работает ХОТЯ БЫ одна касса.
-  assert.equal(PAYMENTS.enabled({ meridianpayEnabled: true, meridianpayApiKey: 'k', meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d' }), true);
+  assert.equal(PAYMENTS.enabled({ meridianpayEnabled: true, meridianpayApiKey: 'k', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40' }), true);
   assert.equal(PAYMENTS.enabled({ meridianpayEnabled: true, meridianpayApiKey: 'k' }), false, 'без merchant_id касса не работает');
   assert.equal(PAYMENTS.enabled({}), false);
 
@@ -6215,14 +6215,14 @@ test('в настройках есть касса, а ключи не утека
   // Ключи второй кассы в разметку витрины не попадают ровно так же.
   const withMeridian = adminViews.settingsPage(Object.assign({}, settings, {
     crocopayClientSecret: 'СЕКРЕТ', meridianpayEnabled: true, meridianpayApiKey: 'ТОКЕН',
-    meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d', meridianpaySecret: 'СЕКРЕТ-2'
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40', meridianpaySecret: 'СЕКРЕТ-2'
   }), db, null);
   assert.match(withMeridian, /name="meridianpaySecret" value="СЕКРЕТ-2"/);
   const shop = render.checkoutPage(Object.assign({}, settings, {
-    meridianpayApiKey: 'ТОКЕН', meridianpayMerchantId: 'bf8820d7-47af-4726-be4c-650c94072f6d',
+    meridianpayApiKey: 'ТОКЕН', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40',
     meridianpaySecret: 'СЕКРЕТ-2', crocopayClientSecret: 'СЕКРЕТ'
   }), { origin: '', payOnline: true });
-  assert.doesNotMatch(shop, /ТОКЕН|СЕКРЕТ|bf8820d7|ID-КАССЫ/, 'ключи касс на витрину не уходят');
+  assert.doesNotMatch(shop, /ТОКЕН|СЕКРЕТ|3f2a1c88|ID-КАССЫ/, 'ключи касс на витрину не уходят');
   // И названий платёжек покупатель нигде не видит: их у нас две, и это наше
   // внутреннее дело.
   assert.doesNotMatch(shop, /CrocoPAY|MeridianPay/i);

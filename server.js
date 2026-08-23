@@ -2328,7 +2328,7 @@ app.post('/admin/settings', async (req, res) => {
   if (req.body.meridianpayMerchantId !== undefined) {
     const merchant = String(req.body.meridianpayMerchantId).trim().slice(0, 64);
     if (merchant && !MERIDIAN.validMerchantId(merchant)) {
-      return fail('Merchant ID MeridianPay — это UUID вида bf8820d7-47af-4726-be4c-650c94072f6d');
+      return fail('Merchant ID MeridianPay — это UUID вида 3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40');
     }
     patch.meridianpayMerchantId = merchant;
   }
