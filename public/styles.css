@@ -1762,6 +1762,18 @@ body.admin{background:#f4f4f6;color:#242426}
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .o-recent-empty{margin:0;padding:4px 0 2px}
 
+/* Рабочие и удалённые заказы разделены как две короткие вкладки. Финансовая
+   запись из «Удалённых» остаётся доступна webhook, но не засоряет обычный
+   список; счётчик рядом показывает, что это обратимое действие. */
+.o-list-switch{display:flex;align-items:center;gap:7px;margin:0 0 14px}
+.o-list-switch a{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--border-soft);
+  border-radius:11px;background:#fff;color:var(--muted);font-size:12.5px;line-height:1.35;transition:border-color .14s,color .14s,background .14s}
+.o-list-switch a:hover{border-color:#c7c7cc;color:var(--text)}
+.o-list-switch a[aria-current="page"]{border-color:var(--text);background:var(--text);color:#fff}
+.o-list-switch b{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;
+  background:#f1f1f4;color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
+.o-list-switch a[aria-current="page"] b{background:rgba(255,255,255,.2);color:#fff}
+
 /* Режим правки: пока он выключен, столбца с удалением нет вовсе. «✕» у каждой
    строки — это удаление заказа в один промах мыши, а список открывают, чтобы
    читать, а не чистить. Переключатель — скрытый чекбокс, поэтому ни строчки
@@ -2166,7 +2178,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 
   .breadcrumb{padding-top:16px;font-size:12px}
-  .product{grid-template-columns:1fr;gap:20px;padding-top:10px}
+  /* minmax(0,1fr), а не 1fr: у трека `1fr` минимум равен min-content, и колонка
+     растягивается по самому неподатливому потомку. Ряд покупки не переносится
+     (`flex-wrap:nowrap`), а подпись кнопки идёт `nowrap` — вместе они требуют
+     342px, и на экране 320px страница уезжала вбок целиком, вместе с шапкой и
+     подвалом. Ноль в минимуме разрешает треку сжаться до ширины контейнера, и
+     дальше ряд ужимается сам. Тот же приём уже стоит у десктопной раскладки. */
+  .product{grid-template-columns:minmax(0,1fr);gap:20px;padding-top:10px}
   .product-gallery{position:static}
   .gallery-main{border-radius:24px}
   .product-info{padding-top:2px}
@@ -2442,6 +2460,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .product-name{font-size:34px}
   .product-price{font-size:30px}
   .product .buy-row{margin-inline:-16px;padding-inline:16px}
+  /* На 320px ряду покупки достаётся 288px. Со счётчиком в 110px, зазором 11px и
+     неразрывной подписью кнопки в 16px это 308px — кнопка обрезала бы текст.
+     Ужимаем счётчик и кегль подписи: 98 + 8 + 20 + 149 = 275px, запас есть. */
+  .buy-row{gap:8px}
+  .qty-btn{width:34px}
+  .qty-input{width:30px}
+  .buy-row .add-to-cart{font-size:15px;padding-inline:10px}
   .a-cards{grid-template-columns:1fr 1fr}
   .a-stat{min-height:98px;padding:14px;font-size:13px}
   .a-stat-num{font-size:27px}
@@ -2843,8 +2868,19 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    обычное предложение, а без стилей она остаётся читаемой. */
 .pay-exact{display:block;margin-bottom:3px;font-weight:700;font-size:14px;letter-spacing:.01em;
   text-transform:uppercase;color:#b42318}
-.pay-timer{margin:14px 0 0;font-size:13.5px;color:var(--muted)}
-.pay-timer b{color:var(--text);font-variant-numeric:tabular-nums}
+.pay-timer{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:12px;margin:16px 0 0;
+  padding:13px 14px;border:2px solid #edc384;border-radius:14px;background:#fff7e9;
+  box-shadow:0 5px 18px rgba(142,83,14,.08);color:#7a4610}
+.pay-timer[hidden]{display:none}
+.pay-timer-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:#fff;color:#a75a08}
+.pay-timer-icon svg{width:24px;height:24px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pay-timer-copy{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.pay-timer-label{font-size:13.5px;font-weight:650;line-height:1.35}
+.pay-timer b{flex:none;min-width:5ch;padding:7px 10px;border-radius:10px;background:#a75a08;color:#fff;
+  font-size:23px;line-height:1;font-weight:750;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.pay-timer.is-urgent{border-color:#e2a19b;background:#fff1ef;color:#8f241a;box-shadow:0 5px 18px rgba(180,35,24,.1)}
+.pay-timer.is-urgent .pay-timer-icon{color:#b42318}
+.pay-timer.is-urgent b{background:#b42318}
 /* Строка состояния живёт постоянно, а не появляется при ответе: иначе блок
    прыгает на каждой проверке статуса. */
 .pay-state{margin:10px 0 0;min-height:20px;font-size:13.5px;color:var(--muted)}
@@ -2857,7 +2893,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .pay-draft-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;padding-top:14px;
   border-top:1px solid var(--border-soft,var(--border))}
 .pay-draft-actions .btn{width:100%}
-.pay-draft-actions p{grid-column:1/-1;margin:0;color:var(--muted);font-size:12.5px;line-height:1.45;text-align:center}
 .checkout-return-note{margin:-4px 0 16px;padding:11px 14px;border:1px solid #b9dfc5;border-radius:12px;
   background:#f3fbf5;color:#176b35}
 /* Выбор валюты счёта. Стоит НАД способами и сделан ссылками: от валюты зависит
@@ -2934,6 +2969,12 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .co-item-side{justify-content:flex-start}
   .co-item-save{margin-top:0}
   .co-item-controls{margin-left:auto}
+  /* Перенос обязателен. Сумма с подписью выгоды и счётчик с крестиком вместе
+     требуют около 320px, а строке на экране 320px достаётся 254px: без переноса
+     блок уезжал вправо за край, и от кнопки удаления позиции оставалась
+     видимой полоска в один пиксель — товар из заказа было не убрать. Перенос
+     ставит счётчик на свою строку, а `margin-left:auto` держит его справа. */
+  .co-item-side{flex-wrap:wrap;row-gap:8px}
   .co-summary{padding:18px 16px}
   .trust-col{margin-top:14px;padding-top:12px}
   .co-back-full{display:none}
@@ -2956,7 +2997,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .pay-actions{flex-direction:column}
   .pay-actions .btn{width:100%}
   .pay-draft-actions{grid-template-columns:1fr}
-  .pay-draft-actions p{grid-column:auto}
+}
+
+@media(max-width:480px){
+  .pay-timer-copy{align-items:flex-start;flex-direction:column;gap:7px}
+  .pay-timer b{font-size:21px}
 }
 
 /* ===== Выбор ремешка часов (страница товара) ===== */

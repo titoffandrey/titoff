@@ -28,7 +28,10 @@ const R = require('./lib/render');
 const D = require('./lib/discount');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
-const { Analytics, clientDetails, normalizeIp } = require('./lib/analytics');
+const { Analytics, clientDetails } = require('./lib/analytics');
+// Адрес посетителя и доверие forwarded-заголовкам: отдельный модуль, потому что
+// от него зависят блокировка перебора пароля и все антиспам-лимиты.
+const CLIENT_IP = require('./lib/client-ip');
 const { App } = require('./lib/server-lib');
 
 // Возвращает отчёт, если рядом лежала установка прежней мультидоменной версии.
@@ -72,12 +75,18 @@ function persistUploads(files) {
   return names;
 }
 const asArray = (v) => v == null ? [] : (Array.isArray(v) ? v : [v]);
-// Вернуться на ту же страницу списка после действия над строкой. Номер приходит
-// скрытым полем формы, поэтому приводится к целому здесь; первая страница —
-// адрес без параметра, чтобы ссылки не обрастали мусором.
-const pageQuery = (value) => {
-  const n = Math.floor(Number(value));
-  return Number.isFinite(n) && n > 1 ? '?page=' + Math.min(n, 1e6) : '';
+// Вернуться на ту же страницу и тот же раздел списка после удаления/restore.
+// Значения приходят скрытыми полями, поэтому view закрыт двумя вариантами, а
+// номер страницы приводится к ограниченному целому.
+const ordersBackUrl = (body, flash, forcedView) => {
+  const params = [];
+  const view = forcedView === 'archive' || (!forcedView && String(body && body.view) === 'archive')
+    ? 'archive' : 'active';
+  if (view === 'archive') params.push('view=archive');
+  const n = Math.floor(Number(body && body.page));
+  if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
+  if (flash) params.push('flash=' + encodeURIComponent(flash));
+  return '/admin/orders' + (params.length ? '?' + params.join('&') : '');
 };
 // Тот же возврат для отзывов, где к странице добавляется вкладка, а иногда и
 // товар: ленту разбирают и общей очередью, и по одному товару. Модерация идёт
@@ -302,16 +311,35 @@ function validateProduct(body) {
   return errors;
 }
 function tgEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-function isLoopback(address) { return /^(?:127(?:\.\d+){3}|::1|::ffff:127(?:\.\d+){3})$/.test(String(address || '')); }
-function trustedProxy(req) { return process.env.TRUST_PROXY === '1' || isLoopback(req.socket && req.socket.remoteAddress); }
+function trustedProxy(req) { return process.env.TRUST_PROXY === '1' || CLIENT_IP.isLoopback(req.socket && req.socket.remoteAddress); }
+
+/* Сколько ДОВЕРЕННЫХ прокси стоит перед приложением. У нас это один Caddy на
+ * петле, поэтому по умолчанию 1. Число нужно потому, что `X-Forwarded-For`
+ * прокси ДОПИСЫВАЕТ, а не заменяет: то, что левее нашего хопа, прислал сам
+ * клиент. Ставится только вручную и только под реальную цепочку прокси.
+ */
+const PROXY_HOPS = Math.min(10, Math.max(1, Math.floor(Number(process.env.TRUST_PROXY_HOPS)) || 1));
+// Заголовки Cloudflare (`CF-Connecting-IP`, `CF-IPCountry`, `CF-IPCity`) имеют
+// смысл ТОЛЬКО когда сайт реально стоит за Cloudflare: он их перезаписывает.
+// В нашей установке перед приложением Caddy, и любой такой заголовок приходит
+// прямо от посетителя — доверять ему нельзя. Включается флагом.
+const TRUST_CF = process.env.TRUST_CLOUDFLARE === '1';
+function cloudflareTrusted(req) { return TRUST_CF && trustedProxy(req); }
+/* Host и proto прокси ЗАМЕНЯЕТ, а не дописывает (в отличие от X-Forwarded-For),
+ * поэтому длина цепочки здесь всегда единица и считать хопы для них нельзя:
+ * при `TRUST_PROXY_HOPS=2` они перестали бы читаться вовсе, и витрина
+ * собирала бы canonical и callback_url по адресу из заголовка Host. Берём
+ * правое значение при одном хопе — для заменяемого заголовка это он и есть.
+ */
+function forwardedValue(req, name) { return CLIENT_IP.forwardedValue(req.headers, name, 1); }
 function requestHost(req) {
-  const forwardedHost = trustedProxy(req) ? String(req.headers['x-forwarded-host'] || '').split(',')[0].trim() : '';
+  const forwardedHost = trustedProxy(req) ? forwardedValue(req, 'x-forwarded-host') : '';
   const raw = String(forwardedHost || req.headers.host || '').split(',')[0].trim();
   return /^(?:[a-z0-9.-]+(?::\d{1,5})?|\[[0-9a-f:.]+\](?::\d{1,5})?)$/i.test(raw) ? raw : 'localhost';
 }
 // Абсолютный адрес сайта (для canonical, Open Graph, sitemap).
 function originOf(req) {
-  const forwardedProto = trustedProxy(req) ? String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() : '';
+  const forwardedProto = trustedProxy(req) ? forwardedValue(req, 'x-forwarded-proto') : '';
   const proto = process.env.FORCE_HTTPS === '1' || forwardedProto === 'https' || !!(req.socket && req.socket.encrypted) ? 'https' : 'http';
   const host = requestHost(req);
   return proto + '://' + host;
@@ -364,16 +392,17 @@ function adminAuthorized(req) {
 
 // Защита входов от перебора паролей: временные счётчики попыток хранятся в памяти.
 const loginAttempts = new Map();
+/* Адрес посетителя. К нему привязаны счётчик попыток входа, все антиспам-лимиты
+ * и карточка метрики, поэтому подставить его клиент не должен НИКАК. Разбор и
+ * причина, по которой `X-Forwarded-For` читается СПРАВА, — в lib/client-ip.js.
+ */
 function clientIp(req) {
-  const canTrust = trustedProxy(req);
-  const cloudflare = canTrust ? String(req.headers['cf-connecting-ip'] || '').trim() : '';
-  const forwarded = canTrust ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
-  const real = canTrust ? String(req.headers['x-real-ip'] || '').trim() : '';
-  for (const candidate of [cloudflare, forwarded, real, req.socket && req.socket.remoteAddress]) {
-    const ip = normalizeIp(candidate);
-    if (ip) return ip;
-  }
-  return '?';
+  return CLIENT_IP.clientIpFrom(req, {
+    trusted: trustedProxy(req),
+    hops: PROXY_HOPS,
+    cloudflare: TRUST_CF,
+    realIp: process.env.TRUST_REAL_IP === '1'
+  });
 }
 // Страницы витрины, которые считаются посещениями. Один список на весь проект:
 // он же лежит в карте сайта и в проверке подтверждения метрики.
@@ -392,7 +421,7 @@ function metricPublicPath(rawPath) {
 function trackPage(req, res, pathname, options) {
   if (metrics.trackingDisabled(req)) return;
   options = options || {};
-  const context = metrics.context(req, clientIp(req), trustedProxy(req));
+  const context = metrics.context(req, clientIp(req), cloudflareTrusted(req));
   // HEAD используют мониторинги и краулеры, но у такого запроса не будет JS-
   // подтверждения. Сразу относим его к техническим и не оставляем бессмысленную cookie.
   if (req.method === 'HEAD') {
@@ -412,12 +441,39 @@ function trackPage(req, res, pathname, options) {
   });
 }
 function loginBlocked(req) { const r = loginAttempts.get(clientIp(req)); return !!(r && r.until > Date.now()); }
-function loginFail(req) { const ip = clientIp(req); const r = loginAttempts.get(ip) || { count: 0, until: 0 }; r.count++; if (r.count >= 6) { r.until = Date.now() + 15 * 60 * 1000; r.count = 0; } r.seen = Date.now(); loginAttempts.set(ip, r); }
+function loginFail(req) {
+  const ip = clientIp(req);
+  const r = loginAttempts.get(ip) || { count: 0, until: 0 };
+  r.count++;
+  if (r.count >= 6) { r.until = Date.now() + 15 * 60 * 1000; r.count = 0; }
+  r.seen = Date.now();
+  // Потолок ставим ДО вставки и только для нового адреса: уже заблокированный
+  // перебор не должен вытеснять сам себя из карты.
+  if (!loginAttempts.has(ip)) trimMap(loginAttempts, LOGIN_KEYS_MAX);
+  loginAttempts.set(ip, r);
+}
 function loginOk(req) { loginAttempts.delete(clientIp(req)); }
 const TOO_MANY = 'Слишком много попыток входа. Подождите 15 минут.';
 
 // Антиспам публичных форм (отзывы, заказы): не больше N запросов с одного IP за окно.
 const rateHits = new Map();
+/* Потолок числа записей. Ключ содержит адрес посетителя, то есть растёт вместе
+ * с числом разных адресов, а выметаются они лишь раз в полчаса. Распределённый
+ * перебор успел бы за это время сложить в память сотни тысяч записей, и защита
+ * от спама сама стала бы способом исчерпать память процесса.
+ *
+ * Переполнение вычищаем по возрасту: Map хранит ключи в порядке вставки, поэтому
+ * первые в обходе — самые старые. Выбрасываем четверть, а не одну запись, чтобы
+ * уборка не повторялась на каждом следующем запросе.
+ */
+const RATE_KEYS_MAX = 50000;
+const LOGIN_KEYS_MAX = 20000;
+function trimMap(map, max) {
+  if (map.size <= max) return;
+  const drop = Math.ceil(max / 4);
+  let i = 0;
+  for (const key of map.keys()) { map.delete(key); if (++i >= drop) break; }
+}
 function rateLimited(req, bucket, limit, windowMs, identity) {
   // Публичные формы ограничиваем по IP. Действия со своим заказом можно
   // привязать к его случайному id после проверки подписанной сессии: иначе три
@@ -425,7 +481,11 @@ function rateLimited(req, bucket, limit, windowMs, identity) {
   const key = bucket + ':' + (identity ? String(identity) : clientIp(req));
   const now = Date.now();
   const r = rateHits.get(key);
-  if (!r || now - r.start > windowMs) { rateHits.set(key, { start: now, count: 1 }); return false; }
+  if (!r || now - r.start > windowMs) {
+    trimMap(rateHits, RATE_KEYS_MAX);
+    rateHits.set(key, { start: now, count: 1 });
+    return false;
+  }
   r.count++;
   return r.count > limit;
 }
@@ -481,7 +541,11 @@ function payRemind(req) {
     const pay = order.payment;
     if (!pay) continue;
     const shown = R.payDisplay(pay, now);
+    // Уже выданный счёт нельзя отменить удалением в панели: до конца срока он
+    // остаётся у покупателя и сверяется как прежде. После срока архивный заказ
+    // больше не напоминаем и новый invoice ему не выпускаем.
     if (R.payLive(shown, now)) return card(order, R.payUntil(shown));
+    if (db.isOrderArchived(order)) continue;
     if (pay.status === 'paid' || pay.status === 'mismatch') continue;
     if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
     return card(order, 0);
@@ -571,7 +635,7 @@ app.post('/api/analytics/start', (req, res) => {
   // Повторное включение допускается лишь после явного нажатия на странице политики.
   if (optedOut && !explicitEnable) return res.json({ ok: true, tracking: false });
   if (!publicPath) return res.json({ ok: true });
-  const context = Object.assign(metrics.context(req, clientIp(req), trustedProxy(req)), clientDetails(req.body.client));
+  const context = Object.assign(metrics.context(req, clientIp(req), cloudflareTrusted(req)), clientDetails(req.body.client));
   // Первичный HTML-запрос такого робота уже записан сервером. Его вызов
   // клиентского endpoint не должен ни удваивать статистику, ни ставить cookie.
   if (context.isBot) return res.json({ ok: true });
@@ -591,7 +655,7 @@ app.post('/api/analytics/ping', (req, res) => {
     return res.end();
   }
   const id = metrics.visitorId(req);
-  if (id) metrics.heartbeat({ id, path: req.body.path, context: metrics.context(req, clientIp(req), trustedProxy(req)) });
+  if (id) metrics.heartbeat({ id, path: req.body.path, context: metrics.context(req, clientIp(req), cloudflareTrusted(req)) });
   res.writeHead(204, { 'Cache-Control': 'private, no-store' });
   res.end();
 });
@@ -868,6 +932,7 @@ function reusableOrder(req, data) {
     const pay = order && order.payment;
     const age = order ? now - Number(order.createdAt || 0) : NaN;
     if (!order || !Number.isFinite(age) || age < 0 || age >= ORDER_REUSE_TTL) continue;
+    if (db.isOrderArchived(order)) continue;
     if (!['new', 'processing'].includes(order.status)
       || (pay && (pay.status === 'paid' || pay.status === 'mismatch'))) continue;
     if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
@@ -1048,7 +1113,9 @@ app.post('/api/order', async (req, res) => {
   const visitorId = metrics.visitorId(req) || null;
   const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
   const requestIp = clientIp(req);
-  const proxyTrusted = trustedProxy(req);
+  // Геозаголовки читаются только за настоящим Cloudflare: иначе город и страну
+  // заказа посетитель задавал бы себе сам обычным заголовком запроса.
+  const proxyTrusted = cloudflareTrusted(req);
   // Базовые данные устройства доступны без сети. Уже известный город берём из
   // карточки посетителя, а новый IP обогащаем после ответа покупателю.
   const client = metrics.context(req, requestIp, proxyTrusted);
@@ -1128,9 +1195,14 @@ function notifyPayment(order, state, note) {
   const ss = settings();
   const paidAttempts = state === 'paid'
     ? db.paymentAttempts(order).filter(attempt => attempt.status === 'paid').length : 0;
+  const restoredAfterDelete = order && order.archive
+    && order.archive.restoredBy === 'system:payment'
+    && order.archive.restoredReason === 'payment_received';
   const head = state === 'paid' && paidAttempts > 1
-    ? '⚠️ <b>Повторно оплачен заказ'
-    : { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
+    ? (restoredAfterDelete ? '⚠️ <b>Повторно оплачен удалённый заказ' : '⚠️ <b>Повторно оплачен заказ')
+    : restoredAfterDelete
+      ? { paid: '⚠️ <b>Оплачен удалённый заказ', mismatch: '⚠️ <b>Оплата удалённого заказа с расхождением' }[state]
+      : { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
   if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
   const msg = `${head} ${tgEsc(R.orderNo(order.number))}</b>\n`
     + `👤 ${tgEsc(order.customerName) || '—'}\n`
@@ -1335,6 +1407,12 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   const terminal = terminalPaymentBody(order);
   if (terminal) return res.json(terminal);
   if (rateLimited(req, 'pay', 20, 10 * 60 * 1000, id)) return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  if (db.isOrderArchived(order)) {
+    return res.json({
+      ok: false, placed: true, errorCode: 'order_archived',
+      error: 'Заказ закрыт. Оформите новый заказ.'
+    }, 410);
+  }
   if (!['new', 'processing'].includes(order.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Пределы кассы проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму она всё равно не выставит.
@@ -1363,6 +1441,15 @@ app.post('/api/pay/crocopay/start', async (req, res) => {
   if (!currentOrder) return res.json({ ok: false, error: 'Заказ не найден' }, 404);
   const currentTerminal = terminalPaymentBody(currentOrder);
   if (currentTerminal) return res.json(currentTerminal);
+  // Удалённый администратором заказ остаётся в файле только ради уже выданных
+  // счетов и позднего webhook. Новый invoice ему не создаём. Проверка стоит
+  // после payContext/его await, чтобы закрыть гонку со свежим удалением.
+  if (db.isOrderArchived(currentOrder)) {
+    return res.json({
+      ok: false, placed: true, errorCode: 'order_archived',
+      error: 'Заказ закрыт. Оформите новый заказ.'
+    }, 410);
+  }
   if (!['new', 'processing'].includes(currentOrder.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Сначала живая работа: после startOrderPayment попытка уже есть в файле, и
   // поиск known иначе возвращал 409 вместо ожидания того же Promise.
@@ -1613,6 +1700,7 @@ app.get('/pay/:id', async (req, res) => {
     currency: ctx.currency,
     amount: ctx.amount,
     amounts: ctx.amounts,
+    orderArchived: db.isOrderArchived(currentOrder),
     canDiscardDraft: db.canDiscardDraftOrder(currentOrder),
     // На самой странице оплаты напоминать о неоплаченном счёте незачем: она и
     // есть напоминание.
@@ -2058,13 +2146,19 @@ app.post('/admin/reviews/:id/hide', (req, res) => { if (!guardAdmin(req, res)) r
 app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res)) return; db.deleteReview(req.params.id); res.redirect(reviewsBackUrl(req.body, 'Отзыв удалён')); });
 
 /* ---------- Заказы ---------- */
-app.get('/admin/orders', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.ordersList(settings(), db, req.query.flash, req.query.page)); });
+app.get('/admin/orders', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  res.send(A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.view));
+});
 app.post('/admin/orders/:id/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  const deleted = db.deleteOrder(req.params.id);
-  const page = pageQuery(req.body.page);
-  const join = page ? '&' : '?';
-  res.redirect('/admin/orders' + page + (deleted ? '' : join + 'flash=' + encodeURIComponent('Заказ с платёжной историей нельзя удалить')));
+  const result = db.archiveOrder(req.params.id, 'admin');
+  res.redirect(ordersBackUrl(req.body, result.ok ? 'Заказ удалён из списка' : 'Заказ не найден', 'active'), 303);
+});
+app.post('/admin/orders/:id/restore', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const result = db.restoreOrder(req.params.id, 'admin');
+  res.redirect(ordersBackUrl(req.body, result.ok ? 'Заказ восстановлен' : 'Заказ не найден', 'archive'), 303);
 });
 
 /* ---------- Настройки магазина ---------- */
@@ -2176,6 +2270,23 @@ const httpServer = app.listen(PORT, HOST, () => {
     console.log(`  Пункты выдачи: ${Object.entries(ps.byCarrier).map(([k, n]) => `${k} ${n}`).join(', ')}`);
   }
   console.log('');
+});
+
+/* Порт занят или недоступен — говорим об этом человеческим языком и выходим.
+ * Без обработчика Node бросает необработанное событие 'error' и печатает стек
+ * из своих внутренностей: под pm2 это выглядит как бесконечный перезапуск без
+ * внятной причины, хотя причина всего одна — процесс магазина уже запущен.
+ */
+httpServer.on('error', (e) => {
+  if (e && e.code === 'EADDRINUSE') {
+    console.error(`\n  Порт ${PORT} уже занят — вероятно, магазин уже запущен.`);
+    console.error(`  Останови прежний процесс или задай другой порт: PORT=3001 node server.js\n`);
+  } else if (e && e.code === 'EACCES') {
+    console.error(`\n  Нет прав слушать порт ${PORT}. Порты ниже 1024 требуют root — держи приложение на порту выше и ставь перед ним прокси.\n`);
+  } else {
+    console.error('\n  Не удалось запустить сервер:', (e && e.message) || e, '\n');
+  }
+  process.exit(1);
 });
 
 let shuttingDown = false;

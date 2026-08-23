@@ -78,6 +78,9 @@
     var total = Math.floor(ms / 1000);
     var mm = Math.floor(total / 60), ss = total % 60;
     left.textContent = mm + ':' + (ss < 10 ? '0' : '') + ss;
+    // Последние две минуты меняют только цвет карточки, без мигания: срок
+    // становится заметен, но интерфейс не давит на покупателя каждую секунду.
+    if (timerBox) timerBox.classList.toggle('is-urgent', ms <= 2 * 60 * 1000);
   }
   if (expires && timerBox) { timerBox.hidden = false; tick(); setInterval(tick, 1000); }
 

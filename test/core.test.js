@@ -2430,15 +2430,26 @@ test('строка заказа: свой столбец у каждого во�
     // Свёртки «Откуда зашёл» больше нет: строка значков и есть ссылка в метрику,
     // а IP с провайдером лежат там же, в карточке посетителя.
     assert.doesNotMatch(html, /Откуда зашёл|o-tech/, name);
-    // Финансовая история неизменяема: у оплаченного заказа вместо удаления замок.
+    // Удаление доступно и у финансового заказа: DB отправляет его в архив,
+    // поэтому callback не теряет платёжную историю.
     assert.match(html, /id="orders-edit" class="edit-switch/, name);
-    assert.match(html, /aria-label="Удаление запрещено"/, name);
-    assert.doesNotMatch(html, /orders\/o1\/delete/, name);
+    assert.match(html, /orders\/o1\/delete/, name);
+    assert.match(html, /aria-label="Удалить заказ"/, name);
+    assert.doesNotMatch(html, /Удаление запрещено|🔒/, name);
+    assert.match(html, /Удалённые <b>0<\/b>/, name);
   }
   const unpaid = Object.assign({}, long, { payment: null });
   const unpaidDb = Object.assign({}, db, { getOrders: () => [unpaid], visibleOrders: () => [unpaid] });
   assert.match(adminViews.ordersList(SETTINGS, unpaidDb, null, 1), /orders\/o1\/delete/,
-    'заявку без платёжной истории по-прежнему можно удалить');
+    'заявку без платёжной истории тоже можно удалить');
+  const archived = Object.assign({}, long, { archive: { active: true, at: Date.now(), by: 'admin' } });
+  const archivedDb = Object.assign({}, db, {
+    getOrders: () => [archived], visibleOrders: () => [], archivedOrders: () => [archived]
+  });
+  const archivedHtml = adminViews.ordersList(SETTINGS, archivedDb, null, 1, 'archive');
+  assert.match(archivedHtml, /orders\/o1\/restore/);
+  assert.match(archivedHtml, /aria-label="Восстановить заказ"/);
+  assert.doesNotMatch(archivedHtml, /orders\/o1\/delete/);
 
   // Раскрывать нечего — стрелки нет: у заявки без адреса и техники она открывала
   // бы пустоту.
@@ -3397,14 +3408,24 @@ test('черновик не считается заказом, пока не в�
   // не сутки: раз менеджер их видит, они должны дожить до его звонка.
   const stale = fresh.createOrder({ draft: true, items: [], total: 300, contact: 'tg' });
   const kept = fresh.createOrder({ draft: true, items: [], total: 350, contact: 'tg' });
+  const archivedDraft = fresh.createOrder({ draft: true, items: [], total: 360, contact: 'tg' });
+  fresh.archiveOrder(archivedDraft.id, 'admin');
+  assert.equal(fresh.canDiscardDraftOrder(fresh.getOrder(archivedDraft.id)), false,
+    'устаревшая открытая форма покупателя не удалит tombstone');
+  const financialDraft = fresh.createOrder({ draft: true, items: [], total: 370, contact: 'tg' });
+  fresh.startOrderPayment(financialDraft.id, { attemptId: '9'.repeat(24), token: '8'.repeat(32), amount: 37000 });
   const file = path.join(dir, 'orders.json');
   const list = JSON.parse(fs.readFileSync(file, 'utf8'));
   list.find(o => o.id === stale.id).createdAt = Date.now() - 8 * 24 * 60 * 60 * 1000;
   list.find(o => o.id === kept.id).createdAt = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  list.find(o => o.id === archivedDraft.id).createdAt = Date.now() - 8 * 24 * 60 * 60 * 1000;
+  list.find(o => o.id === financialDraft.id).createdAt = Date.now() - 8 * 24 * 60 * 60 * 1000;
   fs.writeFileSync(file, JSON.stringify(list));
   fresh.createOrder({ items: [], total: 400, contact: 'tg' });
   assert.equal(fresh.getOrder(stale.id), null, 'неделя — и брошенный черновик убран');
   assert.equal(fresh.getOrder(kept.id).id, kept.id, 'трёхдневный черновик менеджер ещё увидит');
+  assert.equal(fresh.getOrder(archivedDraft.id).id, archivedDraft.id, 'архивный черновик можно восстановить и через неделю');
+  assert.equal(fresh.getOrder(financialDraft.id).id, financialDraft.id, 'финансовый legacy-черновик не теряет callback');
   assert.equal(fresh.getOrder(real.id).id, real.id, 'настоящие заказы уборка не трогает');
   fs.rmSync(dir, { recursive: true, force: true });
 
@@ -3618,7 +3639,8 @@ test('повтор оформления возвращает тот же сво�
   assert.ok(from > -1 && to > from, 'reusableOrder найден');
   const orders = new Map();
   const reusableOrder = new Function('db', source.slice(from, to) + '\nreturn reusableOrder;')({
-    getOrder: id => orders.get(id) || null
+    getOrder: id => orders.get(id) || null,
+    isOrderArchived: order => !!(order && order.archive && order.archive.active)
   });
   const base = {
     items: [
@@ -3647,6 +3669,9 @@ test('повтор оформления возвращает тот же сво�
   order.status = 'done';
   assert.equal(reusableOrder(req, base), null, 'выполненный заказ не оживает');
   order.status = 'new';
+  order.archive = { active: true, at: Date.now() };
+  assert.equal(reusableOrder(req, base), null, 'удалённый администратором заказ не оживает');
+  order.archive.active = false;
   order.createdAt = Date.now() + 1000;
   assert.equal(reusableOrder(req, base), null, 'запись из будущего не переиспользуется');
   assert.equal(reusableOrder({ session: { myOrders: [] } }, base), null, 'чужая сессия заказ не видит');
@@ -3826,11 +3851,28 @@ test('оплата хранит отдельные попытки и закры�
   }), null, 'неизвестная попытка не превращается в активную');
   assert.equal(fresh.getOrder(order.id).payment.invoiceId,
     'bbbbbbbb-0000-0000-0000-000000000000', 'чужие реквизиты поверх оплаченного заказа не пишем');
-  assert.equal(fresh.deleteOrder(order.id), false, 'финансовую историю нельзя удалить из панели');
+  const paymentHistory = JSON.parse(JSON.stringify(fresh.getOrder(order.id).payment));
+  const archivedPayment = fresh.archiveOrder(order.id, 'admin');
+  assert.equal(archivedPayment.ok, true, 'админ может убрать финансовый заказ из списка');
+  assert.equal(archivedPayment.changed, true);
+  assert.equal(fresh.archiveOrder(order.id, 'admin').changed, false, 'повтор удаления идемпотентен');
+  assert.equal(fresh.visibleOrders().some(x => x.id === order.id), false, 'архивный заказ скрыт из рабочего списка');
   assert.equal(fresh.getOrder(order.id).payment.status, 'paid');
+  assert.deepEqual(fresh.getOrder(order.id).payment, paymentHistory, 'архив не меняет ни одну платёжную попытку');
+  assert.equal(fresh.settleOrderPayment(order.id, {
+    attemptId: secondId, invoiceId: 'bbbbbbbb-0000-0000-0000-000000000000', status: 'paid', total: 10000
+  }).changed, false);
+  assert.equal(fresh.isOrderArchived(fresh.getOrder(order.id)), true,
+    'повтор уже известного webhook не отменяет осознанное удаление');
+  assert.equal(fresh.startOrderPayment(order.id, { token: 'f'.repeat(32) }), null,
+    'архивному заказу новый invoice не выпускается');
+  assert.equal(fresh.restoreOrder(order.id, 'admin').changed, true);
+  assert.equal(fresh.restoreOrder(order.id, 'admin').changed, false, 'повтор restore идемпотентен');
+  assert.equal(fresh.visibleOrders().some(x => x.id === order.id), true, 'заказ можно восстановить');
   const disposable = fresh.createOrder({ items: [], total: 1, contact: 'tg' });
-  assert.equal(fresh.deleteOrder(disposable.id), true, 'обычная заявка без кассы удаляется');
-  assert.equal(fresh.getOrder(disposable.id), null);
+  assert.equal(fresh.deleteOrder(disposable.id), true, 'обычная заявка без кассы тоже уходит в архив');
+  assert.equal(fresh.getOrder(disposable.id).id, disposable.id, 'админское удаление обратимо');
+  assert.equal(fresh.archivedOrders().some(x => x.id === disposable.id), true);
 
   // Из 'expired' в 'paid' дорасти можно и нужно: webhook об успехе вполне
   // приходит после того, как опрос увидел истёкший счёт.
@@ -3839,8 +3881,13 @@ test('оплата хранит отдельные попытки и закры�
   fresh.startOrderPayment(other.id, { attemptId: otherId, token: '5'.repeat(32), amount: 5000, currency: 'RUB' });
   assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, true);
   assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, false, 'то же состояние — не изменение');
+  fresh.archiveOrder(other.id, 'admin');
+  assert.equal(fresh.isOrderArchived(fresh.getOrder(other.id)), true);
   assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'paid', total: 5000 }).changed, true);
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
+  assert.equal(fresh.isOrderArchived(fresh.getOrder(other.id)), false,
+    'поздняя первая оплата автоматически возвращает удалённый заказ менеджеру');
+  assert.equal(fresh.getOrder(other.id).archive.restoredBy, 'system:payment');
   assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, false, 'оплаченное не истекает');
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
 });
@@ -5226,7 +5273,10 @@ test('страница оплаты показывает реквизиты, п�
   assert.match(html, /4276 1234 5678 9012/);
   assert.match(html, /Номер карты/);
   assert.match(html, /Сбербанк/);
-  assert.match(html, /id="pay-timer"/);
+  assert.match(html, /id="pay-timer" role="timer" aria-live="off"/);
+  assert.ok(html.indexOf('class="pay-req"') < html.indexOf('id="pay-timer"')
+    && html.indexOf('id="pay-timer"') < html.indexOf('class="pay-hint"'),
+  'заметный таймер стоит сразу под реквизитами, до длинной инструкции');
   assert.match(html, /noindex/, 'страница оплаты в индексе не нужна');
   assert.match(html, /pay\.js/, 'без скрипта не будет ни отсчёта, ни опроса статуса');
   // Реквизиты чужие и с апострофами — экранирование обязательно.
@@ -5240,6 +5290,7 @@ test('страница оплаты показывает реквизиты, п�
     payment: Object.assign({}, live, { expiresAt: Date.now() - 1000 })
   }), { methods, origin: '' });
   assert.doesNotMatch(stale, /4276 1234 5678 9012/);
+  assert.doesNotMatch(stale, /id="pay-timer"/);
   assert.match(stale, /name="pay-method"/, 'вместо мёртвых реквизитов — выбор способа заново');
 
   // Даже старый URL с ?choose=1 не показывает выбор поверх действующего счёта:
@@ -5275,7 +5326,7 @@ test('страница оплаты показывает реквизиты, п�
   assert.match(editable, /method="post" action="\/pay\/ord1\/draft"/);
   assert.match(editable, /name="intent" value="edit">Вернуться и изменить заказ/);
   assert.match(editable, /name="intent" value="cancel">Отменить заказ/);
-  assert.match(editable, /Корзина и заполненные данные останутся/);
+  assert.doesNotMatch(editable, /Корзина и заполненные данные останутся/);
   const forgedFlag = render.payPage(ss, Object.assign({}, draft, { draft: false, payment: live }),
     { methods, origin: '', canDiscardDraft: true });
   assert.doesNotMatch(forgedFlag, /pay-draft-actions|Отменить заказ/,
@@ -5284,6 +5335,21 @@ test('страница оплаты показывает реквизиты, п�
   const none = render.payPage(ss, order, { methods: [], origin: '' });
   assert.doesNotMatch(none, /id="pay-create"/);
   assert.match(none, /менеджер свяжется/);
+
+  const archivedPage = render.payPage(ss, Object.assign({}, order, {
+    archive: { active: true, at: Date.now() }
+  }), { methods, origin: '', orderArchived: true });
+  assert.match(archivedPage, /Заказ закрыт/);
+  assert.doesNotMatch(archivedPage, /id="pay-create"|name="pay-method"/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const payJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  assert.match(css, /\.pay-timer\{[^}]*border:2px[^}]*background:#fff7e9/,
+    'таймер — отдельная контрастная карточка, а не бледная строка');
+  assert.match(css, /\.pay-timer b\{[^}]*min-width:5ch[^}]*font-size:23px/);
+  assert.match(css, /\.pay-timer\.is-urgent/);
+  assert.match(payJs, /classList\.toggle\('is-urgent', ms <= 2 \* 60 \* 1000\)/,
+    'последние две минуты выделяются сильнее');
 });
 
 test('оплаченным заказ на странице называется только по ответу кассы', () => {
@@ -6420,4 +6486,118 @@ test('медиа не отдаётся в один клик и просмотр�
     'без min-height:0 элемент сетки не может стать меньше содержимого');
   assert.match(css, /@media\(max-width:640px\)\{[^]*grid-template-rows:minmax\(0,1fr\) auto/);
   assert.match(css, /\.lb-media\{[^}]*max-height:100%/);
+});
+
+/* ==================================================================== *
+ * Регрессии аудита: подмена адреса посетителя, экранирование id товара,
+ * долговечность записи хранилища.
+ * ==================================================================== */
+
+const clientIp = require('../lib/client-ip');
+
+// Дыра, которую это закрывает: прокси ДОПИСЫВАЕТ адрес посетителя в конец
+// `X-Forwarded-For`, а код брал первый элемент. Клиент подставлял себе любой
+// «IP» и подбирал пароль к панели без единой блокировки.
+test('адрес посетителя берётся из ПРАВОГО хвоста X-Forwarded-For', () => {
+  const headers = { 'x-forwarded-for': '8.8.8.8, 203.0.113.7' };
+  assert.equal(clientIp.forwardedValue(headers, 'x-forwarded-for', 1), '203.0.113.7',
+    'при одном прокси доверяем последнему элементу — его дописал он сам');
+
+  // Меняя левую часть, клиент не должен получать разные личности.
+  const seen = new Set();
+  for (let i = 1; i <= 5; i++) {
+    seen.add(clientIp.clientIpFrom(
+      { headers: { 'x-forwarded-for': `8.8.8.${i}, 203.0.113.7` }, socket: { remoteAddress: '127.0.0.1' } },
+      { trusted: true, hops: 1 }
+    ));
+  }
+  assert.deepEqual([...seen], ['203.0.113.7'], 'подмена левой части XFF меняла личность посетителя');
+
+  // Две ступени прокси — берём предпоследний, дописанный внешним из своих.
+  assert.equal(clientIp.forwardedValue({ 'x-forwarded-for': 'fake, 203.0.113.7, 10.0.0.2' }, 'x-forwarded-for', 2),
+    '203.0.113.7');
+  // Цепочка короче объявленной — свои хопы её не дописали, верить нечему.
+  assert.equal(clientIp.forwardedValue({ 'x-forwarded-for': '8.8.8.8' }, 'x-forwarded-for', 2), '');
+  // Заголовок с одним значением при одном хопе читается как прежде.
+  assert.equal(clientIp.forwardedValue({ 'x-forwarded-host': 'shop.example' }, 'x-forwarded-host', 1), 'shop.example');
+});
+
+// CF-Connecting-IP наш прокси не ставит вовсе: за Caddy он целиком приходит от
+// посетителя. Раньше он стоял в списке ПЕРВЫМ и полностью отдавал выбор «своего
+// IP» клиенту — этого хватало, чтобы обойти счётчик попыток входа.
+test('заголовки Cloudflare не читаются, пока за Cloudflare реально не стоим', () => {
+  const req = {
+    headers: { 'cf-connecting-ip': '9.9.9.9', 'x-real-ip': '5.5.5.5', 'x-forwarded-for': '203.0.113.7' },
+    socket: { remoteAddress: '127.0.0.1' }
+  };
+  assert.equal(clientIp.clientIpFrom(req, { trusted: true, hops: 1 }), '203.0.113.7',
+    'CF-Connecting-IP и X-Real-IP по умолчанию доверять нельзя');
+  assert.equal(clientIp.clientIpFrom(req, { trusted: true, hops: 1, cloudflare: true }), '9.9.9.9',
+    'за настоящим Cloudflare его заголовок обязан работать');
+  assert.equal(clientIp.clientIpFrom(req, { trusted: false, hops: 1 }), '127.0.0.1',
+    'без доверенного прокси остаётся только адрес сокета');
+  assert.equal(clientIp.clientIpFrom({ headers: {}, socket: {} }, { trusted: true, hops: 1 }), '?');
+});
+
+// То же правило — в самом server.js: geo-заголовки Cloudflare задают городу и
+// стране заказа значение, и посетитель не должен выбирать их себе сам.
+test('server.js не доверяет forwarded-заголовкам напрямую', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.doesNotMatch(server, /x-forwarded-for'\s*\]\s*\|\|\s*''\s*\)\s*\.split\(','\)\[0\]/,
+    'X-Forwarded-For снова читается слева — это возвращает обход лимита попыток входа');
+  // Единственное обращение к cf-* в маршрутах идёт через cloudflareTrusted().
+  assert.doesNotMatch(server, /trustedProxy\(req\)\s*\?\s*String\(req\.headers\['cf-/,
+    'заголовок Cloudflare снова читается по одному лишь доверию прокси');
+  for (const call of server.match(/metrics\.context\(req, clientIp\(req\), [^)]*\)/g) || []) {
+    assert.match(call, /cloudflareTrusted\(req\)/,
+      'geo-заголовки метрики обязаны требовать настоящего Cloudflare: ' + call);
+  }
+});
+
+// id товара уезжает в атрибуты (`data-id`, `action`, `href`). Сейчас он всегда
+// слаг, но проверяет это одна функция в хранилище: любой другой путь записи
+// (ручная правка JSON, будущий скрипт переноса) превращал бы его в XSS.
+test('id товара экранируется в разметке витрины и панели', () => {
+  const evil = '"><script>alert(1)</script><x y="';
+  const product = {
+    id: evil, name: 'Товар', category: 'iPhone', price: 5000, inStock: true, visible: true,
+    shortDesc: '', description: '', specs: '', colors: [], storages: [], bands: [], options: [],
+    images: [], imageColors: {}, imageBands: {}
+  };
+  const db = {
+    visibleProducts: () => [product], getProducts: () => [product], visibleCategories: () => [],
+    categories: () => ['iPhone'], getProduct: () => product, visibleProduct: () => product,
+    ratingFor: () => ({ count: 0, sum: 0 }), reviewsForProduct: () => [], getReviews: () => [],
+    reviewStats: () => new Map(), pendingReviewCount: () => 0, isVisible: () => true
+  };
+  const pages = {
+    'главная': render.homePage(SETTINGS, db, { origin: 'http://x', categories: [] }),
+    'страница товара': render.productPage(SETTINGS, db, product, { origin: 'http://x', categories: [] }),
+    'каталог панели': adminViews.productsList(SETTINGS, db, ''),
+    'форма товара': adminViews.productForm(SETTINGS, db, product, {})
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/, 'id товара попал в разметку без экранирования: ' + name);
+  }
+});
+
+// Одного rename мало: он не обещает, что содержимое временного файла дошло до
+// диска раньше самой записи о переименовании. При потере питания на месте
+// orders.json оказывался бы пустой файл — счёт у покупателя есть, заказа нет.
+test('запись хранилища идёт через fsync и не оставляет временных файлов', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'db.js'), 'utf8');
+  const body = source.slice(source.indexOf('function writeJson('), source.indexOf('function exists('));
+  assert.match(body, /fsyncQuiet\(fd\)/, 'содержимое обязано попасть на диск ДО переименования');
+  assert.ok(body.indexOf('fsyncQuiet(fd)') < body.indexOf('renameSync'), 'fsync стоит после переименования — это не защищает ни от чего');
+  assert.match(body, /openSync\(DATA_DIR/, 'запись каталога о новом имени тоже должна пережить сбой питания');
+  assert.match(body, /unlinkSync\(tmp\)/, 'недописанный временный файл не должен оставаться рядом с данными');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-write-'));
+  const store = freshDb(dir);
+  const product = store.createProduct({ name: 'Проверка записи', category: 'iPhone', price: 1000 });
+  assert.ok(product.id);
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8'));
+  assert.equal(saved.length, 1, 'файл обязан содержать записанный товар целиком');
+  assert.deepEqual(fs.readdirSync(dir).filter(f => f.endsWith('.tmp')), [], 'временные файлы после записи не остаются');
+  fs.rmSync(dir, { recursive: true, force: true });
 });
