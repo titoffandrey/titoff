@@ -4388,12 +4388,28 @@ test('в настройках видно режим витрины, а касс�
   // своими глазами, а не молчаливый переход на вторую.
   assert.match(offHtml, /MeridianPay/);
   assert.match(offHtml, /name="meridianpayMerchantId"/);
-  assert.match(onHtml, /Работает одна касса — CrocoPAY/);
+  assert.match(onHtml, /Работает одна касса — CrocoPAY, подстраховки нет\./);
+  /* Плашка режима — ровно состояние, без объяснений: подсказки под ней убраны
+   * все. Осталось только то, чего иначе не узнать, — включена оплата и какие
+   * кассы работают. */
+  assert.doesNotMatch(onHtml, /После оформления покупатель попадает/);
+  assert.doesNotMatch(offHtml, /менеджер свяжется с ним и подтвердит наличие/);
+  assert.match(offHtml, /<p class="pay-mode is-off"><b>Сейчас: заявки без оплаты\.<\/b><\/p>/);
+
+  /* Диапазон суммы заказа правится в настройках: числа принадлежат кассе, а
+   * какие они у конкретной — знает только владелец. От потолка зависит и то,
+   * какие товары продаются: дороже него карточка становится «Нет в наличии». */
+  assert.match(offHtml, /name="payMinTotal"/);
+  assert.match(offHtml, /name="payMaxTotal"/);
+
+  // Блок выхода — одна кнопка и ничего больше.
+  assert.match(offHtml, /<div class="a-panel a-exit">\s*<form action="\/admin\/logout"/);
+  assert.doesNotMatch(offHtml, /Панель закроется/);
   const both = adminViews.settingsPage(Object.assign({}, base, {
     crocopayEnabled: true, meridianpayEnabled: true,
     meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   }), db, null);
-  assert.match(both, /Работают обе кассы \(CrocoPAY и MeridianPay\)/);
+  assert.match(both, /Работают обе кассы: CrocoPAY и MeridianPay\./);
   /* «Спрашивать первой» видно ВСЕГДА, при любом числе включённых касс.
    * Пряталось оно, пока включена одна, — и со стороны это выглядело не как
    * экономия места, а как пропавшая настройка: пока вторая касса ждёт
@@ -4708,7 +4724,7 @@ test('куда доставить — обязательный выбор, а е
   assert.ok(route.indexOf('Выберите, куда доставить') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
   // Цена доставки считается на сервере заново — клиентской цифре верим не больше,
   // чем клиентской цене товара.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(settings\(\)\)\.max\)/);
   assert.match(route, /total: grandTotal, itemsTotal: total/);
   assert.doesNotMatch(route, /req\.body\.deliveryPrice/, 'цену доставки витрина не присылает');
 
@@ -5003,7 +5019,7 @@ test('адрес пункта выдачи в заказе берётся из �
     'адрес покупателя обязан проверяться до записи');
   // Зона считается по адресу ПОКУПАТЕЛЯ: иначе цена менялась бы от выбора
   // пункта, и показанная сумма разошлась бы с той, что уйдёт в заказ.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(settings\(\)\)\.max\)/);
 
   // Хранилище отсеивает мусор в коде, но существование пункта проверяет маршрут:
   // lib/db не может требовать lib/pickup — вышло бы кольцо require.
@@ -6464,6 +6480,98 @@ test('регион не выдаёт себя за банк получателя
   } finally {
     if (real) global.fetch = real; else delete global.fetch;
   }
+});
+
+
+test('диапазон суммы заказа задаётся в настройках и меняет витрину', () => {
+  const PAYMENTS = require('../lib/payments');
+  const SHIP = require('../lib/delivery-price');
+
+  // Значения по умолчанию — пределы CrocoPAY, как и было.
+  assert.deepEqual(PAYMENTS.boundsOf({}), { min: PAYMENTS.MIN_TOTAL, max: PAYMENTS.MAX_TOTAL });
+  assert.deepEqual(dbCore.defaultSettings().payMinTotal, 1000);
+  assert.deepEqual(dbCore.defaultSettings().payMaxTotal, 250000);
+
+  const wide = { payMinTotal: 500, payMaxTotal: 900000 };
+  assert.deepEqual(PAYMENTS.boundsOf(wide), { min: 500, max: 900000 });
+  assert.equal(PAYMENTS.payable(600, wide), true);
+  assert.equal(PAYMENTS.payable(600), false, 'без настроек действует предел по умолчанию');
+  assert.equal(PAYMENTS.payable(900000, wide), true);
+  assert.equal(PAYMENTS.payable(900001, wide), false);
+  assert.match(PAYMENTS.limitError(900001, wide), /не более 900\s000\s₽/);
+  assert.match(PAYMENTS.limitError(499, wide), /Минимальная сумма заказа — 500\s₽/);
+
+  /* Пустое или испорченное поле — возврат к значению по умолчанию, а НЕ «предела
+   * нет»: молча снятый потолок означал бы заказы, которые касса не проведёт. */
+  assert.deepEqual(PAYMENTS.boundsOf({ payMinTotal: '', payMaxTotal: null }), { min: PAYMENTS.MIN_TOTAL, max: PAYMENTS.MAX_TOTAL });
+  assert.deepEqual(PAYMENTS.boundsOf({ payMinTotal: 'сто', payMaxTotal: -5 }), { min: PAYMENTS.MIN_TOTAL, max: PAYMENTS.MAX_TOTAL });
+  // Перевёрнутый диапазон разворачиваем, а не запрещаем всё: форма такого не
+  // сохранит, но настройки правят и руками, а «нельзя оформить ни одного
+  // заказа» — худший способ узнать об опечатке.
+  assert.deepEqual(PAYMENTS.boundsOf({ payMinTotal: 5000, payMaxTotal: 2000 }), { min: 2000, max: 5000 });
+
+  // Оплата выключена — пределов нет вовсе, как и раньше.
+  assert.deepEqual(PAYMENTS.limits(wide), { min: 0, max: 0 });
+  const on = Object.assign({ crocopayEnabled: true, crocopayClientId: 'i', crocopayClientSecret: 's' }, wide);
+  assert.deepEqual(PAYMENTS.limits(on), { min: 500, max: 900000 });
+
+  /* Видимое следствие: потолок решает, какие товары вообще продаются. Пока он
+   * 250 000, Vision Pro на витрине «Нет в наличии»; подняли — вернулся в
+   * продажу. Ради этого настройку и заводили. */
+  const pricey = {
+    id: 'vision', name: 'Дорогой', category: 'К', inStock: true,
+    images: [], colors: [], bands: [], storages: [], options: [], price: 349990
+  };
+  const base = { storeName: 'Т', tagline: '', currency: '₽', currencyPosition: 'after' };
+  const db = {
+    getProducts: () => [pricey], visibleProducts: () => [pricey],
+    categories: () => ['К'], visibleCategories: () => ['К'], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  const tight = Object.assign({}, base, { crocopayEnabled: true, crocopayClientId: 'i', crocopayClientSecret: 's' });
+  const roomy = Object.assign({}, tight, { payMaxTotal: 900000 });
+  assert.match(render.homePage(tight, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
+  assert.doesNotMatch(render.homePage(roomy, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
+  // Потолок уезжает и в скрипт витрины — там он гасит «+» у количества.
+  assert.match(render.homePage(roomy, db, { category: '', q: '', origin: '' }), /__ORDER_MAX__\s*=\s*900000/);
+
+  /* Подгонка доставки под круглый итог обязана двигаться в тех же границах:
+   * округлять ВВЕРХ за потолок — значит собрать заказ, который касса не
+   * проведёт. Потолок приходит параметром: модуль доставки о настройках не
+   * знает и знать не должен. */
+  const addr = 'г Москва, ул Тверская, д 1';
+  const capped = SHIP.quoteAll(addr, 249800, 250000).prices.cdek;
+  const uncapped = SHIP.quoteAll(addr, 249800, 900000).prices.cdek;
+  // Округлённый вариант, помещающийся под потолок, выбирается как обычно.
+  assert.equal(249800 + capped.pvz, 250000);
+  /* А вот курьеру под потолком места нет вовсе: любой круглый итог с ним уходит
+   * за 250 000. Тогда берётся чистый тариф (360), а не округление вверх (400) —
+   * и заказ у самого потолка просто не оформляется. Это задокументированное
+   * следствие, а не недосмотр: «заказ на 249 900 ₽ может не пройти — доставка
+   * выведет его за потолок». */
+  assert.equal(capped.courier, SHIP.rate('cdek', 'courier', 'msk'));
+  assert.equal(uncapped.courier > capped.courier, true, 'без потолка округление вверх разрешено');
+  // Сверяем с теми же настройками, при которых считали доставку: у `on` потолок
+  // расширен до 900 000, и 250 160 ₽ там как раз проходят.
+  assert.equal(PAYMENTS.payable(249800 + capped.courier, tight), false);
+  assert.equal(PAYMENTS.payable(249800 + capped.courier, on), true);
+  // Ноль означает «потолка нет» (оплата на витрине выключена).
+  assert.ok(SHIP.quoteAll(addr, 249800, 0).prices.cdek.pvz > 0);
+});
+
+test('форма настроек не сохраняет кривой диапазон суммы', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.post('/admin/settings'"));
+  // Проверка ДО записи — то же правило, что у всей этой формы.
+  assert.ok(route.indexOf('Максимальная сумма заказа не может быть меньше минимальной') < route.indexOf('db.saveSettings(patch)'));
+  assert.match(route, /положительное число или пусто/);
+  assert.match(route, /не больше 100 000 000 ₽/);
+  // Пустое поле возвращает значение по умолчанию, а не снимает предел.
+  assert.match(route, /bound\('payMinTotal', PAYMENTS\.MIN_TOTAL/);
+  assert.match(route, /bound\('payMaxTotal', PAYMENTS\.MAX_TOTAL/);
+  // `fail()` только отправляет ответ и выполнение не прерывает — поэтому его
+  // зовут через `return`, а не изнутри вспомогательной функции.
+  assert.match(route, /if \(!low\.ok\) return fail\(low\.error\)/);
+  assert.match(route, /if \(!high\.ok\) return fail\(high\.error\)/);
 });
 
 test('в настройках есть касса, а ключи не утекают в разметку витрины', () => {

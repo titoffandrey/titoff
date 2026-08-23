@@ -848,7 +848,10 @@ app.post('/api/delivery/quote', (req, res) => {
   if (!check.ok) return res.json({ ok: true, valid: false, error: check.error, prices: null });
   // Цены отдаём сразу все: покупатель должен видеть, во что обойдётся курьер,
   // ДО того как выберет его, а переключение способа не должно ходить на сервер.
-  const q = SHIP.quoteAll(address, Number.isFinite(goods) && goods > 0 ? goods : 0);
+  // Потолок заказа приходит из настроек: подгонка итога под круглое число не
+  // вправе вывести сумму за границу, которую касса уже не проведёт.
+  const q = SHIP.quoteAll(address, Number.isFinite(goods) && goods > 0 ? goods : 0,
+    PAYMENTS.limits(settings()).max);
   res.json({ ok: true, valid: true, error: '', zone: q.zone, zoneName: q.zoneName, prices: q.prices });
 });
 
@@ -1076,7 +1079,7 @@ app.post('/api/order', async (req, res) => {
    * заказ. Разойтись зоны почти не могут — дальше 60 км пункты не предлагаются,
    * а зоны здесь размером с федеральный округ.
    */
-  const ship = SHIP.quote(delivery, deliveryMode, address, total);
+  const ship = SHIP.quote(delivery, deliveryMode, address, total, PAYMENTS.limits(settings()).max);
   if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
   const grandTotal = total + ship.price;
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
@@ -1544,7 +1547,7 @@ async function startPaymentRoute(req, res) {
   if (!['new', 'processing'].includes(order.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Пределы касс проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму они всё равно не выставят.
-  if (!PAYMENTS.payable(order.total)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
+  if (!PAYMENTS.payable(order.total, s)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
   // Способ проверяем не только по своему закрытому списку, но и по тому, что
   // владелец оставил на витрине: скрытый в настройках способ не должен
   // проходить запросом мимо интерфейса.
@@ -2354,6 +2357,39 @@ app.post('/admin/settings', async (req, res) => {
   if (req.body.payPrimary !== undefined) {
     const first = String(req.body.payPrimary).trim();
     patch.payPrimary = PAYMENTS.providerIds().includes(first) ? first : PAYMENTS.DEFAULT_ID;
+  }
+  /* Диапазон суммы одного заказа.
+   *
+   * Проверяем ДО записи, как и всё в этой форме, и придирчиво: от этих чисел
+   * зависит не только оплата, но и то, какие товары вообще продаются (дороже
+   * потолка карточка становится «Нет в наличии»). Пустое поле — возврат к
+   * значению по умолчанию, а не «предела нет»: снятый молча потолок означал бы
+   * заказы, которые касса не проведёт.
+   */
+  const bound = (field, fallback, label) => {
+    if (req.body[field] === undefined) return { ok: true, value: null };
+    // «10 000» и «10000,50» приходят из формы одинаково законно: пробелы —
+    // разделители разрядов, запятая — десятичная.
+    const raw = String(req.body[field]).replace(/\s+/g, '').replace(',', '.');
+    if (!raw) return { ok: true, value: fallback };
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) return { ok: false, error: `${label} — положительное число или пусто` };
+    if (value > 100000000) return { ok: false, error: `${label} — не больше 100 000 000 ₽` };
+    return { ok: true, value: Math.round(value) };
+  };
+  const low = bound('payMinTotal', PAYMENTS.MIN_TOTAL, 'Минимальная сумма заказа');
+  if (!low.ok) return fail(low.error);
+  const high = bound('payMaxTotal', PAYMENTS.MAX_TOTAL, 'Максимальная сумма заказа');
+  if (!high.ok) return fail(high.error);
+  if (low.value !== null) patch.payMinTotal = low.value;
+  if (high.value !== null) patch.payMaxTotal = high.value;
+  // Перевёрнутый диапазон не сохраняем вовсе: `boundsOf()` его развернёт и
+  // магазин продолжит работать, но владелец увидел бы «Сохранено» и не понял,
+  // почему границы поменялись местами.
+  const lowest = low.value !== null ? low.value : Number(current.payMinTotal);
+  const highest = high.value !== null ? high.value : Number(current.payMaxTotal);
+  if (Number.isFinite(lowest) && Number.isFinite(highest) && highest < lowest) {
+    return fail('Максимальная сумма заказа не может быть меньше минимальной');
   }
   // Способы оплаты — галочки, поэтому снятые в теле формы просто отсутствуют.
   // Скрытое поле payMethodsForm говорит, что секция вообще пришла: без него

@@ -1623,9 +1623,9 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-topbar h1{flex:1;min-width:0}
 /* Выход переехал сюда со страницы «Настройки»: в шапке кнопка стояла рядом с
    разделами и нажималась вместо них, а нужна она раз в жизни. */
-.a-exit{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
-.a-exit h2{margin-bottom:5px}
-.a-exit p{margin:0;max-width:60ch}
+/* В блоке выхода осталась одна кнопка: заголовок «Выход» и объяснение, что
+   панель закроется, ничего к ней не добавляли — кнопка называет себя сама. */
+.a-exit{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .a-flash{margin:20px 28px 0;padding:13px 16px;border-radius:13px}
 /* Карточек на «Обзоре» три, а плиток сводки над ними — от четырёх до шести:
    auto-fit раскладывает и то и другое сам, без медиазапроса на каждый случай. */
