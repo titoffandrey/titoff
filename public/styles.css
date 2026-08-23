@@ -1693,6 +1693,19 @@ body.admin{background:#f4f4f6;color:#242426}
 .pay-fold-note{font-size:11.5px;font-weight:400;color:var(--muted)}
 .pay-fold-body{padding:0 13px 14px}
 .pay-fold-body>.a-subhead:first-child{margin-top:6px}
+/* Свёрток теперь по одной на кассу, и они идут подряд: без этого правила между
+   ними висел бы двойной отступ от общего margin-top. */
+.pay-fold+.pay-fold{margin-top:8px}
+
+/* Статистика по кассам. Числа набраны табличными цифрами: столбцы сравнивают
+   глазами сверху вниз, и прыгающая ширина цифр это ломает. Таблица узкая — ей
+   не нужен общий min-width на 520 px, иначе на телефоне она уезжает вбок
+   ради шести коротких чисел. */
+.pay-prov{min-width:420px}
+.pay-prov td{font-variant-numeric:tabular-nums}
+.pay-prov td:first-child{font-variant-numeric:normal}
+/* Какая касса выдала реквизиты — приписка под способом в строке заказа. */
+.o-via{margin-top:2px}
 
 /* Способы оплаты в настройках владельца: сеткой, чтобы одиннадцать галочек не
    вытянулись в длинный столбик. */

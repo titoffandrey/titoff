@@ -164,7 +164,9 @@
     var requestId = paymentRequestId(method);
     btn.disabled = true;
     btn.textContent = 'Ищем доступные реквизиты…';
-    fetch('/api/pay/crocopay/start', {
+    // Адрес без имени кассы: их несколько, и какая выдаст реквизиты — решает
+    // сервер. Покупателю это не показывается нигде, даже в адресе запроса.
+    fetch('/api/pay/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         orderId: orderId, method: method, currency: currency,
@@ -228,7 +230,7 @@
   function poll(manual) {
     if (busy || state !== 'pending') return;
     busy = true;
-    fetch('/api/pay/crocopay/status?order=' + encodeURIComponent(orderId)
+    fetch('/api/pay/status?order=' + encodeURIComponent(orderId)
       + (attemptId ? '&attempt=' + encodeURIComponent(attemptId) : ''), { headers: { Accept: 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (d) {
