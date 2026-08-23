@@ -4346,11 +4346,29 @@ test('в настройках видно режим витрины, а касс�
   assert.match(offHtml, /name="payMethodsForm"/);
   assert.match(offHtml, /name="payMethods" value="SBP" checked/);
   assert.match(offHtml, /name="crocopayCurrencyChoice"/);
-  assert.match(offHtml, /<details class="pay-fold">/, 'в режиме заявок настройки кассы свёрнуты');
+  assert.match(offHtml, /<details class="pay-fold">/, 'в режиме заявок ключи свёрнуты');
+
+  /* Включение касс стоит ДО ключей и вне свёрток.
+   *
+   * Это единственное решение раздела, которое принимают часто, и оно обязано
+   * быть видно, ничего не раскрывая. Пока галочки лежали внутри свёрток, чтобы
+   * включить кассу, надо было сперва открыть строку «выключена» — то есть
+   * развернуть секцию с ключами ради того, чтобы ключей не трогать.
+   */
+  assert.match(offHtml, /class="pay-switches"[\s\S]{0,400}name="crocopayEnabled"[\s\S]{0,400}name="meridianpayEnabled"/);
+  assert.ok(offHtml.indexOf('class="pay-switches"') < offHtml.indexOf('<details class="pay-fold"'),
+    'переключатели касс стоят выше свёрток с ключами');
 
   const onHtml = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true }), db, null);
   assert.match(onHtml, /Сейчас: оплата на витрине/);
-  assert.match(onHtml, /<details class="pay-fold" open>/);
+  /* Свёртка раскрыта РОВНО ТОГДА, когда с кассой что-то не так: включена, а
+   * ключей нет. Настроенная и работающая остаётся закрытой — ключи это секреты,
+   * держать их развёрнутыми на экране незачем, а две открытые секции подряд
+   * растягивают страницу настроек вдвое. */
+  assert.doesNotMatch(onHtml, /<details class="pay-fold" open>/, 'работающая касса ключи не разворачивает');
+  const halfSet = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true, crocopayClientSecret: '' }), db, null);
+  assert.equal((halfSet.match(/<details class="pay-fold" open>/g) || []).length, 1,
+    'раскрыта ровно та касса, у которой не хватает ключей');
 
   // Плашка говорит про то, что видит ПОКУПАТЕЛЬ, а не про саму галочку:
   // включённая без ключей оставляет витрину в режиме заявок.
@@ -4369,10 +4387,20 @@ test('в настройках видно режим витрины, а касс�
     meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   }), db, null);
   assert.match(both, /Работают обе кассы \(CrocoPAY и MeridianPay\)/);
+  /* «Спрашивать первой» показывается, только когда касс правда две: с одной
+   * очередь состоит из неё же, и выбор отвечал бы на вопрос, которого нет.
+   * Поля нет в теле формы — маршрут оставляет сохранённое значение, поэтому
+   * выбор не теряется, пока вторая касса выключена. */
+  assert.match(both, /Порядок опроса/);
+  assert.doesNotMatch(onHtml, /Порядок опроса/, 'с одной кассой порядок опроса не показываем');
+  assert.doesNotMatch(offHtml, /name="payPrimary"/);
   // Ключи второй кассы так же переживают выключение и так же не теряются.
   assert.match(both, /name="meridianpayApiKey" value="КЛЮЧ"/);
   // Порядок опроса — настройка владельца, а не порядок в коде.
   assert.match(both, /name="payPrimary"/);
+  // Переключатели остаются на месте при любом режиме: их отсутствие стёрло бы
+  // выбор владельца первым же «Сохранить».
+  assert.match(both, /class="pay-switch"/);
 });
 
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
@@ -6189,6 +6217,246 @@ test('статистика по кассам считает отказы и ви
   const row = render.orderPayMethod({ payment: { provider: 'meridianpay', method: 'SBP', invoiceId: 'x', requisite: '+7 900' } });
   assert.match(row, /СБП/);
   assert.match(row, /MeridianPay/);
+});
+
+
+test('касса не берётся за сумму — очередь отсеивает её ДО создания попытки', async () => {
+  const PAYMENTS = require('../lib/payments');
+  const mp = require('../lib/meridianpay');
+  const pay = require('../lib/pay-methods');
+
+  /* MeridianPay принимает только ЦЕЛОЕ число основных единиц, а счёт в валюте
+   * считается по курсу владельца: 51 600 ₽ / 90 = 573.33 $. Без этого сита в
+   * заказе появлялась бы попытка, которую касса в глаза не видела: отказ
+   * `bad_amount` приходит мгновенно и без сети — то есть в таблице «Кассы» это
+   * выглядело бы как её отказ. Ложь в той самой статистике, ради которой
+   * таблицу и завели.
+   */
+  const amount = pay.convert(51600, 90);
+  assert.equal(Number.isInteger(amount), false, 'пересчёт по курсу даёт копейки');
+  assert.equal(mp.acceptsAmount(amount, 'USD', null), false);
+  assert.equal(mp.acceptsAmount(51600, 'RUB', null), true);
+
+  // Ни одного обращения в сеть на такой сумме — значит и «отказ кассы» здесь
+  // был бы выдуман нами, а не получен от неё.
+  const real = global.fetch;
+  try {
+    global.fetch = async () => { throw new Error('в сеть ходить нельзя'); };
+    const r = await mp.createInvoice(
+      { meridianpayEnabled: true, meridianpayApiKey: 'k', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40' },
+      { amount, currency: 'USD', method: 'TO_CARD', externalId: 'aabbccddeeff1122' });
+    assert.equal(r.error, 'bad_amount');
+  } finally {
+    if (real) global.fetch = real; else delete global.fetch;
+  }
+
+  const both = {
+    crocopayEnabled: true, crocopayClientId: 'i', crocopayClientSecret: 's',
+    meridianpayEnabled: true, meridianpayApiKey: 'k',
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
+  };
+  const live = { byProvider: {
+    crocopay: { byCurrency: { RUB: ['TO_CARD'], USD: ['TO_CARD'] } },
+    meridianpay: { byCurrency: { RUB: ['TO_CARD'], USD: ['TO_CARD'] }, limits: { RUB: { min: 999, max: 300000 } } }
+  } };
+  assert.deepEqual(PAYMENTS.chainFor(both, live, 'TO_CARD', 'RUB', 51600).map(p => p.id), ['crocopay', 'meridianpay']);
+  assert.deepEqual(PAYMENTS.chainFor(both, live, 'TO_CARD', 'USD', amount).map(p => p.id), ['crocopay']);
+  // Потолок банков тоже сито: 906 шлюзов приходят живым ответом, и не
+  // воспользоваться их лимитами значило бы держать эти данные зря.
+  assert.deepEqual(PAYMENTS.chainFor(both, live, 'TO_CARD', 'RUB', 400000).map(p => p.id), ['crocopay']);
+  // Вызов БЕЗ суммы (настройки, предпросмотр списка) касс не выкидывает.
+  assert.deepEqual(PAYMENTS.chainFor(both, live, 'TO_CARD', 'RUB').map(p => p.id), ['crocopay', 'meridianpay']);
+
+  // Маршрут спрашивает очередь именно с суммой — иначе сито не сработает.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /PAYMENTS\.chainFor\(s, ctx\.live, method, ctx\.currency, ctx\.amount\)/);
+});
+
+test('таблица перевода способов MeridianPay не может указывать в пустоту', () => {
+  const mp = require('../lib/meridianpay');
+  const pay = require('../lib/pay-methods');
+  const known = pay.METHODS.map(m => m.id);
+  // Документированные значения `payment_detail_type`. Опечатка здесь тихо
+  // сделала бы способ нерабочим: касса вернула бы не тот тип реквизита, а мы
+  // забраковали бы её же ответ.
+  const TYPES = ['card', 'phone', 'sim', 'tips', 'nspk'];
+  for (const [id, route] of Object.entries(mp.MAP)) {
+    assert.ok(known.includes(id), `перевод есть, а способа нет: ${id}`);
+    assert.ok(TYPES.includes(route.detail), `неизвестный тип реквизита у ${id}: ${route.detail}`);
+    assert.equal(typeof route.transgran, 'boolean', `трансграничность у ${id} задаётся явно`);
+    // Требование документации: при self-bank банк обязателен, иначе сделку
+    // просто не на что создавать.
+    if (route.selfBank) assert.ok(route.gateway, `self-bank без банка: ${id}`);
+    if (route.gateway) assert.match(route.gateway, /^[a-z0-9_]+$/, `код банка у ${id}`);
+    assert.equal(mp.supports(id), true);
+  }
+  // Способ, которого касса перевести не может, честно об этом говорит — тогда
+  // его обслужит только CrocoPAY, а не «обе, но одна молча сломается».
+  assert.equal(mp.supports('NEW_FANCY_PAY'), false);
+});
+
+test('срок реквизита считается по часам кассы, а не по нашим', () => {
+  const mp = require('../lib/meridianpay');
+  // MeridianPay отдаёт unix-СЕКУНДЫ. Если брать `expires_at` как абсолютное
+  // время, расхождение часов между её сервером и нашим превращается в счёт,
+  // который у нас уже истёк (реквизиты не покажем на живой сделке) или живёт
+  // лишние минуты (покажем чужие). Поэтому берём остаток по ЕЁ часам.
+  const theirNow = 1759091081;                 // часы кассы ушли вперёд на годы
+  const left = mp.expiryMs({ expires_at: theirNow + 600, current_server_time: theirNow });
+  assert.ok(Math.abs(left - (Date.now() + 600000)) < 2000, 'остаток 10 минут от НАШЕГО времени');
+  // Сгоревшая сделка даёт ноль, а не отрицательный срок: ноль всюду означает
+  // «срок не подтверждён», и реквизиты по нему не показываются.
+  assert.equal(mp.expiryMs({ expires_at: theirNow - 10, current_server_time: theirNow }), 0);
+  // Нет часов кассы — берём абсолютное значение, как есть.
+  assert.equal(mp.expiryMs({ expires_at: 1759091681 }), 1759091681000);
+  assert.equal(mp.expiryMs({}), 0);
+  assert.equal(mp.expiryMs(null), 0);
+});
+
+test('integrity у MeridianPay ничего не подтверждает и не может ничего сломать', () => {
+  const mp = require('../lib/meridianpay');
+  const crypto = require('crypto');
+  const secret = 'T5Q0-secret';
+  const order = '566c2485-7909-41d4-9fed-98d92e3f9b5f';
+  // Алгоритм поля `integrity` не описан в документации НИГДЕ — только значения
+  // в примерах. Поэтому оно не авторизует ничего: подтверждают уведомление наш
+  // token в адресе и обязательная сверка через GET. Здесь только диагностика,
+  // которая узнает формулу с первого настоящего callback.
+  const hit = mp.integrityHint({ meridianpaySecret: secret },
+    { order_id: order, integrity: crypto.createHmac('sha256', secret).update(order).digest('hex') });
+  assert.equal(hit, 'hmac(order_id)');
+  // Ни секрета, ни мусора она наружу не пускает и на них не спотыкается.
+  assert.equal(mp.integrityHint({}, { order_id: order, integrity: 'x' }), '');
+  assert.equal(mp.integrityHint({ meridianpaySecret: secret }, { integrity: 'не-хеш' }), '');
+  assert.equal(mp.integrityHint({ meridianpaySecret: secret }, null), '');
+  assert.equal(mp.integrityHint(null, null), '');
+
+  // Проверка callback у MeridianPay ничего не проверяет намеренно — и должна
+  // об этом говорить в коде, чтобы её не приняли за настоящую подпись.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'meridianpay.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function verifyCallback'), src.indexOf('module.exports'));
+  assert.match(fn, /return true/);
+  assert.match(src, /ПОДПИСИ У CALLBACK НЕТ/);
+  // Значит вся тяжесть на token и сверке: маршрут обязан требовать оба.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf('function paymentCallbackRoute('), server.indexOf("app.post('/api/pay/crocopay/callback'"));
+  assert.match(route, /!tokenOk \|\| !ownAttempt/);
+});
+
+test('ни одна страница витрины не называет платёжку и не носит её ключи', () => {
+  // Прямое требование: покупатель не должен догадаться, что касс несколько.
+  // Проверяем разом все страницы, а не одну: забытая страница — это ровно тот
+  // способ, которым такая утечка и появляется.
+  const secrets = {
+    crocopayEnabled: true, crocopayClientId: 'ID-КАССЫ', crocopayClientSecret: 'СЕКРЕТ-CROCO',
+    meridianpayEnabled: true, meridianpayApiKey: 'ТОКЕН-MERIDIAN',
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40', meridianpaySecret: 'СЕКРЕТ-MERIDIAN'
+  };
+  const settings = Object.assign(dbCore.defaultSettings(), { storeName: 'Тест', tagline: '' }, secrets);
+  const product = {
+    id: 'p1', name: 'iPhone', category: 'iPhone', price: 50990, inStock: true,
+    images: [], colors: [], bands: [], storages: [], options: [], specs: ''
+  };
+  const db = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['iPhone'], visibleCategories: () => ['iPhone'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const order = {
+    id: 'o1', number: '482913', total: 51600, status: 'new', createdAt: Date.now(),
+    items: [{ id: 'p1', name: 'iPhone', qty: 1, price: 50990 }],
+    payment: { provider: 'meridianpay', status: 'pending', method: 'SBP', attempts: [] }
+  };
+  const opts = { origin: 'https://shop', categories: ['iPhone'], payRemind: null };
+  const pages = {
+    'главная': () => render.homePage(settings, db, Object.assign({ category: '', q: '' }, opts)),
+    'товар': () => render.productPage(settings, db, product, opts),
+    'оформление': () => render.checkoutPage(settings, Object.assign({ payOnline: true }, opts)),
+    'оплата': () => render.payPage(settings, order, Object.assign({
+      methods: [{ id: 'SBP', name: 'СБП', hint: '', kind: 'phone', mark: 'sbp' }],
+      currencies: ['RUB'], currency: 'RUB', amount: 51600, amounts: { RUB: 51600 }
+    }, opts)),
+    'политика': () => render.privacyPage(settings, opts)
+  };
+  for (const [name, build] of Object.entries(pages)) {
+    const html = build();
+    assert.doesNotMatch(html, /crocopay|meridian/i, `имя платёжки на витрине: ${name}`);
+    for (const value of Object.values(secrets)) {
+      if (typeof value !== 'string' || value.length < 6) continue;
+      assert.ok(!html.includes(value), `ключ кассы уехал на витрину: ${name} / ${value}`);
+    }
+  }
+});
+
+test('оплатившийся во время очереди заказ побеждает технический отказ', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const create = source.slice(source.indexOf('async function requestInvoiceFrom('), source.indexOf('function paymentAlternative('));
+  /* Очередь касс идёт с await между попытками, и за это время webhook мог
+   * подтвердить прежний счёт. `startOrderPayment()` тогда намеренно возвращает
+   * заказ, не создавая попытку поверх подтверждённой оплаты, — и без этой
+   * проверки покупатель увидел бы «не удалось начать оплату» поверх уже
+   * пришедших денег.
+   */
+  const guard = create.indexOf('if (!started || !attempt || !attempt.token)');
+  assert.ok(guard > -1);
+  const tail = create.slice(guard, guard + 700);
+  assert.match(tail, /terminalPaymentBody\(db\.getOrder\(id\)\)/);
+  assert.ok(tail.indexOf('terminalPaymentBody') < tail.indexOf('Не удалось начать оплату'),
+    'терминальное состояние проверяется ДО технической ошибки');
+});
+
+
+test('счета кассы без ключей не забивают очередь фоновой сверки', () => {
+  const PAYMENTS = require('../lib/payments');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const sweep = source.slice(source.indexOf('async function reconcileOpenPayments'), source.indexOf('const paymentSweep = setInterval'));
+
+  /* Пока касса была одна, проход просто не начинался без ключей. С двумя так
+   * нельзя: счета выключенной кассы сверке не поддаются, `reconcile` выходит по
+   * `not_reconcilable` и НЕ трогает `lastCheckedAt` — значит в сортировке
+   * «сначала давно не проверенные» они вечно первые и вытесняют рабочие счета
+   * из бюджета в 40 штук. Отбор по ключам эмитента закрывает это.
+   */
+  assert.match(sweep, /const issuer = PAYMENTS\.provider\(attempt\.provider\);\s*\n\s*if \(!issuer \|\| !issuer\.configured\(s\)\) continue;/);
+  assert.ok(sweep.indexOf('issuer.configured(s)') < sweep.indexOf('queue.push'),
+    'несверяемые счета отсеиваются ДО попадания в очередь');
+  // Проход по-прежнему начинается, пока с ключами хоть одна касса.
+  assert.match(sweep, /if \(!PAYMENTS\.configured\(s\)\) return;/);
+
+  const onlyCroco = { crocopayEnabled: true, crocopayClientId: 'i', crocopayClientSecret: 's' };
+  assert.equal(PAYMENTS.configured(onlyCroco), true);
+  assert.equal(PAYMENTS.provider('crocopay').configured(onlyCroco), true);
+  assert.equal(PAYMENTS.provider('meridianpay').configured(onlyCroco), false);
+  // Заказ, записанный до второй кассы, поля provider не имеет — и обязан
+  // сверяться как прежде.
+  assert.equal(PAYMENTS.provider('').configured(onlyCroco), true);
+});
+
+test('регион не выдаёт себя за банк получателя', async () => {
+  const mp = require('../lib/meridianpay');
+  const on = {
+    meridianpayEnabled: true, meridianpayApiKey: 'k',
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
+  };
+  const real = global.fetch;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    // Касса не вернула название банка. Подставить вместо него регион значило бы
+    // напечатать покупателю «Банк получателя: Россия» — пустое значение честнее,
+    // и такую строку payRow() просто не рисует.
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ success: true, data: {
+      order_id: '566c2485-7909-41d4-9fed-98d92e3f9b5f', status: 'pending', currency: 'rub', amount: 100000,
+      payment_detail: { detail: '4000100020003000', detail_type: 'card', region: 'Россия' },
+      expires_at: now + 600, current_server_time: now
+    } }) });
+    const r = await mp.createInvoice(on, { amount: 1000, currency: 'RUB', method: 'TO_CARD', externalId: 'aabbccddeeff11' });
+    assert.equal(r.ok, true);
+    assert.equal(r.invoice.bank, '', 'банка нет — строки не будет');
+    assert.equal(r.invoice.region, 'Россия', 'но регион остаётся: по нему сверяется трансграничность');
+    assert.equal(render.payLive({ status: 'pending', invoiceId: r.invoice.id, requisite: r.invoice.requisite, expiresAt: r.invoice.expiresAt }), true);
+  } finally {
+    if (real) global.fetch = real; else delete global.fetch;
+  }
 });
 
 test('в настройках есть касса, а ключи не утекают в разметку витрины', () => {

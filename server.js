@@ -1259,6 +1259,13 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   });
   const attempt = db.findPaymentAttempt(started, { attemptId });
   if (!started || !attempt || !attempt.token) {
+    // Попытку не создали — и самая частая причина этого не техническая: пока шла
+    // очередь касс, заказ мог оплатиться прежним счётом, и `startOrderPayment()`
+    // намеренно возвращает заказ, не трогая уже подтверждённую оплату.
+    // Финансовый факт важнее отказа нового запроса: ведём на terminal-страницу,
+    // а не показываем «не удалось начать оплату» поверх пришедших денег.
+    const terminal = terminalPaymentBody(db.getOrder(id));
+    if (terminal) return { done: true, status: 200, body: terminal };
     return { done: true, status: 500, body: { ok: false, error: 'Не удалось начать оплату' } };
   }
 
@@ -1558,7 +1565,7 @@ async function startPaymentRoute(req, res) {
   // Очередь касс под этот способ и эту валюту. Пустая означает, что способ
   // прошёл проверку по списку витрины, но обслужить его сейчас некому — так
   // бывает, когда владелец выключил кассу между открытием страницы и нажатием.
-  const chain = PAYMENTS.chainFor(s, ctx.live, method, ctx.currency);
+  const chain = PAYMENTS.chainFor(s, ctx.live, method, ctx.currency, ctx.amount);
   if (!chain.length) {
     return res.json({ ok: false, error: 'Этот способ оплаты сейчас недоступен — выберите другой' }, 400);
   }
@@ -1885,6 +1892,16 @@ async function reconcileOpenPayments() {
       if (!order.payment) continue;
       for (const attempt of db.paymentAttempts(order)) {
         if (!attempt.invoiceId || attempt.status === 'paid') continue;
+        /* Сверить счёт может только ТА касса, что его выдала, и только пока у
+         * неё есть ключи. Счета кассы, у которой ключи убрали, сверке не
+         * поддаются — и без этой строки они забивали бы очередь: `reconcile`
+         * выходит по `not_reconcilable`, не трогая `lastCheckedAt`, поэтому в
+         * сортировке «сначала давно не проверенные» они вечно оказываются
+         * первыми и вытесняют рабочие счета из бюджета в 40 штук. Пока касса
+         * была одна, такого не случалось: без ключей проход просто не начинался.
+         */
+        const issuer = PAYMENTS.provider(attempt.provider);
+        if (!issuer || !issuer.configured(s)) continue;
         const startedAt = Number(attempt.startedAt || order.createdAt || 0);
         if (!Number.isFinite(startedAt) || startedAt < edge || startedAt > now) continue;
         // Pending проверяем часто. Терминальные и mismatch ещё несколько дней
