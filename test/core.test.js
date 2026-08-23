@@ -1224,7 +1224,7 @@ test('на телефоне слоган стоит в одну строку, а
   assert.match(html, /<h1 style="--fit:[\d.]+">/);
   assert.match(html, /class="foot-note" style="--fit:[\d.]+"/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
-  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(28px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
+  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(25px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
   assert.match(mobile, /\.foot-note\{[^}]*white-space:nowrap;font-size:min\(14px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
 
   // Оценка обязана быть не меньше ширины, замеренной в браузере (em при кегле
@@ -1726,7 +1726,14 @@ test('наличие учитывает совместимость ремешк�
   };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
   // У товара с вариантами кнопка ведёт на страницу товара, а не кладёт в корзину сразу
-  assert.match(html, /href="\/product\/watch">В корзину<\/a>/);
+  assert.match(html, /href="\/product\/watch">.*?В корзину<\/a>/);
+  // Слева от подписи — значок тележки, как в карточке Ozon. Он в разметке, а не
+  // в CSS: скрипт витрины возвращает кнопку из dataset.label, и текстом там
+  // значок бы не пережил добавление товара с последующим удалением.
+  assert.match(html, /<svg class="btn-ico"[^>]*>.*?<\/svg>В корзину/);
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(app, /btn\.dataset\.label = btn\.innerHTML/);
+  assert.doesNotMatch(app, /btn\.textContent = btn\.dataset\.label/);
   assert.doesNotMatch(html, /class="btn btn-primary btn-block add-to-cart"\s+data-id="watch"/);
 });
 

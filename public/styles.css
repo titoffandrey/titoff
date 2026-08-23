@@ -1056,6 +1056,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .btn:active,.btn-primary:active{transform:scale(.98);box-shadow:none}
 .btn-lg{min-height:50px;padding:13px 26px;font-size:16px;border-radius:16px}
 .btn-sm{min-height:36px;padding:7px 13px;font-size:13px;border-radius:11px}
+/* Значок в кнопке (тележка у «В корзину»). Размер в em — от кегля самой кнопки,
+   поэтому на мелкой кнопке карточки и на крупной он одинаково соразмерен тексту;
+   зазор до подписи держит gap у `.btn`. Чуть приподнят: у строчных букв низ выше
+   геометрического центра строки, и глиф на общей середине читался как съехавший. */
+.btn-ico{flex:none;width:1.24em;height:1.24em;margin-top:-.06em}
 .field{margin-bottom:18px}
 .field label{margin-bottom:7px;font-size:13px;font-weight:650;color:#3a3a3c}
 .field input[type=text],.field input[type=search],.field input[type=password],.field input[type=number],.field input[type=date],.field input[type=datetime-local],.field input:not([type]),.field textarea,.field select{
@@ -1130,15 +1135,21 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    прижат к бегущей строке»: сверху пусто, снизу впритык. Отрицательный
    margin-top снимает ровно эту разницу, и он в em — значит, работает на всех
    размерах заголовка, а не только на десктопном. */
-.store-hero h1{margin:-.2em 0 0;font-family:var(--brand-font);font-size:clamp(26px,2.75vw,34px);line-height:1.14;letter-spacing:-.038em;color:var(--muted)}
+/* Кегль и вес слогана ужаты намеренно: это подпись под названием магазина, а не
+   заголовок страницы. В 34 px полужирным он спорил с самим брендом в шапке и
+   забирал первый экран у товаров. Вес задан явно — общее правило h1 даёт 650. */
+.store-hero h1{margin:-.2em 0 0;font-family:var(--brand-font);font-size:clamp(23px,2.3vw,29px);font-weight:560;line-height:1.16;letter-spacing:-.034em;color:var(--muted)}
 /* Яблоко — часть строки: inline и размер в em, как у буквы. Сидит не на базовой
    линии, а по центру прописных: у логотипа нет ни выносных элементов, ни
    плоского низа, поэтому «на базовой линии» читается как приклеенное к строке. */
 .apple-mark{display:inline-block;width:.6em;height:.732em;margin-right:.26em;vertical-align:.045em;overflow:visible;fill:currentColor}
 /* Бегущая строка преимуществ. Едет во всю ширину экрана, а не по контейнеру,
    поэтому подписи выходят из-за края — маска гасит их, чтобы не обрубались.
-   Анимация одна на всю ленту и только по transform: считает композитор. */
-.hero-ticker{position:relative;z-index:1;overflow:hidden;padding:15px 0 17px;background:rgba(255,255,255,.62);border-top:1px solid rgba(17,17,26,.09);
+   Анимация одна на всю ленту и только по transform: считает композитор.
+   Полоса ужата почти до высоты своего содержимого: она подпись под первым
+   экраном, а не второй экран. Прежние 15/17 px полей давали 60 px высоты при
+   строке в 21 px — треть первого экрана уходила на пять слов. */
+.hero-ticker{position:relative;z-index:1;overflow:hidden;padding:6px 0 7px;background:rgba(255,255,255,.62);border-top:1px solid rgba(17,17,26,.09);
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 58px,#000 calc(100% - 58px),transparent);
   mask-image:linear-gradient(90deg,transparent,#000 58px,#000 calc(100% - 58px),transparent)}
 .ticker-track{display:flex;width:max-content;animation:ticker-run 46s linear infinite}
@@ -1146,14 +1157,21 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    не останавливаем: лента идёт медленно, и замирающая строка читается как сбой */
 .hero-ticker.is-idle .ticker-track{animation-play-state:paused}
 .ticker-row{display:flex;align-items:center;gap:44px;margin:0;padding:0 44px 0 0;list-style:none}
-.ticker-row li{display:flex;align-items:center;gap:11px;white-space:nowrap;color:#3a3a3c;font-size:15px;font-weight:600;letter-spacing:-.012em}
-.tick-ico{flex:none;width:27px;height:27px;color:var(--text)}
+/* Межстрочный задан явно: у полосы высота и есть высота строки, и наследованные
+   1.5 добавляли бы к ней 7 px пустоты сверху и снизу. */
+.ticker-row li{display:flex;align-items:center;gap:9px;white-space:nowrap;color:#3a3a3c;font-size:14px;line-height:1.25;font-weight:600;letter-spacing:-.012em}
+/* Глиф размером со строку, а не в полтора раза больше: он задавал высоту полосы */
+.tick-ico{flex:none;width:19px;height:19px;color:var(--text)}
 /* -25 % — ровно одна из четырёх копий строки (TICKER_COPIES в render.js) */
 @keyframes ticker-run{from{transform:translate3d(0,0,0)}to{transform:translate3d(-25%,0,0)}}
 @media(prefers-reduced-motion:reduce){.ticker-track{animation:none}}
 
 /* Секции и каталог */
 .section{padding-block:54px}
+/* Каталог идёт сразу за бегущей строкой: общие 54 px там читались как провал
+   между первым экраном и товарами, тем более что своего заголовка у каталога на
+   главной нет. Небольшой отступ остаётся — карточки не должны липнуть к полосе. */
+.store-hero + .section{padding-top:20px}
 .section-head{align-items:flex-end;margin-bottom:22px}
 .section-head h2{font-size:clamp(26px,3vw,36px);line-height:1.08}
 /* Заголовок каталога — по центру полосы */
@@ -2143,17 +2161,18 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      экрана, а не задаётся числом: слоган пишет владелец. --fit — длина строки
      в em, её считает heroFit() в lib/render.js; 32px — поля контейнера.
      Длинный слоган из-за этого ужимается сильнее — это цена одной строки. */
-  .store-hero h1{white-space:nowrap;font-size:min(28px,calc((100vw - 40px)/var(--fit,21)));line-height:1.2}
+  .store-hero h1{white-space:nowrap;font-size:min(25px,calc((100vw - 40px)/var(--fit,21)));line-height:1.2}
   /* На телефоне лента идёт быстрее: экран уже, иначе подписи будто стоят */
-  .hero-ticker{padding:12px 0 14px;
+  .hero-ticker{padding:5px 0 6px;
     -webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent);
     mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent)}
   .ticker-track{animation-duration:32s}
   .ticker-row{gap:28px;padding-right:28px}
-  .ticker-row li{gap:9px;font-size:13px}
-  .tick-ico{width:22px;height:22px}
+  .ticker-row li{gap:8px;font-size:13px}
+  .tick-ico{width:17px;height:17px}
 
   .section{padding-block:34px}
+  .store-hero + .section{padding-top:16px}
   .section-head{margin-bottom:16px}
   .section-head h2{font-size:28px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -2449,7 +2468,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .nav-inner{padding-inline:16px}
   .store-hero-inner{padding:17px 16px}
   /* Поля контейнера здесь 16px, поэтому строке достаётся на 32px меньше */
-  .store-hero h1{font-size:min(23px,calc((100vw - 32px)/var(--fit,21)))}
+  .store-hero h1{font-size:min(21px,calc((100vw - 32px)/var(--fit,21)))}
   .section-head{align-items:flex-end}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}

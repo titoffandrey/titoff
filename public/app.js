@@ -1379,8 +1379,12 @@
   }
 
   // Кнопка «в корзину» как переключатель: показывает статус в зависимости от корзины.
+  // Запоминаем именно РАЗМЕТКУ кнопки, а не её текст: у карточек каталога слева
+  // от подписи стоит значок тележки, и возврат через textContent стирал бы его —
+  // товар, добавленный и убранный обратно, оставался бы с голой подписью.
+  // Строка своя, серверная (CART_ICO в lib/render.js), чужого текста в ней нет.
   function setBtnState(btn, inCart) {
-    if (!btn.dataset.label) btn.dataset.label = btn.textContent.trim();
+    if (!btn.dataset.label) btn.dataset.label = btn.innerHTML.trim();
     var was = btn.classList.contains('in-cart');
     if (inCart) {
       btn.classList.add('in-cart');
@@ -1393,7 +1397,7 @@
       }
     } else {
       btn.classList.remove('in-cart', 'just-added');
-      btn.textContent = btn.dataset.label;
+      btn.innerHTML = btn.dataset.label;
     }
   }
   function syncCartButtons() {
