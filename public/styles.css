@@ -319,9 +319,9 @@ body.lb-open{overflow:hidden}
 :root{--tg:#229ed9;--tg-dark:#1b8fc7}
 .tg-ico{fill:currentColor;display:block}
 .foot-tg{margin-top:14px}
-.foot-tg .tg-link{display:inline-flex;align-items:center;gap:9px;color:var(--tg);font-weight:600;font-size:18px;line-height:1}
-.foot-tg .tg-link:hover{color:var(--tg-dark)}
-.foot-tg .tg-link .tg-ico{width:24px;height:24px;flex:none}
+.tg-cta{display:inline-flex;align-items:center;gap:8px;color:var(--tg);font-weight:600;font-size:16px;line-height:1}
+.tg-cta:hover{color:var(--tg-dark)}
+.tg-cta .tg-ico{width:20px;height:20px;flex:none}
 .tg-header{display:inline-flex;align-items:center;gap:7px;background:var(--tg);color:#fff;padding:9px 15px;border-radius:980px;font-weight:600;font-size:14.5px;line-height:1;white-space:nowrap;transition:filter .15s,transform .06s}
 .tg-header:hover{filter:brightness(1.06)}
 .tg-header:active{transform:scale(.96)}
@@ -1030,7 +1030,8 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   --max:1200px;
 }
 
-html{scroll-behavior:smooth;scroll-padding-top:132px}
+/* Отступ якоря = высота липкой шапки (58 ряд + 48 меню) с небольшим запасом */
+html{scroll-behavior:smooth;scroll-padding-top:120px}
 body{min-width:320px;overflow-x:hidden;text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}
 body.cart-open{overflow:hidden}
 button,input,textarea,select{font:inherit}
@@ -1088,25 +1089,36 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 @media(prefers-reduced-motion:reduce){
   .site-header,.header-row,.logo,.logo-img,.search,.site-nav,.tg-header,.tg-header-txt{transition:none!important}
 }
-.header-row{height:66px;gap:12px;transition:height .28s cubic-bezier(.22,.75,.25,1),min-height .28s,padding .28s,gap .28s}
-.logo{margin-right:auto;font-size:24px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}
-.logo-img{max-height:36px;transition:max-height .28s ease}
+/* Ряд ужат до 58 px: шапка липкая и стоит перед глазами всё время, а держала
+   она две трети роста поисковой строки на пустом месте. Высоты внутри связаны —
+   поле 38, кнопка Telegram ровно столько же, корзина на 8 px больше поля. */
+.header-row{height:58px;gap:12px;transition:height .28s cubic-bezier(.22,.75,.25,1),min-height .28s,padding .28s,gap .28s}
+.logo{margin-right:auto;font-size:23px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}
+.logo-img{max-height:32px;transition:max-height .28s ease}
 .icon-btn{min-width:42px;min-height:42px;padding:9px;align-items:center;justify-content:center;border-radius:13px;transition:background .16s ease,transform .12s ease}
 .icon-btn:hover{background:var(--bg2)}
 .icon-btn:active{transform:scale(.94)}
 .search{position:relative;flex:0 1 300px;max-width:300px;overflow:hidden;opacity:1;transform:translateY(0);transition:flex-basis .28s cubic-bezier(.22,.75,.25,1),max-width .28s cubic-bezier(.22,.75,.25,1),max-height .28s ease,opacity .18s ease,transform .28s ease,visibility 0s linear}
 .search::before{content:"";position:absolute;left:14px;top:50%;width:13px;height:13px;border:1.7px solid #8e8e93;border-radius:50%;transform:translateY(-58%);pointer-events:none}
-.search::after{content:"";position:absolute;left:25px;top:27px;width:6px;height:1.7px;border-radius:2px;background:#8e8e93;transform:rotate(45deg);pointer-events:none}
-.search input{height:42px;padding:9px 14px 9px 38px;border-color:transparent;background:#f1f1f4;font-size:14px;transition:background .18s,border-color .18s,box-shadow .18s}
+/* Ручка лупы — от середины поля, а не числом от его верха: с числом она
+   разъезжалась с кружком на каждой смене высоты поля. */
+.search::after{content:"";position:absolute;left:25px;top:calc(50% + 6px);width:6px;height:1.7px;border-radius:2px;background:#8e8e93;transform:rotate(45deg);pointer-events:none}
+.search input{height:38px;padding:8px 14px 8px 38px;border-color:transparent;background:#f1f1f4;font-size:14px;transition:background .18s,border-color .18s,box-shadow .18s}
 .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,110,115,.12)}
-.cart-btn{border:1px solid transparent}
-.cart-badge{top:0;right:0;box-shadow:0 0 0 2px #fff}
-.tg-header{min-height:42px;padding:9px 14px;border:1px solid rgba(34,158,217,.5);border-radius:13px;background:transparent;color:var(--tg);font-size:14px;box-shadow:none;transition:min-height .24s ease,padding .24s ease,border-color .18s ease,background .18s ease,color .18s ease,transform .12s ease}
+/* Корзина — единственная кнопка, которую ищут глазами на каждой странице,
+   поэтому она крупнее прочих значков и глиф в ней тоже больше. */
+.cart-btn{min-width:46px;min-height:46px;border:1px solid transparent;border-radius:14px}
+.cart-btn svg{width:25px;height:25px}
+.cart-badge{top:2px;right:2px;box-shadow:0 0 0 2px #fff}
+.tg-header{min-height:38px;padding:0 14px;border:1px solid rgba(34,158,217,.5);border-radius:12px;background:transparent;color:var(--tg);font-size:14px;box-shadow:none;transition:min-height .24s ease,padding .24s ease,border-color .18s ease,background .18s ease,color .18s ease,transform .12s ease}
 .tg-header:hover{border-color:var(--tg);background:rgba(34,158,217,.08);color:var(--tg-dark);filter:none}
-.tg-header-txt{display:inline-block;max-width:84px;overflow:hidden;opacity:1;transition:max-width .24s ease,opacity .16s ease}
+/* line-height здесь обязателен: у «Telegram» есть выносная «g», а строка с
+   overflow:hidden высотой ровно в кегль обрезала ей хвост. Ширина анимируется,
+   поэтому убрать overflow нельзя — вместо этого строке дана своя высота. */
+.tg-header-txt{display:inline-block;max-width:84px;overflow:hidden;line-height:1.45;opacity:1;transition:max-width .24s ease,opacity .16s ease}
 .site-nav{max-height:58px;overflow:hidden;border-top:1px solid var(--border-soft);background:transparent;opacity:1;visibility:visible;transform:translateY(0);transform-origin:top;transition:max-height .3s cubic-bezier(.22,.75,.25,1),opacity .2s ease,transform .3s cubic-bezier(.22,.75,.25,1),border-color .2s ease,visibility 0s linear}
-.nav-inner{gap:2px;padding:3px 24px 8px}
-.nav-cat{position:relative;padding:10px 13px 9px;border-radius:0;background:transparent;color:var(--muted);font-size:14px;font-weight:500;letter-spacing:-.012em;transition:color .18s ease}
+.nav-inner{gap:2px;padding:2px 24px 7px}
+.nav-cat{position:relative;padding:9px 13px 8px;border-radius:0;background:transparent;color:var(--muted);font-size:14px;font-weight:500;letter-spacing:-.012em;transition:color .18s ease}
 .nav-cat:hover{background:transparent;color:var(--text)}
 .nav-cat.active{background:transparent;color:var(--text);font-weight:650}
 .nav-cat.active::after{content:"";position:absolute;left:13px;right:13px;bottom:0;height:2px;border-radius:3px;background:var(--accent)}
@@ -1114,12 +1126,14 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 
 /* При прокрутке вниз оставляем только действия, нужные в любой момент. */
 .site-header.header-compact{background:rgba(255,255,255,.96);box-shadow:0 8px 28px rgba(17,17,26,.075)}
-.site-header.header-compact .header-row{height:52px}
-.site-header.header-compact .logo{font-size:21px;transform:translateY(-1px)}
-.site-header.header-compact .logo-img{max-height:30px}
+.site-header.header-compact .header-row{height:50px}
+.site-header.header-compact .logo{font-size:20px;transform:translateY(-1px)}
+.site-header.header-compact .logo-img{max-height:28px}
 .site-header.header-compact .search{flex-basis:0;max-width:0;opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition-delay:0s,0s,0s,0s,0s,.24s}
 .site-header.header-compact .site-nav{max-height:0;border-color:transparent;opacity:0;visibility:hidden;transform:translateY(-8px);pointer-events:none;transition-delay:0s,0s,0s,0s,.28s}
-.site-header.header-compact .tg-header{min-height:38px;padding:7px 9px;gap:0}
+.site-header.header-compact .tg-header{min-height:34px;padding:0 9px;gap:0}
+.site-header.header-compact .cart-btn{min-width:42px;min-height:42px}
+.site-header.header-compact .cart-btn svg{width:24px;height:24px}
 .site-header.header-compact .tg-header-txt{max-width:0;opacity:0}
 
 /* Первый экран */
@@ -1456,8 +1470,20 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .foot-note{max-width:480px;margin-top:9px;line-height:1.55}
 .footer-contacts{display:flex;align-items:flex-start;gap:20px}
 .foot-tg,.foot-contact{margin:0}
-.foot-tg .tg-link{font-size:15px}
-.foot-tg .tg-link .tg-ico{width:20px;height:20px}
+/* Связь с магазином — не голый ник строчкой, а кнопка с понятным действием:
+   «@adc_apple» само по себе не говорит, что по нему пишут, и нажимать его
+   тоже никто не догадывался. Ник остался подписью под кнопкой — по нему
+   находят магазин поиском внутри Telegram. */
+.foot-tg{display:grid;justify-items:start;gap:8px}
+.tg-cta{min-height:40px;padding:0 18px;border-radius:980px;background:var(--tg);color:#fff;font-size:14.5px;font-weight:650;letter-spacing:-.012em;
+  transition:background .16s ease,transform .12s ease,box-shadow .18s ease}
+.tg-cta:hover{background:var(--tg-dark);color:#fff;box-shadow:0 6px 18px rgba(34,158,217,.28)}
+.tg-cta:active{transform:scale(.98)}
+/* Глиф самолётика нарисован с воздухом внутри своего квадрата, поэтому рядом с
+   текстом он казался отставшим на пробел: отрицательные поля съедают ровно эту
+   пустоту, и подпись встаёт вплотную к фигуре, а не к краю холста. */
+.tg-cta .tg-ico{width:18px;height:18px;margin:0 -2px 0 -3px}
+.foot-tg-user{color:var(--muted);font-size:12.5px;letter-spacing:.005em}
 .footer-bottom{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:16px 24px;padding-top:20px;border-top:1px solid var(--border)}
 /* Знаки оплаты — строкой над копирайтом, без плашек и в цвет соседнего текста */
 .footer-pay{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;color:var(--muted)}
@@ -2144,23 +2170,27 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 /* Телефоны и небольшие планшеты */
 @media(max-width:800px){
-  html{scroll-padding-top:160px}
+  html{scroll-padding-top:150px}
   /* Поля по бокам на телефоне. Были 16px, и карточки каталога упирались в
      край экрана: сетка идёт во всю ширину, и весь её воздух — эти поля. */
   .container{padding-inline:20px}
 
-  .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;height:auto;min-height:58px;padding-top:8px;padding-bottom:10px;gap:8px}
-  .header-row .logo{margin:0;font-size:22px}
-  .header-row .tg-header{grid-column:2;min-width:42px;padding:9px}
+  /* Тот же ряд, что и на десктопе, только строка поиска уезжает под него.
+     Кнопки в первом ряду одного размера — 42 у Telegram и 46 у корзины: она
+     и здесь остаётся заметнее прочего. */
+  .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;height:auto;min-height:54px;padding-top:6px;padding-bottom:8px;gap:8px}
+  .header-row .logo{margin:0;font-size:21px}
+  .header-row .tg-header{grid-column:2;min-width:42px;min-height:42px;padding:0 9px}
   .header-row .tg-header-txt{display:none}
   .header-row .cart-btn{grid-column:3}
-  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:50px}
-  .search input{height:44px;font-size:16px}
-  .search::after{top:28px}
-  .nav-inner{padding:2px 20px 8px;gap:0}
-  .nav-cat{padding:10px 12px 9px;font-size:13px}
+  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:48px}
+  /* 16 px — единственный кегль, при котором Safari не приближает страницу на
+     фокусе (см. «Подводные камни»), поэтому поле здесь выше десктопного. */
+  .search input{height:42px;font-size:16px}
+  .nav-inner{padding:1px 20px 7px;gap:0}
+  .nav-cat{padding:9px 12px 8px;font-size:13px}
   .nav-cat.active::after{left:12px;right:12px}
-  .site-header.header-compact .header-row{height:52px;min-height:52px;padding-top:4px;padding-bottom:4px;row-gap:0}
+  .site-header.header-compact .header-row{height:50px;min-height:50px;padding-top:4px;padding-bottom:4px;row-gap:0}
   .site-header.header-compact .search{max-width:0;max-height:0}
 
   .store-hero-inner{display:block;padding-top:20px;padding-bottom:20px}
@@ -2268,11 +2298,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .foot-note{max-width:none;margin:8px auto 0;white-space:nowrap;font-size:min(14px,calc((100vw - 40px)/var(--fit,21)))}
   .footer-contacts{display:grid;justify-items:center;gap:10px;width:100%}
   .foot-contact{margin:0}
-  /* Телеграм — основной способ связи с телефона, поэтому не строчная ссылка,
-     а «таблетка»: заметная цель для пальца и ровный центр блока. */
-  .foot-tg .tg-link{padding:11px 20px;border-radius:980px;background:#fff;
-    border:1px solid var(--border-soft);font-size:16px;min-height:44px;box-sizing:border-box}
-  .foot-tg .tg-link .tg-ico{width:19px;height:19px}
+  /* Телеграм — основной способ связи с телефона, поэтому кнопка крупнее и с
+     запасом под палец, а блок собирается по центру, как весь подвал. */
+  .foot-tg{justify-items:center;gap:7px}
+  .tg-cta{min-height:46px;padding:0 24px;font-size:15px}
+  .tg-cta .tg-ico{width:19px;height:19px}
   /* Одна колонка: без сброса сетка осталась бы двухколоночной, как на десктопе,
      и копирайт по центру уезжал бы за левый край экрана */
   .footer-bottom{grid-column:auto;display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;gap:12px;width:100%;padding-top:18px}

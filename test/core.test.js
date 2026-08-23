@@ -1206,6 +1206,43 @@ test('шапка сворачивается при прокрутке, а Telegr
   assert.match(js, /initCompactHeader\(\);/);
   assert.match(js, /var headerFieldFocused/);
   assert.doesNotMatch(js, /header\.contains\(document\.activeElement\)/);
+
+  // Высоты в шапке связаны: поле поиска и кнопка Telegram одного роста, корзина
+  // заметно крупнее — её ищут глазами на каждой странице. Числа порознь
+  // разъезжаются молча, увидеть это можно только глазами.
+  const num = (rule, prop) => Number((css.match(new RegExp('\\' + rule + '\\{[^}]*' + prop + ':(\\d+)px'))
+    || [])[1]);
+  const searchH = num('.search input', 'height');
+  const tgH = num('.tg-header', 'min-height');
+  const cartH = num('.cart-btn', 'min-height');
+  assert.equal(searchH, tgH, 'поле поиска и кнопка Telegram обязаны быть одного роста');
+  assert.ok(cartH > tgH, 'корзина должна оставаться крупнее остальных кнопок шапки');
+  assert.ok(num('.header-row', 'height') >= cartH + 8, 'ряд шапки ужат так, что корзине не хватает полей');
+
+  // У подписи «Telegram» есть выносная «g», а ширина строки анимируется, то есть
+  // overflow:hidden снять нельзя — значит строке обязана быть задана своя высота,
+  // иначе хвост буквы срезается ровно по кеглю.
+  // Берём то правило подписи, где задан overflow, а не свёрнутое состояние
+  // (`.header-compact .tg-header-txt{max-width:0}` совпадает с тем же куском).
+  const txt = (css.match(/\.tg-header-txt\{[^}]*\}/g) || []).find(r => r.includes('overflow')) || '';
+  assert.match(txt, /overflow:hidden/);
+  assert.match(txt, /line-height:1\.[1-9]/, 'подпись кнопки Telegram снова режет выносные буквы');
+});
+
+test('в подвале Telegram — кнопка с действием, а ник её подписью', () => {
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple' }, fakeDb, {});
+  // Голый ник не говорит, что по нему пишут, и нажимать его никто не догадывался.
+  assert.match(html, /<a class="tg-cta" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Написать в Telegram<\/span><\/a>/);
+  assert.match(html, /<span class="foot-tg-user">@adc_apple<\/span>/);
+  assert.doesNotMatch(html, /class="tg-link"/);
+  // Без Telegram в настройках блока нет вовсе — пустая кнопка в подвале не нужна.
+  assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /tg-cta/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Глиф самолётика нарисован с воздухом внутри холста, поэтому рядом с текстом
+  // он казался отставшим на пробел: пустоту съедают отрицательные поля.
+  assert.match(css, /\.tg-cta \.tg-ico\{[^}]*margin:0 -\d+px 0 -\d+px/);
 });
 
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
