@@ -461,7 +461,6 @@ body.admin{background:var(--bg2)}
 .a-grip{color:#c0c0c6;cursor:grab;padding:2px}
 .a-grip svg{width:16px;height:16px}
 .a-table-sortable tr:hover .a-grip{color:var(--muted)}
-.a-grip-inline{line-height:0;vertical-align:-3px;cursor:default}
 .a-order-num{min-width:22px;justify-content:center;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums;line-height:1.2}
 .a-order-btns{flex-direction:column;gap:2px;margin-left:2px}
 .a-move{width:24px;height:17px;padding:0;border:1px solid var(--border);border-radius:6px;background:#fff;
@@ -2682,16 +2681,58 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
   /* Отзывы: кнопки уходят под строку и делят ширину поровну — колонкой справа
      они забирали бы половину узкого экрана у самого отзыва. */
-  /* Рамка в рамке. У строки отзыва своя рамка со скруглением, и панель вокруг
-     добавляла вторую плюс 16 px полей с каждой стороны — из 390 px экрана
-     отзыву оставалось 326. На телефоне панель исчезает, а строки становятся
-     карточками сами по себе; на десктопе рамка остаётся, там ширины хватает. */
-  .a-panel.rv-panel{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
-  .rv-panel .a-pager,.rv-panel .a-pager-info{margin-top:12px}
+  /* Рамка в рамке. У строки списка (отзыва, товара) своя рамка со скруглением,
+     и панель вокруг добавляла вторую плюс 16 px полей с каждой стороны — из
+     390 px экрана строке оставалось 326. На телефоне панель исчезает, а строки
+     становятся карточками сами по себе; на десктопе рамка остаётся, там ширины
+     хватает. Правило одно на все такие списки — порознь они разъехались бы. */
+  .a-panel.a-panel-list{padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+  .a-panel-list .a-pager,.a-panel-list .a-pager-info{margin-top:12px}
   /* Карточка товара над лентой: те же поля, что у строк отзывов под ней. */
   .a-panel.rv-prod-head{gap:11px;padding:13px}
   .rv-prod-head .rv-prod-pic img,.rv-prod-head .rv-prod-pic svg{width:46px;height:46px}
   .rv-prod-info b{font-size:15px}
+  /* ===== Каталог на телефоне — карточки, а не таблица в шесть столбцов =====
+     Ряд с порядком, снимком, названием, ценой, плашками и тремя кнопками в
+     390 px не встаёт никак: панель уезжала вбок, и за краем экрана оставались
+     ровно те столбцы, ради которых список открывают, — «скрыт», скидка и
+     кнопки. Раскладка та же, что у заказов; рамку панели снимает общее правило
+     `.a-panel-list` выше. */
+  .a-table.a-table-sortable{min-width:0;display:block}
+  .a-table-sortable thead{display:none}
+  .a-table-sortable tbody,.a-table-sortable tr,.a-table-sortable td{display:block}
+  .a-table-sortable tr{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;
+    gap:5px 10px;align-items:center;padding:10px 12px;margin-bottom:9px;
+    border:1px solid var(--border-soft);border-radius:15px;background:#fff}
+  .a-table-sortable td{border:0;padding:0;font-size:13px;line-height:1.35}
+  /* Порядок и снимок стоят слева и держат обе строки текста рядом с собой. */
+  .a-order{grid-column:1;grid-row:1/3;width:auto;display:flex;align-items:center;gap:4px;line-height:1.2}
+  /* Ручка перетаскивания на телефоне не работает вовсе: это обычный HTML5 drag,
+     а стрелки здесь — единственный способ подвинуть строку. Оставлять на экране
+     кнопку, которая ничего не делает, незачем. */
+  .a-order .a-grip{display:none}
+  .a-order-num{min-width:16px;font-size:12px}
+  .a-order-btns{margin-left:0}
+  .a-move{width:26px;height:20px}
+  .a-thumb{grid-column:2;grid-row:1/3;width:auto;line-height:0}
+  .a-thumb img,.a-thumb svg{width:44px;height:44px}
+  .a-pname{grid-column:3/-1;grid-row:1;min-width:0}
+  .a-pname b{font-size:14px}
+  .a-pname .muted{font-size:11.5px}
+  .a-price{grid-column:3;grid-row:2;font-size:14px;font-weight:640;font-variant-numeric:tabular-nums}
+  .a-marks{grid-column:4;grid-row:2;justify-self:end;text-align:right;white-space:nowrap;font-size:12px}
+  /* Плашки в строке таблицы крупные (14px, поля 9/14) — в карточке это подпись
+     сбоку от цены, а не кнопка. */
+  .a-marks .pill{padding:2px 7px;font-size:11px;border-radius:7px}
+  /* Кнопки — своей строкой во всю ширину, поровну. Столбцом справа они забирали
+     бы половину карточки у названия. */
+  .a-table-sortable .a-actions{grid-column:1/-1;grid-row:3;display:flex;gap:7px;
+    margin-top:4px;padding-top:9px;border-top:1px solid var(--border-soft);
+    white-space:normal;line-height:normal}
+  .a-table-sortable .a-actions>*{flex:1 1 0;min-width:0;margin:0}
+  .a-table-sortable .a-actions .btn{width:100%;min-width:0;justify-content:center;padding-inline:8px}
+  .a-table-sortable td:empty{display:none}
+
   .rv-row{grid-template-columns:minmax(0,1fr)}
   .rv-where{margin-left:0}
   .rv-acts{order:3;flex-direction:row;flex-wrap:wrap;margin-top:9px;padding-top:10px;border-top:1px solid var(--border-soft)}

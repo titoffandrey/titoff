@@ -1894,6 +1894,29 @@ test('главная показывает товары в порядке кат�
   assert.match(list, /class="a-move a-move-up" aria-label="Переместить «Второй» выше" disabled/);
   assert.match(list, /class="a-move a-move-down" aria-label="Переместить «Первый» ниже" disabled/);
   assert.match(list, /product-order\.js/);
+
+  /* Подсказок в списке нет ни одной. Абзац про порядок строк объяснял то, что
+     видно самими элементами (ручка, номер и стрелки стоят в каждой строке), а
+     «базовая цена» повторяла заголовок столбца у каждого из полусотни товаров.
+     Читают их один раз, видят — при каждом заходе в каталог. */
+  assert.doesNotMatch(list, /Порядок строк/);
+  assert.doesNotMatch(list, /базовая цена/);
+  assert.doesNotMatch(list, /a-grip-inline/);
+
+  /* Ячейки названы, потому что на телефоне строка становится карточкой и
+     раскладку задаёт сетка: безымянные <td> ей не адресовать. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  for (const cls of ['a-pname', 'a-price', 'a-marks']) assert.match(list, new RegExp(`<td class="${cls}"`));
+  assert.match(list, /<div class="a-panel a-panel-list">/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.a-table\.a-table-sortable\{min-width:0;display:block\}/);
+  assert.match(mobile, /\.a-table-sortable tr\{display:grid/);
+  // Ручка перетаскивания на телефоне не работает вовсе (обычный HTML5 drag), и
+  // кнопке, которая ничего не делает, на экране не место — двигают стрелками.
+  assert.match(mobile, /\.a-order \.a-grip\{display:none\}/);
+  // Рамку панели снимает ОДНО правило на все такие списки: порознь каталог и
+  // лента отзывов разъехались бы молча.
+  assert.equal((mobile.match(/\.a-panel\.a-panel-list\{padding:0/g) || []).length, 1);
   // Скрипт шлёт весь список целиком — сервер принимает только перестановку
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'product-order.js'), 'utf8');
   assert.match(js, /'\/admin\/products\/order'/);
