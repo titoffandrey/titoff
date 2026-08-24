@@ -1412,7 +1412,10 @@ test('на телефоне слоган стоит в одну строку, а
   assert.match(html, /<h1 style="--fit:[\d.]+">/);
   assert.match(html, /class="foot-note" style="--fit:[\d.]+"/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
-  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(25px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
+  // Потолок кегля — свободная величина оформления, его двигают. Закрепляем то,
+  // от чего зависит правильность: перенос запрещён, а второй аргумент min()
+  // считает кегль от ширины экрана и серверной оценки длины строки.
+  assert.match(mobile, /\.store-hero h1\{white-space:nowrap;font-size:min\(\d+px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
   assert.match(mobile, /\.foot-note\{[^}]*white-space:nowrap;font-size:min\(14px,calc\(\(100vw - 40px\)\/var\(--fit,\d+\)\)\)/);
 
   // Оценка обязана быть не меньше ширины, замеренной в браузере (em при кегле
@@ -1423,6 +1426,44 @@ test('на телефоне слоган стоит в одну строку, а
   assert.ok(Number(render.footFit(tagline)) >= 19.979, 'подвал: оценка меньше замера');
   // Длинный слоган обязан давать большую оценку, иначе кегль не уменьшится
   assert.ok(Number(render.footFit(tagline + ' и быстрой доставкой')) > Number(render.footFit(tagline)));
+});
+
+test('на телефоне поиск открывается лупой, а на десктопе остаётся строкой', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽' };
+  const html = render.homePage(settings, fakeDb, {});
+
+  // Переключатель обязан стоять ПЕРЕД формой: поле открывается селектором
+  // соседа (~), и перестановка в разметке молча оставила бы лупу без действия.
+  const sw = html.indexOf('id="search-open"');
+  const form = html.indexOf('<form class="search"');
+  assert.ok(sw > -1 && form > -1 && sw < form, 'чекбокс поиска должен идти перед формой');
+  assert.match(html, /<label class="icon-btn search-toggle" for="search-open"/);
+
+  // С непустым запросом поле открыто: иначе строка с набранным закрывалась бы
+  // сразу после поиска, и покупатель не видел бы, что именно он искал.
+  assert.doesNotMatch(html, /id="search-open"[^>]*checked/);
+  assert.match(render.homePage(settings, fakeDb, { q: 'айфон' }), /id="search-open"[^>]*checked/);
+
+  // На десктопе лупы нет вовсе — там поле видно всегда.
+  assert.match(css, /\.search-toggle\{display:none\}/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.header-row \.search-toggle\{display:inline-flex/);
+  assert.match(mobile, /\.search\{[^}]*max-height:0\}/);
+  assert.match(mobile, /\.search-switch:checked~\.search\{max-height:\d+px/);
+
+  // Чекбокс спрятан визуально, а не hidden: иначе он выпадает из потока фокуса
+  // и лупу нельзя ни навести с клавиатуры, ни увидеть на ней рамку.
+  assert.doesNotMatch(html, /id="search-open"[^>]*\shidden/);
+  assert.match(css, /\.search-switch\{position:absolute[^}]*clip-path:inset\(50%\)/);
+
+  // Разметку рисует сервер, скрипту остаётся только фокус: своя вставка поля в
+  // app.js разъехалась бы с серверной на первой правке шапки.
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const fn = app.slice(app.indexOf('function initSearchToggle'), app.indexOf('function initMediaGuard'));
+  assert.ok(fn.length > 0, 'initSearchToggle должна существовать');
+  assert.doesNotMatch(fn, /innerHTML|createElement|insertAdjacent/);
 });
 
 test('правовые ссылки в подвале тоже помещаются в строку', () => {

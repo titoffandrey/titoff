@@ -1105,6 +1105,16 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .search::after{content:"";position:absolute;left:25px;top:calc(50% + 6px);width:6px;height:1.7px;border-radius:2px;background:#8e8e93;transform:rotate(45deg);pointer-events:none}
 .search input{height:38px;padding:8px 14px 8px 38px;border-color:transparent;background:#f1f1f4;font-size:14px;transition:background .18s,border-color .18s,box-shadow .18s}
 .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,110,115,.12)}
+/* Лупа-переключатель поля поиска. На десктопе её нет вовсе: место под строку
+   там есть, и прятать поиск за нажатием значило бы отнимать шаг. Появляется она
+   только ниже 800px (см. медиазапрос), а здесь снимается с раскладки.
+   Устройство — скрытый чекбокс и подпись-кнопка, тот же приём, что у режима
+   правки списка заказов: ни строчки скрипта, поэтому поиск открывается и там,
+   где скрипты витрины не загрузились. Чекбокс спрятан ВИЗУАЛЬНО, а не hidden:
+   так он остаётся в потоке фокуса и кнопка получает рамку с клавиатуры. */
+.search-switch{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.search-toggle{display:none}
+.search-switch:focus-visible+.search-toggle{outline:2px solid var(--accent);outline-offset:2px}
 /* Корзина — единственная кнопка, которую ищут глазами на каждой странице,
    поэтому она крупнее прочих значков и глиф в ней тоже больше. */
 .cart-btn{min-width:46px;min-height:46px;border:1px solid transparent;border-radius:14px}
@@ -1147,12 +1157,16 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Верх строки шрифт держит на 0.2em выше прописных, а выносные («р», «у») почти
    достают её низ. При равных отступах контейнера это читается как «слоган
    прижат к бегущей строке»: сверху пусто, снизу впритык. Отрицательный
-   margin-top снимает ровно эту разницу, и он в em — значит, работает на всех
-   размерах заголовка, а не только на десктопном. */
+   margin-top снимает эту разницу, и он в em — значит, работает на всех размерах
+   заголовка, а не только на десктопном.
+   Снимает ПОЛОВИНУ, а не всю: полные 0.2em переносили перекос на другую сторону
+   (сверху ровно отступ, снизу отступ плюс те же 0.2em) — на 25 px это 5 px, и
+   строка заметно сидела выше середины своей полосы. Половина разводит остаток
+   поровну: по 0.1em сверху и снизу. */
 /* Кегль и вес слогана ужаты намеренно: это подпись под названием магазина, а не
    заголовок страницы. В 34 px полужирным он спорил с самим брендом в шапке и
    забирал первый экран у товаров. Вес задан явно — общее правило h1 даёт 650. */
-.store-hero h1{margin:-.2em 0 0;font-family:var(--brand-font);font-size:clamp(23px,2.3vw,29px);font-weight:560;line-height:1.16;letter-spacing:-.034em;color:var(--muted)}
+.store-hero h1{margin:-.1em 0 0;font-family:var(--brand-font);font-size:clamp(23px,2.3vw,29px);font-weight:560;line-height:1.16;letter-spacing:-.034em;color:var(--muted)}
 /* Яблоко — часть строки: inline и размер в em, как у буквы. Сидит не на базовой
    линии, а по центру прописных: у логотипа нет ни выносных элементов, ни
    плоского низа, поэтому «на базовой линии» читается как приклеенное к строке. */
@@ -2270,12 +2284,22 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   /* Тот же ряд, что и на десктопе, только строка поиска уезжает под него.
      Кнопки в первом ряду одного размера — 42 у Telegram и 46 у корзины: она
      и здесь остаётся заметнее прочего. */
-  .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;height:auto;min-height:54px;padding-top:6px;padding-bottom:8px;gap:8px}
+  /* Четвёртая колонка — под лупу. Зазор только по горизонтали: строка поиска
+     стоит во втором ряду и по умолчанию свёрнута, а row-gap держал бы под ней
+     8px пустоты даже при нулевой высоте. */
+  .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;height:auto;min-height:54px;padding-top:6px;padding-bottom:8px;column-gap:8px;row-gap:0}
   .header-row .logo{margin:0;font-size:21px}
-  .header-row .tg-header{grid-column:2;min-width:42px;min-height:42px;padding:0 9px}
+  .header-row .search-toggle{display:inline-flex;grid-column:2;min-width:42px;min-height:42px}
+  .header-row .tg-header{grid-column:3;min-width:42px;min-height:42px;padding:0 9px}
   .header-row .tg-header-txt{display:none}
-  .header-row .cart-btn{grid-column:3}
-  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:48px}
+  .header-row .cart-btn{grid-column:4}
+  /* Поле поиска на телефоне занимало отдельную строку под шапкой — 50px
+     постоянно на виду ради того, чем пользуются раз в несколько заходов, а
+     липкая шапка стоит перед глазами всё время. Теперь вместо него лупа в ряду
+     значков, а поле выезжает по нажатию. С непустым запросом сервер ставит
+     чекбоксу checked — иначе после поиска строка с набранным закрылась бы. */
+  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:0}
+  .search-switch:checked~.search{max-height:52px;margin-top:8px}
   /* 16 px — единственный кегль, при котором Safari не приближает страницу на
      фокусе (см. «Подводные камни»), поэтому поле здесь выше десктопного. */
   .search input{height:42px;font-size:16px}
@@ -2285,13 +2309,15 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .site-header.header-compact .header-row{height:50px;min-height:50px;padding-top:4px;padding-bottom:4px;row-gap:0}
   .site-header.header-compact .search{max-width:0;max-height:0}
 
-  .store-hero-inner{display:block;padding-top:20px;padding-bottom:20px}
+  /* 20px сверху и снизу вокруг ОДНОЙ строки — почти по её собственной высоте:
+     на первом экране телефона слоган выглядел висящим в пустой полосе. */
+  .store-hero-inner{display:block;padding-top:12px;padding-bottom:12px}
   /* Слоган — одна строка вместе с яблоком: перенос делил короткую фразу пополам
      и оставлял на второй строке один-два слова. Кегль подбирается под ширину
      экрана, а не задаётся числом: слоган пишет владелец. --fit — длина строки
      в em, её считает heroFit() в lib/render.js; 32px — поля контейнера.
      Длинный слоган из-за этого ужимается сильнее — это цена одной строки. */
-  .store-hero h1{white-space:nowrap;font-size:min(25px,calc((100vw - 40px)/var(--fit,21)));line-height:1.2}
+  .store-hero h1{white-space:nowrap;font-size:min(27px,calc((100vw - 40px)/var(--fit,21)));line-height:1.2}
   /* На телефоне лента идёт быстрее: экран уже, иначе подписи будто стоят */
   .hero-ticker{padding:5px 0 6px;
     -webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent);
@@ -2631,9 +2657,9 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .container{padding-inline:16px}
   .header-row{padding-inline:16px}
   .nav-inner{padding-inline:16px}
-  .store-hero-inner{padding:17px 16px}
+  .store-hero-inner{padding:11px 16px}
   /* Поля контейнера здесь 16px, поэтому строке достаётся на 32px меньше */
-  .store-hero h1{font-size:min(21px,calc((100vw - 32px)/var(--fit,21)))}
+  .store-hero h1{font-size:min(23px,calc((100vw - 32px)/var(--fit,21)))}
   .section-head{align-items:flex-end}
   .section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}

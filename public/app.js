@@ -1553,6 +1553,25 @@
     }, { rootMargin: '100px' }).observe(ticker);
   }
 
+  /* Лупа в шапке открывает строку поиска сама по себе — это скрытый чекбокс и
+     подпись-кнопка, без единой строчки скрипта. Скрипту остаётся то, чего CSS
+     не умеет: поставить курсор в поле, иначе после нажатия лупы приходится
+     целиться в поле вторым касанием, и Esc — закрыть открытое поле, не уводя
+     руку к лупе. Ничего не нашлось (десктоп, старая разметка) — молча выходим. */
+  function initSearchToggle() {
+    var sw = document.getElementById('search-open');
+    var input = document.querySelector('.search input');
+    if (!sw || !input) return;
+    sw.addEventListener('change', function () {
+      // Поле выезжает с переходом: фокус до конца анимации Safari отматывает
+      // страницу к ещё нулевой высоте поля, поэтому ждём кадр.
+      if (sw.checked) requestAnimationFrame(function () { input.focus(); });
+    });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && sw.checked) { sw.checked = false; input.blur(); }
+    });
+  }
+
   /* Медиа не отдаём «в один клик»: ни перетаскиванием, ни правой кнопкой, ни
      кнопкой скачивания в плеере. Полностью закрыть картинку от сохранения
      нельзя — она всё равно приходит в браузер, — но случайное «сохранить как»
@@ -1602,6 +1621,7 @@
     initCompactHeader();
     initHeroTicker();
     initMediaGuard();
+    initSearchToggle();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
