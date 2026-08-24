@@ -7191,6 +7191,51 @@ test('в ленте товара отзывы отбираются по влож
   assert.equal(/class="a-sorts a-media"/.test(queue), false);
 });
 
+test('на телефоне сортировка и вложения прячутся под кнопку, на десктопе стоят открыто', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const reviews = [{ id: 'a1', productId: 'p', status: 'approved', rating: 5, author: 'А', createdAt: 1, photos: [], videos: [] }];
+  const db = {
+    getReviews: () => reviews, reviewsForProduct: () => reviews,
+    getProducts: () => [{ id: 'p', name: 'Товар' }], ratingFor: () => ({ avg: 5, count: 1 }),
+    reviewStats: () => new Map(), pendingReviewCount: () => 0
+  };
+  const feed = (sort, media) => adminViews.productReviews(SETTINGS, db, { id: 'p', name: 'Товар' }, 'all', null, 1, sort, media);
+  const html = feed('new', 'all');
+
+  // Переключатель обязан стоять ПЕРЕД рядами: они открываются селектором соседа
+  // (~), и перестановка в разметке молча оставила бы кнопку без действия.
+  const sw = html.indexOf('id="a-filters-open"');
+  const box = html.indexOf('<div class="a-filters">');
+  assert.ok(sw > -1 && box > -1 && sw < box, 'чекбокс фильтров должен идти перед рядами');
+  assert.match(html, /<label class="a-filters-btn" for="a-filters-open">/);
+
+  // Свёрнутая кнопка называет выбранное, иначе порядок ленты пришлось бы
+  // раскрывать. Подписи берутся из тех же таблиц, что и сами кнопки.
+  assert.match(html, /<span class="a-filters-now">Новые · Все<\/span>/);
+  assert.match(feed('low', 'video'), /<span class="a-filters-now">Низкая оценка · С видео<\/span>/);
+
+  // Вкладки состояния остаются на виду всегда: «что показываем» — первый вопрос
+  // к списку, и прятать его за нажатием нельзя.
+  assert.ok(html.indexOf('class="a-tabs"') < sw, 'вкладки идут до кнопки фильтров');
+
+  // id не из пространства строк отзыва (`rv-<id>`): туда смотрит и живое
+  // обновление панели, и разбор списка в тестах.
+  assert.doesNotMatch(html, /id="rv-filters"/);
+
+  // На десктопе обёртка исчезает из раскладки, оба ряда — прямые участники
+  // flex-шапки, а кнопки нет вовсе.
+  assert.match(css, /\.a-filters\{display:contents\}/);
+  assert.match(css, /\.a-filters-switch,\.a-filters-btn\{display:none\}/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  assert.match(mobile, /\.a-filters\{display:none\}/);
+  assert.match(mobile, /\.a-filters-switch:checked~\.a-filters\{display:block/);
+
+  // Кнопки раздела в шапке — своей обёрткой: без неё их нечем отправить на
+  // вторую строку, и заголовок сжимался до одной буквы.
+  assert.match(html, /<div class="a-topbar-acts">/);
+  assert.match(mobile, /\.a-topbar-acts\{flex:1 0 100%/);
+});
+
 test('ролики стоят через один на первых трёх страницах и на последней', () => {
   const dates = require('../lib/review-dates');
   const per = render.REVIEWS_PER_PAGE;
