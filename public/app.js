@@ -1296,7 +1296,14 @@
     has: function (id) { return this.items.some(function (i) { return i.id === id; }); },
     updateBadge: function () {
       var b = document.getElementById('cart-badge');
-      if (b) { var c = this.count(); b.textContent = c; b.hidden = c === 0; }
+      var c = this.count();
+      if (b) { b.textContent = c; b.hidden = c === 0; }
+      // Число видно на кнопке, но от скринридера счётчик закрыт (aria-hidden в
+      // разметке), поэтому оно уезжает прямо в имя кнопки: «Корзина» с цифрой
+      // рядом и «Корзина» на слух — это разные вещи, и Lighthouse считает такое
+      // расхождение ошибкой.
+      var trigger = document.querySelector('.cart-btn');
+      if (trigger) trigger.setAttribute('aria-label', c ? 'Корзина, ' + c + ' ' + plural(c, 'товар', 'товара', 'товаров') : 'Корзина');
       syncCartButtons();
     },
     open: function () {
@@ -1304,7 +1311,7 @@
       lastCartFocus = document.activeElement;
       document.body.classList.add('cart-open');
       var drawer = document.getElementById('cart-drawer');
-      if (drawer) drawer.setAttribute('aria-hidden', 'false');
+      if (drawer) { drawer.setAttribute('aria-hidden', 'false'); drawer.removeAttribute('inert'); }
       var trigger = document.querySelector('.cart-btn');
       if (trigger) trigger.setAttribute('aria-expanded', 'true');
       var close = drawer && drawer.querySelector('.cart-head .icon-btn');
@@ -1313,7 +1320,7 @@
     close: function () {
       document.body.classList.remove('cart-open');
       var drawer = document.getElementById('cart-drawer');
-      if (drawer) drawer.setAttribute('aria-hidden', 'true');
+      if (drawer) { drawer.setAttribute('aria-hidden', 'true'); drawer.setAttribute('inert', ''); }
       var trigger = document.querySelector('.cart-btn');
       if (trigger) trigger.setAttribute('aria-expanded', 'false');
       if (lastCartFocus && typeof lastCartFocus.focus === 'function') lastCartFocus.focus();

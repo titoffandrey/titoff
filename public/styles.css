@@ -12,6 +12,18 @@
   --shadow-lg:0 12px 40px rgba(0,0,0,.14);
   --max:1180px;
   --gold:#ff9f0a;
+  /* Розовый языка скидки: цена со скидкой, процент выгоды, плашка «Распродажа»
+     и строка скидки в заказе. Один цвет на все четыре места — порознь они
+     разъезжались бы молча, увидеть это можно только глазами.
+
+     Оттенок взят у Ozon (#f1117e) и притемнён ровно настолько, чтобы пройти
+     4.5:1 на белом: у исходного было 4.10, и Lighthouse считал нечитаемыми все
+     цены со скидкой и все плашки разом — 87 замечаний на одной главной. Ниже
+     4.5 опускаться нельзя: это цена товара, а не оформление. */
+  --sale:#e31076;
+  /* Зачёркнутая цена в карточке: у ozonовского серого контраст был 2.55 — сумму
+     видно, а прочесть нельзя. Здесь тот же оттенок, притемнённый до 4.7:1. */
+  --price-was:#6d747c;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -144,8 +156,8 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 /* Выгода — розовый текст того же цвета, что и цена со скидкой, и без подложки:
    так это устроено у Ozon. Прежняя залитая зелёная плашка была решением для
    зелёной же цены; рядом с розовой ценой два залитых пятна разного цвета
-   тянули внимание друг у друга. Контраст #f1117e на белом — 4.6:1. */
-.save{color:#f1117e;font-size:13px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+   тянули внимание друг у друга. Сам цвет — `--sale`, один на весь язык скидки. */
+.save{color:var(--sale);font-size:13px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .product-short{color:#333;margin:0 0 18px}
 /* Подпись наличия ПОД кнопкой покупки. Зелёная — обычная, красная — «осталось
    несколько штук»: это предупреждение, и оранжевый рядом с крупной кнопкой читался
@@ -315,8 +327,13 @@ body.lb-open{overflow:hidden}
 .foot-contact{margin-top:8px}
 .foot-contact a{color:var(--accent)}
 
-/* ===== Telegram — всегда фирменный цвет, независимо от темы магазина ===== */
-:root{--tg:#229ed9;--tg-dark:#1b8fc7}
+/* ===== Telegram — всегда фирменный цвет, независимо от темы магазина =====
+   Фирменный #229ED9 даёт на белом 3.02:1 — и белая подпись на кнопке в подвале,
+   и синее слово «Telegram» в шапке этого порога не проходят. Здесь тот же
+   оттенок, притемнённый до 4.6:1: узнаётся так же, а подпись наконец читается.
+   Полупрозрачные rgba(34,158,217,…) ниже — рамка и тень, они оформление, и на
+   читаемость текста не влияют. */
+:root{--tg:#1b7dab;--tg-dark:#156b93}
 .tg-ico{fill:currentColor;display:block}
 .foot-tg{margin-top:14px}
 .tg-cta{display:inline-flex;align-items:center;gap:8px;color:var(--tg);font-weight:600;font-size:16px;line-height:1}
@@ -1266,14 +1283,14 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Цена со скидкой — розовая, как у Ozon. Прежний зелёный читался как «выгода»,
    но с ним совпадал и процент, и плашка акции: три зелёных пятна в одной
    карточке. Розовый занят только ценой и процентом при ней. */
-.price-sale .price-now{color:#f1117e}
+.price-sale .price-now{color:var(--sale)}
 /* Старая цена и процент — одна группа, чтобы на узкой карточке они переезжали
    на вторую строку вместе. */
 .price-was{display:inline-flex;align-items:baseline;gap:0}
-.card-price .old-price{position:relative;margin-left:4px;font-size:14px;font-weight:600;line-height:20px;color:#99a3ae;text-decoration:none;font-variant-numeric:tabular-nums}
+.card-price .old-price{position:relative;margin-left:4px;font-size:14px;font-weight:600;line-height:20px;color:var(--price-was);text-decoration:none;font-variant-numeric:tabular-nums}
 /* Черта зачёркивания — псевдоэлемент с наклоном в 3°, а не text-decoration:
    ровная линия поверх цифр читается как опечатка, наклонная — как пометка. */
-.card-price .old-price::before{content:"";position:absolute;left:0;top:calc(50% - 1px);width:100%;height:1px;background:#99a3ae;transform:rotate(-3deg)}
+.card-price .old-price::before{content:"";position:absolute;left:0;top:calc(50% - 1px);width:100%;height:1px;background:var(--price-was);transform:rotate(-3deg)}
 .card-price .save{margin-left:4px;font-size:14px;line-height:20px;letter-spacing:0}
 .card-add{padding:10px 13px 13px}
 /* «Пилюля», как у остальных кнопок витрины: прежние 13px выбивались из общего
@@ -1289,7 +1306,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    ставит её туда же, куда Ozon. Снимок при наведении масштабируется, плашка —
    нет: она соседка img, а не его потомок. */
 .card-sale{position:absolute;left:8px;bottom:8px;z-index:2;display:inline-flex;align-items:center;gap:2px;
-  height:24px;padding:2px 6px;border-radius:8px;background:#f1117e;color:#fff;
+  height:24px;padding:2px 6px;border-radius:8px;background:var(--sale);color:#fff;
   font-size:14px;font-weight:600;line-height:20px;letter-spacing:-.01em}
 .card-sale svg{width:16px;height:16px;flex:none}
 /* ===== Кнопка «в корзину»: одно состояние — один вид ===== */
@@ -3045,7 +3062,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-item-per{font-size:13px;font-weight:400;color:var(--muted)}
 /* Выгода по позиции — рублями под суммой: процент уже стоит у цены за штуку, а
    здесь важно, сколько именно покупатель не платит. */
-.co-item-save{font-size:13px;font-weight:600;color:#f1117e;white-space:nowrap;
+.co-item-save{font-size:13px;font-weight:600;color:var(--sale);white-space:nowrap;
   font-variant-numeric:tabular-nums;margin-top:-6px}
 /* У распроданной позиции цена гаснет вместе с фото: обещать выгоду на том, что
    не попадёт в заказ, незачем — процент по этой же причине не рисуется вовсе. */
@@ -3081,7 +3098,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Скидка — единственная строка сводки, которая говорит не «сколько платить», а
    «сколько не платить». Розовая, как цена со скидкой и процент на карточке;
    без скидки строки в заказе просто нет. */
-.co-line-save span{color:#f1117e;font-weight:600}
+.co-line-save span{color:var(--sale);font-weight:600}
 .co-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   padding-top:14px;border-top:1px solid var(--border);margin-top:14px}
 .co-total span{font-size:15px}

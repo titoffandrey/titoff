@@ -376,7 +376,14 @@ function originOf(req) {
   return proto + '://' + host;
 }
 // Оптимизировать загруженные фото: WebP + очистка метаданных.
-const optimizeUploads = (files, maxSize, opts) => IMG.optimizeMany(db.UPLOAD_DIR, persistUploads(files), maxSize, opts);
+// У фото ТОВАРА (`square`) рядом сразу делаются уменьшённые копии для карточки
+// каталога: без них витрина отдаёт в квадратик 169–276 px кадр 1200×1200.
+// Копия необязательна — нет ImageMagick, и карточка показывает исходник.
+async function optimizeUploads(files, maxSize, opts) {
+  const up = await IMG.optimizeMany(db.UPLOAD_DIR, persistUploads(files), maxSize, opts);
+  if (opts && opts.square) for (const f of up) await IMG.makeCards(db.UPLOAD_DIR, f);
+  return up;
+}
 // Логотип магазина: удалить старый (если попросили), загрузить/оптимизировать
 // новый, иначе оставить как было.
 async function resolveLogo(req, current) {

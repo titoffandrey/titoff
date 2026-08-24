@@ -602,6 +602,69 @@ test('статика корректно разделяет identity и сжат�
   assert.equal(cached.headers['content-encoding'], 'br');
 });
 
+test('загруженный файл кэшируется навсегда, а обычная статика — нет', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-upload-cache-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'photo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const app = new App({ secret: 'test' });
+  app.static('/uploads', dir);
+  app.static('/static', dir);
+
+  // Имя загруженного файла случайное и другому содержимому уже не достанется,
+  // поэтому неделя кэша означала лишь то, что постоянный покупатель раз в
+  // неделю заново качает весь каталог снимков.
+  const upload = response();
+  await app.handle(request('/uploads/photo.svg'), upload);
+  assert.equal(upload.headers['cache-control'], 'public, max-age=31536000, immutable');
+
+  // Файл из public/ без метки версии так помечать нельзя: он правится на месте.
+  const asset = response();
+  await app.handle(request('/static/photo.svg'), asset);
+  assert.equal(asset.headers['cache-control'], 'public, max-age=604800');
+});
+
+test('карточка каталога берёт уменьшенную копию снимка, а без неё — исходник', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-card-photos-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const product = {
+    id: 'iphone', name: 'iPhone 17', category: 'iPhone', price: 90000,
+    images: ['abc.webp'], inStock: true
+  };
+  const db = {
+    UPLOAD_DIR: dir,
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['iPhone'], visibleCategories: () => ['iPhone'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const settings = { storeName: 'iStore', currency: '₽' };
+
+  // Копий рядом нет — карточка показывает исходник, ровно как до всего этого.
+  fs.writeFileSync(path.join(dir, 'abc.webp'), 'x');
+  const plain = render.homePage(settings, db, {});
+  assert.match(plain, /src="\/uploads\/abc\.webp"/);
+  assert.doesNotMatch(plain, /srcset=/, 'srcset обещает копии, которых нет на диске');
+
+  // Копии появились — карточка отдаёт их, и по умолчанию берёт 640.
+  for (const size of images.CARD_SIZES) fs.writeFileSync(path.join(dir, images.cardName('abc.webp', size)), 'x');
+  const small = render.homePage(settings, db, {});
+  assert.match(small, /src="\/uploads\/abc-c640\.webp"/);
+  assert.match(small, /srcset="\/uploads\/abc-c320\.webp 320w, \/uploads\/abc-c640\.webp 640w"/);
+  assert.doesNotMatch(small, /\/uploads\/abc\.webp/, 'полноразмерный снимок остался в карточке');
+
+  // Без sizes браузер берёт из srcset самый крупный вариант, и вся экономия
+  // пропадает: разметка обязана назвать ширину снимка в раскладке.
+  assert.match(small, /sizes="\(min-width:1248px\) 276px[^"]*46vw"/);
+
+  // Страница товара остаётся на полном снимке: там кадр и правда крупный.
+  const page = render.productPage(settings, db, product, {});
+  assert.match(page, /src="\/uploads\/abc\.webp"/);
+
+  // Имена производных считаются от исходника, а копия копии не делается.
+  assert.deepEqual(images.derivedNames('abc.webp'), ['abc-c320.webp', 'abc-c640.webp']);
+  assert.deepEqual(images.derivedNames('abc-c320.webp'), []);
+  assert.ok(images.isDerived('abc-c640.webp') && images.isDerived('abc-t.webp'));
+});
+
 test('Content-Type разбирается без учёта регистра, а query не наследует prototype', async () => {
   const app = new App({ secret: 'test' });
   app.post('/json', (req, res) => res.json(req.body));
@@ -1220,7 +1283,7 @@ test('старую цену видно, а стрелки галереи не л
   // подложки: так у Ozon, и так одинаково на витрине и на странице товара.
   // Прежняя залитая зелёная плашка была решением для зелёной же цены.
   const save = rule('\\.save');
-  assert.match(save, /color:#f1117e/);
+  assert.match(save, /color:var\(--sale\)/);
   assert.doesNotMatch(css, /\.save\{[^}]*background/, 'к проценту вернулась подложка');
   assert.doesNotMatch(css, /\.save\{[^}]*color:#18794e/, 'вернулся бледный вариант плашки');
 
@@ -1310,12 +1373,12 @@ test('карточка каталога: строка отзывов, розов
   // Плашка — розовая пилюля в углу кадра, поверх снимка
   const sale = rule('\\.card-sale');
   assert.match(sale, /position:absolute/);
-  assert.match(sale, /background:#f1117e/);
+  assert.match(sale, /background:var\(--sale\)/);
   // Цена со скидкой и процент при ней — одного цвета с плашкой; процент без
   // подложки, иначе две залитые плашки в карточке спорят друг с другом.
   // Правило одно на всю витрину: и в карточке, и на странице товара.
-  assert.match(rule('\\.price-sale \\.price-now'), /color:#f1117e/);
-  assert.match(rule('\\.save'), /color:#f1117e/);
+  assert.match(rule("\\.price-sale \\.price-now"), /color:var\(--sale\)/);
+  assert.match(rule("\\.save"), /color:var\(--sale\)/);
   // Черта старой цены — наклонный псевдоэлемент, а не text-decoration
   assert.match(rule('\\.card-price \\.old-price::before'), /transform:rotate\(-3deg\)/);
   assert.match(rule('\\.rt-star'), /color:#ffa800/);
@@ -1520,6 +1583,71 @@ test('на телефоне поиск открывается лупой, а н�
   const fn = app.slice(app.indexOf('function initSearchToggle'), app.indexOf('function initMediaGuard'));
   assert.ok(fn.length > 0, 'initSearchToggle должна существовать');
   assert.doesNotMatch(fn, /innerHTML|createElement|insertAdjacent/);
+});
+
+test('шапка и корзина читаются с клавиатуры и вслух', () => {
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({ storeName: 'Тест', tagline: 'Слоган', currency: '₽' }, fakeDb, {});
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+  // Имя носит сам чекбокс: внутри подписи одна лупа и ни буквы текста, поэтому
+  // у поля выходило пустое доступное имя — «форма без ярлыка».
+  assert.match(html, /id="search-open"[^>]*aria-label="Поиск"/);
+
+  // Счётчик корзины спрятан от скринридера, а число уезжает в имя кнопки:
+  // видимый текст «3» и доступное имя «Корзина» — разные вещи.
+  assert.match(html, /class="cart-badge" id="cart-badge" aria-hidden="true"/);
+  assert.match(app, /trigger\.setAttribute\('aria-label', c \? 'Корзина, '/);
+
+  // Закрытая панель корзины не только спрятана, но и вынута из порядка обхода:
+  // без inert по Tab туда попадали, а прочитать не могли.
+  assert.match(html, /id="cart-drawer"[^>]*aria-hidden="true" inert>/);
+  assert.match(app, /drawer\.removeAttribute\('inert'\)/);
+  assert.match(app, /drawer\.setAttribute\('inert', ''\)/);
+});
+
+test('цвета витрины читаются: скидка, зачёркнутая цена и Telegram', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Порог 4.5:1 на белом. Цена и процент — это текст про деньги, а не оформление,
+  // и прежние #f1117e (4.10), #99a3ae (2.55) и #229ed9 (3.02) его не проходили.
+  const luminance = hex => {
+    const parts = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map(c => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+    return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2];
+  };
+  const onWhite = hex => 1.05 / (luminance(hex) + 0.05);
+  const value = name => (css.match(new RegExp('--' + name + ':(#[0-9a-f]{6})')) || [])[1];
+
+  for (const name of ['sale', 'price-was', 'tg']) {
+    const hex = value(name);
+    assert.ok(hex, 'переменная --' + name + ' пропала');
+    assert.ok(onWhite(hex) >= 4.5, '--' + name + ' даёт на белом ' + onWhite(hex).toFixed(2) + ' — текст не прочесть');
+  }
+});
+
+test('минификатор снимает отступы, но не трогает переводы строк', () => {
+  const minify = require('../lib/minify');
+  const src = [
+    'function f() {',
+    '  var a = 1;',
+    '',
+    '  return a',
+    '}',
+    'var s = "  два  пробела  ";',
+    'var t = `строка',
+    '  с отступом`;'
+  ].join('\n');
+  const out = minify.js(src);
+
+  // Отступы и пустые строки уходят — но только в коде.
+  assert.ok(out.startsWith('function f() {\nvar a = 1;\nreturn a\n}'), 'отступ или пустая строка остались: ' + JSON.stringify(out.slice(0, 60)));
+  // Внутри литералов не тронуто ни одного пробела.
+  assert.ok(out.includes('"  два  пробела  "'), 'пробелы внутри строки схлопнулись');
+  assert.ok(out.includes('`строка\n  с отступом`'), 'отступ внутри шаблона схлопнулся');
+  // Число переводов строки в коде не изменилось: иначе автоматическая
+  // расстановка точек с запятой сработала бы иначе, и `return a` вернул бы undefined.
+  assert.equal((out.match(/\n/g) || []).length, (src.match(/\n/g) || []).length - 1);
+  assert.ok(out.length < src.length);
 });
 
 test('правовые ссылки в подвале тоже помещаются в строку', () => {
@@ -5487,13 +5615,13 @@ test('скидка на оформлении показана тем же язы
   assert.match(css, /\.co-item-unit \.card-price\{/);
   // Стиль общий с каталогом, а не скопированный: правило розовой цены и черты
   // одно на всю витрину.
-  assert.match(css, /\.price-sale \.price-now\{color:#f1117e\}/);
+  assert.match(css, /\.price-sale \.price-now\{color:var\(--sale\)\}/);
   assert.match(css, /\.card-price \.old-price::before\{content:""/);
 
   // Выгода видна дважды и по-разному: рублями у позиции и строкой в сводке.
   assert.match(js, /выгода ' \+ money\(sale\.saved \* i\.qty\)/);
   assert.match(js, /co-line-save"><span>Скидка<\/span><span>−/);
-  assert.match(css, /\.co-line-save span\{color:#f1117e/);
+  assert.match(css, /\.co-line-save span\{color:var\(--sale\)/);
   /* Столбик сводки обязан сходиться: при скидке «Товары» показывают сумму ДО
    * неё, иначе покупатель вычитает скидку и не получает итог. */
   assert.match(js, /var goods = saved > 0 \? money\(Cart\.total\(\) \+ saved\) : sum/);

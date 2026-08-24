@@ -64,6 +64,13 @@ const MAX = 1200;
     try {
       await execFileP(bin, args, { timeout: 20000 });
       fs.renameSync(tmp, file);
+      // Уменьшенные копии для карточки сделаны с прежнего кадра, а мы только что
+      // его переписали: не пересобрать их — значит оставить на витрине именно
+      // тот кадр, ради исправления которого всё и затевалось.
+      for (const derived of IMG.derivedNames(name)) {
+        try { fs.unlinkSync(path.join(db.UPLOAD_DIR, derived)); } catch (err) {}
+      }
+      await IMG.makeCards(db.UPLOAD_DIR, name);
       fixed++;
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch (err) {}
