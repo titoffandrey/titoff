@@ -2341,6 +2341,18 @@ app.post('/admin/orders/:id/restore', (req, res) => {
   const result = db.restoreOrder(req.params.id, 'admin');
   res.redirect(ordersBackUrl(req.body, result.ok ? 'Заказ восстановлен' : 'Заказ не найден', 'archive'), 303);
 });
+// Безвозвратное удаление — только из «Удалённых». Заказ, лежащий в рабочем
+// списке, сюда не попадает вовсе: `db.purgeOrder()` отвечает отказом, если он
+// не заархивирован. Два шага здесь и есть защита от нажатия не туда — стереть
+// заявку из orders.json значит потерять привязку к уже выданному счёту.
+app.post('/admin/orders/:id/purge', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const result = db.purgeOrder(req.params.id);
+  const flash = result.ok
+    ? 'Заказ удалён навсегда'
+    : (result.reason === 'not_archived' ? 'Сначала удалите заказ из списка' : 'Заказ не найден');
+  res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
+});
 
 /* ---------- Настройки магазина ---------- */
 

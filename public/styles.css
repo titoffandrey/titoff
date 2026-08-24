@@ -1865,7 +1865,17 @@ body.admin{background:#f4f4f6;color:#242426}
 
 /* Клиент: открыто «имя · контакт», остальное — по клику. Адрес пункта выдачи
    бывает длиннее всей остальной строки, и заказ разрастался из-за него одного. */
-.a-orders .o-who{font-weight:600;overflow-wrap:anywhere}
+.a-orders .o-who{overflow-wrap:anywhere}
+/* Имя и контакты набраны по-разному, а не одним весом через «·»: заявку узнают
+   по имени, а телефон с почтой — то, чем по ней действуют. Единым тёмным
+   полужирным строка читалась одним пятном, и зацепиться глазом было не за что.
+   Разделители тоже рисует CSS (::before у контакта), а не разметка: точка между
+   именем и телефоном — часть оформления, и в тексте ей делать нечего. */
+.a-orders .o-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 7px;min-width:0}
+.a-orders .o-name{font-weight:640;color:var(--text)}
+.a-orders .o-contact{color:var(--muted);font-weight:400;font-size:12.5px}
+.a-orders .o-contact::before{content:"·";margin-right:7px;color:#c7c7cc}
+.a-orders .o-head>:first-child::before{content:none}
 /* Стрелка прижата к правому краю ячейки, а не идёт за текстом: у длинного
    контакта она переносилась на свою строку и висела там одна. */
 .a-orders .o-who summary{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
@@ -1947,6 +1957,11 @@ body.admin{background:#f4f4f6;color:#242426}
 .edit-switch:focus-visible ~ .a-panel-edit .edit-btn{outline:2px solid var(--accent);outline-offset:2px}
 .a-orders .o-act{display:none;width:1%;text-align:right}
 .edit-switch:checked ~ .a-orders .o-act{display:table-cell}
+/* В «Удалённых» кнопок две — вернуть и стереть навсегда. Формы блочные и без
+   этой обёртки встали бы друг под друга; ряд не переносится, иначе «Удалить
+   навсегда» уезжало бы под «Вернуть» и читалось как подпись к ней. */
+.a-orders .o-acts{display:flex;flex-wrap:nowrap;justify-content:flex-end;gap:7px}
+.a-orders .o-acts .btn{white-space:nowrap}
 
 /* ===== Отзывы в панели =====
    Раздел в два уровня: очередь модерации на входе и лента каждого товара
@@ -2521,6 +2536,14 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   /* Список состояний в одну колонку: в две на 375 px подпись состояния ужимается
      до пары слов и переносится посреди «Способ не выбран». */
   .o-legend{grid-template-columns:minmax(0,1fr);gap:0}
+  /* Ряды состояний отбиты линией, а не воздухом: список идёт в одну колонку, и
+     на отступах в 7px соседние состояния сливались в сплошную простыню — при
+     семи состояниях это полтора экрана до первого заказа. Линия занимает
+     пиксель вместо четырёх и при этом разделяет надёжнее. */
+  .o-leg{padding:6px 0}
+  .o-leg+.o-leg{border-top:1px solid var(--border-soft)}
+  .o-leg>b{font-size:17px}
+  .o-share{margin-bottom:11px}
 
   /* Заказы на телефоне — карточками, а не таблицей в семь столбцов: в узкую
      ленту такая таблица не влезает никак, и её приходилось листать вбок,
@@ -2534,25 +2557,50 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-table.a-orders{min-width:0;display:block}
   .a-orders thead{display:none}
   .a-orders tbody,.a-orders tr,.a-orders td{display:block}
-  .a-orders tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;
-    padding:12px 13px;margin-bottom:10px;border:1px solid var(--border-soft);border-radius:15px;
+  .a-orders tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;align-items:start;
+    padding:11px 12px;margin-bottom:9px;border:1px solid var(--border-soft);border-radius:15px;
     background:var(--tone-row,#fff);box-shadow:inset 3px 0 0 var(--tone,transparent)}
-  .a-orders td{border:0;padding:0}
+  /* Своя ступень кегля на каждый вопрос карточки. Без неё все ячейки наследуют
+     один размер от body, и номер заказа, имя покупателя, состав, способ оплаты
+     и сумма выглядят одинаково важными — карточка читается сплошным текстом,
+     в котором нечего искать глазами. Порядок убывания: сумма и номер → имя →
+     состав → чем платили. */
+  .a-orders td{border:0;padding:0;font-size:13px;line-height:1.35}
   /* Подложка и полоска переезжают со строки таблицы на саму карточку: у ячейки
      в сетке нет ни «первой», ни общей высоты строки, и полоска висела бы
      чёрточкой у номера заказа. */
   .a-orders tr.o-row td{background:none}
   .a-orders tr.o-row td:first-child{box-shadow:none}
   .a-orders .o-num{grid-column:1;grid-row:1}
-  .a-orders .o-num b{display:inline}
-  .a-orders .o-num .small{display:inline;margin-left:7px}
+  .a-orders .o-num b{display:inline;font-size:15px;letter-spacing:-.02em}
+  .a-orders .o-num .small{display:inline;margin-left:6px;font-size:11.5px}
+  /* Приписка под плашкой («реквизиты не выданы · 19.08 в 20:47») — самая
+     длинная строка правого столбца, и в кегле карточки она забирала полторы
+     строки у номера заказа. */
+  .a-orders .o-when,.a-orders .o-left,.a-orders .o-note{margin-top:2px;font-size:11px;line-height:1.3}
+  /* Имя покупателя — второе по важности после номера и суммы, контакты под ним
+     приглушены и мельче. В столбик, а не в строку: почта и телефон вместе шире
+     карточки, и перенос рвал их в произвольном месте. */
+  .a-orders .o-head{gap:1px 6px}
+  .a-orders .o-name{font-size:14px}
+  .a-orders .o-contact{font-size:12px}
+  .a-orders .o-who summary{padding:2px 4px;margin:-2px -4px}
   /* width:1% с десктопа в сетке сжимает ячейку в ниточку — на карточке ширину
      задаёт содержимое. */
   .a-orders .o-state{grid-column:2;grid-row:1;justify-self:end;width:auto;text-align:right}
   .a-orders .o-client{grid-column:1/-1;grid-row:2;max-width:none;min-width:0}
   .a-orders .o-items{grid-column:1/-1;grid-row:3;max-width:none;min-width:0}
-  .a-orders .o-pay{grid-column:1;grid-row:4;width:auto;text-align:left}
+  /* Ряд денег отбит волосяной линией: выше в карточке «что за заявка», ниже —
+     «чем и сколько», и без границы это читалось одним списком строк.
+     Линия висит на СОСТАВЕ, а не на ячейках ряда денег: состав идёт во всю
+     ширину карточки, а те две ячейки разделены зазором сетки — линия из двух
+     кусков с дырой посередине выглядела бы обрывом. */
+  .a-orders .o-items{padding-bottom:9px;border-bottom:1px solid var(--border-soft)}
+  .a-orders .o-items-list{font-size:12.5px}
+  .a-orders .o-pay{grid-column:1;grid-row:4;width:auto;text-align:left;font-size:12px}
   .a-orders .o-sum{grid-column:2;grid-row:4;text-align:right}
+  .a-orders .o-sum b{font-size:16px;letter-spacing:-.02em}
+  .a-orders .o-via{font-size:11px}
   .a-orders .o-note{max-width:none}
   /* Строка удаления идёт во всю ширину, кнопка прижата вправо. */
   .a-orders .o-act{grid-column:1/-1;grid-row:5;width:auto;margin-top:2px;padding-top:9px;
@@ -2560,6 +2608,28 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
   .a-orders td:empty{display:none}
+
+  /* Кассы — тоже карточками. Шесть столбцов чисел в 390 px не встают никак:
+     панель уезжала вбок, и «почему отказывала» — единственный столбец, ради
+     которого таблицу открывают, — оказывался за краем экрана. Подпись каждой
+     строки приезжает из `data-l` в разметке, а не повторяется словами здесь:
+     заголовок столбца и подпись карточки обязаны говорить одно и то же. */
+  .a-table.pay-prov{min-width:0;display:block}
+  .pay-prov thead{display:none}
+  .pay-prov tbody,.pay-prov tr,.pay-prov td{display:block}
+  .pay-prov tr{padding:11px 12px;margin-bottom:9px;border:1px solid var(--border-soft);border-radius:15px}
+  .pay-prov tr:last-child{margin-bottom:0}
+  /* Ширина в 1% с десктопа сжала бы ячейку в ниточку. */
+  .pay-prov td,.pay-prov th:not(:last-child),.pay-prov td:not(:last-child){width:auto;white-space:normal}
+  .pay-prov td{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+    padding:4px 0;border:0;font-size:13px}
+  .pay-prov td::before{content:attr(data-l);flex:none;color:var(--muted);font-size:12px}
+  /* Имя кассы — заголовок карточки, а не строка «Касса: CrocoPAY». */
+  .pay-prov td:first-child{padding:0 0 7px;margin-bottom:5px;border-bottom:1px solid var(--border-soft);font-size:15px}
+  .pay-prov td:first-child::before{content:none}
+  /* Причины отказов — единственная длинная строка: подпись сверху, текст под
+     ней, иначе он сжимается в колонку шириной в пару слов. */
+  .pay-prov td:last-child{flex-direction:column;align-items:flex-start;gap:2px}
 
   /* Вкладки и сортировка встают друг под другом, обе ленты прокручиваются
      вбок — три кнопки сортировки в 375 px в одну строку с «Сортировка:» не

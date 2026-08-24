@@ -2660,7 +2660,10 @@ test('строка заказа: свой столбец у каждого во�
     const sumCell = html.slice(html.indexOf('<td class="o-sum">'), html.indexOf('</td>', html.indexOf('<td class="o-sum">')));
     assert.doesNotMatch(sumCell, /pay-tag|СБП/, 'в ячейке суммы только сумма: ' + name);
     // Клиент раскрывается: адрес пункта выдачи бывает длиннее всей строки.
-    assert.match(html, /<details class="o-who"><summary>Анна Смирнова · @anna<\/summary>/, name);
+    // Имя и контакты — разные элементы, а не одна строка через «·»: набраны они
+    // по-разному, и разделитель рисует CSS. Слитно строка читалась одним пятном.
+    assert.match(html, /<details class="o-who"><summary><span class="o-head"><b class="o-name">Анна Смирнова<\/b><span class="o-contact">@anna<\/span><\/span><\/summary>/, name);
+    assert.doesNotMatch(html, /o-name">[^<]*·/, 'разделитель не должен уезжать в текст: ' + name);
     // Длинный заказ сворачивается после трёх позиций.
     assert.match(html, /class="o-rest"><summary>ещё 3 позиции<\/summary>/, name);
     // Свёртки «Откуда зашёл» больше нет: строка значков и есть ссылка в метрику,
@@ -4150,6 +4153,44 @@ test('оплата хранит отдельные попытки и закры�
   assert.equal(fresh.getOrder(other.id).archive.restoredBy, 'system:payment');
   assert.equal(fresh.settleOrderPayment(other.id, { attemptId: otherId, status: 'expired' }).changed, false, 'оплаченное не истекает');
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
+});
+
+test('удалить навсегда можно только из «Удалённых», и заказ исчезает из файла', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-purge-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+
+  const live = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
+  // Из рабочего списка стереть нельзя вовсе: архив и есть защита от нажатия не
+  // туда, а стёртый заказ теряет привязку к уже выданному счёту.
+  const refused = fresh.purgeOrder(live.id);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, 'not_archived');
+  assert.ok(fresh.getOrder(live.id), 'отказ не должен ничего трогать');
+
+  fresh.archiveOrder(live.id, 'admin');
+  const gone = fresh.purgeOrder(live.id);
+  assert.equal(gone.ok, true);
+  assert.equal(gone.hadInvoice, false, 'счёта у этого заказа не было');
+  assert.ok(!fresh.getOrder(live.id), 'заказ исчез из хранилища');
+  assert.equal(fresh.getOrders().some(o => o.id === live.id), false);
+  assert.equal(fresh.archivedOrders().some(o => o.id === live.id), false);
+  // Именно из файла, а не только из кэша в памяти.
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).some(o => o.id === live.id), false);
+  assert.equal(fresh.purgeOrder(live.id).reason, 'not_found', 'второй раз стирать нечего');
+
+  // Про заказ с выставленным счётом вызывающий обязан узнать: деньги по нему
+  // ещё могут прийти, и привязать их будет не к чему. Запрета здесь нет —
+  // решение владельца, — но панель на этом строит текст предупреждения.
+  const paidish = fresh.createOrder({ items: [], total: 2000, contact: 'tg' });
+  const attempt = '7'.repeat(24);
+  fresh.startOrderPayment(paidish.id, { attemptId: attempt, token: '8'.repeat(32), amount: 2000, currency: 'RUB' });
+  fresh.attachOrderInvoice(paidish.id, { attemptId: attempt, invoiceId: 'cccccccc-0000-0000-0000-000000000000' });
+  fresh.archiveOrder(paidish.id, 'admin');
+  assert.equal(fresh.purgeOrder(paidish.id).hadInvoice, true);
+
+  assert.equal(fresh.purgeOrder('нет-такого').reason, 'not_found');
 });
 
 test('поздние ответы старого счёта не перезаписывают новую попытку', t => {
