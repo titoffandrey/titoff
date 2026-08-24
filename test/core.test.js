@@ -732,7 +732,13 @@ test('раздел метрики защищён панелью и показы�
     pages: [{ label: '/product/p1', value: 5 }], sources: [{ label: 'Прямой заход', value: 5 }],
     devices: [{ label: 'Телефон', value: 5 }], browsers: [{ label: 'Safari 18', value: 5 }],
     systems: [{ label: 'iOS 18', value: 5 }], locations: [{ label: 'Москва', value: 3 }],
-    campaigns: [{ label: 'telegram · summer', value: 2 }], visitors: [],
+    campaigns: [{ label: 'telegram · summer', value: 2 }],
+    visitors: [{
+      id: 'a'.repeat(32), lastSeen: Date.now() - 6e5, ip: '1.2.3.4', isp: 'Тест',
+      city: 'Москва', country: 'Россия', countryCode: 'RU', device: 'Телефон', os: 'iOS 18',
+      browser: 'Safari 18', lastPage: '/product/p1', entryPage: '/', visits: 2, pageViews: 5,
+      activeSeconds: 120, orderCount: 0
+    }],
     bots: { hits: 70, notFound: 68, agents: [{ label: 'Неизвестный сканер / 404', value: 68 }], paths: [{ label: '/wp-admin', value: 20 }] }
   };
   const html = adminViews.analyticsPage(SETTINGS, fakeDb, snapshot);
@@ -752,6 +758,31 @@ test('раздел метрики защищён панелью и показы�
   assert.match(html, /admin-live\.js/);
   assert.match(html, /Боты и технические запросы/);
   assert.match(html, /не влияют на основную метрику/);
+
+  // Плашка живого обновления подписана «online»: рядом с зелёной пульсирующей
+  // точкой это привычная отметка «на связи», а «живое» приходилось объяснять
+  // подсказкой. Она осталась, но уже как уточнение.
+  assert.match(html, /<span class="a-live" title="[^"]+"><i><\/i><b>online<\/b><\/span>/);
+  assert.doesNotMatch(html, /<b>живое<\/b>/);
+
+  /* «Кто заходил» на телефоне — карточки: пять столбцов требуют 900 px, и
+     список приходилось листать вбок, теряя из виду время визита. Ячейки для
+     этого названы — безымянные <td> сетке не адресовать. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  for (const cls of ['mv-when', 'mv-place', 'mv-tech', 'mv-page', 'mv-order']) {
+    assert.match(html, new RegExp(`<td class="${cls}"`), cls + ' должен быть в строке посетителя');
+  }
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
+  assert.match(mobile, /\.a-table\.metric-table\{min-width:0;display:block\}/);
+  assert.match(mobile, /\.metric-table tr\{display:grid/);
+  /* Пятая плитка сводки раздаётся на обе колонки: пяти плиток в две колонки
+     последняя оставалась половинкой рядом с полосой пустоты. Правило обязано
+     обойти карточку посетителя — там плиток шесть и ряды делятся ровно. */
+  assert.match(mobile, /\.metric-summary:not\(\.visitor-summary\) \.metric-card:last-child\{grid-column:1\/-1/);
+  /* Пустая строка растягивается КЛАССОМ самой ячейки, а не `tr:has(...)`:
+     `:has()` поддерживают не все версии Safari, доходящие до панели, — то же
+     правило, что у выбора способа оплаты на витрине. */
+  assert.match(mobile, /\.metric-table \.metric-empty\{grid-column:1\/-1\}/);
 });
 
 test('город по IP запрашивается один раз и затем берётся из кэша', async t => {
@@ -1397,7 +1428,7 @@ test('в подвале есть знаки оплаты, а на телефон
   assert.doesNotMatch(html, /footer[\s\S]*?<img[^>]+pay/i);
   // Мобильная сетка подвала обязана сбрасывать вторую колонку: иначе копирайт,
   // выровненный по центру, уезжает за левый край экрана.
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.footer-bottom\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
 });
 
@@ -1411,7 +1442,7 @@ test('на телефоне слоган стоит в одну строку, а
   // запасное число, и заголовок поедет по ширине чужого слогана.
   assert.match(html, /<h1 style="--fit:[\d.]+">/);
   assert.match(html, /class="foot-note" style="--fit:[\d.]+"/);
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   // Потолок кегля — свободная величина оформления, его двигают. Закрепляем то,
   // от чего зависит правильность: перенос запрещён, а второй аргумент min()
   // считает кегль от ширины экрана и серверной оценки длины строки.
@@ -1448,7 +1479,7 @@ test('на телефоне поиск открывается лупой, а н�
 
   // На десктопе лупы нет вовсе — там поле видно всегда.
   assert.match(css, /\.search-toggle\{display:none\}/);
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.header-row \.search-toggle\{display:inline-flex/);
   assert.match(mobile, /\.search\{[^}]*max-height:0\}/);
   assert.match(mobile, /\.search-switch:checked~\.search\{max-height:\d+px/);
@@ -1470,7 +1501,7 @@ test('правовые ссылки в подвале тоже помещают�
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.footer-links\{[^}]*grid-template-columns:repeat\(2,auto\)[^}]*font-size:min\(12px,calc\(\(100vw - 54px\)\/32\.9\)\)/);
   assert.match(mobile, /\.footer-links a\{white-space:nowrap\}/);
   // Длина строки вписана в CSS числом, поэтому подписи менять нельзя, не
@@ -1908,7 +1939,7 @@ test('главная показывает товары в порядке кат�
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   for (const cls of ['a-pname', 'a-price', 'a-marks']) assert.match(list, new RegExp(`<td class="${cls}"`));
   assert.match(list, /<div class="a-panel a-panel-list">/);
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-table\.a-table-sortable\{min-width:0;display:block\}/);
   assert.match(mobile, /\.a-table-sortable tr\{display:grid/);
   // Ручка перетаскивания на телефоне не работает вовсе (обычный HTML5 drag), и
@@ -6032,7 +6063,7 @@ test('состояние оплаты красит панель одним на�
 
   // Мобильная карточка: подложка и полоска переезжают на саму строку, иначе
   // полоска висела бы чёрточкой у номера заказа.
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-orders tr\{[^}]*background:var\(--tone-row,#fff\);box-shadow:inset 3px 0 0 var\(--tone,transparent\)/);
   assert.match(mobile, /\.a-orders tr\.o-row td:first-child\{box-shadow:none\}/);
   // Ряды карточки заданы явно: порядок ячеек в таблице задан столбцами, и
@@ -7249,7 +7280,7 @@ test('на телефоне сортировка и вложения прячу�
   // flex-шапки, а кнопки нет вовсе.
   assert.match(css, /\.a-filters\{display:contents\}/);
   assert.match(css, /\.a-filters-switch,\.a-filters-btn\{display:none\}/);
-  const mobile = css.slice(css.indexOf('@media(max-width:800px)'));
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-filters\{display:none\}/);
   assert.match(mobile, /\.a-filters-switch:checked~\.a-filters\{display:block/);
 
