@@ -15,6 +15,7 @@ const render = require('../lib/render');
 const adminViews = require('../lib/admin-views');
 const analyticsView = require('../lib/analytics-view');
 const variants = require('../lib/variants');
+const search = require('../lib/search');
 const images = require('../lib/images');
 const clientIcons = require('../lib/client-icons');
 const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, sessionsOf, MAX_HITS } = require('../lib/analytics');
@@ -109,6 +110,136 @@ test('утилита безопасно сбрасывает пароль пан
   const stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
   assert.equal(stored.adminUsername, 'new-admin');
   assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
+});
+
+test('повторяющиеся глифы карточки лежат в спрайте, а не копируются в каждую', () => {
+  const settings = dbCore.getSettings();
+  const html = render.homePage(settings, dbCore, { origin: 'https://shop.example' });
+  const cards = (html.match(/class="card-name"/g) || []).length;
+  assert.ok(cards > 10, 'на главной должно быть много карточек, иначе проверка бессмысленна');
+
+  // Символ объявлен ровно один раз, а карточки на него ссылаются.
+  for (const glyph of ['rt-star', 'rt-bubble', 'rt-cart']) {
+    const declared = (html.match(new RegExp('<symbol id="g-' + glyph + '"', 'g')) || []).length;
+    assert.equal(declared, 1, glyph + ': символ объявлен не один раз');
+    const used = (html.match(new RegExp('href="#g-' + glyph + '"', 'g')) || []).length;
+    assert.ok(used > 10, glyph + ': ссылок меньше, чем карточек — глиф снова копируется');
+  }
+  // Сама фигура в разметке встречается один раз — в спрайте. Копия в карточке
+  // и была теми 37 КБ, ради которых спрайт заводился.
+  const star = 'M8 2.4 9.56 6.16';
+  assert.equal(html.split(star).length - 1, 1, 'контур звезды скопирован в карточки');
+});
+
+test('карточка товара для поисковика полна, а крошки идут отдельным блоком', () => {
+  const settings = dbCore.getSettings();
+  const product = dbCore.visibleProducts()[0];
+  const html = render.productPage(settings, dbCore, product, { origin: 'https://shop.example' });
+  const blocks = (html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [])
+    .map(s => JSON.parse(s.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '')));
+  assert.equal(blocks.length, 2, 'ожидались карточка товара и хлебные крошки');
+
+  const card = blocks.find(b => b['@type'] === 'Product');
+  assert.ok(card, 'нет блока Product');
+  // От этих полей зависит, покажет ли выдача цену, наличие и звёзды.
+  assert.equal(card.brand.name, 'Apple');
+  assert.equal(card.offers.itemCondition, 'https://schema.org/NewCondition');
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(card.offers.priceValidUntil), 'нет срока действия цены');
+  assert.ok(new Date(card.offers.priceValidUntil) > new Date(), 'срок действия цены уже истёк');
+  // Цена — та же, что видит покупатель, открыв страницу.
+  assert.equal(card.offers.price, render.startPrice(product, settings));
+
+  const crumbs = blocks.find(b => b['@type'] === 'BreadcrumbList');
+  assert.ok(crumbs, 'нет блока BreadcrumbList');
+  assert.deepEqual(crumbs.itemListElement.map(x => x.position), [1, 2, 3]);
+  assert.equal(crumbs.itemListElement[crumbs.itemListElement.length - 1].name, product.name);
+  // Крошки обязаны вести туда же, куда ссылки над названием на самой странице.
+  assert.ok(html.includes('/?category=' + encodeURIComponent(product.category)));
+});
+
+test('комментарии снимаются с отдаваемой статики и ничего не ломают', () => {
+  const minify = require('../lib/minify');
+  const vmMod = require('vm');
+  const dir = path.join(__dirname, '..', 'public');
+
+  // Ловушки, на которых наивная замена регуляркой ломает код. Проверяем их
+  // отдельно от файлов: в файле такую строку легко не заметить.
+  const traps = [
+    ['ссылка внутри строки', 'var u = "https://x.ru/a"; // хвост', 'var u = "https://x.ru/a";'],
+    ['звёздочка в строке', 'var s = "/* не комментарий */"; /* а это да */', 'var s = "/* не комментарий */";'],
+    ['регулярка после return', 'function f(s){ return /^\\s+/.test(s); } // да', 'function f(s){ return /^\\s+/.test(s); }'],
+    ['слэши внутри регулярки', 'var re = /https?:\\/\\//; // хвост', 'var re = /https?:\\/\\//;'],
+    ['деление, а не регулярка', 'var x = (a + b) / 2 / c; // хвост', 'var x = (a + b) / 2 / c;'],
+    ['шаблон с ссылкой', 'var t = `see https://x.ru/${id}`; // хвост', 'var t = `see https://x.ru/${id}`;']
+  ];
+  for (const [why, src, want] of traps) {
+    assert.equal(minify.js(src).trim(), want, why);
+  }
+
+  // CSS: `/*` внутри строки — не начало комментария.
+  assert.equal(minify.css('a::after{content:"/*"}/* убрать */').trim(), 'a::after{content:"/*"}');
+
+  // И весь боевой набор: очищенный файл обязан разбираться, а литералы —
+  // совпасть с исходными. Иначе `js()` вернул бы исходник, и чистки не будет.
+  let cleaned = 0;
+  for (const file of fs.readdirSync(dir).filter(f => /\.(js|css)$/.test(f))) {
+    const src = fs.readFileSync(path.join(dir, file), 'utf8');
+    const out = file.endsWith('.css') ? minify.css(src) : minify.js(src);
+    assert.ok(out.length < src.length, file + ': комментарии не снялись — разборщик отказался');
+    if (file.endsWith('.js')) assert.doesNotThrow(() => new vmMod.Script(out), file + ' не разбирается после чистки');
+    cleaned++;
+  }
+  assert.ok(cleaned >= 12, 'проверены не все файлы статики');
+
+  // phone.js работает и на сервере, поэтому его поведение сверяем целиком.
+  const load = code => { const m = { exports: {} }; new vmMod.Script('(function(module,exports){' + code + '\n})').runInThisContext()(m, m.exports); return m.exports; };
+  const raw = fs.readFileSync(path.join(dir, 'phone.js'), 'utf8');
+  const before = load(raw);
+  const after = load(minify.js(raw));
+  for (const value of ['+79991234567', '8 (999) 123-45-67', '+375291234567', 'мусор', '']) {
+    assert.deepEqual(after.check(value), before.check(value), 'phone.js разошёлся на ' + JSON.stringify(value));
+  }
+});
+
+test('поиск разбирает запрос на слова и знает русские названия техники', () => {
+  // На боевом каталоге, а не на выдуманных товарах: правила подбирались под
+  // реальные названия, и проверять их надо тем же списком.
+  const list = catalog.products;
+  const names = q => search.filter(list, q).map(p => p.name);
+
+  // Слова запроса складываются по И, а не ищутся одной подстрокой. Между
+  // «MacBook Air» и «(M5)» в названии стоит `13"`, и прежний поиск давал ноль.
+  assert.deepEqual(names('macbook air m5').sort(), ['MacBook Air 13" (M5)', 'MacBook Air 15" (M5)']);
+  // ИЛИ здесь не годится: одна семнадцатка не должна тянуть iPad mini (A17 Pro).
+  assert.ok(!names('iphone 17').some(n => n.includes('iPad')));
+
+  // Русский магазин — русские слова. Ноль карточек по «айфон» при четырнадцати
+  // айфонах в каталоге и был той самой потерянной покупкой.
+  assert.equal(names('айфон').length, 14);
+  assert.equal(names('макбук').length, 5);
+  assert.deepEqual(names('колонка').sort(), ['HomePod (2-е поколение)', 'HomePod mini']);
+  assert.equal(names('часы').length, 7);
+  assert.deepEqual(names('эйртег'), ['AirTag']);
+  // Множественное число и именительный падеж — то, что набирают на самом деле.
+  // Одной основы «наушник» в таблице мало: сравнение идёт в обратную сторону.
+  assert.ok(names('наушники').length >= 6);
+  assert.ok(names('планшеты').length >= 6);
+
+  // Категория в подбор слов не входит: `HomePod` лежит в разделе «Apple TV и
+  // Дом», и по правилу для приставки колонка получала бы слово «приставка».
+  assert.deepEqual(names('приставка'), ['Apple TV 4K']);
+
+  // Слитно набирают не реже, чем через пробел.
+  assert.ok(names('iphone17').every(n => n.includes('17')));
+  assert.ok(names('airpodspro').length >= 2);
+
+  // Пустой запрос ничего не отбирает, бессмысленный — не находит.
+  assert.equal(search.filter(list, '   ').length, list.length);
+  assert.deepEqual(names('zzzнеттакого'), []);
+
+  // Строка поиска считается один раз на товар: ключ — ссылка на объект.
+  const one = list[0];
+  assert.equal(search.haystack(one), search.haystack(one));
 });
 
 test('скидка — один процент на все сборки, а старая цена из него выводится', () => {

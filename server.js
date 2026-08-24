@@ -56,8 +56,25 @@ const PORT = process.env.PORT || 3000;
 // попыток, а через X-Forwarded-Host выбирал себе любой магазин.
 // HOST=0.0.0.0 оставляет прежнее поведение, если прокси стоит на другой машине.
 const HOST = process.env.HOST || '127.0.0.1';
+/* Секрет подписи сессий. Он лежит в настройках и создаётся `ensureSeeded()`
+ * выше, поэтому пустым здесь быть не может — но если когда-нибудь окажется,
+ * останавливаемся, а НЕ подставляем запасную строку.
+ *
+ * Раньше тут стояло `|| 'fallback-secret'`. Дорога к нему закрыта (файл
+ * настроек к этому моменту уже создан и пропатчен), и всё же это была
+ * заряженная мина: исходники лежат в открытом репозитории, значит и запасной
+ * секрет открыт, а подписанная им cookie `{"admin":…}` — это полный доступ к
+ * панели. Молчаливая подстановка известного всем ключа хуже отказа запуска:
+ * магазин выглядел бы работающим.
+ */
+const sessionSecret = db.getSettings().sessionSecret;
+if (!sessionSecret || String(sessionSecret).length < 32) {
+  console.error('Не найден секрет подписи сессий (settings.sessionSecret).');
+  console.error('Он создаётся при первом запуске. Проверьте каталог данных: ' + db.DATA_DIR);
+  process.exit(1);
+}
 const app = new App({
-  secret: db.getSettings().sessionSecret || 'fallback-secret',
+  secret: sessionSecret,
   uploadDir: db.UPLOAD_DIR,
   trustProxy: process.env.TRUST_PROXY === '1',
   forceHttps: process.env.FORCE_HTTPS === '1'
