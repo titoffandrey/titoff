@@ -1791,7 +1791,26 @@ body.admin{background:#f4f4f6;color:#242426}
   transition:transform .16s}
 .pay-fold[open]>summary::before{transform:rotate(90deg)}
 .pay-fold>summary:hover{background:#fcfcfd}
-.pay-fold-note{font-size:11.5px;font-weight:400;color:var(--muted)}
+/* Свёрнутая строка и есть состояние кассы: связь в первой строке, сделки во
+   второй. Цвета — уже принятые в проекте (зелёный подписи наличия, оранжевый
+   очереди модерации, красный плашки акции), а не var(--accent): акцент у
+   магазина свой, а «касса не отвечает» обязано быть тревожным при любом
+   бренде. */
+.pay-fold>summary b{font-weight:650}
+.pay-fold>summary b::before{content:'';display:inline-block;width:7px;height:7px;margin-right:7px;
+  border-radius:50%;background:currentColor;vertical-align:middle}
+.pay-fold-note{font-size:12px;font-weight:400;color:var(--muted)}
+.pay-fold.is-ok>summary b,.pay-fold.is-ok>summary .pay-fold-note{color:#0b7a37}
+.pay-fold.is-warn>summary b,.pay-fold.is-warn>summary .pay-fold-note{color:#bf4800}
+.pay-fold.is-err>summary b,.pay-fold.is-err>summary .pay-fold-note{color:#b42318}
+.pay-fold.is-off>summary b{color:var(--muted)}
+/* Приписка про сделки переносится на свою строку (`flex-basis:100%`) и встаёт
+   под названием кассы, а не под маркером свёртки. */
+.pay-fold>summary i{flex-basis:100%;margin-left:22px;font-style:normal;font-size:11.5px;
+  font-weight:400;color:var(--muted)}
+.pay-fold>summary i.is-ok{color:#0b7a37}
+.pay-fold>summary i.is-warn{color:#bf4800}
+.pay-fold>summary i.is-err{color:#b42318;font-weight:600}
 .pay-fold-body{padding:0 13px 14px}
 .pay-fold-body>.a-subhead:first-child{margin-top:6px}
 /* Свёрток теперь по одной на кассу, и они идут подряд: без этого правила между
@@ -2627,6 +2646,12 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
   .a-orders td:empty{display:none}
+
+  /* Строка кассы: на телефоне состояние всё равно переносится под название, и
+     без этого правила оно вставало по левому краю, а приписка про сделки — с
+     отступом. Две строки об одной кассе на разных отступах читаются как две
+     разные записи, поэтому отступ у них общий. */
+  .pay-fold>summary .pay-fold-note{flex-basis:100%;margin-left:22px}
 
   /* Кассы — тоже карточками. Шесть столбцов чисел в 390 px не встают никак:
      панель уезжала вбок, и «почему отказывала» — единственный столбец, ради

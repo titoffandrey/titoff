@@ -1513,10 +1513,15 @@ async function livePayMethods(s) {
  */
 async function payContext(s, order, wanted) {
   const live = await livePayMethods(s);
+  // Ответ приходит всегда, а вот ОТВЕТИЛА ЛИ хоть одна касса — говорит флаг: в
+  // объекте лежит ещё и состояние каждой из них, и панель читает именно его.
+  // Ограничивать список способов можно только живым ответом; молчание кассы
+  // по-прежнему означает «условие не применяем», а не «способов нет».
+  const answered = live && live.ok ? live : null;
   const base = PAY.BASE;
   const def = PAY.currencyCode(s.crocopayCurrency) || base;
   const rates = s.crocopayRates || {};
-  const liveCodes = live && live.currencies.length ? live.currencies : null;
+  const liveCodes = answered && answered.currencies.length ? answered.currencies : null;
   let codes = (liveCodes || [def]).filter(c => PAY.rateOf(rates, c) > 0);
   // Живой ответ важнее сохранённого default: раньше недоступная у кассы валюта
   // насильно добавлялась обратно, а при выключенном выборе оставляла страницу
@@ -1535,7 +1540,7 @@ async function payContext(s, order, wanted) {
   // Способы — срез по выбранной валюте: у кассы они сгруппированы именно так, и
   // рублёвый способ в долларовом счёте не годится.
   const methods = PAYMENTS.enabled(s)
-    ? PAY.allowed(live ? (live.byCurrency[currency] || []) : null, s.payMethods) : [];
+    ? PAY.allowed(answered ? (answered.byCurrency[currency] || []) : null, s.payMethods) : [];
   return { live, codes, currency, rate, amount, amounts, methods };
 }
 
@@ -2517,6 +2522,18 @@ const httpServer = app.listen(PORT, HOST, () => {
     const ps = PICKUP.stats();
     console.log(`  Пункты выдачи: ${Object.entries(ps.byCarrier).map(([k, n]) => `${k} ${n}`).join(', ')}`);
   }
+  /* Список способов у касс спрашиваем СРАЗУ, не дожидаясь первого покупателя.
+   *
+   * У MeridianPay он честно идёт восемь с половиной секунд (317 КБ, 906 банков —
+   * замер на боевом сервере), а страница ждёт его четыре: без прогрева первый,
+   * кто откроет оплату или настройки после перезапуска, заплатил бы этими
+   * четырьмя секундами и всё равно увидел бы список без второй кассы. Ответ
+   * складывается в тот же кэш, откуда его берут все.
+   *
+   * Ошибку глотаем молча: кассы могут быть не настроены вовсе, и падать из-за
+   * этого при старте магазину незачем.
+   */
+  if (PAYMENTS.configured(s)) livePayMethods(s).catch(() => {});
   console.log('');
 });
 

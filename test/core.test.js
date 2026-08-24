@@ -3556,7 +3556,11 @@ test('трансграничные способы скрыты по умолча
   // сходятся включённое у кассы, разрешённое в настройках и валюта счёта.
   const start = source.slice(source.indexOf('async function startPaymentRoute('), source.indexOf("app.post('/api/pay/start'"));
   assert.match(start, /ctx\.methods\.some\(m => m\.id === method\)/);
-  assert.match(source, /PAY\.allowed\(live \? \(live\.byCurrency\[currency\] \|\| \[\]\) : null, s\.payMethods\)/);
+  // `answered`, а не `live`: ответ касс приходит теперь всегда (в нём лежит и
+  // состояние каждой из них для панели), а ограничивать список способов вправе
+  // только живой ответ — молчание кассы по-прежнему означает «условие не
+  // применяем», а не «способов нет».
+  assert.match(source, /PAY\.allowed\(answered \? \(answered\.byCurrency\[currency\] \|\| \[\]\) : null, s\.payMethods\)/);
   assert.equal((source.match(/PAY\.allowed\(/g) || []).length, 1, 'список способов собирается в одном месте');
 });
 
@@ -4650,7 +4654,7 @@ test('в настройках видно режим витрины, а касс�
   assert.match(offHtml, /name="payMethodsForm"/);
   assert.match(offHtml, /name="payMethods" value="SBP" checked/);
   assert.match(offHtml, /name="crocopayCurrencyChoice"/);
-  assert.match(offHtml, /<details class="pay-fold">/, 'в режиме заявок ключи свёрнуты');
+  assert.match(offHtml, /<details class="pay-fold is-off">/, 'в режиме заявок ключи свёрнуты');
 
   /* Включение касс стоит ДО ключей и вне свёрток.
    *
@@ -4660,7 +4664,7 @@ test('в настройках видно режим витрины, а касс�
    * развернуть секцию с ключами ради того, чтобы ключей не трогать.
    */
   assert.match(offHtml, /class="pay-switches"[\s\S]{0,400}name="crocopayEnabled"[\s\S]{0,400}name="meridianpayEnabled"/);
-  assert.ok(offHtml.indexOf('class="pay-switches"') < offHtml.indexOf('<details class="pay-fold"'),
+  assert.ok(offHtml.indexOf('class="pay-switches"') < offHtml.indexOf('<details class="pay-fold'),
     'переключатели касс стоят выше свёрток с ключами');
 
   const onHtml = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true }), db, null);
@@ -4669,9 +4673,9 @@ test('в настройках видно режим витрины, а касс�
    * ключей нет. Настроенная и работающая остаётся закрытой — ключи это секреты,
    * держать их развёрнутыми на экране незачем, а две открытые секции подряд
    * растягивают страницу настроек вдвое. */
-  assert.doesNotMatch(onHtml, /<details class="pay-fold" open>/, 'работающая касса ключи не разворачивает');
+  assert.doesNotMatch(onHtml, /<details class="pay-fold[^"]*" open>/, 'работающая касса ключи не разворачивает');
   const halfSet = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true, crocopayClientSecret: '' }), db, null);
-  assert.equal((halfSet.match(/<details class="pay-fold" open>/g) || []).length, 1,
+  assert.equal((halfSet.match(/<details class="pay-fold[^"]*" open>/g) || []).length, 1,
     'раскрыта ровно та касса, у которой не хватает ключей');
 
   // Плашка говорит про то, что видит ПОКУПАТЕЛЬ, а не про саму галочку:
@@ -4685,7 +4689,11 @@ test('в настройках видно режим витрины, а касс�
   // своими глазами, а не молчаливый переход на вторую.
   assert.match(offHtml, /MeridianPay/);
   assert.match(offHtml, /name="meridianpayMerchantId"/);
-  assert.match(onHtml, /Работает одна касса — CrocoPAY, подстраховки нет\./);
+  /* Кассы здесь никто не спрашивал (страница собрана без живого ответа),
+   * поэтому плашка говорит только то, что знает наверняка: какие кассы
+   * ВКЛЮЧЕНЫ. «Работают» и «на связи» — это уже про ответ кассы, и писать их,
+   * не спросив, нельзя (см. тест про состояние касс ниже). */
+  assert.match(onHtml, /Включена одна касса — CrocoPAY, подстраховки нет\./);
   /* Плашка режима — ровно состояние, без объяснений: подсказки под ней убраны
    * все. Осталось только то, чего иначе не узнать, — включена оплата и какие
    * кассы работают. */
@@ -4706,7 +4714,7 @@ test('в настройках видно режим витрины, а касс�
     crocopayEnabled: true, meridianpayEnabled: true,
     meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
   }), db, null);
-  assert.match(both, /Работают обе кассы: CrocoPAY и MeridianPay\./);
+  assert.match(both, /Включены обе кассы: CrocoPAY и MeridianPay\./);
   /* «Спрашивать первой» видно ВСЕГДА, при любом числе включённых касс.
    * Пряталось оно, пока включена одна, — и со стороны это выглядело не как
    * экономия места, а как пропавшая настройка: пока вторая касса ждёт
@@ -4721,6 +4729,171 @@ test('в настройках видно режим витрины, а касс�
   // Переключатели остаются на месте при любом режиме: их отсутствие стёрло бы
   // выбор владельца первым же «Сохранить».
   assert.match(both, /class="pay-switch"/);
+});
+
+/* Состояние касс — по живому ответу, а не по заполненным ключам.
+ *
+ * Ловушка, ради которой всё это писалось: панель писала «работает» ровно
+ * потому, что в настройках заполнены ключи. Касса при этом могла не отвечать
+ * вовсе, отвергать ключи или (как MeridianPay всё время модерации) отвечать на
+ * что угодно, кроме создания сделок, — а владелец узнавал правду от покупателя.
+ */
+test('панель говорит состояние касс, а не пересказывает галочку', () => {
+  const PAYMENTS = require('../lib/payments');
+  const ERR = require('../lib/pay-errors');
+  const db = { pendingReviewCount: () => 0 };
+  const uuid = '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40';
+  const both = Object.assign(dbCore.defaultSettings(), {
+    crocopayEnabled: true, crocopayClientId: 'ID', crocopayClientSecret: 'СЕКРЕТ',
+    meridianpayEnabled: true, meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: uuid,
+    payMethods: ['SBP', 'TO_CARD']
+  });
+
+  // Разбор ответа: что именно сказала касса. Строки здесь настоящие — сняты с
+  // живых касс 24 августа 2026, а не придуманы.
+  assert.equal(PAYMENTS.healthState({ ok: true }), 'ok');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'Invalid Access Token.' }), 'auth');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'Can not verify the client. Please check client Id and Client Secret.' }), 'auth');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'timeout' }), 'down');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'fetch failed' }), 'down');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'http_502' }), 'down');
+  // Медленная касса — это НЕ «не отвечает»: запрос жив и заполнит кэш к
+  // следующему открытию страницы.
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'timeout', pending: true }), 'slow');
+  assert.equal(PAYMENTS.healthState(null), 'unknown', 'не спрашивали — так и говорим');
+
+  // Живой ответ: CrocoPAY на связи, MeridianPay ключи не приняла.
+  const live = {
+    ok: true,
+    currencies: ['RUB'],
+    byCurrency: { RUB: ['SBP', 'TO_CARD'] },
+    byProvider: { crocopay: { currencies: ['RUB'], byCurrency: { RUB: ['SBP', 'TO_CARD'] } }, meridianpay: null },
+    status: {
+      crocopay: { ok: true, error: '', currencies: ['RUB'], methods: ['SBP', 'TO_CARD'] },
+      meridianpay: { ok: false, error: 'Invalid Access Token.', currencies: [], methods: [] }
+    }
+  };
+  const health = PAYMENTS.health(both, live);
+  assert.deepEqual(health.map(r => r.state), ['ok', 'auth']);
+  assert.equal(health[0].live, true);
+  assert.equal(health[1].live, false);
+  // Выключенная и ненастроенная кассы разводятся по разным состояниям: «нечего
+  // спрашивать» и «спросить нечем» — разные беды с разным лечением.
+  assert.equal(PAYMENTS.health(Object.assign({}, both, { meridianpayEnabled: false }), live)[1].state, 'off');
+  assert.equal(PAYMENTS.health(Object.assign({}, both, { meridianpayApiKey: '' }), live)[1].state, 'nokeys');
+
+  /* Свёрнутая строка кассы и ЕСТЬ её состояние — отдельным блоком над
+   * свёртками это стояло один заход и было выброшено: строки повторяли подписи
+   * свёрток слово в слово, и на четыре строки экрана приходилось два факта. */
+  const html = adminViews.settingsPage(both, db, null, 'ok', { live });
+  assert.match(html, /<b>CrocoPAY<\/b><span class="pay-fold-note">на связи · 2 способа<\/span>/);
+  assert.match(html, /<b>MeridianPay<\/b><span class="pay-fold-note">ключи не приняты кассой<\/span>/);
+  assert.equal(html.includes('class="pay-state"'), false, 'состояние не дублируется отдельным блоком');
+  // Слово «работает» из подписи свёртки ушло вместе с причиной, по которой оно
+  // там стояло: оно означало «ключи заполнены», а читалось как «касса выдаёт
+  // реквизиты».
+  assert.doesNotMatch(html, /pay-fold-note">работает/);
+  assert.match(html, /На связи только CrocoPAY — вторая не отвечает\./);
+  /* Медленная касса — НЕ молчащая: её ответ идёт своим ходом и приедет к
+   * следующему открытию страницы (список банков у MeridianPay честно занимает
+   * восемь секунд). Сказать про неё «не отвечает» значило бы звать чинить то,
+   * что чинить не нужно. */
+  const slow = adminViews.settingsPage(both, db, null, 'ok', {
+    live: Object.assign({}, live, {
+      status: Object.assign({}, live.status, {
+        meridianpay: { ok: false, error: 'timeout', pending: true, currencies: [], methods: [] }
+      })
+    })
+  });
+  assert.match(slow, /На связи CrocoPAY, вторая ещё не ответила\./);
+  assert.match(slow, /касса отвечает слишком медленно — список ещё грузится/);
+  // Касса, чьи ключи не приняты, разворачивает свои поля: чинить надо там.
+  assert.equal((html.match(/<details class="pay-fold[^"]*" open>/g) || []).length, 1);
+
+  // Ни одна не ответила — плашка говорит это прямо: покупатель реквизитов не
+  // получит, и узнать об этом владелец должен раньше него.
+  const mute = adminViews.settingsPage(both, db, null, 'ok', {
+    live: Object.assign({}, live, {
+      ok: false,
+      status: {
+        crocopay: { ok: false, error: 'fetch failed', currencies: [], methods: [] },
+        meridianpay: { ok: false, error: 'fetch failed', currencies: [], methods: [] }
+      }
+    })
+  });
+  assert.match(mute, /ни одна касса не отвечает/);
+
+  /* Вторая строка — про СДЕЛКИ, и берётся она из истории заказов: живым
+   * опросом это не узнать вовсе (проверено на живом API — GET и отмена отдают
+   * обычный 404, а POST сперва проверяет поля), а проверочные сделки мы кассам
+   * не шлём. Поэтому у кассы, которую ещё ни разу не спрашивали, честно стоит
+   * «сделок ещё не выдавала»: связь — это ещё не оплата. */
+  assert.match(html, /MeridianPay<\/b>[\s\S]{0,200}сделок ещё не выдавала/);
+
+  // Модерация мерчанта — свой код отказа, а не «способ недоступен». Разница
+  // важна: другой способ оплаты тут не поможет ни один, и владелец должен
+  // видеть это словами.
+  assert.equal(ERR.codeOf('Мерчант находится на модерации.'), 'merchant_off');
+  assert.equal(ERR.shortOf('merchant_off'), 'мерчант не допущен к сделкам');
+  // А покупателю — ровно тот же нейтральный текст, что и про недоступный
+  // способ: про нашу модерацию ему знать незачем.
+  assert.equal(ERR.messageOf('Мерчант находится на модерации.'), ERR.messageOf('method_unavailable'));
+
+  const at = Date.parse('2026-08-23T16:12:00Z');
+  const stats = render.providerStats([{ payment: { attempts: [
+    { provider: 'meridianpay', lastErrorCode: 'merchant_off', lastErrorAt: at, status: 'pending' },
+    { provider: 'crocopay', invoiceId: 'x', requisite: '+7 900 000-00-00', startedAt: at, status: 'pending' }
+  ] } }]);
+  const meridian = stats.find(r => r.id === 'meridianpay');
+  assert.equal(meridian.lastErrorCode, 'merchant_off');
+  assert.equal(stats.find(r => r.id === 'crocopay').lastIssuedAt, at);
+
+  const withHistory = adminViews.settingsPage(both, Object.assign({}, db, {
+    getOrders: () => [{ payment: { attempts: [
+      { provider: 'meridianpay', lastErrorCode: 'merchant_off', lastErrorAt: at, status: 'pending' }
+    ] } }]
+  }), null, 'ok', { live });
+  assert.match(withHistory, /последний ответ на сделку: мерчант не допущен к сделкам/);
+});
+
+/* Список банков MeridianPay идёт восемь секунд, и это не повод его терять.
+ *
+ * Замер с боевого сервера (24 августа 2026): 8,4–8,7 с на 317 КБ и 906 банков,
+ * три замера подряд. В отведённые списку четыре секунды он не укладывается
+ * НИКОГДА — то есть до этой правки живой список второй кассы не доезжал ни
+ * разу, и витрина показывала «объединение возможностей» из одной кассы.
+ */
+test('медленный список банков не теряется и не задерживает страницу', async () => {
+  const meridian = require('../lib/meridianpay');
+  const on = { meridianpayEnabled: true, meridianpayApiKey: 'КЛЮЧ', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40' };
+  const real = global.fetch;
+  const gateways = [{ code: 'sberbank_rub', currency: 'rub', detail_types: ['card', 'phone', 'nspk'], min_limit: '999', max_limit: '300000' }];
+  let calls = 0;
+  meridian.forgetMethods();
+  try {
+    global.fetch = async () => { calls++; return { ok: true, status: 200, json: async () => ({ success: true, data: gateways }) }; };
+    // Два открытия страницы разом (оплата и настройки) — запрос ОДИН: список у
+    // кассы один, а стоит он восемь секунд.
+    const [a, b] = await Promise.all([meridian.availableOptions(on), meridian.availableOptions(on)]);
+    assert.equal(calls, 1, 'запрос списка склеивается на всех, кто его ждёт');
+    assert.deepEqual(a.options, b.options);
+    assert.ok(a.options.includes('SBP') && a.options.includes('TO_CARD'));
+    // Дальше он лежит в кэше и в сеть не ходит вовсе.
+    const cached = await meridian.availableOptions(on);
+    assert.equal(calls, 1);
+    assert.equal(cached.cached, true);
+  } finally {
+    meridian.forgetMethods();
+    if (real) global.fetch = real; else delete global.fetch;
+  }
+  // Ждём мы список не дольше, чем не жалко покупателю, а идёт он своим сроком —
+  // и этот срок обязан быть больше измеренных восьми секунд, иначе список опять
+  // будет обрываться на полпути.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'meridianpay.js'), 'utf8');
+  const num = name => Number((src.match(new RegExp('const ' + name + ' = (\\d+)')) || [])[1]);
+  assert.ok(num('LIST_TIMEOUT') >= 20000, 'запрос списка живёт дольше своих восьми секунд');
+  assert.ok(num('OPTIONS_TIMEOUT') <= 5000, 'а страница ждёт его недолго');
+  assert.ok(num('LIST_TIMEOUT') > num('OPTIONS_TIMEOUT'));
 });
 
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
