@@ -77,6 +77,11 @@
 
   // Что человек уже решил сам: раскрыл свёртку, отметил галочку, выбрал пункт.
   function ownedByUser(el, name) {
+    /* Плашка связи целиком принадлежит браузеру: жив ли канал, знает только он,
+       а сервер рисует её всегда в подключённом виде. Без этого первая же удачная
+       подмена стирала бы отметку «нет связи» — и она возвращалась бы обратно
+       через несколько секунд, то есть мигала бы на ровном месте. */
+    if (el.classList && el.classList.contains('a-live')) return true;
     if (name === 'open' && el.tagName === 'DETAILS') return true;
     return FIELDS[el.tagName] && (name === 'value' || name === 'checked' || name === 'selected');
   }
@@ -159,8 +164,13 @@
         if (r.redirected && r.url.indexOf('/admin/login') > -1) { location.reload(); return null; }
         return r.ok ? r.text() : null;
       })
-      .then(function (html) { if (html) apply(html); })
-      .catch(function () { /* сеть моргнула — придёт следующее сообщение */ })
+      // Пустой ответ — это либо 5xx, либо увод на вход: в обоих случаях свежего
+      // мы не получили, и обещать обратное плашке нельзя.
+      .then(function (html) { if (html) { apply(html); fresh(); } else stale(); })
+      // Сеть моргнула. Данные на экране с этого мгновения могли устареть, и
+      // плашка обязана это сказать — но не сразу: одна неудачная попытка ещё
+      // ничего не значит, ждём `stale()`.
+      .catch(function () { stale(); })
       .then(function () {
         busy = false;
         if (pending) { pending = false; later(THROTTLE); }
@@ -170,6 +180,48 @@
   function later(ms) {
     if (timer) return;
     timer = setTimeout(function () { timer = null; pull(); }, ms);
+  }
+
+  /* ------------------------------------------------- состояние связи в шапке */
+
+  /* Плашка в шапке отвечает на один вопрос: свежее ли то, что на экране.
+   *
+   * Она НЕ показывает состояние SSE-канала как такового, и это осознанно.
+   * Канал бывает мёртв, пока страница исправно обновляется запасным опросом
+   * (сжимающий прокси не пропускает поток), — сказать в этот момент «нет связи»
+   * было бы такой же неправдой, как молчать при выдернутом проводе. Поэтому
+   * «свежо» ставит ЛЮБОЙ успех — и открытый канал, и удачный запрос, — а «нет
+   * связи» зажигается, только когда за OFFLINE_AFTER не случилось ни одного.
+   *
+   * Задержка нужна против мигания: EventSource переподключается сам и стреляет
+   * `onerror` даже на секундной заминке, а плашка, дёргающаяся на каждый вздох
+   * сети, быстро перестаёт что-либо значить.
+   *
+   * Слова обе — в разметке (`layout()` в lib/admin-views.js), скрипт только
+   * переключает класс и берёт заголовок из `data-title-off`.
+   */
+  var OFFLINE_AFTER = 4000;
+  var offTimer = null;
+  var titleOn = '';
+
+  function setOffline(off) {
+    var mark = document.querySelector('.a-live');
+    if (!mark || off === mark.classList.contains('is-off')) return;
+    mark.classList.toggle('is-off', off);
+    var t = off ? mark.getAttribute('data-title-off') : titleOn;
+    if (t) mark.setAttribute('title', t);
+  }
+
+  // Свежее: канал открылся или запрос прошёл. Отменяет ожидание разрыва.
+  function fresh() {
+    if (offTimer) { clearTimeout(offTimer); offTimer = null; }
+    setOffline(false);
+  }
+
+  // Похоже на разрыв. Ждём: поднимется само — `fresh()` снимет таймер.
+  function stale() {
+    if (offTimer) return;
+    offTimer = setTimeout(function () { offTimer = null; setOffline(true); }, OFFLINE_AFTER);
   }
 
   // Отметка «обновилось» в шапке: без неё подмена происходит бесшумно, и
@@ -195,15 +247,24 @@
     if (differs) pull();
   }
 
+  (function () {
+    var mark = document.querySelector('.a-live');
+    if (mark) titleOn = mark.getAttribute('title') || '';
+  })();
+
   var es = new EventSource('/admin/live?topics=' + encodeURIComponent(topics));
   es.onmessage = function (e) {
     var next; try { next = JSON.parse(e.data); } catch (x) { return; }
+    fresh();                                      // сообщение дошло — связь есть
     heard(next);
   };
+  es.onopen = fresh;
+  es.onerror = stale;
 
   // Запасной путь. EventSource переподключается сам, но между попытками канал
   // мёртв, а сжимающий прокси может не пропустить поток вовсе — тогда страница
-  // всё равно обязана обновляться, пусть и реже.
+  // всё равно обязана обновляться, пусть и реже. Удачный опрос при этом и есть
+  // доказательство, что данные свежие: `pull()` зовёт `fresh()` сам.
   setInterval(function () { if (es.readyState !== 1) pull(); }, 20000);
   // Вернулись во вкладку — берём свежее сразу: пока она была скрыта, браузер мог
   // усыпить и таймеры, и сам канал.
