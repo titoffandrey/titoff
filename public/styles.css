@@ -2337,9 +2337,23 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .product-gallery{position:static}
   .gallery-main{border-radius:24px}
   .product-info{padding-top:2px}
-  .product-name{font-size:clamp(32px,9vw,44px)}
-  .product-short{font-size:16px}
-  .product .buy-row{position:sticky;bottom:0;z-index:24;margin:24px -16px 0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--border-soft);background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+  /* 44px на телефоне — это заголовок во весь экран: имя товара занимало две
+     строки и вместе с ценой съедало треть первого экрана, хотя решение
+     принимают по цене, вариантам и кнопке. */
+  .product-name{font-size:clamp(26px,7vw,32px)}
+  .product-short{font-size:15px}
+  /* Нижний отступ ряда покупки нужен ТОЛЬКО пока ряд прилип к низу экрана: он
+     отводит кнопку от домашней полосы iPhone. В обычном положении, когда ряд
+     доехал до своего места в потоке, те же 34px превращались в дыру между
+     кнопкой и подписью наличия (замер на 390px: 64px пустоты). Отрицательное
+     поле снизу гасит её в потоке, не трогая прилипший вид, а соседи ниже
+     поднимаются над фоном ряда — он позиционированный и иначе накрыл бы их. */
+  .product .buy-row{position:sticky;bottom:0;z-index:24;margin:16px -16px 0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--border-soft);background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+  /* Отдельной строкой, а не четвёртым значением шортката: не поддержан env() —
+     недействительным становится всё объявление, и ряд потерял бы боковые
+     −16px, которыми он растянут во всю ширину экрана. */
+  .product .buy-row{margin-bottom:calc(-1 * env(safe-area-inset-bottom,0px))}
+  .product .buy-row ~ *{position:relative;z-index:25}
   .buy-row .add-to-cart{min-width:0;max-width:none;padding-inline:14px}
   .qty{height:48px}
   .qty-btn,.qty-input{height:46px}
@@ -2350,10 +2364,31 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .storage-opt,.option-opt{min-height:44px;padding:7px 14px}
   .swatch{width:36px;height:36px}
   .band-tab{padding:9px 15px}
-  .trust{margin-top:18px}
-  .trust-item{padding:8px 0}
+  /* Три довода — снова В ОДНУ СТРОКУ. Столбиком их ставит правило ≤1100px: там
+     колонка сведений вдвое уже экрана, и три подписи в неё не встают. Ниже
+     800px товар идёт одной колонкой во всю ширину (на 390px это 350px, по
+     116px на довод), и столбик занимал три строки и 100px высоты вместо 60.
+     Раскладка та же, что у .trust-col в правой панели оформления: глиф над
+     текстом, значение отдельной строкой — иначе «100% оригинал» переносится у
+     каждого довода в своём месте и подписи встают на разной высоте. */
+  .trust{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:14px;padding-top:12px}
+  .trust-item{flex-direction:column;align-items:center;justify-content:flex-start;
+    gap:6px;padding:2px 4px;text-align:center;font-size:11.5px;line-height:1.3}
+  .trust-item+.trust-item{border-left:1px solid var(--border-soft);border-top:0}
+  .trust-ico{width:20px;height:20px}
+  .trust-text b{display:block;font-size:12.5px}
   .spec-grid{grid-template-columns:1fr;gap:4px}
   .spec-item{padding:10px 0}
+  /* Подпись наличия — примечание к кнопке, а не заголовок: на телефоне она
+     стояла тем же кеглем, что и цена вариантов. */
+  .stock{margin-top:10px;font-size:13.5px}
+  /* 34px воздуха сверху и снизу у каждой секции — мерка десктопа. На экране в
+     390px это полтора пустых сантиметра между «В наличии» и «Описанием». */
+  .section{padding-block:24px}
+  .section>h2{margin-bottom:.35em;font-size:22px}
+  /* Описание: поля в 24px оставляли тексту 302px из 350px, а 16px/1.7
+     растягивали три фразы на восемь строк — коробка выходила на целый экран. */
+  .section>.prose{padding:16px;font-size:15px;line-height:1.6}
   .review-form-wrap{padding:18px 16px}
   .review-form-wrap h3{margin-bottom:14px;font-size:20px}
   /* В узкую ленту два поля рядом не встают: столбиком, кнопка во всю ширину. */
@@ -2606,8 +2641,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .card-body{padding-inline:10px}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{font-size:13px}
-  .product-name{font-size:34px}
-  .product-price{font-size:30px}
+  .product-name{font-size:27px}
+  .product-price{font-size:25px}
   .product .buy-row{margin-inline:-16px;padding-inline:16px}
   /* На 320px ряду покупки достаётся 288px. Со счётчиком в 110px, зазором 11px и
      неразрывной подписью кнопки в 16px это 308px — кнопка обрезала бы текст.
