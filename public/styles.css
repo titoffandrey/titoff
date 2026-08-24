@@ -409,6 +409,30 @@ body.admin{background:var(--bg2)}
 .a-content-wide{max-width:1320px}
 .a-flash{background:#e9f7ee;color:#1a7f37;border:1px solid #b7e3c6;padding:12px 16px;border-radius:12px;margin:16px 24px 0;font-size:14px}
 .a-flash.err{background:#fff0f0;color:#d70015;border-color:#f2b8bb}
+/* «Сохранено» гаснет само через пять секунд.
+   Плашка отвечает на вопрос «получилось?», и ответ этот нужен ровно один раз:
+   раньше она висела до следующего перехода, и на странице настроек «Сохранено»
+   от давней правки соседствовало с уже другим содержимым формы.
+   ОШИБКА (`.a-flash.err`) не гаснет никогда: она отвечает на другой вопрос —
+   «почему не сохранилось», — и нужна всё время, пока человек правит форму.
+   Пропасть у него из-под рук вместе с объяснением она не имеет права.
+   Чистый CSS и ни строчки скрипта — по той же причине, по которой скриптов нет
+   у режима правки списка: плашку рисует сервер, и гаснуть она обязана и там,
+   где скрипты панели не загрузились.
+   Гаснет не только цвет: поля, рамка и высота уходят в ноль, иначе на месте
+   плашки осталась бы пустая полоса, читаемая как незагрузившийся блок.
+   `max-height` в 400px — заведомо больше любого сообщения: анимировать высоту
+   от `auto` нельзя, а стартовое значение применяется в момент начала анимации
+   и до него ничего не обрезает. */
+@keyframes a-flash-out{
+  from{opacity:1;max-height:400px}
+  to{opacity:0;visibility:hidden;transform:translateY(-6px);max-height:0;
+    margin-top:0;margin-bottom:0;padding-top:0;padding-bottom:0;border-width:0}
+}
+.a-flash:not(.err){overflow:hidden;animation:a-flash-out .45s ease 5s forwards}
+/* При выключенной анимации плашка не остаётся навсегда — она просто исчезает
+   без движения: «висит вечно» здесь хуже, чем «пропало резко». */
+@media (prefers-reduced-motion:reduce){.a-flash:not(.err){animation-duration:.01s}}
 .a-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:22px}
 .a-stat{background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);padding:18px;color:var(--text)}
 .a-stat:hover{box-shadow:var(--shadow)}
@@ -1978,7 +2002,12 @@ body.admin{background:#f4f4f6;color:#242426}
    строки — это удаление заказа в один промах мыши, а список открывают, чтобы
    читать, а не чистить. Переключатель — скрытый чекбокс, поэтому ни строчки
    скрипта: правило `:checked ~ table` показывает столбец. */
-.a-panel-edit{justify-content:flex-end}
+.a-panel-edit{justify-content:flex-end;gap:8px}
+/* «Очистить корзину» показывается тем же правилом, что и крестики у строк:
+   стереть весь архив из списка, открытого почитать, нельзя — сперва «Изменить».
+   Кнопка стоит в шапке режима, а не над списком, именно поэтому. */
+.o-purge-all{display:none}
+.edit-switch:checked ~ .a-panel-edit .o-purge-all{display:block}
 .edit-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;
   border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12.5px;cursor:pointer;
   transition:border-color .12s,color .12s,background .12s;user-select:none}

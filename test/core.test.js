@@ -4276,6 +4276,120 @@ test('удалить навсегда можно только из «Удалё�
   assert.equal(fresh.purgeOrder('нет-такого').reason, 'not_found');
 });
 
+/* Очистка корзины целиком.
+ *
+ * Архив копится сам: брошенные черновики и тестовые заявки удаляют из рабочего
+ * списка, и дальше они лежат там навсегда. По одной их чистить — подтверждение
+ * на каждую, и на полусотне записей за этим перестают следить вовсе.
+ */
+test('«Очистить корзину» стирает весь архив и не трогает рабочий список', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-purge-all-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+
+  const working = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
+  const trash = [1000, 2000, 3000].map(total => fresh.createOrder({ items: [], total, contact: 'tg' }));
+  // У одного из удалённых был счёт: панель обязана сказать это ДО нажатия —
+  // деньги по нему ещё могут прийти, и привязать их будет не к чему. Счёт
+  // выставляется до архива: заархивированному заказу новый счёт запрещён.
+  const attempt = '9'.repeat(24);
+  fresh.startOrderPayment(trash[1].id, { attemptId: attempt, token: 'a'.repeat(32), amount: 2000, currency: 'RUB' });
+  fresh.attachOrderInvoice(trash[1].id, { attemptId: attempt, invoiceId: 'dddddddd-0000-0000-0000-000000000000' });
+  for (const o of trash) fresh.archiveOrder(o.id, 'admin');
+
+  const result = fresh.purgeArchivedOrders();
+  assert.equal(result.removed, 3);
+  assert.equal(result.hadInvoice, 1);
+  // Рабочий список не трогается ни при каких условиях: это единственная защита
+  // от «одним нажатием снёс все заказы».
+  assert.ok(fresh.getOrder(working.id), 'заказ из рабочего списка на месте');
+  assert.equal(fresh.archivedOrders().length, 0);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).length, 1,
+    'из файла удалённые исчезли физически');
+  // Пустая корзина — не ошибка: чистить нечего, и файл трогать незачем.
+  assert.deepEqual(fresh.purgeArchivedOrders(), { ok: true, removed: 0, hadInvoice: 0 });
+});
+
+/* Список заказов: режим правки переживает действие, а «Очистить корзину» живёт
+ * внутри него.
+ */
+test('режим правки не выключается после удаления, очистка есть только в «Удалённых»', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orders-edit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const kept = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
+  const dropped = fresh.createOrder({ items: [], total: 2000, contact: 'tg' });
+  fresh.archiveOrder(dropped.id, 'admin');
+  const s = fresh.getSettings();
+
+  const plain = adminViews.ordersList(s, fresh, null, 1, 'active');
+  assert.match(plain, /class="edit-switch sr-only">/, 'по умолчанию режим выключен');
+  const editing = adminViews.ordersList(s, fresh, null, 1, 'active', '1');
+  assert.match(editing, /class="edit-switch sr-only" checked>/, 'адрес вернул режим правки');
+  // Формы действий несут его обратно на сервер вместе со страницей и вкладкой:
+  // все эти кнопки показываются только в режиме правки, значит и возвращаться
+  // надо в него же.
+  assert.match(editing, new RegExp(`/admin/orders/${kept.id}/delete[\\s\\S]{0,400}name="edit" value="1"`));
+  // Сервер кладёт его в адрес возврата — иначе режим гас бы после каждого
+  // удаления, и чистка десятка заявок означала бы десять нажатий «Изменить».
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const back = server.slice(server.indexOf('const ordersBackUrl'), server.indexOf('// Тот же возврат для отзывов'));
+  assert.match(back, /body\.edit[\s\S]{0,40}edit=1/);
+  assert.match(server, /A\.ordersList\(settings\(\), db, req\.query\.flash, req\.query\.page, req\.query\.view, req\.query\.edit\)/);
+
+  // Режим держится в адресе, поэтому он переживает и переход по страницам, и
+  // смену вкладки: чистят список подряд, и возвращать человека в режим чтения
+  // на каждом шаге значит заставлять его нажимать «Изменить» снова и снова.
+  assert.match(editing, /href="\/admin\/orders\?view=archive&edit=1"/);
+  assert.doesNotMatch(plain, /edit=1/, 'без режима адреса им не обрастают');
+
+  // «Очистить корзину» — только на вкладке «Удалённые» и только когда там
+  // что-то есть. В рабочем списке ей делать нечего.
+  const archive = adminViews.ordersList(s, fresh, null, 1, 'archive');
+  assert.match(archive, /action="\/admin\/orders\/purge-all"/);
+  assert.match(archive, /Стереть все удалённые заказы \(1\)\?/);
+  assert.doesNotMatch(plain, /purge-all/, 'в рабочем списке очистки нет');
+  fresh.purgeArchivedOrders();
+  assert.doesNotMatch(adminViews.ordersList(s, fresh, null, 1, 'archive'), /purge-all/,
+    'пустой корзине очищаться нечем');
+  // Стоит она в шапке режима правки и показывается тем же правилом, что и
+  // крестики у строк: стереть архив из списка, открытого почитать, нельзя.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.o-purge-all\{display:none\}/);
+  assert.match(css, /\.edit-switch:checked ~ \.a-panel-edit \.o-purge-all\{display:block\}/);
+});
+
+/* Уведомление в панели гаснет само.
+ *
+ * Плашка отвечает на вопрос «получилось?», и ответ нужен ровно один раз: пока
+ * она висела до следующего перехода, «Сохранено» от давней правки соседствовало
+ * с уже другим содержимым формы.
+ */
+test('плашка «Сохранено» гаснет сама и не оставляет пустой полосы', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /@keyframes a-flash-out\{/);
+  assert.match(css, /\.a-flash:not\(\.err\)\{overflow:hidden;animation:a-flash-out [\d.]+s ease \ds forwards\}/);
+  /* Гаснет только «получилось». Ошибка отвечает на другой вопрос — «почему не
+   * сохранилось», — и нужна всё время, пока человек правит форму: пропасть у
+   * него из-под рук вместе с объяснением она не имеет права. */
+  assert.doesNotMatch(css, /\.a-flash\{[^}]*animation:a-flash-out/);
+  const frames = css.slice(css.indexOf('@keyframes a-flash-out{'), css.indexOf('@keyframes a-flash-out{') + 400);
+  // Гаснет не только цвет: поля, рамка и высота уходят в ноль, иначе на месте
+  // плашки осталась бы пустая полоса, читаемая как незагрузившийся блок.
+  for (const prop of ['visibility:hidden', 'max-height:0', 'margin-top:0', 'padding-top:0', 'border-width:0']) {
+    assert.ok(frames.includes(prop), 'плашка обязана схлопываться: ' + prop);
+  }
+  // При выключенной анимации она не остаётся навсегда — просто исчезает без
+  // движения: «висит вечно» здесь хуже, чем «пропало резко».
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\.a-flash:not\(\.err\)\{animation-duration:[\d.]+s\}\}/);
+  // И ни строчки скрипта: плашку рисует сервер, гаснуть она обязана и там, где
+  // скрипты панели не загрузились.
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.doesNotMatch(ui, /a-flash/);
+});
+
 test('поздние ответы старого счёта не перезаписывают новую попытку', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-pay-race-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

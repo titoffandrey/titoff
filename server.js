@@ -112,6 +112,10 @@ const ordersBackUrl = (body, flash, forcedView) => {
   if (view === 'archive') params.push('view=archive');
   const n = Math.floor(Number(body && body.page));
   if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
+  // Режим правки возвращается вместе со страницей и вкладкой: все кнопки списка
+  // показываются только в нём, и без этого он выключался бы после каждого
+  // удаления — чистка десятка заявок означала десять лишних нажатий «Изменить».
+  if (body && body.edit) params.push('edit=1');
   if (flash) params.push('flash=' + encodeURIComponent(flash));
   return '/admin/orders' + (params.length ? '?' + params.join('&') : '');
 };
@@ -2334,7 +2338,7 @@ app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res))
 /* ---------- Заказы ---------- */
 app.get('/admin/orders', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  res.send(A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.view));
+  res.send(A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.view, req.query.edit));
 });
 app.post('/admin/orders/:id/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
@@ -2350,6 +2354,23 @@ app.post('/admin/orders/:id/restore', (req, res) => {
 // списке, сюда не попадает вовсе: `db.purgeOrder()` отвечает отказом, если он
 // не заархивирован. Два шага здесь и есть защита от нажатия не туда — стереть
 // заявку из orders.json значит потерять привязку к уже выданному счёту.
+/* Очистить корзину целиком — то же безвозвратное удаление, только разом.
+ *
+ * Регистрируется РАНЬШЕ `/admin/orders/:id/purge` для порядка чтения, хотя
+ * перехватить он его и не мог бы: у адресов разное число сегментов.
+ *
+ * Рабочий список не трогается ни при каких условиях — `db.purgeArchivedOrders()`
+ * берёт только заархивированное, и это единственная защита от «одним нажатием
+ * снёс все заказы».
+ */
+app.post('/admin/orders/purge-all', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const result = db.purgeArchivedOrders();
+  const flash = result.removed
+    ? `Удалено навсегда: ${result.removed}`
+    : 'Удалённых заказов нет';
+  res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
+});
 app.post('/admin/orders/:id/purge', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const result = db.purgeOrder(req.params.id);
