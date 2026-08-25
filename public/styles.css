@@ -93,6 +93,10 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .search input{width:100%;border:1px solid var(--border);background:var(--bg2);border-radius:980px;padding:8px 14px;font-size:14px;outline:none}
 .search input:focus{border-color:var(--accent);background:#fff}
 .cart-badge{position:absolute;top:-2px;right:-2px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+/* `hidden` обязан быть прописан ЯВНО: браузерная таблица (`[hidden]{display:none}`)
+   слабее правила по классу выше, и на пустой корзине висел кружок с нулём —
+   скрипт его прятал, а CSS показывал обратно. Та же грабля, что у `.rv-thumb`. */
+.cart-badge[hidden]{display:none}
 .site-nav{border-top:1px solid var(--border);background:rgba(255,255,255,.7)}
 .nav-inner{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;scrollbar-width:none}
 .nav-inner::-webkit-scrollbar{display:none}

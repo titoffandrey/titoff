@@ -648,7 +648,7 @@ test('карточка каталога берёт уменьшенную коп
   for (const size of images.CARD_SIZES) fs.writeFileSync(path.join(dir, images.cardName('abc.webp', size)), 'x');
   const small = render.homePage(settings, db, {});
   assert.match(small, /src="\/uploads\/abc-c640\.webp"/);
-  assert.match(small, /srcset="\/uploads\/abc-c320\.webp 320w, \/uploads\/abc-c640\.webp 640w"/);
+  assert.match(small, /srcset="\/uploads\/abc-c320\.webp 320w, \/uploads\/abc-c480\.webp 480w, \/uploads\/abc-c640\.webp 640w"/);
   assert.doesNotMatch(small, /\/uploads\/abc\.webp/, 'полноразмерный снимок остался в карточке');
 
   // Без sizes браузер берёт из srcset самый крупный вариант, и вся экономия
@@ -660,7 +660,7 @@ test('карточка каталога берёт уменьшенную коп
   assert.match(page, /src="\/uploads\/abc\.webp"/);
 
   // Имена производных считаются от исходника, а копия копии не делается.
-  assert.deepEqual(images.derivedNames('abc.webp'), ['abc-c320.webp', 'abc-c640.webp']);
+  assert.deepEqual(images.derivedNames('abc.webp'), ['abc-c320.webp', 'abc-c480.webp', 'abc-c640.webp']);
   assert.deepEqual(images.derivedNames('abc-c320.webp'), []);
   assert.ok(images.isDerived('abc-c640.webp') && images.isDerived('abc-t.webp'));
 });
