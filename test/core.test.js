@@ -1732,6 +1732,51 @@ test('бегущая строка преимуществ едет ровно н�
   assert.match(js, /initHeroTicker\(\);/);
 });
 
+test('первый экран: слоган по центру полосы, глифы одного размера и с одним штрихом', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({ storeName: 'Тест', tagline: 'Оригинальная техника', currency: '₽' }, fakeDb, {});
+
+  // Смещение слогана ЗЕРКАЛЬНОЕ: сколько снято сверху, столько добавлено снизу.
+  // Один только отрицательный margin-top полосу утоньшает, а строку по центру
+  // не ставит — низ её остаётся на прежнем расстоянии от бегущей строки.
+  const shift = css.match(/\.store-hero h1\{margin:(-[\d.]+)em 0 ([\d.]+)em;/);
+  assert.ok(shift, 'у слогана нет зеркального вертикального смещения');
+  assert.equal(Number(shift[1]), -Number(shift[2]));
+
+  // Каждый глиф вписан в общую оптическую рамку (на холсте 35×35 они занимают
+  // от 17,5 до 26 единиц — в ряду это читается как иконки разного размера), а
+  // stroke-width поделён на тот же масштаб: увеличенный глиф иначе приезжает с
+  // более толстым штрихом, чем соседний, и общий холст теряет смысл.
+  const syms = [...html.matchAll(/<symbol id="bi-([a-z]+)"[^>]*>(.*?)<\/symbol>/g)];
+  assert.ok(syms.length >= 5, 'глифы преимуществ не собрались в спрайт');
+  for (const [, name, body] of syms) {
+    const fit = body.match(/^<g transform="translate\([-\d. ]+\) scale\(([\d.]+)\)" stroke-width="([\d.]+)"/);
+    assert.ok(fit, `глиф ${name} не вписан в общую рамку`);
+    assert.ok(Math.abs(Number(fit[1]) * Number(fit[2]) - 1.2) < 0.005, `у глифа ${name} штрих уехал вместе с масштабом`);
+  }
+
+  // Фразы разделены волосяной линией перед каждой, а зазор держат поля пунктов:
+  // на стыке двух копий ленты gap строки не действует вовсе, и разделитель там
+  // встал бы не посередине.
+  assert.match(css, /\.ticker-row\{display:flex;align-items:center;margin:0;padding:0;/);
+  assert.match(css, /\.ticker-row li::before\{content:"";position:absolute;left:0/);
+});
+
+test('заголовок категории не отбит от шапки общим отступом секции', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => ['iPhone'], visibleCategories: () => ['iPhone'], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const settings = { storeName: 'Тест', tagline: 'Оригинальная техника', currency: '₽' };
+
+  // У категории и поиска заголовок идёт сразу под меню разделов: общие 54 px
+  // отбивали его от шапки на две его собственные высоты.
+  assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /class="container section section-top"/);
+  assert.match(render.homePage(settings, fakeDb, { q: 'айфон' }), /class="container section section-top"/);
+  assert.match(css, /\.section\.section-top\{padding-top:\d+px\}/);
+  // На главной заголовка нет вовсе — там первый экран, и модификатор не нужен
+  assert.ok(!/section-top/.test(render.homePage(settings, fakeDb, {})));
+});
+
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
   const fakeDb = { categories: () => ['AirPods'], visibleCategories: () => ['AirPods'], pendingReviewCount: () => 0 };
   const html = adminViews.productForm(SETTINGS, fakeDb, null);

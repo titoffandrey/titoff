@@ -1194,23 +1194,23 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .store-hero{position:relative;overflow:hidden;background:#f4f4f6;border-bottom:1px solid var(--border-soft)}
 .store-hero::after{content:"";position:absolute;right:-100px;top:-240px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.9),rgba(255,255,255,0) 68%);pointer-events:none}
 /* Отступы сверху и снизу равные: полоса между меню и бегущей строкой держит
-   слоган по центру, а не прижимает его к низу. */
-.store-hero-inner{position:relative;z-index:1;padding-top:24px;padding-bottom:24px}
+   слоган по центру, а не прижимает его к низу. Ужаты с 24 px: слоган — одна
+   строка, и полторы её высоты пустоты вокруг забирали первый экран у товаров. */
+.store-hero-inner{position:relative;z-index:1;padding-top:16px;padding-bottom:16px}
 .store-hero-copy{max-width:900px;margin-inline:auto;text-align:center}
 .section-kicker{display:block;margin-bottom:10px;color:var(--accent);font-size:12px;font-weight:750;letter-spacing:.11em;text-transform:uppercase}
-/* Верх строки шрифт держит на 0.2em выше прописных, а выносные («р», «у») почти
-   достают её низ. При равных отступах контейнера это читается как «слоган
-   прижат к бегущей строке»: сверху пусто, снизу впритык. Отрицательный
-   margin-top снимает эту разницу, и он в em — значит, работает на всех размерах
-   заголовка, а не только на десктопном.
-   Снимает ПОЛОВИНУ, а не всю: полные 0.2em переносили перекос на другую сторону
-   (сверху ровно отступ, снизу отступ плюс те же 0.2em) — на 25 px это 5 px, и
-   строка заметно сидела выше середины своей полосы. Половина разводит остаток
-   поровну: по 0.1em сверху и снизу. */
+/* Внутри строки текст сидит НЕ по центру её высоты: сверху шрифт держит запас
+   под выносные вверх (их в строке нет), снизу — только хвосты «р» и «у». На
+   29 px это 6,6 px пустоты сверху против 0,9 снизу, и при равных отступах
+   контейнера слоган читается как приваленный к бегущей строке.
+   Смещение ЗЕРКАЛЬНОЕ: сколько снимаем сверху, столько добавляем снизу. Один
+   только отрицательный margin-top (так было раньше) полосу просто утоньшает —
+   низ строки остаётся на прежнем расстоянии от бегущей строки, и по центру
+   слоган не встаёт. Числа в em, поэтому работают на любом кегле заголовка. */
 /* Кегль и вес слогана ужаты намеренно: это подпись под названием магазина, а не
    заголовок страницы. В 34 px полужирным он спорил с самим брендом в шапке и
    забирал первый экран у товаров. Вес задан явно — общее правило h1 даёт 650. */
-.store-hero h1{margin:-.1em 0 0;font-family:var(--brand-font);font-size:clamp(23px,2.3vw,29px);font-weight:560;line-height:1.16;letter-spacing:-.034em;color:var(--muted)}
+.store-hero h1{margin:-.099em 0 .099em;font-family:var(--brand-font);font-size:clamp(23px,2.3vw,29px);font-weight:560;line-height:1.16;letter-spacing:-.034em;color:var(--muted)}
 /* Яблоко — часть строки: inline и размер в em, как у буквы. Сидит не на базовой
    линии, а по центру прописных: у логотипа нет ни выносных элементов, ни
    плоского низа, поэтому «на базовой линии» читается как приклеенное к строке. */
@@ -1228,12 +1228,24 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Пауза только когда лента уехала за экран (класс ставит app.js). Под курсором
    не останавливаем: лента идёт медленно, и замирающая строка читается как сбой */
 .hero-ticker.is-idle .ticker-track{animation-play-state:paused}
-.ticker-row{display:flex;align-items:center;gap:44px;margin:0;padding:0 44px 0 0;list-style:none}
+/* Зазор между фразами держат поля самих пунктов, а не gap строки: между ними
+   стоит разделитель, и он обязан встать ровно посередине зазора — в том числе
+   на стыке двух копий ленты, где gap не действует вовсе. Поэтому и хвостового
+   padding у строки больше нет: последний пункт копии отделён от первого пункта
+   следующей теми же 24+24 px, что и соседи внутри копии. */
+.ticker-row{display:flex;align-items:center;margin:0;padding:0;list-style:none}
 /* Межстрочный задан явно: у полосы высота и есть высота строки, и наследованные
    1.5 добавляли бы к ней 7 px пустоты сверху и снизу. */
-.ticker-row li{display:flex;align-items:center;gap:9px;white-space:nowrap;color:#3a3a3c;font-size:14px;line-height:1.25;font-weight:600;letter-spacing:-.012em}
-/* Глиф размером со строку, а не в полтора раза больше: он задавал высоту полосы */
-.tick-ico{flex:none;width:19px;height:19px;color:var(--text)}
+.ticker-row li{position:relative;display:flex;align-items:center;gap:7px;padding:0 24px;white-space:nowrap;color:#3a3a3c;font-size:15px;line-height:1.3;font-weight:600;letter-spacing:-.012em}
+/* Волосяной разделитель перед каждой фразой — включая первую в копии: лента
+   зациклена, и слева от неё всегда стоит предыдущий пункт. */
+.ticker-row li::before{content:"";position:absolute;left:0;top:50%;width:1px;height:15px;margin-top:-7.5px;background:rgba(17,17,26,.16)}
+/* Глиф размером со строку, а не в полтора раза больше: он задавал высоту полосы.
+   Сдвиг вниз — оптический: align-items ставит глиф по центру СТРОКИ, а глаз
+   равняет его по слову, то есть по блоку от верха прописных до базовой линии с
+   небольшой поправкой на хвосты «у» и «ц». Без него глиф сидит выше подписи.
+   В em, поэтому держится и на мобильном кегле. */
+.tick-ico{flex:none;width:20px;height:20px;color:var(--text);transform:translateY(.06em)}
 /* -25 % — ровно одна из четырёх копий строки (TICKER_COPIES в render.js) */
 @keyframes ticker-run{from{transform:translate3d(0,0,0)}to{transform:translate3d(-25%,0,0)}}
 @media(prefers-reduced-motion:reduce){.ticker-track{animation:none}}
@@ -1244,6 +1256,10 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    между первым экраном и товарами, тем более что своего заголовка у каталога на
    главной нет. Небольшой отступ остаётся — карточки не должны липнуть к полосе. */
 .store-hero + .section{padding-top:20px}
+/* Первый экран категории и поиска: заголовок идёт сразу под меню разделов, и
+   общие 54 px отбивали его от шапки на две его собственные высоты — страница
+   открывалась пустой полосой. Отступ примерно как у слогана на главной. */
+.section.section-top{padding-top:22px}
 .section-head{align-items:flex-end;margin-bottom:22px}
 .section-head h2{font-size:clamp(26px,3vw,36px);line-height:1.08}
 /* Заголовок каталога — по центру полосы */
@@ -2414,7 +2430,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
   /* 20px сверху и снизу вокруг ОДНОЙ строки — почти по её собственной высоте:
      на первом экране телефона слоган выглядел висящим в пустой полосе. */
-  .store-hero-inner{display:block;padding-top:12px;padding-bottom:12px}
+  .store-hero-inner{display:block;padding-top:10px;padding-bottom:10px}
   /* Слоган — одна строка вместе с яблоком: перенос делил короткую фразу пополам
      и оставлял на второй строке один-два слова. Кегль подбирается под ширину
      экрана, а не задаётся числом: слоган пишет владелец. --fit — длина строки
@@ -2426,12 +2442,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
     -webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent);
     mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent)}
   .ticker-track{animation-duration:32s}
-  .ticker-row{gap:28px;padding-right:28px}
-  .ticker-row li{gap:8px;font-size:13px}
-  .tick-ico{width:17px;height:17px}
+  .ticker-row li{gap:6px;padding:0 15px;font-size:14px}
+  .ticker-row li::before{height:13px;margin-top:-6.5px}
+  .tick-ico{width:18px;height:18px}
 
   .section{padding-block:34px}
   .store-hero + .section{padding-top:16px}
+  .section.section-top{padding-top:16px}
   .section-head{margin-bottom:16px}
   .section-head h2{font-size:28px}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -2954,7 +2971,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .container{padding-inline:16px}
   .header-row{padding-inline:16px}
   .nav-inner{padding-inline:16px}
-  .store-hero-inner{padding:11px 16px}
+  .store-hero-inner{padding:9px 16px}
   /* Поля контейнера здесь 16px, поэтому строке достаётся на 32px меньше */
   .store-hero h1{font-size:min(23px,calc((100vw - 32px)/var(--fit,21)))}
   .section-head{align-items:flex-end}
