@@ -3769,6 +3769,207 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .img-group-case{font-weight:400;color:var(--muted);font-size:12px;margin-left:6px}
 
 /* =========================================================
+   ОНЛАЙН-ЧАТ ВИТРИНЫ
+   =========================================================
+   Кнопка в углу и окно разговора. Каркас рисует сервер (chatWidget в
+   lib/render.js), реплики дописывает public/chat.js.
+
+   Раскладка окна — грид в три ряда: шапка, лента, ввод. Именно грид, а не
+   поток с прокруткой внутри: ленте нужно отдать ВСЮ оставшуюся высоту и ни
+   пикселем больше, иначе на телефоне поле ввода уезжает под клавиатуру, а
+   узнают об этом от покупателя.
+
+   Кнопка «Позвать менеджера» стоит НАД полем ввода, а не в шапке: решение
+   позвать человека принимают, дочитав ответ бота, то есть глядя в конец
+   ленты, — там же должна оказаться и кнопка. */
+.chat-widget{position:fixed;right:20px;z-index:70;
+  /* Дно отводим от домашней полосы iPhone. */
+  bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+
+/* Кнопка. Круг акцентного цвета — единственный такой элемент на витрине,
+   поэтому её находят глазами, не разглядывая углы. */
+.chat-fab{position:relative;width:60px;height:60px;border-radius:50%;border:0;cursor:pointer;
+  background:var(--accent);color:#fff;display:grid;place-items:center;
+  box-shadow:0 8px 26px rgba(0,0,0,.22);
+  transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease}
+.chat-fab:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.28)}
+.chat-fab:active{transform:translateY(0) scale(.96)}
+.chat-fab svg{width:27px;height:27px}
+/* Открытое окно прячет кнопку: на телефоне она легла бы прямо на поле ввода. */
+.chat-widget.is-open .chat-fab{opacity:0;pointer-events:none;transform:scale(.8)}
+.chat-fab .chat-badge{position:absolute;top:-2px;right:-2px;min-width:21px;height:21px;padding:0 5px;
+  border-radius:999px;background:#e11d48;color:#fff;font-size:12px;font-weight:600;line-height:21px;
+  border:2px solid #fff;text-align:center}
+
+/* Окно. Скрыто трансформацией, а не display:none — иначе не из чего
+   анимировать появление, а мгновенно возникающая панель выглядит рывком. */
+.chat-panel{position:absolute;right:0;bottom:0;width:380px;max-width:calc(100vw - 32px);
+  height:min(620px,calc(100vh - 120px));
+  display:grid;grid-template-rows:auto 1fr auto;
+  background:#fff;border-radius:20px;border:1px solid var(--border);
+  box-shadow:0 18px 60px rgba(0,0,0,.22);overflow:hidden;
+  opacity:0;visibility:hidden;transform:translateY(12px) scale(.97);transform-origin:100% 100%;
+  transition:opacity .2s ease, transform .2s ease, visibility .2s}
+.chat-widget.is-open .chat-panel{opacity:1;visibility:visible;transform:none}
+
+.chat-head{display:flex;align-items:center;gap:11px;padding:13px 14px;border-bottom:1px solid var(--border);
+  background:#fff}
+.chat-avatar{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;
+  display:grid;place-items:center;flex:none}
+.chat-avatar svg{width:20px;height:20px}
+.chat-brand{display:flex;flex-direction:column;min-width:0;line-height:1.25;flex:1}
+.chat-brand b{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Строка состояния — единственное место, где видно, кто сейчас за клавиатурой.
+   Зелёная точка означает «отвечаем», у завершённого диалога её нет. */
+.chat-status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px}
+.chat-status::before{content:"";width:7px;height:7px;border-radius:50%;background:#0b7a37;flex:none}
+.chat-widget[data-mode=closed] .chat-status::before{background:var(--muted)}
+.chat-x{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:6px;border-radius:50%;
+  display:grid;place-items:center;flex:none}
+.chat-x:hover{background:var(--bg2);color:var(--text)}
+.chat-x svg{width:18px;height:18px}
+
+.chat-log{overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:9px;
+  background:var(--bg2);-webkit-overflow-scrolling:touch}
+.chat-msg{max-width:84%;padding:9px 13px;border-radius:16px;font-size:14.5px;line-height:1.45;
+  white-space:pre-line;word-wrap:break-word;overflow-wrap:anywhere}
+/* Свои реплики справа акцентом, чужие слева белым — раскладка, знакомая по
+   любому мессенджеру: разбираться в ней покупателю не приходится. */
+.chat-me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
+.chat-me a{color:#fff;text-decoration:underline}
+.chat-them{align-self:flex-start;background:#fff;border:1px solid var(--border);border-bottom-left-radius:5px}
+.chat-them a{color:var(--accent);text-decoration:underline}
+/* Системная строка («менеджер подключился») — не реплика, а отметка: она идёт
+   по центру и мельче, иначе читается как ещё один собеседник. */
+.chat-sys{align-self:center;max-width:100%;background:transparent;border:0;color:var(--muted);
+  font-size:12.5px;text-align:center;padding:2px 8px}
+.chat-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
+
+/* «Печатает…» — три точки, чистый CSS. Скрипт только вставляет узел: анимация
+   в JS означала бы таймер на каждый кадр ради трёх кружков. */
+.chat-typing{display:flex;gap:4px;align-items:center;padding:13px}
+.chat-typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.4;
+  animation:chat-dot 1.2s infinite ease-in-out}
+.chat-typing i:nth-child(2){animation-delay:.18s}
+.chat-typing i:nth-child(3){animation-delay:.36s}
+@keyframes chat-dot{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:.9;transform:translateY(-3px)}}
+
+.chat-foot{border-top:1px solid var(--border);background:#fff;padding:10px 12px;
+  padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+.chat-call{width:100%;margin-bottom:9px;padding:8px;border:1px solid var(--border);border-radius:999px;
+  background:#fff;color:var(--text);font-family:inherit;font-size:13px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;transition:border-color .14s,background .14s}
+.chat-call:hover{border-color:var(--accent);background:var(--bg2)}
+.chat-call:disabled{opacity:.5;cursor:default}
+/* Прятать кнопку атрибутом `hidden` мало: браузерная таблица задаёт ему всего
+   лишь `display:none`, а наш `display:flex` выше её перебивает — и «Позвать
+   менеджера» продолжала висеть в диалоге, где менеджер уже отвечает. Та же
+   грабля, что была у скрытых плиток вложений (.rv-thumb[hidden]). */
+.chat-call[hidden]{display:none}
+.chat-fab .chat-badge[hidden]{display:none}
+.chat-call svg{width:15px;height:15px}
+.chat-form{display:flex;align-items:flex-end;gap:8px}
+.chat-form textarea{flex:1;resize:none;border:1px solid var(--border);border-radius:18px;padding:9px 13px;
+  font-family:inherit;font-size:15px;line-height:1.4;max-height:96px;color:var(--text);background:#fff}
+.chat-form textarea:focus{outline:none;border-color:var(--accent)}
+.chat-send{width:38px;height:38px;flex:none;border:0;border-radius:50%;background:var(--accent);color:#fff;
+  cursor:pointer;display:grid;place-items:center;transition:opacity .15s,transform .06s}
+.chat-send:hover{opacity:.9}
+.chat-send:active{transform:scale(.94)}
+.chat-send svg{width:18px;height:18px}
+/* Завершённый диалог: писать в него уже некому, но перечитать можно. */
+.chat-widget[data-mode=closed] .chat-form,.chat-widget[data-mode=closed] .chat-call{display:none}
+
+/* На телефоне окно занимает экран целиком: полупанель в 380 px рядом с краем
+   выглядит обрезанной, а места под ленту в ней остаётся на три реплики. */
+@media (max-width:560px){
+  .chat-widget{right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .chat-panel{position:fixed;inset:0;width:100vw;max-width:100vw;height:100dvh;border-radius:0;border:0;
+    transform:translateY(16px)}
+  .chat-log{padding:12px}
+  .chat-msg{max-width:88%}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .chat-panel,.chat-fab{transition:none}
+  .chat-typing i{animation:none}
+}
+
+
+/* =========================================================
+   ЧАТ В ПАНЕЛИ: список диалогов и одна переписка
+   =========================================================
+   Классы намеренно не пересекаются с витринными (.chat-widget, .chat-panel,
+   .chat-fab): таблица стилей одна на витрину и панель, и одноимённое правило
+   молча красило бы окно покупателя. */
+
+/* Состояние чата в настройках. Три тона на три разных вопроса, и тон здесь
+   несёт смысл: «выключено» — это не ошибка, а «темы не создаются» — ошибка,
+   про которую владелец иначе узнает от покупателя. */
+.chat-state{margin:0 0 14px}
+.chat-state-row{margin:0 0 6px;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.45;
+  border:1px solid var(--border);background:var(--bg2)}
+.chat-state-row:last-child{margin-bottom:0}
+.chat-state-row.is-ok{border-color:#bfe3cd;background:#f2fbf5;color:#0b5c2c}
+.chat-state-row.is-warn{border-color:#f2d9b8;background:#fffaf2;color:#8a4b00}
+.chat-state-row.is-err{border-color:#f2c4c0;background:#fff5f4;color:#8f2018}
+.chat-state-row.is-off{color:var(--muted)}
+
+/* Список диалогов — строки-ссылки, а не таблица: у реплики длинный текст, и в
+   столбцах он расползается ровно так же, как расползался отзыв. */
+.chat-rows{display:flex;flex-direction:column}
+.chat-row{display:grid;gap:3px;padding:12px 4px;border-bottom:1px solid var(--border);color:inherit}
+.chat-row:last-child{border-bottom:0}
+.chat-row:hover{background:var(--bg2)}
+.chat-row.is-live{box-shadow:inset 3px 0 0 var(--accent)}
+.chat-row-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chat-row-head b{font-size:14px;font-weight:600}
+.chat-row-when{margin-left:auto;font-size:12px;color:var(--muted)}
+/* Последняя реплика обрезается двумя строками: в списке диалог надо узнать, а
+   не прочесть целиком — то же правило, что у строки отзыва. */
+.chat-row-last{font-size:13px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;line-height:1.4}
+.chat-row-last i{color:var(--muted);font-style:normal}
+.chat-row-meta{font-size:11.5px;color:var(--muted)}
+
+.chat-badge-mode{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.chat-badge-mode.is-ai{background:#eef4ff;color:#1f4fa8}
+.chat-badge-mode.is-op{background:#f2fbf5;color:#0b5c2c}
+.chat-badge-mode.is-done{background:var(--bg2);color:var(--muted)}
+
+.chat-view-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.chat-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
+.chat-fact{background:var(--bg2);border-radius:10px;padding:7px 11px;font-size:12px;min-width:0}
+.chat-fact span{display:block;color:var(--muted);font-size:11px}
+.chat-fact b{font-weight:600;word-break:break-word}
+
+/* Переписка: те же стороны, что видит покупатель, — свои реплики магазина
+   справа. Менеджер сверяет по ней разговор, и зеркальная раскладка сбивала бы. */
+.chat-thread{display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;
+  padding:12px;background:var(--bg2);border-radius:12px;margin-bottom:14px}
+.chat-line{max-width:82%;padding:8px 12px;border-radius:14px;background:#fff;border:1px solid var(--border);
+  font-size:13.5px;line-height:1.45;white-space:pre-line;word-wrap:break-word;overflow-wrap:anywhere}
+.chat-line.is-user{align-self:flex-start}
+.chat-line.is-ai,.chat-line.is-operator{align-self:flex-end}
+.chat-line.is-operator{border-color:#bfe3cd;background:#f6fdf8}
+.chat-line.is-system{align-self:center;max-width:100%;background:transparent;border:0;color:var(--muted);
+  font-size:12px;text-align:center;padding:2px}
+.chat-line-who{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:2px}
+.chat-line-at{display:block;font-size:10.5px;color:var(--muted);margin-top:3px}
+.chat-line.is-system .chat-line-at{display:none}
+
+.chat-answer textarea{width:100%;font-family:inherit;font-size:14px;padding:10px 12px;
+  border:1px solid var(--border);border-radius:12px;resize:vertical}
+.chat-answer-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+@media (max-width:640px){
+  .chat-line{max-width:92%}
+  .chat-thread{max-height:none;padding:10px}
+  .chat-answer-acts .btn{flex:1}
+}
+
+
+/* =========================================================
    ПОЛЯ ВВОДА НА ТЕЛЕФОНЕ: НЕ МЕЛЬЧЕ 16 px
    =========================================================
    Safari на iOS приближает страницу, когда фокус встаёт в поле с кеглем

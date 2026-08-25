@@ -1,0 +1,486 @@
+'use strict';
+/* ==================== Онлайн-чат витрины: окно и живой канал ====================
+ *
+ * Кнопку в углу и каркас окна рисует СЕРВЕР (`chatWidget()` в lib/render.js) —
+ * скрипт создаёт только сами реплики, как это делает корзина. Причина простая:
+ * кнопка обязана быть на месте вместе со страницей, а не появляться через
+ * полсекунды после загрузки скрипта, дёргая угол экрана.
+ *
+ * ЧТО ЗДЕСЬ ГЛАВНОЕ — СКОРОСТЬ ПЕРВОГО ОТВЕТА. Покупатель, задавший вопрос,
+ * ждёт молча, и каждая секунда этого молчания — шанс, что он закроет вкладку.
+ * Поэтому:
+ *   - окно открывается мгновенно и с приветствием, которое уже лежит в
+ *     разметке: за ним никуда не ходят;
+ *   - его вопрос уходит одним коротким POST, который НЕ ждёт модель;
+ *   - ответ приходит по живому каналу кусками, ровно так, как его печатает ИИ.
+ *
+ * ПОЧЕМУ КАНАЛ, А НЕ ОПРОС. Ответ оператора приходит когда угодно — через
+ * десять секунд или через десять минут; опрос раз в три секунды означал бы
+ * либо задержку, либо тысячу пустых запросов на каждого посетителя. Опрос
+ * остаётся запасным путём — на случай прокси, который не пропускает поток.
+ *
+ * РАЗМЕТКУ ДАННЫХ СТРОИМ УЗЛАМИ, А НЕ СТРОКОЙ. В ленту попадает текст, который
+ * написал посторонний человек (и текст, который сочинила модель по его
+ * просьбе). Ни одна из этих строк не должна иметь возможности стать разметкой,
+ * поэтому здесь нет ни одного `innerHTML` с данными — только `textContent` и
+ * `createElement`.
+ */
+(function () {
+  var root = document.getElementById('chat-widget');
+  if (!root) return;
+
+  var panel = document.getElementById('chat-panel');
+  var list = document.getElementById('chat-log');
+  var form = document.getElementById('chat-form');
+  var input = document.getElementById('chat-input');
+  var badge = document.getElementById('chat-badge');
+  var statusEl = document.getElementById('chat-status');
+  var callBtn = document.getElementById('chat-call');
+  var button = document.getElementById('chat-open');
+  if (!panel || !list || !form || !input) return;
+
+  var STORE = 'chat_v1';
+  var state = {
+    id: '',
+    mode: 'ai',
+    open: false,
+    started: false,      // диалог уже заведён на сервере
+    stream: null,        // EventSource
+    sid: '',             // номер своего канала: по нему сервер не шлёт нам эхо своей же реплики
+    pollTimer: null,     // запасной опрос, когда канал не открылся
+    since: 0,            // время последней показанной реплики (для опроса)
+    typing: null,        // узел «печатает…»
+    live: null,          // узел ответа ИИ, который печатается прямо сейчас
+    unread: 0,
+    sending: false,
+    echo: null           // своя последняя реплика: по ней узнаётся эхо с сервера
+  };
+
+  /* --------------------------------- Память --------------------------------- */
+
+  function remember() {
+    try {
+      localStorage.setItem(STORE, JSON.stringify({ started: state.started, at: Date.now() }));
+    } catch (e) { /* приватный режим — переживём, диалог хранит сервер */ }
+  }
+  function recall() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(STORE) || 'null');
+      // Неделю спустя разговор уже не продолжают: канал в фоне держать незачем.
+      if (raw && raw.started && Date.now() - Number(raw.at || 0) < 7 * 24 * 3600 * 1000) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  /* --------------------------------- Реплики --------------------------------- */
+
+  // Ссылки на карточки товаров ИИ пишет адресом (/product/id) — превращаем их в
+  // настоящие ссылки. Всё остальное остаётся текстом: узлы создаются вручную,
+  // поэтому чужая строка разметкой стать не может в принципе.
+  var LINK = /(https?:\/\/[^\s<>"]+|\/(?:product|checkout|warranty|returns|privacy)[^\s<>",;]*)/g;
+
+  function fillText(node, text) {
+    var rest = String(text == null ? '' : text);
+    var at = 0;
+    var m;
+    LINK.lastIndex = 0;
+    while ((m = LINK.exec(rest))) {
+      if (m.index > at) node.appendChild(document.createTextNode(rest.slice(at, m.index)));
+      /* Знаки препинания в конец ссылки не забираем. Модель пишет адрес внутри
+       * предложения («смотрите здесь: /product/iphone-17-pro-max.»), и точка,
+       * попавшая в href, превращает живую ссылку в 404 — то есть ровно в тот
+       * тупик, ради обхода которого ссылку и дают. */
+      var href = m[0].replace(/[.,;:!?)»"']+$/, '');
+      if (!href) { at = m.index; break; }
+      var a = document.createElement('a');
+      a.href = href;
+      a.textContent = href;
+      // Внешние ссылки открываем в новой вкладке, свои — в этой же: увести
+      // покупателя с витрины по своей же ссылке было бы странно.
+      if (href.charAt(0) !== '/') { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+      node.appendChild(a);
+      // Отрезанная пунктуация остаётся обычным текстом сразу за ссылкой.
+      at = m.index + href.length;
+    }
+    if (at < rest.length) node.appendChild(document.createTextNode(rest.slice(at)));
+  }
+
+  function bubble(role, text, by) {
+    var row = document.createElement('div');
+    row.className = 'chat-msg chat-' + (role === 'user' ? 'me' : role === 'system' ? 'sys' : 'them');
+    if (role === 'system') {
+      row.textContent = text;
+      return row;
+    }
+    if (role === 'operator' || role === 'ai') {
+      var who = document.createElement('span');
+      who.className = 'chat-who';
+      who.textContent = role === 'operator' ? (by || 'Менеджер') : 'Консультант';
+      row.appendChild(who);
+    }
+    var body = document.createElement('span');
+    body.className = 'chat-text';
+    fillText(body, text);
+    row.appendChild(body);
+    return row;
+  }
+
+  function append(message) {
+    if (!message || !message.text) return;
+    if (message.at && message.at <= state.since) return;    // уже показано
+    /* Страховка от собственного эха на ПЕРВОМ сообщении.
+     *
+     * Обычно эхо отсекает сервер по номеру канала, но номер приезжает в
+     * событии `ready`, а канал открывается уже после того, как покупатель
+     * нажал «отправить»: первое сообщение уходит, когда номера ещё нет, и
+     * возвращается дублем. Поэтому свою последнюю реплику узнаём и по тексту.
+     *
+     * Два одинаковых сообщения подряд («да», «да») от этого не теряются: оба
+     * нарисованы здесь локально в момент отправки, подавляется только эхо. */
+    if (message.role === 'user' && state.echo && message.text === state.echo.text
+      && Date.now() - state.echo.at < 15000) {
+      state.echo = null;
+      if (message.at) state.since = message.at;
+      return;
+    }
+    if (message.at) state.since = message.at;
+    hideTyping();
+    list.appendChild(bubble(message.role, message.text, message.by));
+    scroll();
+    if (!state.open && message.role !== 'user') bumpUnread();
+  }
+
+  // Лента прокручивается вниз только когда покупатель и так внизу: он мог
+  // отлистать вверх, чтобы перечитать ответ, и дёргать страницу под ним нельзя.
+  function scroll(force) {
+    var near = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+    if (force || near) list.scrollTop = list.scrollHeight;
+  }
+
+  function showTyping() {
+    if (state.typing) return;
+    var row = document.createElement('div');
+    row.className = 'chat-msg chat-them chat-typing';
+    row.setAttribute('aria-label', 'Печатает ответ');
+    for (var i = 0; i < 3; i++) row.appendChild(document.createElement('i'));
+    list.appendChild(row);
+    state.typing = row;
+    scroll();
+  }
+  function hideTyping() {
+    if (!state.typing) return;
+    if (state.typing.parentNode) state.typing.parentNode.removeChild(state.typing);
+    state.typing = null;
+  }
+
+  /* Ответ ИИ печатается прямо в ленту: приходит кусок текста — дописываем его в
+   * ту же реплику. Именно это превращает ожидание в чтение. */
+  function delta(piece) {
+    hideTyping();
+    if (!state.live) {
+      state.live = bubble('ai', '', '');
+      list.appendChild(state.live);
+    }
+    var body = state.live.querySelector('.chat-text');
+    if (!body) return;
+    // Пока текст растёт, ссылки не собираем: они всё равно приезжают по частям.
+    // Готовую реплику перерисуем целиком в `endDelta()`.
+    body.textContent += piece;
+    scroll();
+  }
+  function endDelta(message) {
+    // «Печатает…» гасим в любом случае: ответ мог закончиться и ничем — например,
+    // оператор вошёл в разговор прямо посреди генерации.
+    hideTyping();
+    if (!state.live) { if (message && message.text) append(message); return; }
+    var body = state.live.querySelector('.chat-text');
+    if (body && message && message.text) {
+      body.textContent = '';
+      fillText(body, message.text);
+    }
+    if (message && message.at) state.since = message.at;
+    state.live = null;
+    if (!state.open) bumpUnread();
+    scroll();
+  }
+
+  /* ------------------------------- Непрочитанное ------------------------------- */
+
+  function bumpUnread() {
+    state.unread++;
+    paintBadge();
+  }
+  function paintBadge() {
+    if (!badge) return;
+    badge.textContent = state.unread > 9 ? '9+' : String(state.unread);
+    badge.hidden = !state.unread;
+    if (button) {
+      button.setAttribute('aria-label', state.unread ? 'Чат с магазином, новых сообщений: ' + state.unread : 'Чат с магазином');
+    }
+  }
+  function clearUnread() {
+    if (!state.unread) return;
+    state.unread = 0;
+    paintBadge();
+    if (state.id) post('/api/chat/read', {});
+  }
+
+  /* --------------------------------- Состояние -------------------------------- */
+
+  function setMode(mode) {
+    state.mode = mode || 'ai';
+    if (!statusEl) return;
+    statusEl.textContent = state.mode === 'operator' ? 'Отвечает менеджер'
+      : state.mode === 'closed' ? 'Диалог завершён' : 'Обычно отвечаем сразу';
+    root.setAttribute('data-mode', state.mode);
+    // Звать менеджера, когда он уже в диалоге, незачем — кнопка прячется.
+    if (callBtn) callBtn.hidden = state.mode !== 'ai';
+  }
+
+  /* ---------------------------------- Запросы ---------------------------------- */
+
+  function post(url, data) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(data || {})
+    }).then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .catch(function () { return { ok: false, error: 'network' }; });
+  }
+
+  // Где стоит покупатель и что у него в корзине — это уезжает с каждым
+  // сообщением, потому что за разговор он успевает уйти на другую страницу, и
+  // «а 512 есть?» через пять реплик означает уже другой товар.
+  function place() {
+    var cart = [];
+    try {
+      var raw = JSON.parse(localStorage.getItem('cart_v1') || '[]');
+      if (Array.isArray(raw)) {
+        cart = raw.slice(0, 20).map(function (it) {
+          return { name: String(it && it.name || '').slice(0, 120), qty: Number(it && it.qty) || 1 };
+        });
+      }
+    } catch (e) {}
+    return { path: location.pathname, cart: cart };
+  }
+
+  function open() {
+    if (state.started) return Promise.resolve(true);
+    var body = place();
+    return post('/api/chat/open', body).then(function (d) {
+      if (!d || !d.ok) return false;
+      state.id = d.id || '';
+      state.started = true;
+      setMode(d.mode);
+      // Сервер отдаёт всю переписку: покупатель мог начать разговор на другой
+      // странице или вчера — окно обязано открыться там же, где он его оставил.
+      (d.messages || []).forEach(append);
+      remember();
+      connect();
+      return true;
+    });
+  }
+
+  /* --------------------------------- Живой канал -------------------------------- */
+
+  function connect() {
+    if (state.stream || !state.started) return;
+    if (typeof EventSource === 'undefined') return startPolling();
+    var src = new EventSource('/api/chat/stream', { withCredentials: true });
+    state.stream = src;
+
+    /* Номер канала запоминаем и шлём с каждым сообщением. Без него сервер
+     * рассылает нашу же реплику всем вкладкам, включая эту, — а она нарисована
+     * здесь ещё в момент нажатия «отправить» (ждать сети нельзя: пауза после
+     * своего сообщения читается как сбой). Ровно так вопрос покупателя и
+     * показывался в окне дважды. */
+    src.addEventListener('ready', function (e) {
+      var d = parse(e.data);
+      if (d && d.sid) state.sid = d.sid;
+      if (d && d.mode) setMode(d.mode);
+    });
+    src.addEventListener('message', function (e) { append(parse(e.data)); });
+    src.addEventListener('delta', function (e) {
+      var d = parse(e.data);
+      if (d && typeof d.text === 'string') delta(d.text);
+    });
+    src.addEventListener('done', function (e) { endDelta(parse(e.data)); });
+    src.addEventListener('typing', function () { showTyping(); });
+    src.addEventListener('mode', function (e) {
+      var d = parse(e.data);
+      if (d && d.mode) setMode(d.mode);
+    });
+    src.addEventListener('error', function () {
+      // EventSource переподключается сам, и обрыв на секунду — обычное дело.
+      // Запасной опрос включаем, только когда канал закрылся насовсем: у
+      // сжимающего прокси поток не проходит вовсе, и без опроса покупатель не
+      // получил бы ни ответа ИИ, ни ответа менеджера.
+      if (src.readyState === 2) { state.stream = null; startPolling(); }
+    });
+  }
+
+  function parse(raw) {
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  function startPolling() {
+    if (state.pollTimer || !state.started) return;
+    state.pollTimer = setInterval(function () {
+      fetch('/api/chat/poll?since=' + encodeURIComponent(state.since), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.ok) return;
+          if (d.mode) setMode(d.mode);
+          (d.messages || []).forEach(append);
+        }).catch(function () {});
+    }, 3000);
+  }
+
+  /* ---------------------------------- Отправка ---------------------------------- */
+
+  function send(text) {
+    var body = String(text || '').trim();
+    if (!body || state.sending) return;
+    state.sending = true;
+    /* Своя реплика рисуется БЕЗ времени, и это важно: `state.since` уезжает на
+     * сервер в запасном опросе и сравнивается там с временем сервера. Часы
+     * браузера идут по-своему — спешащие на минуту заставили бы сервер считать
+     * уже показанным всё, что он пришлёт следующую минуту, то есть покупатель
+     * молча не получил бы ответа. Отметку двигают только серверные сообщения.
+     *
+     * Отметку «ждём эхо» ставим ПОСЛЕ отрисовки: поставленная до неё, она
+     * подавляла бы саму эту реплику — сообщение покупателя не появлялось в
+     * окне вовсе. */
+    append({ role: 'user', text: body });
+    state.echo = { text: body, at: Date.now() };
+    input.value = '';
+    resize();
+
+    var go = state.started ? Promise.resolve(true) : open();
+    go.then(function (ok) {
+      if (!ok) {
+        state.sending = false;
+        return append({ role: 'system', text: 'Не удалось отправить сообщение. Проверьте соединение.' });
+      }
+      var payload = place();
+      payload.text = body;
+      payload.sid = state.sid;
+      // «Печатает…» показываем сразу, не дожидаясь ответа сервера: ждать здесь
+      // нечего, а пустая пауза после своего сообщения читается как сбой.
+      if (state.mode === 'ai') showTyping();
+      return post('/api/chat/send', payload).then(function (d) {
+        state.sending = false;
+        if (!d || !d.ok) {
+          hideTyping();
+          append({ role: 'system', text: (d && d.error) || 'Сообщение не отправлено. Попробуйте ещё раз.' });
+          return;
+        }
+        if (d.mode) setMode(d.mode);
+        // Ответ ИИ не ждём — он приедет по каналу. Но если канала нет (запасной
+        // опрос), сервер вернёт готовый ответ прямо здесь.
+        if (d.reply) append(d.reply);
+        else if (state.mode !== 'ai') hideTyping();
+      });
+    });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    send(input.value);
+  });
+
+  // Enter отправляет, Shift+Enter переносит строку — как во всех мессенджерах.
+  // На телефоне поле остаётся многострочным и Enter там обычный: экранная
+  // клавиатура в этом случае показывает перевод строки, а не отправку.
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer:coarse)').matches) {
+      e.preventDefault();
+      send(input.value);
+    }
+  });
+
+  // Поле растёт под текст до трёх строк: длинный вопрос набирают вслепую, когда
+  // видно только последнюю строку.
+  function resize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 96) + 'px';
+  }
+  input.addEventListener('input', resize);
+
+  /* ------------------------------ Открыть / закрыть ------------------------------ */
+
+  function show() {
+    state.open = true;
+    root.classList.add('is-open');
+    panel.removeAttribute('inert');
+    panel.setAttribute('aria-hidden', 'false');
+    if (button) button.setAttribute('aria-expanded', 'true');
+    clearUnread();
+    open();
+    scroll(true);
+    // Фокус в поле ставим только на большом экране: на телефоне он поднимает
+    // клавиатуру поверх только что открытого окна, и покупатель видит вместо
+    // приветствия одну строку ввода.
+    if (!matchMedia('(pointer:coarse)').matches) setTimeout(function () { input.focus(); }, 60);
+  }
+
+  function hide() {
+    state.open = false;
+    root.classList.remove('is-open');
+    panel.setAttribute('inert', '');
+    panel.setAttribute('aria-hidden', 'true');
+    if (button) { button.setAttribute('aria-expanded', 'false'); button.focus(); }
+  }
+
+  if (button) button.addEventListener('click', function () { state.open ? hide() : show(); });
+  root.addEventListener('click', function (e) {
+    var act = e.target.closest && e.target.closest('[data-chat-act]');
+    if (!act) return;
+    var name = act.getAttribute('data-chat-act');
+    if (name === 'close') { e.preventDefault(); hide(); }
+    if (name === 'call') {
+      e.preventDefault();
+      act.disabled = true;
+      open().then(function () {
+        return post('/api/chat/operator', {});
+      }).then(function (d) {
+        act.disabled = false;
+        if (d && d.ok) {
+          if (d.mode) setMode(d.mode);
+          if (d.message) append(d.message);
+        }
+      });
+    }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && state.open) hide();
+  });
+
+  /* Диалог уже начат в прошлый заход — подключаем канал сразу, не открывая
+   * окно: менеджер мог ответить, пока покупатель ходил по каталогу, и об этом
+   * должен сказать значок на кнопке. Ради одной кнопки в углу канал при этом
+   * не открывается никогда: разговор ведут единицы, страниц открывают сотни. */
+  if (recall()) {
+    post('/api/chat/open', place()).then(function (d) {
+      if (!d || !d.ok) return;
+      state.id = d.id || '';
+      state.started = true;
+      setMode(d.mode);
+      (d.messages || []).forEach(function (m) {
+        if (m.at) state.since = Math.max(state.since, m.at);
+        list.appendChild(bubble(m.role, m.text, m.by));
+      });
+      state.unread = Number(d.unread) || 0;
+      paintBadge();
+      scroll(true);
+      connect();
+    });
+  }
+
+  // Вкладку вернули из фона — канал мог оборваться, пока её усыпляли.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && state.started && !state.stream) connect();
+  });
+})();

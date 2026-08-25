@@ -41,6 +41,13 @@ const CLIENT_IP = require('./lib/client-ip');
 // получает снаружи — своего расчёта пути у него нет, чтобы не разойтись с
 // хранилищем.
 const LIVE = require('./lib/live');
+/* Онлайн-чат витрины: кнопка в углу, ответы ИИ и переписка в Telegram.
+ * Четыре модуля: хранилище диалогов с живым каналом, клиент OpenAI, сборка
+ * system-промпта из настроек и живого каталога, мост в Telegram. */
+const CHAT = require('./lib/chat');
+const AI = require('./lib/ai');
+const PROMPT = require('./lib/chat-prompt');
+const TGCHAT = require('./lib/chat-tg');
 const { App } = require('./lib/server-lib');
 LIVE.watch(db.DATA_DIR);
 
@@ -1207,6 +1214,296 @@ app.post('/api/order', async (req, res) => {
     delivery: { price: ship.price, zone: ship.zone, zoneName: ship.zoneName },
     pay: draft, telegram: 'queued'
   });
+});
+
+/* ============================ ОНЛАЙН-ЧАТ ВИТРИНЫ ============================
+ * Кнопка в углу витрины: покупатель спрашивает, ИИ отвечает, менеджер видит ту
+ * же переписку в Telegram и в любой момент подключается вместо бота.
+ *
+ * Блок снимается целиком вместе с lib/chat.js, lib/ai.js, lib/chat-prompt.js,
+ * lib/chat-tg.js и public/chat.js — витрина при этом остаётся прежней, а
+ * переписка лежит отдельным файлом и заказов не касается вовсе.
+ *
+ * ЧТО ЗДЕСЬ ГЛАВНОЕ. Ответ на сообщение НЕ ЖДЁТ модель: маршрут сохраняет
+ * вопрос, отправляет его в Telegram и отвечает витрине «принято» за единицы
+ * миллисекунд. Ответ ИИ идёт следом по живому каналу, кусками, по мере того как
+ * модель его печатает. Ждать здесь ответа целиком означало бы держать запрос
+ * покупателя открытым все пять секунд генерации — и на плохой сети потерять и
+ * ответ, и вопрос.
+ */
+CHAT.init(db.DATA_DIR);
+
+// Диалог этого покупателя. Ключ — подписанная cookie-сессия, тот же приём, что
+// у своих отзывов и своих заказов: чужую переписку так не открыть, а угадать
+// 32-значный id нельзя.
+function currentChat(req) {
+  const id = req.session && req.session.chatId;
+  return CHAT.validId(id) ? CHAT.get(id) : null;
+}
+
+// Обстановка вокруг покупателя. Собирается из запроса, а не с его слов: город,
+// техника и адрес — те же, что попадают в заказ, и приходят они из метрики.
+function chatContext(req) {
+  const context = metrics.context(req, clientIp(req), cloudflareTrusted(req)) || {};
+  const visitorId = metrics.visitorId(req) || '';
+  /* Город берём из КАРТОЧКИ посетителя, а не только из заголовков: geo-заголовки
+   * читаются лишь за Cloudflare (по умолчанию им не доверяем вовсе), а карточку
+   * метрика уже наполнила геосервисом при первом просмотре страницы. Второго
+   * обращения наружу здесь не делается ни одного. */
+  const card = visitorId ? metrics.findVisitor(visitorId) : null;
+  const geo = context.geo || {};
+  const city = [geo.city || (card && card.city), geo.country || (card && card.country)].filter(Boolean).join(', ');
+  return {
+    visitorId,
+    ip: clientIp(req),
+    city,
+    device: [context.model || context.device, context.os, context.browser].filter(Boolean).join(' · '),
+    // Адрес страницы — из закрытого списка публичных путей: он приходит от
+    // браузера, а уезжает в тему Telegram ссылкой.
+    page: metricPublicPath(req.body && req.body.path) || '',
+    origin: originOf(req)
+  };
+}
+
+// Что уезжает в браузер. Служебных полей диалога (ip, тема Telegram, id
+// посетителя) покупателю знать незачем — он получает ровно свою переписку.
+function chatView(chat) {
+  return {
+    ok: true,
+    id: chat.id,
+    mode: chat.mode,
+    unread: chat.unread,
+    messages: chat.messages.map(m => ({ role: m.role, text: m.text, at: m.at, by: m.by }))
+  };
+}
+
+/* Ответ ИИ. Ничего не возвращает и никого не заставляет себя ждать: всё, что
+ * он делает, уходит в живой канал покупателя и в тему Telegram.
+ *
+ * Ошибка модели здесь — не мелочь: вопрос уже задан, и остаться без ответа
+ * покупатель не должен. Поэтому при любом отказе в тему уходит отдельная
+ * строка «ИИ не ответил», то есть вопрос попадает к человеку, а не пропадает.
+ */
+/* Диалоги, по которым модель отвечает прямо сейчас.
+ *
+ * Ответ идёт до минуты (медленная модель печатает долго, и обрывать полезный
+ * текст на середине хуже, чем подождать). Всё это время покупатель вправе
+ * написать ещё раз — и без этой отметки получил бы ДВА ответа внахлёст, оба
+ * недописанные, вперемешку в одной ленте. Второй вопрос при этом не теряется:
+ * он уже лежит в переписке и ушёл менеджеру в Telegram, а модель увидит его в
+ * истории следующим ходом.
+ */
+const aiBusy = new Set();
+
+async function aiReply(chat, info) {
+  const s = settings();
+  if (!AI.configured(s)) return;
+  if (aiBusy.has(chat.id)) return;
+  aiBusy.add(chat.id);
+  try {
+    await aiAnswer(chat, info, s);
+  } finally {
+    aiBusy.delete(chat.id);
+  }
+}
+
+async function aiAnswer(chat, info, s) {
+  CHAT.push(chat.id, 'typing', {});
+  const messages = PROMPT.build(db, s, chat, info);
+  const result = await AI.stream(s, messages, piece => {
+    CHAT.push(chat.id, 'delta', { text: piece });
+  });
+  const fresh = CHAT.get(chat.id);
+  if (!fresh) return;
+  /* Пока модель печатала, в диалог мог войти оператор. Его ответ главнее — ИИ
+   * замолкает, — но недописанную реплику надо ЗАКРЫТЬ, а не бросить.
+   *
+   * Куски ответа уже улетели покупателю и стоят у него в окне: просто выйти
+   * отсюда значило бы оставить обрывок висеть до перезагрузки страницы, а в
+   * сохранённой переписке его бы не было вовсе — то есть человек и менеджер
+   * видели бы разные разговоры. Поэтому напечатанное сохраняем как есть, а в
+   * тему Telegram его не шлём: там оператор уже пишет сам.
+   */
+  if (fresh.mode !== 'ai') {
+    if (result.text) {
+      const partial = CHAT.addMessage(fresh, 'ai', result.text);
+      CHAT.push(fresh.id, 'done', partial);
+    } else {
+      CHAT.push(fresh.id, 'done', null);
+    }
+    return;
+  }
+  if (result.ok && result.text) {
+    const message = CHAT.addMessage(fresh, 'ai', result.text);
+    CHAT.push(fresh.id, 'done', message);
+    TGCHAT.relayAi(fresh, result.text);
+    return;
+  }
+  const excuse = result.error === 'rate_limit'
+    ? 'Сейчас отвечаю медленнее обычного. Нажмите «Позвать менеджера» — ответит человек.'
+    : 'Не получилось ответить автоматически. Я передал вопрос менеджеру — он ответит здесь же.';
+  const message = CHAT.addMessage(fresh, 'system', excuse);
+  CHAT.push(fresh.id, 'done', message);
+  TGCHAT.relaySystem(fresh, 'ИИ не ответил (' + (result.error || 'ошибка') + ') — вопрос ждёт менеджера');
+}
+
+// Открыть диалог: витрина зовёт это при первом сообщении и при возвращении на
+// сайт. Диалог уже есть — отдаём его целиком, чтобы окно открылось там же, где
+// покупатель его оставил.
+app.post('/api/chat/open', (req, res) => {
+  const s = settings();
+  if (!CHAT.visible(s)) return res.json({ ok: false, error: 'off' }, 404);
+  if (rateLimited(req, 'chat-open', 60, 10 * 60 * 1000, anonymousSessionId(req))) {
+    return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
+  }
+  const info = chatContext(req);
+  let chat = currentChat(req);
+  if (!chat) {
+    chat = CHAT.create(info);
+    req.session.chatId = chat.id;
+  } else {
+    CHAT.touch(chat, info);
+  }
+  res.json(chatView(chat));
+});
+
+/* Сообщение покупателя.
+ *
+ * Порядок действий здесь важен и именно такой: сохранить → показать другим
+ * вкладкам → отправить менеджеру → и только потом, не дожидаясь, попросить
+ * ответ у ИИ. Первые три шага стоят доли миллисекунды, поэтому витрина получает
+ * «принято» сразу, а вопрос уже лежит и в переписке, и в Telegram — даже если
+ * модель откажет совсем.
+ */
+app.post('/api/chat/send', (req, res) => {
+  const s = settings();
+  if (!CHAT.visible(s)) return res.json({ ok: false, error: 'off' }, 404);
+  // Лимит по подписанной сессии, а не по IP: за одним адресом сидит целый офис
+  // или Tor-выход, и общий счётчик отдавал бы чужой отказ живому покупателю.
+  if (rateLimited(req, 'chat-send', 40, 5 * 60 * 1000, anonymousSessionId(req))) {
+    return res.json({ ok: false, error: 'Слишком много сообщений подряд. Подождите минуту.' }, 429);
+  }
+  const text = CHAT.clean(req.body && req.body.text, CHAT.MAX_TEXT).trim();
+  if (!text) return res.json({ ok: false, error: 'Введите сообщение' }, 400);
+
+  const info = chatContext(req);
+  let chat = currentChat(req);
+  if (!chat) {
+    chat = CHAT.create(info);
+    req.session.chatId = chat.id;
+  } else {
+    CHAT.touch(chat, info);
+  }
+  if (chat.mode === 'closed') CHAT.setMode(chat, 'ai');   // написал снова — разговор продолжается
+
+  CHAT.say(chat, 'user', text, { exceptSid: String(req.body && req.body.sid || '') });
+
+  // Тема в Telegram заводится на первом сообщении, а не при открытии окна:
+  // иначе каждый, кто просто нажал кнопку и передумал, оставлял бы менеджеру
+  // пустую тему.
+  if (!chat.topicId && TGCHAT.configured(s)) {
+    TGCHAT.openTopic(chat, s, text).catch(e => console.error('Чат: тема не создана — ' + e));
+  } else {
+    TGCHAT.relayUser(chat, text);
+  }
+
+  // Ответ ИИ идёт своим ходом. Оператор в диалоге — бот молчит: он замолкает
+  // до конца переписки, и вернуть его можно только кнопкой в Telegram.
+  const cart = Array.isArray(req.body && req.body.cart) ? req.body.cart : [];
+  if (chat.mode === 'ai' && AI.configured(s)) {
+    aiReply(chat, Object.assign({}, info, { cart })).catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
+  }
+  res.json({ ok: true, mode: chat.mode });
+});
+
+/* Живой канал. Через него приходят куски ответа ИИ, реплики оператора и смена
+ * режима. Тот же Server-Sent Events, что у панели: `EventSource` умеют все
+ * браузеры, доходящие до витрины, и он переподключается сам. */
+app.get('/api/chat/stream', (req, res) => {
+  if (!CHAT.visible(settings())) { res.writeHead(404); return res.end(); }
+  const chat = currentChat(req);
+  if (!chat) { res.writeHead(404); return res.end(); }
+  CHAT.attach(chat.id, req, res);
+});
+
+/* Запасной опрос — на случай прокси, который не пропускает поток. Без него у
+ * такого покупателя окно молчало бы вовсе: ни ответа ИИ, ни ответа менеджера.
+ * Ответ ИИ он получает готовым целиком, без побуквенной ленты. */
+app.get('/api/chat/poll', (req, res) => {
+  if (!CHAT.visible(settings())) return res.json({ ok: false }, 404);
+  const chat = currentChat(req);
+  if (!chat) return res.json({ ok: false }, 404);
+  if (rateLimited(req, 'chat-poll', 120, 5 * 60 * 1000, anonymousSessionId(req))) {
+    return res.json({ ok: false }, 429);
+  }
+  const since = Math.max(0, Math.floor(Number(req.query.since)) || 0);
+  res.json({
+    ok: true,
+    mode: chat.mode,
+    messages: chat.messages.filter(m => m.at > since).map(m => ({ role: m.role, text: m.text, at: m.at, by: m.by }))
+  });
+});
+
+// «Позвать менеджера». Диалог сразу переходит к человеку: обещать это кнопкой
+// и оставить бота отвечать было бы обманом.
+app.post('/api/chat/operator', (req, res) => {
+  const s = settings();
+  if (!CHAT.visible(s)) return res.json({ ok: false }, 404);
+  const chat = currentChat(req);
+  if (!chat) return res.json({ ok: false }, 404);
+  if (rateLimited(req, 'chat-call', 6, 10 * 60 * 1000, anonymousSessionId(req))) {
+    return res.json({ ok: false, error: 'Менеджер уже вызван — подождите ответа.' }, 429);
+  }
+  CHAT.setMode(chat, 'operator');
+  if (!chat.topicId && TGCHAT.configured(s)) {
+    TGCHAT.openTopic(chat, s, 'Просит менеджера').catch(() => {});
+  }
+  TGCHAT.relaySystem(chat, 'Покупатель просит менеджера');
+  const message = CHAT.say(chat, 'system', 'Передал разговор менеджеру. Он ответит здесь же — окно можно не держать открытым.');
+  res.json({ ok: true, mode: chat.mode, message });
+});
+
+// Покупатель открыл окно — значок непрочитанного гаснет.
+app.post('/api/chat/read', (req, res) => {
+  const chat = currentChat(req);
+  if (chat) CHAT.markRead(chat);
+  res.json({ ok: true });
+});
+
+/* Ответ оператора из Telegram. Мост зовёт это, разобрав сообщение в теме, —
+ * маршрута здесь нет вовсе: Telegram сам приходит к нам длинным опросом. */
+TGCHAT.start({
+  settings,
+  chat: CHAT,
+  onOperator: (chat, text, by) => {
+    // Первая же реплика человека выключает бота до конца переписки.
+    if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
+    CHAT.say(chat, 'operator', text, { by });
+  },
+  onCommand: (chat, command, by) => {
+    if (command === 'ai') {
+      CHAT.setMode(chat, 'ai');
+      CHAT.say(chat, 'system', 'С вами снова консультант магазина.');
+      TGCHAT.relaySystem(chat, 'ИИ снова отвечает (' + by + ')');
+      return;
+    }
+    if (command === 'close') {
+      CHAT.say(chat, 'system', 'Разговор завершён. Если понадобится — напишите снова.');
+      CHAT.setMode(chat, 'closed');
+      TGCHAT.relaySystem(chat, 'Диалог завершён (' + by + ')');
+      return;
+    }
+    if (command === 'info') {
+      TGCHAT.relaySystem(chat, [
+        chat.city && ('Город: ' + chat.city),
+        chat.device && ('Техника: ' + chat.device),
+        chat.page && ('Страница: ' + chat.page),
+        chat.ip && ('IP: ' + chat.ip),
+        'Сообщений: ' + chat.messages.length,
+        'Режим: ' + chat.mode
+      ].filter(Boolean).join('\n'));
+    }
+  }
 });
 
 /* ======================== ОПЛАТА: CrocoPAY (схема H2H) ========================
@@ -2413,6 +2710,58 @@ app.post('/admin/orders/:id/purge', (req, res) => {
   res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
 });
 
+/* ---------- Чат ---------- */
+
+app.get('/admin/chat', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  res.send(A.chatList(settings(), db, req.query.flash, req.query.page));
+});
+app.get('/admin/chat/:id', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const chat = CHAT.get(req.params.id);
+  if (!chat) return sendNotFound(req, res);
+  res.send(A.chatPage(settings(), db, chat, req.query.flash));
+});
+
+/* Ответ оператора из панели. Делает ровно то же, что сообщение в теме
+ * Telegram, — и тем же способом: реплика ложится в переписку, уходит в живой
+ * канал покупателя, а ИИ замолкает до конца разговора. Второго поведения у
+ * «ответа оператора» быть не должно: разъехавшись, они означали бы, что бот
+ * перебивает человека в зависимости от того, откуда тот написал.
+ */
+app.post('/admin/chat/:id/reply', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const chat = CHAT.get(req.params.id);
+  if (!chat) return sendNotFound(req, res);
+  const back = (flash) => res.redirect('/admin/chat/' + encodeURIComponent(chat.id) + (flash ? '?flash=' + encodeURIComponent(flash) : ''), 303);
+
+  // Кнопки «Вернуть ИИ» и «Завершить» — это отправка той же формы с другим
+  // значением: вложенных форм в HTML не бывает, а браузер шлёт имя только
+  // нажатой кнопки (тот же приём, что у удаления ответа на отзыв).
+  const mode = String(req.body.mode || '');
+  if (mode === 'ai') {
+    CHAT.setMode(chat, 'ai');
+    CHAT.say(chat, 'system', 'С вами снова консультант магазина.');
+    TGCHAT.relaySystem(chat, 'ИИ снова отвечает (из панели)');
+    return back('ИИ снова отвечает');
+  }
+  if (mode === 'closed') {
+    CHAT.say(chat, 'system', 'Разговор завершён. Если понадобится — напишите снова.');
+    CHAT.setMode(chat, 'closed');
+    TGCHAT.relaySystem(chat, 'Диалог завершён (из панели)');
+    return back('Диалог завершён');
+  }
+
+  const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
+  if (!text) return back('Пустой ответ не отправлен');
+  if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
+  CHAT.say(chat, 'operator', text, { by: 'Менеджер' });
+  // В тему уходит и ответ из панели: иначе дежурный в Telegram видел бы вопрос
+  // без ответа и написал бы второй раз то же самое.
+  TGCHAT.relaySystem(chat, 'Ответ из панели: ' + text);
+  return back('Отправлено');
+});
+
 /* ---------- Настройки магазина ---------- */
 
 app.get('/admin/settings', async (req, res) => {
@@ -2530,11 +2879,54 @@ app.post('/admin/settings', async (req, res) => {
     patch.crocopayCurrency = code;
   }
   patch.crocopayCurrencyChoice = req.body.crocopayCurrencyChoice !== undefined;
+
+  /* Онлайн-чат витрины.
+   *
+   * Галочка снимается отсутствием поля в теле формы, как у касс и уведомлений
+   * об отзывах. Всё проверяется ДО записи — по тому же правилу, что и остальная
+   * эта форма: включённый чат без единого собеседника означал бы кнопку, в
+   * которой покупателю никто не отвечает, и узнал бы об этом владелец от него.
+   */
+  patch.chatEnabled = req.body.chatEnabled !== undefined;
+  if (req.body.aiApiKey !== undefined) patch.aiApiKey = String(req.body.aiApiKey).trim().slice(0, 300);
+  if (req.body.aiModel !== undefined) patch.aiModel = String(req.body.aiModel).trim().slice(0, 80);
+  if (req.body.aiBaseUrl !== undefined) {
+    const base = String(req.body.aiBaseUrl).trim().slice(0, 300);
+    // Адрес уходит в fetch на сервере, поэтому чужая схема здесь — это запрос
+    // туда, куда его послал текст из формы. Пустое поле означает обычный OpenAI.
+    if (base && !/^https:\/\/[a-z0-9.-]+(?::\d{1,5})?(?:\/|$)/i.test(base)) {
+      return fail('Адрес API должен начинаться с https://');
+    }
+    patch.aiBaseUrl = base;
+  }
+  if (req.body.chatPrompt !== undefined) patch.chatPrompt = String(req.body.chatPrompt).slice(0, PROMPT.MAX_INSTRUCTION);
+  if (req.body.chatGreeting !== undefined) patch.chatGreeting = String(req.body.chatGreeting).trim().slice(0, 400);
+  if (req.body.chatChatId !== undefined) {
+    const room = String(req.body.chatChatId).trim().slice(0, 40);
+    // id группы Telegram — это число (у супергрупп со знаком минус) либо @имя.
+    // С мусором в поле бот молча не отправит ни одного диалога.
+    if (room && !/^(-?\d{1,20}|@[A-Za-z0-9_]{4,32})$/.test(room)) {
+      return fail('Группа для чата — это числовой ID (например -1001234567890) или @имя');
+    }
+    patch.chatChatId = room;
+  }
+  const willChat = patch.chatEnabled;
+  const willAi = (patch.aiApiKey !== undefined ? patch.aiApiKey : current.aiApiKey);
+  const willTg = (patch.telegramBotToken !== undefined ? patch.telegramBotToken : current.telegramBotToken)
+    && ((patch.chatChatId !== undefined ? patch.chatChatId : current.chatChatId)
+      || (patch.telegramChatId !== undefined ? patch.telegramChatId : current.telegramChatId));
+  if (willChat && !willAi && !willTg) {
+    return fail('Чат включён, но отвечать некому: задайте ключ OpenAI или Telegram-бота с группой');
+  }
+
   db.saveSettings(patch);
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
   // Списки способов кэшированы под ключи прежних касс — после смены ключей они
   // бы ещё пять минут отвечали за чужие.
   PAYMENTS.forgetMethods();
+  // Мост в Telegram держит длинный опрос со СТАРЫМ токеном: без этого вызова
+  // он продолжил бы работать с ним до перезапуска процесса, а новый чат молчал.
+  TGCHAT.sync(settings());
   res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено'));
 });
 
@@ -2613,6 +3005,9 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   metrics.flush();
+  // Недописанная пачка переписки: она живёт в памяти и уходит на диск с
+  // задержкой, поэтому при остановке её надо сохранить явно.
+  CHAT.shutdown();
   httpServer.close(() => process.exit(0));
   const force = setTimeout(() => process.exit(0), 5000);
   if (force.unref) force.unref();
