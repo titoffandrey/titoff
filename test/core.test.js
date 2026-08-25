@@ -4445,12 +4445,12 @@ test('оплата хранит отдельные попытки и закры�
   // уходит в callback_url), а id счёта появляется только в ответе кассы.
   fresh.attachOrderInvoice(order.id, {
     attemptId: firstId,
-    invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc', requisite: '4276 1234 5678 9012',
+    invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc', requisite: '4276 1234 5678 9014',
     bank: 'Сбербанк', owner: 'IVAN PETROV', method: 'TO_CARD', expiresAt: 1893456000000
   });
   const withInvoice = fresh.getOrder(order.id).payment;
   assert.equal(withInvoice.invoiceId, '911c2823-f55b-43b5-9881-d5653107f7dc');
-  assert.equal(withInvoice.requisite, '4276 1234 5678 9012');
+  assert.equal(withInvoice.requisite, '4276 1234 5678 9014');
   assert.equal(withInvoice.expiresAt, 1893456000000);
 
   // Каждая попытка адресуется своим id/token/requestId. Старый token остаётся в
@@ -6315,11 +6315,11 @@ test('страница оплаты показывает реквизиты, п�
   const methods = pay.allowed(['SBP', 'TO_CARD']);
   const live = {
     status: 'pending', method: 'TO_CARD', invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc',
-    requisite: '4276 1234 5678 9012', bank: 'Сбербанк', owner: 'IVAN PETROV', expiresAt: Date.now() + 900000
+    requisite: '4276 1234 5678 9014', bank: 'Сбербанк', owner: 'IVAN PETROV', expiresAt: Date.now() + 900000
   };
 
   const html = render.payPage(ss, Object.assign({}, order, { payment: live }), { methods, origin: '' });
-  assert.match(html, /4276 1234 5678 9012/);
+  assert.match(html, /4276 1234 5678 9014/);
   assert.match(html, /Номер карты/);
   assert.match(html, /Сбербанк/);
   assert.match(html, /id="pay-timer" role="timer" aria-live="off"/);
@@ -6338,7 +6338,7 @@ test('страница оплаты показывает реквизиты, п�
   const stale = render.payPage(ss, Object.assign({}, order, {
     payment: Object.assign({}, live, { expiresAt: Date.now() - 1000 })
   }), { methods, origin: '' });
-  assert.doesNotMatch(stale, /4276 1234 5678 9012/);
+  assert.doesNotMatch(stale, /4276 1234 5678 9014/);
   assert.doesNotMatch(stale, /id="pay-timer"/);
   assert.match(stale, /name="pay-method"/, 'вместо мёртвых реквизитов — выбор способа заново');
 
@@ -6346,7 +6346,7 @@ test('страница оплаты показывает реквизиты, п�
   // у кассы нет отмены invoice, и второй оставил бы два оплачиваемых реквизита.
   const choose = render.payPage(ss, Object.assign({}, order, { payment: live }), { methods, origin: '', choose: true });
   assert.doesNotMatch(choose, /name="pay-method"/);
-  assert.match(choose, /4276 1234 5678 9012/);
+  assert.match(choose, /4276 1234 5678 9014/);
   assert.doesNotMatch(choose, /id="pay-switch"|Выбрать другой способ/);
 
   // Данные прежней версии могли содержать живой A под более новой failed B.
@@ -6359,7 +6359,7 @@ test('страница оплаты показывает реквизиты, п�
     ]
   };
   const recovered = render.payPage(ss, Object.assign({}, order, { payment: legacyHistory }), { methods, origin: '' });
-  assert.match(recovered, /4276 1234 5678 9012/);
+  assert.match(recovered, /4276 1234 5678 9014/);
   assert.match(recovered, new RegExp('data-attempt="' + 'a'.repeat(24) + '"'));
   assert.doesNotMatch(recovered, /name="pay-method"/);
 
@@ -6399,6 +6399,53 @@ test('страница оплаты показывает реквизиты, п�
   assert.match(css, /\.pay-timer\.is-urgent/);
   assert.match(payJs, /classList\.toggle\('is-urgent', ms <= 2 \* 60 \* 1000\)/,
     'последние две минуты выделяются сильнее');
+});
+
+test('номер телефона в реквизитах читается как номер, а копируется цифрами', () => {
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const pay = require('../lib/pay-methods');
+  const order = { id: 'ord1', number: '482913', total: 71990, items: [], contact: 'tg' };
+  const methods = pay.allowed(['SBP', 'TO_CARD']);
+  const sbp = {
+    status: 'pending', method: 'SBP', invoiceId: '911c2823-f55b-43b5-9881-d5653107f7dc',
+    requisite: '79851576797', bank: 'Т-Банк', owner: 'Азизбек Г.', expiresAt: Date.now() + 900000
+  };
+
+  // Разбор общий с формой заказа (public/phone.js): «+7 985 157-67-97».
+  assert.deepEqual(render.requisiteView('SBP', '79851576797'),
+    { text: '+7 985 157-67-97', copy: '79851576797' });
+  // Копия — голое число: его вставляют в поле банковского приложения.
+  assert.deepEqual(render.requisiteView('SBP', '+7 985 157-67-97'),
+    { text: '+7 985 157-67-97', copy: '79851576797' });
+  // Карту касса присылает уже группами по четыре — её не трогаем вовсе.
+  assert.deepEqual(render.requisiteView('TO_CARD', '4276 1234 5678 9014'),
+    { text: '4276 1234 5678 9014', copy: '4276 1234 5678 9014' });
+  // Строка, которая номером не разобралась (старый заказ), остаётся как есть:
+  // выдавать её за номер, которого не бывает, нельзя.
+  assert.equal(render.requisiteView('SBP', '7775553535').text, '7775553535');
+
+  const html = render.payPage(ss, Object.assign({}, order, { payment: sbp }), { methods, origin: '' });
+  assert.match(html, /\+7 985 157-67-97/);
+  assert.match(html, /data-copy="79851576797"/);
+  assert.doesNotMatch(html, /data-copy="\+7 985/, 'в буфер уезжает число, а не запись с разделителями');
+
+  // Те же реквизиты видит менеджер в строке заказа — раньше они лежали только
+  // в JSON на сервере. Под раскрытием: смотрят их при разборе платежа, а не при
+  // чтении списка.
+  const row = render.orderPayMethod(Object.assign({}, order, { payment: sbp }));
+  assert.match(row, /<details class="o-req"><summary>Реквизиты<\/summary>/);
+  assert.match(row, /\+7 985 157-67-97/);
+  assert.match(row, /Т-Банк/);
+  assert.match(row, /Азизбек Г\./);
+  assert.match(row, /911c2823-f55b-43b5-9881-d5653107f7dc/, 'сделку у кассы ищут по номеру счёта');
+  // Реквизиты не выдавались — раскрывать нечего.
+  assert.doesNotMatch(render.orderPayMethod(Object.assign({}, order, {
+    payment: { status: 'pending', method: 'SBP', lastErrorCode: 'no_requisite' }
+  })), /o-req/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.o-req-list\{[^}]*white-space:normal/,
+    'столбец «Оплата» идёт nowrap — внутри свёртки перенос обязан вернуться');
 });
 
 test('оплаченным заказ на странице называется только по ответу кассы', () => {
@@ -6729,7 +6776,7 @@ test('счёт создаётся в основных единицах и тол
       },
       paymentRequisites: {
         paymentOption, paymentMethod: 'Сбербанк',
-        card: '4276 1234 5678 9012', cardOwner: 'IVAN PETROV'
+        card: '4276 1234 5678 9014', cardOwner: 'IVAN PETROV'
       }
     } });
 
@@ -6745,7 +6792,7 @@ test('счёт создаётся в основных единицах и тол
     stub(json(providerInvoice('TO_CARD')));
     const ok = await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD', callbackUrl: 'https://shop/cb?order=1&token=t' });
     assert.equal(ok.ok, true);
-    assert.equal(ok.invoice.requisite, '4276 1234 5678 9012');
+    assert.equal(ok.invoice.requisite, '4276 1234 5678 9014');
     assert.equal(ok.invoice.owner, 'IVAN PETROV');
     assert.equal(ok.invoice.state, 'pending');
     assert.equal(ok.invoice.expiresAt, Date.parse(providerExpiry));
@@ -6786,7 +6833,7 @@ test('счёт создаётся в основных единицах и тол
     stub(json({ response: { transaction: {
       id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', currency: 'RUB', amount: '6799000.00',
       expiredAt: providerExpiry
-    }, paymentRequisites: { paymentOption: 'TO_CARD', card: '4276 1234 5678 9012' } } }));
+    }, paymentRequisites: { paymentOption: 'TO_CARD', card: '4276 1234 5678 9014' } } }));
     assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'amount_mismatch');
 
     // Счёт без реквизитов бесполезен: показывать покупателю нечего.
@@ -7025,6 +7072,94 @@ test('MeridianPay: у НСПК реквизит — ссылка, а не кар
     // Чужая схема в ссылке отбрасывается так же: реквизит уезжает в href.
     global.fetch = async () => nspk({ detail: 'x', detail_type: 'nspk', qr_code_link: 'javascript:alert(1)', region: 'Россия' });
     assert.equal((await ask()).error, 'no_requisite');
+  } finally {
+    if (real) global.fetch = real; else delete global.fetch;
+  }
+});
+
+/* Реквизит, которого не бывает, до покупателя не доходит.
+ *
+ * Значения ниже — НАСТОЯЩИЕ, снятые с боевых заказов 25 августа 2026: на чеках
+ * в 1 200 и 10 700 ₽ пул MeridianPay трижды подряд отдал номера, которых не
+ * существует. Заплатить по такому нельзя, а если выдумка совпала с чьим-то
+ * живым номером — деньги уйдут постороннему.
+ */
+test('касса выдала реквизит, которого не бывает — счёт покупателю не показываем', async () => {
+  const pay = require('../lib/pay-methods');
+  const err = require('../lib/pay-errors');
+
+  // СБП принимает только российский мобильный. Десять цифр не с девятки и
+  // двенадцать цифр — это не номер, чем бы касса их ни называла.
+  assert.equal(pay.requisiteProblem('phone', '7775553535', true), 'phone');
+  assert.equal(pay.requisiteProblem('phone', '987777777777', true), 'phone');
+  assert.equal(pay.requisiteProblem('phone', '', true), 'empty');
+  // А эти с тех же заказов — настоящие, и они обязаны проходить.
+  assert.equal(pay.requisiteProblem('phone', '79513948616', true), '');
+  assert.equal(pay.requisiteProblem('phone', '+79851576797', true), '');
+  // Местные записи российского номера — тоже он.
+  assert.equal(pay.requisiteProblem('phone', '8 985 157-67-97', true), '');
+  assert.equal(pay.requisiteProblem('phone', '9851576797', true), '');
+  // У трансграничного способа номер бывает любой страны — там проверяем только
+  // то, что он вообще разбирается по коду страны.
+  assert.equal(pay.requisiteProblem('phone', '+998 90 123-45-67', false), '');
+  assert.equal(pay.requisiteProblem('phone', '12345', false), 'phone');
+
+  // Карта проверяется Луном: его проходят ВСЕ настоящие карты, поэтому ложных
+  // отказов нет, а выдуманный номер отсекается.
+  assert.equal(pay.luhnOk('4000100020003000'), true);
+  assert.equal(pay.luhnOk('4276123456789012'), false);
+  assert.equal(pay.requisiteProblem('card', '4276 1234 5678 9014', true), '');
+  assert.equal(pay.requisiteProblem('card', '1111 1111 1111 1111', true), 'card');
+  // «Карта или номер телефона» — законный ответ трансграничных способов.
+  assert.equal(pay.requisiteProblem('card', '+79851576797', false), '');
+  assert.equal(pay.requisiteProblem('card', '+79851576797', true), 'card');
+  // Незнакомый вид реквизита (касса включила новый способ) не проверяем вовсе:
+  // выдумать правило хуже, чем не иметь его.
+  assert.equal(pay.requisiteProblem('', 'что угодно', true), '');
+
+  // Панель обязана отличать это от «нет свободных реквизитов»: там ждут пару
+  // минут, а здесь касса отдаёт мусор, и знать об этом надо владельцу.
+  assert.equal(err.codeOf('bad_requisite'), 'bad_requisite');
+  assert.equal(err.shortOf('bad_requisite'), 'реквизит не похож на настоящий');
+  assert.notEqual(err.codeOf('bad_requisite'), err.codeOf('Requisites not found'));
+
+  const mp = require('../lib/meridianpay');
+  const croco = require('../lib/crocopay');
+  const on = {
+    meridianpayEnabled: true, meridianpayApiKey: 'k',
+    meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40'
+  };
+  const real = global.fetch;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    // Тот самый ответ с боевого заказа: тип и регион правильные, сумма сходится,
+    // а номер выдуманный.
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ success: true, data: {
+      order_id: '566c2485-7909-41d4-9fed-98d92e3f9b5f', status: 'pending', currency: 'rub', amount: 120000,
+      payment_gateway: 'Яндекс Банк',
+      payment_detail: { detail: '7775553535', initials: 'Проще П.З', detail_type: 'phone', region: 'Россия' },
+      expires_at: now + 900, current_server_time: now
+    } }) });
+    const junk = await mp.createInvoice(on, { amount: 1200, currency: 'RUB', method: 'SBP', externalId: 'aabbccddeeff112233' });
+    assert.equal(junk.ok, false);
+    assert.equal(junk.error, 'bad_requisite');
+    // Сделку не теряем: id есть, значит её надо отменить и сверять в фоне.
+    assert.equal(junk.invoice.id, '566c2485-7909-41d4-9fed-98d92e3f9b5f');
+    // Повторять тем же POST нельзя — это не «нет свободных реквизитов».
+    assert.equal(mp.retryableStart(junk), false);
+
+    // У CrocoPAY то же правило и тот же код.
+    const on2 = { crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
+    global.fetch = async () => ({ ok: true, status: 200, json: async () => ({ response: {
+      transaction: {
+        id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', currency: 'RUB',
+        amount: '1200.00', expiredAt: new Date(Date.now() + 6e5).toISOString()
+      },
+      paymentRequisites: { paymentOption: 'TO_CARD', card: '1111 1111 1111 1111' }
+    } }) });
+    const badCard = await croco.createInvoice(on2, { amount: 1200, method: 'TO_CARD' });
+    assert.equal(badCard.error, 'bad_requisite');
+    assert.equal(croco.retryableStart(badCard), false);
   } finally {
     if (real) global.fetch = real; else delete global.fetch;
   }
