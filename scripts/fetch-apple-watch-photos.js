@@ -445,7 +445,11 @@ async function main() {
         add(name, src, isSummary ? dir : 'selectors', isSummary ? base : slug(name), opt.width);
         manifest.push({
           case: c.part,
-          caseDims: c.dims,
+          // Именно `dims`, а не `c.dims`: сюда входят и подобранные размерности
+          // (материал и связь у Ultra и Hermès). Манифест обязан описывать то, что
+          // реально ушло в запрос, — иначе заливка не сможет отличить титан от
+          // алюминия там, где Apple эти поля не публикует.
+          caseDims: dims,
           band: b ? { style: b.style, color: b.color, part: b.part } : null,
           section,
           imageName: name,

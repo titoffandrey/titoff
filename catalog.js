@@ -242,18 +242,41 @@ const BANDS = {
     { name: 'Nike Sport Band', sizes: SPORT_SIZES, options: withAdd(NIKE_COLORS, 0) },
     { name: 'Nike Sport Loop', sizes: ONE_SIZE, options: withAdd(NIKE_COLORS, 0) }
   ],
+  // Набор снят с buy-watch/apple-watch-hermes (август 2026) и идёт в порядке Apple.
+  // Прежний список (Torsade, Kilim «Bleu Saphir», Grand H в Noir и Gold) — прошлое
+  // поколение: у Apple этих вариаций нет вовсе, совпадала ровно одна из шести.
+  // Цвета кружков взяты из самих апловских образцов (центр плашки), а не подобраны
+  // на глаз. Доплаты разнесены ПО АНАЛОГИИ с прежними: металл 26 000, резина 18 000,
+  // ткань 0 — их нужно сверить с прайсом поставщика.
   hermes: [
-    { name: 'Hermès Torsade', sizes: SML, options: [
-      { name: 'Noir', hex: '#1f1f21', add: 0 },
-      { name: 'Gris Perle', hex: '#b7b2a8', add: 0 }
+    { name: 'Grand H Fin', sizes: SML, options: [
+      { name: 'Satiné', hex: '#9d9c9a', add: 26000 }
     ] },
-    { name: 'Hermès Kilim', sizes: SML, options: [
-      { name: 'Bleu Saphir', hex: '#27406b', add: 18000 },
-      { name: 'Orange', hex: '#e2661f', add: 18000 }
+    { name: 'Grand H', sizes: SML, options: [
+      { name: 'Satiné', hex: '#7f7c7b', add: 26000 }
     ] },
-    { name: 'Hermès Grand H', sizes: SML, options: [
-      { name: 'Noir', hex: '#1f1f21', add: 26000 },
-      { name: 'Gold', hex: '#b98b4e', add: 26000 }
+    { name: 'Faubourg Party', sizes: SML, options: [
+      { name: 'Bleu Nuit', hex: '#3d3d4d', add: 0 }
+    ] },
+    { name: 'Toile H Single Tour', sizes: SML, options: [
+      { name: 'Gold/Écru', hex: '#c29f89', add: 0 }
+    ] },
+    { name: 'Toile H Double Jeu', sizes: SML, options: [
+      { name: 'Noir/Écru', hex: '#5f5f60', add: 0 },
+      { name: 'Écru/Écru', hex: '#d2bdb2', add: 0 }
+    ] },
+    { name: 'Néo Tricot', sizes: SML, options: [
+      { name: 'Bleu Gris', hex: '#58626a', add: 0 },
+      { name: 'Argile', hex: '#c0aa95', add: 0 },
+      { name: 'Bleu Nuit', hex: '#35323f', add: 0 },
+      { name: 'Capucine', hex: '#bc2e26', add: 0 }
+    ] },
+    { name: 'Kilim Single Tour', sizes: SML, options: [
+      { name: 'Grège', hex: '#ebdcad', add: 18000 },
+      { name: 'Jaune', hex: '#ffd050', add: 18000 },
+      { name: 'Blanc', hex: '#f1f0ee', add: 18000 },
+      { name: 'Noir', hex: '#424242', add: 18000 },
+      { name: 'Orange', hex: '#ec7836', add: 18000 }
     ] }
   ]
 };

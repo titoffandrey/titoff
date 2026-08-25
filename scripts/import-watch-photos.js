@@ -72,6 +72,8 @@ const CASE_COLOR = {
   'золотой титан': 'gold',
   'сланцевый титан': 'slate',
   'черный титан': 'black',
+  // У Hermès корпус один, и Apple зовёт его цвет `silver`.
+  'титан hermes': 'silver',
 };
 
 // У Apple цвет ремешка бывает привязан к цвету корпуса: спортивный «Black»
@@ -82,9 +84,28 @@ const BAND_COLOR_BY_CASE = {
   'midnight|sport|black': 'midnight',
 };
 
-const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+// Диакритику снимаем ДО выброса небуквенных символов, иначе она пропадает вместе с
+// буквой: «Satiné» дало бы `satin` вместо апловского `satine`, «Néo Tricot» — `notricot`
+// вместо `neotricot`, а «Écru» — `cru`. У Hermès французских названий большинство,
+// и без этого не сошлось бы почти ничего.
+const deAccent = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const norm = s => deAccent(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
 // «е» и «ё» в названиях цветов пишут вперемешку, поэтому сводим к одной букве.
-const normRu = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+//
+// ВНИМАНИЕ: deAccent() задевает и кириллицу — «й» в NFD это «и» с бревисом, и она
+// превращается в «и». Само по себе это не беда, но тогда ЧЕРЕЗ ЭТУ ЖЕ функцию обязаны
+// проходить и ключи таблицы (см. CASE_COLOR_KEYS ниже): иначе «Полуночный» на входе
+// станет «полуночныи» и не найдётся среди ключей, написанных с «й».
+const normRu = s => deAccent(s).toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+
+// Часть цветов Hermès Apple помечает брендом в самом идентификаторе
+// (`orange_hermes` при подписи «Orange»), поэтому хвост отбрасываем с обеих сторон.
+const bandColorKey = s => norm(s).replace(/hermes$/, '');
+
+// Ключи таблицы прогоняются через ту же normRu(), что и название из каталога.
+// Порознь они разъезжаются молча: правка normRu() однажды уже обнулила поиск цвета
+// у всех карточек сразу, а на глаз это выглядело как «фотографии куда-то делись».
+const CASE_COLOR_KEYS = new Map(Object.entries(CASE_COLOR).map(([k, v]) => [normRu(k), v]));
 
 function styleOf(name) {
   const n = norm(name);
@@ -143,18 +164,44 @@ async function main() {
   if (!sizes.includes(size)) fail('в выгрузке нет размера ' + size + ' (есть: ' + sizes.join(', ') + ')');
   say('Берём: корпус ' + size + (opt.material ? ' ' + opt.material : '') + ', связь ' + opt.conn + ', ракурсы ' + views.join(' + '));
 
-  // Индекс выгрузки: «цвет корпуса|стиль|цвет ремешка» → файлы в порядке ракурсов.
+  // Индекс выгрузки: «цвет корпуса|стиль|цвет ремешка» → снимки вместе с размером
+  // корпуса. Размер здесь НЕ отсекается: у части вариаций фотографии есть только под
+  // один из размеров (у Hermès «Néo Tricot · Argile» и «Kilim · Jaune» — только 46 мм,
+  // а «Grand H Fin» — только 42 мм), и ни один размер не покрывает набор целиком.
+  // Привязки к размеру у снимка в нашей модели нет вовсе, поэтому кадр с соседнего
+  // размера — законный запасной вариант, и он честнее пустой вариации.
   const idx = new Map();
   for (const it of manifest.items) {
     if (it.section !== 'summary' || !it.band) continue;
     const d = it.caseDims || {};
-    if (d['watch_cases-dimensionCaseSize'] !== size) continue;
-    if (d['watch_cases-dimensionConnection'] !== opt.conn) continue;
-    if (opt.material && d['watch_cases-dimensionCaseMaterial'] !== opt.material) continue;
-    const key = norm(d['watch_cases-dimensionColor']) + '|' + it.band.style + '|' + norm(it.band.color);
+    // Размерности, которой в записи нет вовсе, у модели одно значение — фильтровать
+    // по ней нечего. Так читаются манифесты, снятые до того, как выгрузка стала
+    // записывать подобранные материал и связь.
+    const conn = d['watch_cases-dimensionConnection'];
+    if (conn !== undefined && conn !== opt.conn) continue;
+    const mat = d['watch_cases-dimensionCaseMaterial'];
+    if (opt.material && mat !== undefined && mat !== opt.material) continue;
+    // Обе стороны приводятся к одной форме: у Hermès идентификаторы стилей идут с
+    // подчёркиванием (`grand_hfin`), и сырое сравнение не нашло бы ничего.
+    const key = norm(d['watch_cases-dimensionColor']) + '|' + norm(it.band.style) + '|' + bandColorKey(it.band.color);
     if (!idx.has(key)) idx.set(key, []);
-    idx.get(key).push(it.file);
+    idx.get(key).push({ size: d['watch_cases-dimensionCaseSize'], file: it.file });
   }
+
+  // Снимки одной вариации: сперва запрошенный размер, и только если его нет — соседний.
+  const swapped = [];
+  const shotsFor = (key, label) => {
+    const all = idx.get(key) || [];
+    let pick = all.filter(x => x.size === size);
+    if (!pick.length && all.length) {
+      pick = all.filter(x => x.size === all[0].size);
+      swapped.push(label + ' → ' + all[0].size);
+    }
+    return pick
+      .map(x => x.file)
+      .filter(f => views.some(v => f.endsWith(v + '.jpg')))
+      .sort((a, b) => views.findIndex(v => a.endsWith(v + '.jpg')) - views.findIndex(v => b.endsWith(v + '.jpg')));
+  };
 
   // ── план: что к какой паре «цвет корпуса + вариация ремешка» ──
   const plan = [];
@@ -162,18 +209,17 @@ async function main() {
   const unknownColors = new Set();
 
   for (const c of product.colors || []) {
-    const apCase = CASE_COLOR[normRu(c.name)];
+    const apCase = CASE_COLOR_KEYS.get(normRu(c.name));
     if (!apCase) { unknownColors.add(c.name); continue; }
     for (const g of product.bands || []) {
       const style = styleOf(g.name);
       for (const o of g.options || []) {
-        const want = apCase + '|' + style + '|' + norm(o.name);
+        const want = apCase + '|' + style + '|' + bandColorKey(o.name);
         const alias = BAND_COLOR_BY_CASE[want];
         const key = alias ? apCase + '|' + style + '|' + alias : want;
-        const files = (idx.get(key) || [])
-          .filter(f => views.some(v => f.endsWith(v + '.jpg')))
-          .sort((a, b) => views.findIndex(v => a.endsWith(v + '.jpg')) - views.findIndex(v => b.endsWith(v + '.jpg')));
-        if (!files.length) { missing.push(c.name + ' · ' + g.name + ' · ' + o.name); continue; }
+        const label = c.name + ' · ' + g.name + ' · ' + o.name;
+        const files = shotsFor(key, label);
+        if (!files.length) { missing.push(label); continue; }
         for (const f of files) plan.push({ file: f, color: c.name, band: g.name + '|' + o.name });
       }
     }
@@ -184,6 +230,10 @@ async function main() {
     for (const c of unknownColors) say('   ' + c);
   }
   say('\nПар покрыто: ' + new Set(plan.map(p => p.color + '|' + p.band)).size + ' · снимков: ' + plan.length);
+  if (swapped.length) {
+    say('Взято с другого размера корпуса (' + swapped.length + ') — под запрошенный кадров нет:');
+    for (const s of swapped) say('   ' + s);
+  }
   if (missing.length) {
     say('Без фотографий (' + missing.length + '):');
     for (const m of missing) say('   ' + m);
