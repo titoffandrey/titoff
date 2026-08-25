@@ -86,7 +86,7 @@ app.static('/uploads', db.UPLOAD_DIR, { extensions: ['.jpg', '.jpeg', '.png', '.
 const settings = () => db.getSettings();
 const PRICE_MAX = 1e12;
 const PASSWORD_MIN = 10;
-const PRODUCT_IMAGE_MAX = 100;
+const PRODUCT_IMAGE_MAX = db.PRODUCT_IMAGE_MAX; // потолок один на маршрут и скрипты заливки
 // Multipart держит проверенные изображения в памяти. На диск они попадают только
 // здесь — после проверки маршрута и прав доступа.
 function persistUploads(files) {

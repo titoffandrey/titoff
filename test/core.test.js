@@ -1748,13 +1748,20 @@ test('массовую загрузку фото можно остановить
   const managerJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'photo-manager.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const dbSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'db.js'), 'utf8');
   assert.match(formJs, /var MAX_FILES = 30/);
   assert.match(formJs, /activeXhr\.abort\(\)/);
   assert.match(managerJs, /var MAX_FILES = 30/);
   assert.match(managerJs, /uploadGeneration\+\+/);
   assert.match(managerJs, /activeUpload\.abort\(\)/);
   assert.match(css, /\.photo-upload-cancel\{/);
-  assert.match(server, /const PRODUCT_IMAGE_MAX = 100/);
+  // Потолок задаётся ровно в одном месте — в хранилище, — потому что спрашивают его
+  // двое: маршрут загрузки и скрипты заливки. Второй литерал в server.js означал бы,
+  // что скрипт отказывает там, где панель ещё принимает, и наоборот.
+  assert.match(dbSrc, /^const PRODUCT_IMAGE_MAX = \d+;$/m);
+  assert.ok(dbCore.PRODUCT_IMAGE_MAX > 0, 'потолок фото должен быть положительным');
+  assert.match(server, /const PRODUCT_IMAGE_MAX = db\.PRODUCT_IMAGE_MAX/);
+  assert.doesNotMatch(server, /const PRODUCT_IMAGE_MAX = \d/, 'потолок не должен дублироваться числом');
   assert.match(server, /error: 'image_limit'/);
 });
 

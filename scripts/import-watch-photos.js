@@ -12,7 +12,10 @@
 //   --product ID     карточка каталога (обязательно)
 //   --src DIR        папка выгрузки с manifest.json (обязательно)
 //   --size 40mm      какой размер корпуса брать (по умолчанию первый в выгрузке)
-//   --conn gps       какую связь брать (по умолчанию gps)
+//   --material X     материал корпуса: aluminum / titanium. Нужен там, где одна buy-страница
+//                    кормит две карточки каталога — у Series 11 алюминий и титан
+//                    заведены отдельными товарами с разными цветами и ремешками
+//   --conn gps       какую связь брать (по умолчанию gps; у титана бывает только gpscell)
 //   --views a,b      ракурсы по порядку (по умолчанию 1-34fr,2-pf)
 //   --apply          записать; без него — только план
 //   --replace        сначала снять с карточки все прежние фото
@@ -40,7 +43,7 @@ const db = require('../lib/db');
 const IMG = require('../lib/images');
 const { imageExtension } = require('../lib/server-lib');
 
-const PRODUCT_IMAGE_MAX = 100; // тот же потолок, что в server.js
+const PRODUCT_IMAGE_MAX = db.PRODUCT_IMAGE_MAX; // потолок один на маршрут и скрипты
 
 // ─────────────────────── соответствия названий ───────────────────────
 
@@ -56,11 +59,15 @@ const STYLE_ALIAS = {
 // Цвет корпуса у нас по-русски, у Apple — латиницей. Нормализацией это не берётся,
 // поэтому таблица; незнакомый цвет скрипт называет вслух, а не пропускает молча.
 // Ключи пишутся через «е»: normRu() сводит к ней «ё», иначе «Чёрный титан» не найдётся.
+// Значения — уже нормализованные (norm()): у Apple цвет бывает с подчёркиванием
+// (`space_gray`, `jet_black`), и сравнивать их надо в одной форме с обеих сторон.
 const CASE_COLOR = {
   'полуночный': 'midnight',
   'сияющая звезда': 'starlight',
   'серебристый': 'silver',
   'серый космос': 'spacegray',
+  'розовое золото': 'rosegold',
+  'глянцевый черный': 'jetblack',
   'натуральный титан': 'natural',
   'золотой титан': 'gold',
   'сланцевый титан': 'slate',
@@ -87,7 +94,7 @@ function styleOf(name) {
 // ────────────────────────────── аргументы ──────────────────────────────
 
 function parseArgs(argv) {
-  const o = { product: '', src: '', size: '', conn: 'gps', views: '1-34fr,2-pf', apply: false, replace: false, files: false };
+  const o = { product: '', src: '', size: '', material: '', conn: 'gps', views: '1-34fr,2-pf', apply: false, replace: false, files: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--apply') o.apply = true;
@@ -96,6 +103,7 @@ function parseArgs(argv) {
     else if (a === '--product') o.product = argv[++i];
     else if (a === '--src') o.src = argv[++i];
     else if (a === '--size') o.size = argv[++i];
+    else if (a === '--material') o.material = argv[++i];
     else if (a === '--conn') o.conn = argv[++i];
     else if (a === '--views') o.views = argv[++i];
     else fail('неизвестный ключ: ' + a);
@@ -133,7 +141,7 @@ async function main() {
   const sizes = [...new Set(manifest.items.map(i => i.caseDims && i.caseDims['watch_cases-dimensionCaseSize']).filter(Boolean))];
   const size = opt.size || sizes[0];
   if (!sizes.includes(size)) fail('в выгрузке нет размера ' + size + ' (есть: ' + sizes.join(', ') + ')');
-  say('Берём: корпус ' + size + ', связь ' + opt.conn + ', ракурсы ' + views.join(' + '));
+  say('Берём: корпус ' + size + (opt.material ? ' ' + opt.material : '') + ', связь ' + opt.conn + ', ракурсы ' + views.join(' + '));
 
   // Индекс выгрузки: «цвет корпуса|стиль|цвет ремешка» → файлы в порядке ракурсов.
   const idx = new Map();
@@ -142,7 +150,8 @@ async function main() {
     const d = it.caseDims || {};
     if (d['watch_cases-dimensionCaseSize'] !== size) continue;
     if (d['watch_cases-dimensionConnection'] !== opt.conn) continue;
-    const key = d['watch_cases-dimensionColor'] + '|' + it.band.style + '|' + norm(it.band.color);
+    if (opt.material && d['watch_cases-dimensionCaseMaterial'] !== opt.material) continue;
+    const key = norm(d['watch_cases-dimensionColor']) + '|' + it.band.style + '|' + norm(it.band.color);
     if (!idx.has(key)) idx.set(key, []);
     idx.get(key).push(it.file);
   }
