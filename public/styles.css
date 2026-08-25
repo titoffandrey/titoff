@@ -3779,9 +3779,9 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    пикселем больше, иначе на телефоне поле ввода уезжает под клавиатуру, а
    узнают об этом от покупателя.
 
-   Кнопка «Позвать менеджера» стоит НАД полем ввода, а не в шапке: решение
-   позвать человека принимают, дочитав ответ бота, то есть глядя в конец
-   ленты, — там же должна оказаться и кнопка. */
+   Кнопки «Позвать менеджера» в окне нет: диалог и так уходит в Telegram
+   целиком, и менеджер вступает сам. О смене собеседника говорит серая строка
+   в самой ленте (.chat-sys) — там, куда покупатель и смотрит. */
 .chat-widget{position:fixed;right:20px;z-index:70;
   /* Дно отводим от домашней полосы iPhone. */
   bottom:calc(20px + env(safe-area-inset-bottom,0px))}
@@ -3841,8 +3841,12 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-them a{color:var(--accent);text-decoration:underline}
 /* Системная строка («менеджер подключился») — не реплика, а отметка: она идёт
    по центру и мельче, иначе читается как ещё один собеседник. */
+/* Отметка о смене собеседника («Менеджер подключился к разговору») и прочие
+   служебные строки. Не реплика, а событие: идёт по центру, мельче и серым —
+   иначе читается как ещё один собеседник. Воздух сверху и снизу нужен, чтобы
+   строка не липла к соседнему пузырю и читалась как отбивка между ними. */
 .chat-sys{align-self:center;max-width:100%;background:transparent;border:0;color:var(--muted);
-  font-size:12.5px;text-align:center;padding:2px 8px}
+  font-size:12.5px;line-height:1.4;text-align:center;padding:4px 8px}
 .chat-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 
 /* «Печатает…» — три точки, чистый CSS. Скрипт только вставляет узел: анимация
@@ -3856,18 +3860,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 .chat-foot{border-top:1px solid var(--border);background:#fff;padding:10px 12px;
   padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
-.chat-call{width:100%;margin-bottom:9px;padding:8px;border:1px solid var(--border);border-radius:999px;
-  background:#fff;color:var(--text);font-family:inherit;font-size:13px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:6px;transition:border-color .14s,background .14s}
-.chat-call:hover{border-color:var(--accent);background:var(--bg2)}
-.chat-call:disabled{opacity:.5;cursor:default}
-/* Прятать кнопку атрибутом `hidden` мало: браузерная таблица задаёт ему всего
-   лишь `display:none`, а наш `display:flex` выше её перебивает — и «Позвать
-   менеджера» продолжала висеть в диалоге, где менеджер уже отвечает. Та же
-   грабля, что была у скрытых плиток вложений (.rv-thumb[hidden]). */
-.chat-call[hidden]{display:none}
+/* Прятать элемент атрибутом `hidden` мало, когда у него задан `display`:
+   браузерная таблица даёт `hidden` всего лишь `display:none`, а своё правило
+   выше её перебивает. Та же грабля, что была у скрытых плиток вложений
+   (.rv-thumb[hidden]). */
 .chat-fab .chat-badge[hidden]{display:none}
-.chat-call svg{width:15px;height:15px}
 .chat-form{display:flex;align-items:flex-end;gap:8px}
 .chat-form textarea{flex:1;resize:none;border:1px solid var(--border);border-radius:18px;padding:9px 13px;
   font-family:inherit;font-size:15px;line-height:1.4;max-height:96px;color:var(--text);background:#fff}
@@ -3878,7 +3875,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-send:active{transform:scale(.94)}
 .chat-send svg{width:18px;height:18px}
 /* Завершённый диалог: писать в него уже некому, но перечитать можно. */
-.chat-widget[data-mode=closed] .chat-form,.chat-widget[data-mode=closed] .chat-call{display:none}
+.chat-widget[data-mode=closed] .chat-form{display:none}
 
 /* На телефоне окно занимает экран целиком: полупанель в 380 px рядом с краем
    выглядит обрезанной, а места под ленту в ней остаётся на три реплики. */
@@ -3986,7 +3983,16 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    Из списка исключены поля, которые фокус не приближает: галочки,
    переключатели, ползунки, выбор цвета и файловый ввод (у последнего свой
    кегль подписи «Файл не выбран», и трогать его незачем). */
+/* Порядка в файле для этого МАЛО, и на этом уже наступили: медиазапрос
+   специфичность не повышает, поэтому голый `textarea` (0,1) проигрывает любому
+   правилу с классом — `.chat-form textarea` (1,1) спокойно оставлял поле чата
+   на 15 px, и Safari его приближал. У `input` такой беды нет: пять `:not([…])`
+   дают селектору (5,1), и он перебивает `.field input[type=text]` сам.
+
+   Отсюда правило: **добавили полю ввода класс с кеглем мельче 16 px — впишите
+   его сюда же**. Закреплено тестом. */
 @media (pointer:coarse){
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),
-  .field select,.field textarea,select,textarea{font-size:16px}
+  .field select,.field textarea,select,textarea,
+  .chat-form textarea,.chat-answer textarea{font-size:16px}
 }

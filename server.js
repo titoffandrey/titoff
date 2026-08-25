@@ -1339,8 +1339,12 @@ async function aiAnswer(chat, info, s) {
     TGCHAT.relayAi(fresh, result.text);
     return;
   }
+  /* Обе строки говорят одно: вопрос не потерян, им занялся человек. Это правда —
+   * в тему Telegram он уже ушёл, вместе с отдельной отметкой ниже. Звать
+   * менеджера покупателю не нужно и нечем: кнопки нет, а диалог у менеджера
+   * перед глазами с первой реплики. */
   const excuse = result.error === 'rate_limit'
-    ? 'Сейчас отвечаю медленнее обычного. Нажмите «Позвать менеджера» — ответит человек.'
+    ? 'Отвечаю медленнее обычного — передал ваш вопрос менеджеру, он ответит здесь же.'
     : 'Не получилось ответить автоматически. Я передал вопрос менеджеру — он ответит здесь же.';
   const message = CHAT.addMessage(fresh, 'system', excuse);
   CHAT.push(fresh.id, 'done', message);
@@ -1444,24 +1448,15 @@ app.get('/api/chat/poll', (req, res) => {
   });
 });
 
-// «Позвать менеджера». Диалог сразу переходит к человеку: обещать это кнопкой
-// и оставить бота отвечать было бы обманом.
-app.post('/api/chat/operator', (req, res) => {
-  const s = settings();
-  if (!CHAT.visible(s)) return res.json({ ok: false }, 404);
-  const chat = currentChat(req);
-  if (!chat) return res.json({ ok: false }, 404);
-  if (rateLimited(req, 'chat-call', 6, 10 * 60 * 1000, anonymousSessionId(req))) {
-    return res.json({ ok: false, error: 'Менеджер уже вызван — подождите ответа.' }, 429);
-  }
-  CHAT.setMode(chat, 'operator');
-  if (!chat.topicId && TGCHAT.configured(s)) {
-    TGCHAT.openTopic(chat, s, 'Просит менеджера').catch(() => {});
-  }
-  TGCHAT.relaySystem(chat, 'Покупатель просит менеджера');
-  const message = CHAT.say(chat, 'system', 'Передал разговор менеджеру. Он ответит здесь же — окно можно не держать открытым.');
-  res.json({ ok: true, mode: chat.mode, message });
-});
+/* Маршрута «позвать менеджера» здесь нет намеренно.
+ *
+ * Кнопка предлагала покупателю выбрать собеседника, хотя выбирать нечего:
+ * диалог целиком уходит в Telegram с первой же реплики, и менеджер вступает в
+ * разговор, когда сочтёт нужным. Ему она добавляла только лишнее решение на
+ * последнем шаге — а нажав, он ещё и ждал человека там, где ИИ ответил бы
+ * сразу. Что собеседник сменился, говорит серая строка в ленте (`MODE_NOTES` в
+ * lib/chat.js), и она одна на все входы: тему, команду и панель.
+ */
 
 // Покупатель открыл окно — значок непрочитанного гаснет.
 app.post('/api/chat/read', (req, res) => {
@@ -1481,14 +1476,15 @@ TGCHAT.start({
     CHAT.say(chat, 'operator', text, { by });
   },
   onCommand: (chat, command, by) => {
+    // Строку в ленту покупателя пишет сама `setMode` — одну и ту же, откуда бы
+    // собеседника ни сменили. Здесь остаётся только отметка в тему Telegram:
+    // менеджеру важно ещё и КТО это сделал.
     if (command === 'ai') {
       CHAT.setMode(chat, 'ai');
-      CHAT.say(chat, 'system', 'С вами снова консультант магазина.');
       TGCHAT.relaySystem(chat, 'ИИ снова отвечает (' + by + ')');
       return;
     }
     if (command === 'close') {
-      CHAT.say(chat, 'system', 'Разговор завершён. Если понадобится — напишите снова.');
       CHAT.setMode(chat, 'closed');
       TGCHAT.relaySystem(chat, 'Диалог завершён (' + by + ')');
       return;
@@ -2739,14 +2735,14 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   // значением: вложенных форм в HTML не бывает, а браузер шлёт имя только
   // нажатой кнопки (тот же приём, что у удаления ответа на отзыв).
   const mode = String(req.body.mode || '');
+  // Строку в ленту покупателя пишет `setMode`: одна и та же, откуда бы
+  // собеседника ни сменили — из темы, командой или отсюда.
   if (mode === 'ai') {
     CHAT.setMode(chat, 'ai');
-    CHAT.say(chat, 'system', 'С вами снова консультант магазина.');
     TGCHAT.relaySystem(chat, 'ИИ снова отвечает (из панели)');
     return back('ИИ снова отвечает');
   }
   if (mode === 'closed') {
-    CHAT.say(chat, 'system', 'Разговор завершён. Если понадобится — напишите снова.');
     CHAT.setMode(chat, 'closed');
     TGCHAT.relaySystem(chat, 'Диалог завершён (из панели)');
     return back('Диалог завершён');

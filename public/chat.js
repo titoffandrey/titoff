@@ -35,8 +35,8 @@
   var input = document.getElementById('chat-input');
   var badge = document.getElementById('chat-badge');
   var statusEl = document.getElementById('chat-status');
-  var callBtn = document.getElementById('chat-call');
   var button = document.getElementById('chat-open');
+  var sendBtn = form && form.querySelector('button[type="submit"]');
   if (!panel || !list || !form || !input) return;
 
   var STORE = 'chat_v1';
@@ -46,8 +46,12 @@
     open: false,
     started: false,      // диалог уже заведён на сервере
     stream: null,        // EventSource
+    streamTimer: null,   // канал обязан прислать ready; иначе прокси его буферизует
     sid: '',             // номер своего канала: по нему сервер не шлёт нам эхо своей же реплики
     pollTimer: null,     // запасной опрос, когда канал не открылся
+    pollBusy: false,     // медленный Tor-запрос не должен обрастать параллельными опросами
+    pollGeneration: 0,  // ответ остановленного опроса не вмешивается в живой канал
+    opening: null,       // один /open на все быстрые show/send/call
     since: 0,            // время последней показанной реплики (для опроса)
     typing: null,        // узел «печатает…»
     live: null,          // узел ответа ИИ, который печатается прямо сейчас
@@ -233,8 +237,6 @@
     statusEl.textContent = state.mode === 'operator' ? 'Отвечает менеджер'
       : state.mode === 'closed' ? 'Диалог завершён' : 'Обычно отвечаем сразу';
     root.setAttribute('data-mode', state.mode);
-    // Звать менеджера, когда он уже в диалоге, незачем — кнопка прячется.
-    if (callBtn) callBtn.hidden = state.mode !== 'ai';
   }
 
   /* ---------------------------------- Запросы ---------------------------------- */
@@ -267,28 +269,72 @@
 
   function open() {
     if (state.started) return Promise.resolve(true);
+    if (state.opening) return state.opening;
     var body = place();
-    return post('/api/chat/open', body).then(function (d) {
+    var request = post('/api/chat/open', body).then(function (d) {
       if (!d || !d.ok) return false;
       state.id = d.id || '';
       state.started = true;
       setMode(d.mode);
       // Сервер отдаёт всю переписку: покупатель мог начать разговор на другой
       // странице или вчера — окно обязано открыться там же, где он его оставил.
-      (d.messages || []).forEach(append);
+      (Array.isArray(d.messages) ? d.messages : []).forEach(append);
       remember();
       connect();
       return true;
     });
+    // `post()` сам превращает сетевую ошибку в `{ ok:false }`, но второй
+    // обработчик оставляет single-flight исправным и при неожиданной ошибке в
+    // данных/DOM: следующий клик сможет повторить открытие.
+    state.opening = request.then(function (ok) {
+      state.opening = null;
+      return ok;
+    }, function () {
+      state.opening = null;
+      return false;
+    });
+    return state.opening;
   }
 
   /* --------------------------------- Живой канал -------------------------------- */
+
+  var STREAM_GRACE = 10000;
+
+  function clearStreamWatch() {
+    if (state.streamTimer) clearTimeout(state.streamTimer);
+    state.streamTimer = null;
+  }
+
+  function stopPolling() {
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    state.pollBusy = false;
+    state.pollGeneration++;
+  }
+
+  function fallbackFrom(src) {
+    if (state.stream !== src) return;
+    clearStreamWatch();
+    try { src.close(); } catch (e) {}
+    state.stream = null;
+    startPolling();
+  }
+
+  function watchStream(src) {
+    clearStreamWatch();
+    state.streamTimer = setTimeout(function () {
+      // CONNECTING может висеть бесконечно у прокси, который принял HTTP-запрос,
+      // но буферизует поток. `readyState === CLOSED` в таком сценарии не бывает.
+      fallbackFrom(src);
+    }, STREAM_GRACE);
+  }
 
   function connect() {
     if (state.stream || !state.started) return;
     if (typeof EventSource === 'undefined') return startPolling();
     var src = new EventSource('/api/chat/stream', { withCredentials: true });
     state.stream = src;
+    watchStream(src);
 
     /* Номер канала запоминаем и шлём с каждым сообщением. Без него сервер
      * рассылает нашу же реплику всем вкладкам, включая эту, — а она нарисована
@@ -296,6 +342,9 @@
      * своего сообщения читается как сбой). Ровно так вопрос покупателя и
      * показывался в окне дважды. */
     src.addEventListener('ready', function (e) {
+      if (state.stream !== src) return;
+      clearStreamWatch();
+      stopPolling();
       var d = parse(e.data);
       if (d && d.sid) state.sid = d.sid;
       if (d && d.mode) setMode(d.mode);
@@ -313,10 +362,11 @@
     });
     src.addEventListener('error', function () {
       // EventSource переподключается сам, и обрыв на секунду — обычное дело.
-      // Запасной опрос включаем, только когда канал закрылся насовсем: у
-      // сжимающего прокси поток не проходит вовсе, и без опроса покупатель не
-      // получил бы ни ответа ИИ, ни ответа менеджера.
-      if (src.readyState === 2) { state.stream = null; startPolling(); }
+      // Даём ему время на штатное переподключение, но не бесконечность: через
+      // onion/proxy соединение нередко остаётся в CONNECTING и никогда не
+      // становится CLOSED, поэтому одной проверки readyState было недостаточно.
+      if (src.readyState === 2) fallbackFrom(src);
+      else if (state.stream === src) watchStream(src);
     });
   }
 
@@ -326,15 +376,30 @@
 
   function startPolling() {
     if (state.pollTimer || !state.started) return;
-    state.pollTimer = setInterval(function () {
-      fetch('/api/chat/poll?since=' + encodeURIComponent(state.since), { credentials: 'same-origin' })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          if (!d || !d.ok) return;
-          if (d.mode) setMode(d.mode);
-          (d.messages || []).forEach(append);
-        }).catch(function () {});
-    }, 3000);
+    state.pollGeneration++;
+    state.pollTimer = setInterval(pollOnce, 3000);
+    pollOnce();
+  }
+
+  function pollOnce() {
+    if (state.pollBusy || !state.pollTimer || !state.started) return;
+    var generation = state.pollGeneration;
+    state.pollBusy = true;
+    fetch('/api/chat/poll?since=' + encodeURIComponent(state.since), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (generation !== state.pollGeneration || !d || !d.ok) return;
+        if (d.mode) setMode(d.mode);
+        (Array.isArray(d.messages) ? d.messages : []).forEach(function (message) {
+          // Если поток успел прислать части ответа перед обрывом, полный ответ
+          // завершает тот же bubble, а не рисуется рядом вторым сообщением.
+          if (state.live && message && message.role === 'ai') endDelta(message);
+          else append(message);
+        });
+      }).catch(function () {})
+      .then(function () {
+        if (generation === state.pollGeneration) state.pollBusy = false;
+      });
   }
 
   /* ---------------------------------- Отправка ---------------------------------- */
@@ -343,6 +408,7 @@
     var body = String(text || '').trim();
     if (!body || state.sending) return;
     state.sending = true;
+    if (sendBtn) sendBtn.disabled = true;
     /* Своя реплика рисуется БЕЗ времени, и это важно: `state.since` уезжает на
      * сервер в запасном опросе и сравнивается там с временем сервера. Часы
      * браузера идут по-своему — спешащие на минуту заставили бы сервер считать
@@ -361,6 +427,7 @@
     go.then(function (ok) {
       if (!ok) {
         state.sending = false;
+        if (sendBtn) sendBtn.disabled = false;
         return append({ role: 'system', text: 'Не удалось отправить сообщение. Проверьте соединение.' });
       }
       var payload = place();
@@ -371,6 +438,7 @@
       if (state.mode === 'ai') showTyping();
       return post('/api/chat/send', payload).then(function (d) {
         state.sending = false;
+        if (sendBtn) sendBtn.disabled = false;
         if (!d || !d.ok) {
           hideTyping();
           append({ role: 'system', text: (d && d.error) || 'Сообщение не отправлено. Попробуйте ещё раз.' });
@@ -439,19 +507,6 @@
     if (!act) return;
     var name = act.getAttribute('data-chat-act');
     if (name === 'close') { e.preventDefault(); hide(); }
-    if (name === 'call') {
-      e.preventDefault();
-      act.disabled = true;
-      open().then(function () {
-        return post('/api/chat/operator', {});
-      }).then(function (d) {
-        act.disabled = false;
-        if (d && d.ok) {
-          if (d.mode) setMode(d.mode);
-          if (d.message) append(d.message);
-        }
-      });
-    }
   });
 
   document.addEventListener('keydown', function (e) {
@@ -463,19 +518,28 @@
    * должен сказать значок на кнопке. Ради одной кнопки в углу канал при этом
    * не открывается никогда: разговор ведут единицы, страниц открывают сотни. */
   if (recall()) {
-    post('/api/chat/open', place()).then(function (d) {
-      if (!d || !d.ok) return;
+    var restoring = post('/api/chat/open', place()).then(function (d) {
+      if (!d || !d.ok) return false;
       state.id = d.id || '';
       state.started = true;
       setMode(d.mode);
-      (d.messages || []).forEach(function (m) {
+      (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) {
+        if (!m || !m.text) return;
         if (m.at) state.since = Math.max(state.since, m.at);
         list.appendChild(bubble(m.role, m.text, m.by));
       });
-      state.unread = Number(d.unread) || 0;
+      state.unread = Math.max(0, Number(d.unread) || 0);
       paintBadge();
       scroll(true);
       connect();
+      return true;
+    });
+    state.opening = restoring.then(function (ok) {
+      state.opening = null;
+      return ok;
+    }, function () {
+      state.opening = null;
+      return false;
     });
   }
 

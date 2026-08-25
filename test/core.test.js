@@ -8776,6 +8776,47 @@ test('после оператора ИИ молчит до конца переп
   assert.equal(chatStore.get(chat.id).mode, 'ai', 'чужой режим не принимается');
 });
 
+test('смену собеседника показывает серая строка в ленте, а не кнопка', () => {
+  /* Кнопки «Позвать менеджера» на витрине нет: диалог целиком уходит в Telegram
+   * с первой реплики, и менеджер вступает сам. Единственное, что говорит об
+   * этом покупателю, — служебная строка в ленте, поэтому её пишет `setMode`, а
+   * не каждый вызывающий: сменить собеседника можно из темы, командой и из
+   * панели, и три копии текста разъехались бы на первой правке. */
+  const html = render.layout(CHAT_ON, { body: '' });
+  assert.doesNotMatch(html, /chat-call|Позвать менеджера/, 'кнопки в окне быть не должно');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.ok(!css.includes('.chat-call'), 'и правил под неё тоже');
+  const widget = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.doesNotMatch(widget, /chat\/operator/, 'и запроса «позвать» из витрины');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({});
+  chatStore.addMessage(chat, 'user', 'есть 256 ГБ?');
+  chatStore.addMessage(chat, 'ai', 'да, есть');
+
+  chatStore.setMode(chat, 'operator');
+  const last = chat.messages[chat.messages.length - 1];
+  assert.equal(last.role, 'system', 'отметка идёт служебной строкой, а не репликой собеседника');
+  assert.equal(last.text, chatStore.MODE_NOTES.operator);
+  // Обратно тоже: покупатель должен знать, что снова отвечает бот.
+  chatStore.setMode(chat, 'ai');
+  assert.equal(chat.messages[chat.messages.length - 1].text, chatStore.MODE_NOTES.ai);
+
+  // Повтор того же режима строку не добавляет: «менеджер подключился» дважды
+  // подряд читается как второй менеджер.
+  const before = chat.messages.length;
+  chatStore.setMode(chat, 'ai');
+  assert.equal(chat.messages.length, before);
+
+  /* А в ПУСТОМ диалоге строки нет вовсе: «менеджер подключился» первой строкой,
+   * до единого вопроса, — это не событие, а недоразумение. Так бывает, когда
+   * менеджер открывает свежую тему и пишет первым. */
+  const fresh = chatStore.create({});
+  chatStore.setMode(fresh, 'operator');
+  assert.equal(fresh.messages.length, 0, 'в пустом диалоге отметка не нужна');
+});
+
 test('диалог находится по теме Telegram, и связь переживает перезапуск', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
   chatStore.init(dir);
@@ -8923,11 +8964,26 @@ test('стили чата не пересекаются у витрины и п�
   for (const cls of ['.chat-row', '.chat-line', '.chat-thread', '.chat-answer', '.chat-state']) {
     assert.ok(css.includes(cls), 'правило панели ' + cls + ' на месте');
   }
-  // Поле ввода не мельче 16 px на телефоне, иначе Safari приближает страницу и
-  // обратно не отъезжает. Общее правило стоит последним в файле — проверяем,
-  // что чат его не перебил.
-  const coarse = css.slice(css.indexOf('@media (pointer:coarse)'));
-  assert.ok(coarse.includes('textarea{font-size:16px}'), 'правило про кегль осталось последним');
-  assert.ok(css.indexOf('.chat-form textarea') < css.indexOf('@media (pointer:coarse)'),
-    'стили чата стоят ДО него, иначе поле осталось бы мельче 16 px');
+  /* Поле ввода не мельче 16 px на телефоне, иначе Safari приближает страницу и
+   * обратно не отъезжает.
+   *
+   * Проверяем ПРИЧИНУ, а не порядок правил в файле: медиазапрос специфичность
+   * не повышает, поэтому голый `textarea` (0,1) проигрывает любому правилу с
+   * классом — и поле чата спокойно оставалось на 15 px, стоя выше по файлу.
+   * Прежняя проверка «правило идёт последним» этого не ловила вовсе.
+   *
+   * Отсюда правило: у каждого поля, которому класс задаёт кегль мельче 16 px,
+   * должен быть свой селектор внутри coarse-блока. */
+  const coarseAt = css.indexOf('@media (pointer:coarse)');
+  const coarse = css.slice(coarseAt);
+  assert.ok(coarse.includes('font-size:16px'), 'правило про кегль на месте');
+  const small = /([^{}]*(?:textarea|select)[^{}]*)\{[^}]*font-size:\s*(\d+(?:\.\d+)?)px/g;
+  let rule;
+  while ((rule = small.exec(css.slice(0, coarseAt)))) {
+    const selector = rule[1].trim().replace(/\s+/g, ' ');
+    if (Number(rule[2]) >= 16 || !/^[.#][\w-]/.test(selector)) continue;
+    if (!/chat/.test(selector)) continue;          // чужие поля — забота своих разделов
+    assert.ok(coarse.includes(selector),
+      'поле «' + selector + '» мельче 16 px и не перекрыто в coarse-блоке — Safari будет зумить');
+  }
 });
