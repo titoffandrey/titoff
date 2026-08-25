@@ -1924,6 +1924,65 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-req-list span{color:var(--muted);flex:none}
 .o-req-list b{font-weight:600;text-align:right;word-break:break-word}
 
+/* Забракованные реквизиты в свёртке заказа. Покупателю такой счёт не
+   показывается вовсе (по выдуманному номеру он либо не заплатит, либо переведёт
+   деньги постороннему), но владельцу нужно ровно обратное — увидеть само
+   значение, иначе разговор с поддержкой кассы сводится к «у вас что-то не
+   работает». Тон тёплый, а не алый: это не поломка магазина, а брак поставщика
+   реквизитов. */
+/* Сброс общего `.o-req-list div{display:flex;justify-content:space-between}`:
+   оно написано для пар «подпись — значение» и достаёт ЛЮБОЙ вложенный div, а
+   не только прямых детей. Забракованный номер из-за него раскладывался по
+   колонкам — цифры шли вертикально одна под другой. */
+.o-req-list .o-req-bad,.o-req-list .o-req-bad-row{display:block}
+.o-req-bad{margin-top:7px;padding-top:6px;border-top:1px dashed var(--border)}
+.o-req-bad-head{display:block;color:#bf4800;font-weight:600;margin-bottom:3px}
+.o-req-bad-row{display:block;line-height:1.35}
+.o-req-bad-row+.o-req-bad-row{margin-top:4px}
+.o-req-bad-row b{display:block;font-weight:600;text-align:left;word-break:break-all;
+  font-variant-numeric:tabular-nums;text-decoration:line-through;text-decoration-color:#d0a894}
+.o-req-bad-row span{color:var(--muted)}
+
+/* Ссылка на подробный отчёт стоит в шапке таблицы касс: вопрос «покажи, ЧТО она
+   прислала» возникает ровно тогда, когда смотришь на столбец отказов. */
+.pay-prov-more{margin-left:auto;white-space:nowrap}
+
+/* ---- Подробный отчёт по попыткам ---- */
+
+.pay-log{min-width:900px}
+.pay-log td{vertical-align:top}
+.pay-log-at{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
+/* Реквизит — главное, ради чего сюда приходят, поэтому он крупнее соседей и
+   набран табличными цифрами: номера сравнивают глазами, столбик в столбик. */
+.pay-log-req{font-weight:600;font-variant-numeric:tabular-nums;word-break:break-all}
+.pay-log-row.is-bad{background:#fffaf2}
+.pay-log-row.is-bad .pay-log-req{text-decoration:line-through;text-decoration-color:#d0a894}
+
+.pay-log-tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pay-log-tag.is-paid{background:#f2fbf5;color:#0b5c2c}
+.pay-log-tag.is-ok{background:#eef4ff;color:#1f4fa8}
+.pay-log-tag.is-bad{background:#fff2e2;color:#bf4800}
+.pay-log-tag.is-fail{background:#fff5f4;color:#8f2018}
+.pay-log-tag.is-idle{background:var(--bg2);color:var(--muted)}
+.pay-log-why{display:block;margin-top:3px;font-size:11.5px;color:var(--muted)}
+
+/* На телефоне таблица в семь столбцов не встаёт никак — становится карточками,
+   как «Кассы» и список заказов. Подписи приезжают из data-l в разметке, а не
+   повторяются словами в CSS: заголовок столбца и подпись карточки обязаны
+   говорить одно и то же. */
+@media (max-width:800px){
+  /* Специфичность выше, чем у общего `.a-table{min-width:620px}`: без класса
+     таблицы карточки всё равно резались бы по краю экрана, и панель уезжала
+     вбок — та же правка, что у списка заказов. */
+  .a-table.pay-log{min-width:0;display:block}
+  .pay-log thead{display:none}
+  .pay-log tbody,.pay-log tr,.pay-log td{display:block;width:auto}
+  .pay-log tr{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+  .pay-log td{border:0;padding:2px 0;display:flex;gap:10px;align-items:baseline}
+  .pay-log td::before{content:attr(data-l);color:var(--muted);font-size:11.5px;flex:none;min-width:78px}
+  .pay-log-why{display:inline}
+}
+
 /* Способы оплаты в настройках владельца: сеткой, чтобы одиннадцать галочек не
    вытянулись в длинный столбик. */
 .a-subhead{margin:22px 0 12px;font-size:15px;font-weight:600}

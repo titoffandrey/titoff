@@ -1660,7 +1660,15 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
       db.attachOrderInvoice(id, {
         attemptId, invoiceId: r.invoice.id, requisite: '', bank: r.invoice.bank,
         owner: '', method, actualMethod: r.invoice.method || '',
-        expiresAt: r.invoice.expiresAt, providerTries: tries
+        expiresAt: r.invoice.expiresAt, providerTries: tries,
+        /* То, что касса прислала и что мы забраковали, — отдельным полем для
+         * разбора. Покупателю оно не показывается нигде (в `requisite` выше
+         * пустая строка), а владельцу без него нечего предъявить кассе: отказ
+         * выглядел бы как «у вас что-то не работает». */
+        rejected: r.error === 'bad_requisite' ? {
+          requisite: r.invoice.requisite, owner: r.invoice.owner,
+          bank: r.invoice.bank, reason: r.reason || ''
+        } : null
       });
       // Забракованную сделку освобождаем, если касса это умеет: реквизит
       // покупателю не показан, платить по нему никто не будет, а карта трейдера
@@ -2789,6 +2797,18 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   // без ответа и написал бы второй раз то же самое.
   TGCHAT.relaySystem(chat, 'Ответ из панели: ' + text);
   return back('Отправлено');
+});
+
+/* Подробный отчёт по кассам: лента ПОПЫТОК, а не заказов.
+ *
+ * Сводка под списком заказов отвечает «сколько отказов и каких», а этот отчёт —
+ * «покажи, что именно касса прислала». Второй вопрос возникает ровно тогда,
+ * когда касса подряд отдаёт негодные реквизиты, и без самого значения
+ * предъявить ей нечего.
+ */
+app.get('/admin/payments', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  res.send(A.paymentsPage(settings(), db, { tab: req.query.tab, page: req.query.page, flash: req.query.flash }));
 });
 
 /* ---------- Настройки магазина ---------- */

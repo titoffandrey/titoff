@@ -9123,3 +9123,132 @@ test('стили чата не пересекаются у витрины и п�
       'поле «' + selector + '» мельче 16 px и не перекрыто в coarse-блоке — Safari будет зумить');
   }
 });
+
+/* ============ ОТЧЁТ ПО КАССАМ: ЧТО ИМЕННО ОНА ПРИСЛАЛА ============ */
+
+test('забракованный реквизит сохраняется для разбора, но не для покупателя', () => {
+  /* На боевой витрине касса четыре раза подряд вернула номера, которых не
+   * бывает. Покупателю такой счёт показывать нельзя (заплатить по нему
+   * невозможно, а если выдумка совпала с чьим-то настоящим номером, деньги
+   * уйдут постороннему) — но владельцу нужно ровно обратное: увидеть само
+   * значение, иначе предъявить кассе нечего. Раньше здесь сохранялась пустая
+   * строка, и разобрать отказ было решительно нечем. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pay-'));
+  const store = freshDb(dir);
+  const order = store.createOrder({
+    customerName: 'Иван', items: [{ id: 'x', name: 'iPhone', price: 1000, qty: 1 }], total: 1000
+  });
+  const attemptId = 'a'.repeat(24);
+  store.startOrderPayment(order.id, {
+    attemptId, provider: 'meridianpay', method: 'SBP', amount: 1000, currency: 'RUB',
+    token: 'f'.repeat(32), requestId: 'r'.repeat(32)
+  });
+  store.attachOrderInvoice(order.id, {
+    attemptId, invoiceId: 'inv-1', requisite: '', bank: 'Сбербанк', owner: '',
+    method: 'SBP', actualMethod: 'SBP', expiresAt: Date.now() + 60000, providerTries: 1,
+    rejected: { requisite: '7775553535', owner: 'Testov T.T.', bank: 'Сбербанк', reason: 'phone' }
+  });
+
+  const saved = store.getOrder(order.id).payment.attempts[0];
+  assert.equal(saved.requisite, '', 'на страницу оплаты забракованное не уезжает');
+  assert.equal(saved.rejected.requisite, '7775553535', 'а для разбора — сохранено');
+  assert.equal(saved.rejected.owner, 'Testov T.T.');
+  assert.equal(saved.rejected.reason, 'phone');
+
+  // Причину объясняет тот же файл, что и проверяет: разъехавшись, они
+  // рассказывали бы разное об одном отказе.
+  const PAYM = require('../lib/pay-methods');
+  assert.match(PAYM.rejectReason('phone'), /не похож/);
+  assert.match(PAYM.rejectReason('card'), /карт/);
+  assert.equal(PAYM.rejectReason('невиданный код'), 'невиданный код', 'чужой код показываем как есть');
+});
+
+test('в строке заказа видно, что касса прислала и чем это плохо', () => {
+  const order = {
+    id: 'o1', number: 365592, total: 1000,
+    payment: {
+      status: 'pending', provider: 'meridianpay', method: 'SBP', amount: 1000, currency: 'RUB',
+      attempts: [{
+        id: 'a1', provider: 'meridianpay', method: 'SBP', status: 'failed', lastErrorCode: 'bad_requisite',
+        requisite: '', invoiceId: 'inv-1',
+        rejected: { requisite: '7775553535', owner: 'Testov T.T.', bank: 'Сбербанк', reason: 'phone' }
+      }]
+    }
+  };
+  const html = render.orderPayMethod(order);
+  assert.match(html, /Забраковано нами/);
+  assert.match(html, /7775553535/, 'само значение — то, ради чего всё и делалось');
+  assert.match(html, /не похож на настоящий/);
+  assert.match(html, /MeridianPay/, 'и какая касса его прислала');
+
+  // У обычного заказа без брака лишнего блока не появляется.
+  const clean = render.orderPayMethod({
+    id: 'o2', number: 2, payment: { status: 'paid', method: 'SBP', requisite: '+79991234567', attempts: [] }
+  });
+  assert.doesNotMatch(clean, /Забраковано/);
+});
+
+test('подробный отчёт по кассам показывает ленту попыток', () => {
+  /* Сводка отвечает «сколько отказов и каких», а этот отчёт — «покажи, ЧТО
+   * именно она прислала». Второй вопрос возникает ровно тогда, когда касса
+   * подряд отдаёт негодные реквизиты. */
+  const orders = [{
+    id: 'o1', number: 365592, total: 68590, createdAt: Date.now(),
+    payment: {
+      status: 'pending', provider: 'meridianpay', method: 'SBP',
+      attempts: [
+        {
+          id: 'a1', provider: 'meridianpay', method: 'SBP', amount: 68590, currency: 'RUB',
+          status: 'failed', lastErrorCode: 'bad_requisite', startedAt: Date.now(), requisite: '',
+          rejected: { requisite: '987777777777', owner: 'Ivan I.', bank: 'Сбербанк', reason: 'phone' }
+        },
+        {
+          id: 'a2', provider: 'crocopay', method: 'SBP', amount: 68590, currency: 'RUB',
+          status: 'failed', lastErrorCode: 'no_requisite', startedAt: Date.now() - 1000, requisite: ''
+        }
+      ]
+    }
+  }];
+  const db = {
+    getOrders: () => orders, visibleOrders: () => orders, pendingReviewCount: () => 0,
+    getProducts: () => [], visibleProducts: () => []
+  };
+
+  const all = adminViews.paymentsPage(SETTINGS, db, {});
+  assert.match(all, /987777777777/, 'значение видно в ленте');
+  assert.match(all, /№365592/, 'и к какому заказу оно относится');
+  assert.match(all, /MeridianPay/);
+  assert.match(all, /забраковано/);
+  assert.match(all, /нет свободных реквизитов|нет реквизитов/i, 'отказ другой кассы — своими словами');
+
+  // Счётчик у набора «Забракованные» — это и есть ответ на вопрос, с которым
+  // сюда пришли, и он виден до всякого нажатия.
+  assert.match(all, /Забракованные <b>1<\/b>/);
+
+  // Отбор оставляет только забракованные.
+  const bad = adminViews.paymentsPage(SETTINGS, db, { tab: 'bad' });
+  assert.match(bad, /987777777777/);
+  assert.doesNotMatch(bad, /pay-log-row[^>]*>[\s\S]*CrocoPAY/, 'чужой отказ в этот набор не попадает');
+  // Мусор в адресе сводится к «Все», а не роняет страницу.
+  assert.match(adminViews.paymentsPage(SETTINGS, db, { tab: 'выдумка' }), /a-tab active/);
+
+  // На самой странице отчёта ссылки на неё же нет.
+  assert.doesNotMatch(all, /pay-prov-more/);
+  // А в списке заказов — есть: вопрос «покажи, что она прислала» возникает
+  // ровно тогда, когда смотришь на столбец отказов.
+  assert.match(adminViews.ordersList(SETTINGS, db, null, 1), /pay-prov-more/);
+});
+
+test('карточки отчёта на телефоне не уезжают за край', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const mobile = css.slice(css.indexOf('@media (max-width:800px){', css.indexOf('.pay-log')));
+  /* Специфичность обязана быть выше общего `.a-table{min-width:620px}`: без
+   * класса таблицы карточки резались бы по краю экрана, и панель уезжала вбок
+   * — та же правка, что у списка заказов. */
+  assert.match(mobile, /\.a-table\.pay-log\{min-width:0/);
+  // Подписи столбцов приезжают из разметки, а не повторяются словами в CSS.
+  assert.match(mobile, /content:attr\(data-l\)/);
+  // И блоки забракованных не должны попасть под общее правило пар
+  // «подпись — значение»: из-за него цифры номера шли вертикально одна под другой.
+  assert.match(css, /\.o-req-list \.o-req-bad,\.o-req-list \.o-req-bad-row\{display:block\}/);
+});
