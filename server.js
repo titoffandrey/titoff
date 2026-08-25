@@ -1267,13 +1267,25 @@ function chatContext(req) {
 
 // Что уезжает в браузер. Служебных полей диалога (ip, тема Telegram, id
 // посетителя) покупателю знать незачем — он получает ровно свою переписку.
+/* Реплика в том виде, в каком её показывают покупателю.
+ *
+ * Подпись подставляется ЗДЕСЬ, на сервере, а не в браузере: имена собеседников
+ * лежат в `lib/chat.js` одним списком, и своя копия в `public/chat.js`
+ * разъехалась бы с ним на первой же правке — покупатель увидел бы под одной
+ * репликой одно имя, а в панели у той же реплики другое. Заодно так
+ * подписываются и старые записи, сделанные до появления имён.
+ */
+function chatMessageView(m) {
+  return { role: m.role, text: m.text, at: m.at, by: CHAT.speakerOf(m.role, m.by) };
+}
+
 function chatView(chat) {
   return {
     ok: true,
     id: chat.id,
     mode: chat.mode,
     unread: chat.unread,
-    messages: chat.messages.map(m => ({ role: m.role, text: m.text, at: m.at, by: m.by }))
+    messages: chat.messages.map(chatMessageView)
   };
 }
 
@@ -1339,14 +1351,17 @@ async function aiAnswer(chat, info, s) {
     TGCHAT.relayAi(fresh, result.text);
     return;
   }
-  /* Обе строки говорят одно: вопрос не потерян, им занялся человек. Это правда —
-   * в тему Telegram он уже ушёл, вместе с отдельной отметкой ниже. Звать
-   * менеджера покупателю не нужно и нечем: кнопки нет, а диалог у менеджера
-   * перед глазами с первой реплики. */
+  /* Модель не ответила. Покупателю говорим об этом ГОЛОСОМ КОНСУЛЬТАНТА и без
+   * единого слова про автоматику: «не получилось ответить автоматически» — это
+   * рассказ о том, что с ним разговаривал робот, а знать ему это незачем. Ровно
+   * та же причина, по которой из ленты убраны отметки о подключении менеджера.
+   *
+   * Обещание при этом честное: вопрос уже ушёл в тему Telegram, вместе с
+   * отдельной отметкой ниже, и лежит у менеджера перед глазами. */
   const excuse = result.error === 'rate_limit'
-    ? 'Отвечаю медленнее обычного — передал ваш вопрос менеджеру, он ответит здесь же.'
-    : 'Не получилось ответить автоматически. Я передал вопрос менеджеру — он ответит здесь же.';
-  const message = CHAT.addMessage(fresh, 'system', excuse);
+    ? 'Уточняю по вашему вопросу — отвечу здесь через пару минут.'
+    : 'Секунду, уточню детали по вашему вопросу и вернусь с ответом сюда же.';
+  const message = CHAT.addMessage(fresh, 'ai', excuse);
   CHAT.push(fresh.id, 'done', message);
   TGCHAT.relaySystem(fresh, 'ИИ не ответил (' + (result.error || 'ошибка') + ') — вопрос ждёт менеджера');
 }
@@ -1444,7 +1459,7 @@ app.get('/api/chat/poll', (req, res) => {
   res.json({
     ok: true,
     mode: chat.mode,
-    messages: chat.messages.filter(m => m.at > since).map(m => ({ role: m.role, text: m.text, at: m.at, by: m.by }))
+    messages: chat.messages.filter(m => m.at > since).map(chatMessageView)
   });
 });
 
@@ -1470,15 +1485,18 @@ app.post('/api/chat/read', (req, res) => {
 TGCHAT.start({
   settings,
   chat: CHAT,
-  onOperator: (chat, text, by) => {
+  onOperator: (chat, text) => {
     // Первая же реплика человека выключает бота до конца переписки.
     if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
-    CHAT.say(chat, 'operator', text, { by });
+    /* Имя из учётной записи Telegram сюда НЕ передаём: покупатель видит одного
+     * и того же «Александра (Менеджера)», кто бы из смены ни ответил. Кто это
+     * был на самом деле, видно в самой теме — там стоит подпись автора. */
+    CHAT.say(chat, 'operator', text);
   },
   onCommand: (chat, command, by) => {
-    // Строку в ленту покупателя пишет сама `setMode` — одну и ту же, откуда бы
-    // собеседника ни сменили. Здесь остаётся только отметка в тему Telegram:
-    // менеджеру важно ещё и КТО это сделал.
+    /* В ленту покупателя смена собеседника не пишет ничего — ни здесь, ни в
+     * `setMode`. Отметка уходит только в тему Telegram, и там она называет,
+     * КТО это сделал: менеджеру в общей группе это важно, покупателю — нет. */
     if (command === 'ai') {
       CHAT.setMode(chat, 'ai');
       TGCHAT.relaySystem(chat, 'ИИ снова отвечает (' + by + ')');
@@ -2751,7 +2769,9 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
   if (!text) return back('Пустой ответ не отправлен');
   if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
-  CHAT.say(chat, 'operator', text, { by: 'Менеджер' });
+  // Имя подставляет само хранилище (`SPEAKERS` в lib/chat.js): покупатель видит
+  // одного и того же менеджера, откуда бы тот ни ответил — из темы или отсюда.
+  CHAT.say(chat, 'operator', text);
   // В тему уходит и ответ из панели: иначе дежурный в Telegram видел бы вопрос
   // без ответа и написал бы второй раз то же самое.
   TGCHAT.relaySystem(chat, 'Ответ из панели: ' + text);

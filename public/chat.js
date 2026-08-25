@@ -34,7 +34,6 @@
   var form = document.getElementById('chat-form');
   var input = document.getElementById('chat-input');
   var badge = document.getElementById('chat-badge');
-  var statusEl = document.getElementById('chat-status');
   var button = document.getElementById('chat-open');
   var sendBtn = form && form.querySelector('button[type="submit"]');
   if (!panel || !list || !form || !input) return;
@@ -116,10 +115,14 @@
       row.textContent = text;
       return row;
     }
-    if (role === 'operator' || role === 'ai') {
+    /* Имя приходит от сервера готовым (`by`). Своей таблицы имён здесь нет
+     * намеренно: она лежит в lib/chat.js одним списком, и копия в браузере
+     * разъехалась бы с ней на первой правке — под одной и той же репликой
+     * покупатель видел бы одно имя, а панель другое. */
+    if ((role === 'operator' || role === 'ai') && by) {
       var who = document.createElement('span');
       who.className = 'chat-who';
-      who.textContent = role === 'operator' ? (by || 'Менеджер') : 'Консультант';
+      who.textContent = by;
       row.appendChild(who);
     }
     var body = document.createElement('span');
@@ -182,7 +185,12 @@
   function delta(piece) {
     hideTyping();
     if (!state.live) {
-      state.live = bubble('ai', '', '');
+      /* Имя для растущей реплики берём из разметки: сама реплика приедет
+       * подписанной только в конце (событие `done`), а подпись нужна с первого
+       * же слова — иначе ответ полминуты висит безымянным, а потом имя
+       * появляется рывком. Это по-прежнему значение от сервера, а не своя
+       * копия списка имён в скрипте. */
+      state.live = bubble('ai', '', root.getAttribute('data-ai-name') || '');
       list.appendChild(state.live);
     }
     var body = state.live.querySelector('.chat-text');
@@ -231,11 +239,12 @@
 
   /* --------------------------------- Состояние -------------------------------- */
 
+  /* Режим нужен скрипту (ждать ли ответа консультанта), но покупателю о нём не
+   * говорят ничего: подпись в шапке — всегда «online», и она лежит в разметке.
+   * Раньше здесь менялся текст на «Отвечает менеджер» — то есть покупателю
+   * сообщали, что до этого отвечал не человек. */
   function setMode(mode) {
     state.mode = mode || 'ai';
-    if (!statusEl) return;
-    statusEl.textContent = state.mode === 'operator' ? 'Отвечает менеджер'
-      : state.mode === 'closed' ? 'Диалог завершён' : 'Обычно отвечаем сразу';
     root.setAttribute('data-mode', state.mode);
   }
 
@@ -478,12 +487,55 @@
 
   /* ------------------------------ Открыть / закрыть ------------------------------ */
 
+  /* ОКНО И ЭКРАННАЯ КЛАВИАТУРА.
+   *
+   * На телефоне окно занимает экран целиком (`position:fixed; inset:0`), и с
+   * этим связана беда, которую видно только на живом телефоне: открывая
+   * клавиатуру, Safari и Chrome НЕ уменьшают окно, а сдвигают видимую область
+   * вверх. Фиксированная панель остаётся на месте по документу, поэтому её
+   * шапка — имя магазина, «online» и крестик — уезжает за верхний край экрана,
+   * и закрыть чат становится нечем.
+   *
+   * Лечится единственным честным способом: спросить у браузера, какую часть
+   * экрана он сейчас показывает (`visualViewport`), и посадить панель ровно в
+   * неё. Медиазапросами этого не сделать — они про размер окна, а не про
+   * видимую его часть.
+   */
+  function narrow() { return matchMedia('(max-width:560px)').matches; }
+
+  function fitViewport() {
+    var vv = window.visualViewport;
+    if (!vv || !state.open || !narrow()) return resetViewport();
+    // Клавиатура закрыта — не трогаем ничего: лишний inline-стиль перебил бы
+    // анимацию открытия и обычную раскладку.
+    if (window.innerHeight - vv.height < 80) return resetViewport();
+    panel.style.height = vv.height + 'px';
+    // Сдвиг именно transform, а не top: он идёт в композиторе и не заставляет
+    // пересчитывать раскладку на каждый кадр выезжающей клавиатуры.
+    panel.style.transform = 'translateY(' + vv.offsetTop + 'px)';
+    scroll(true);
+  }
+
+  function resetViewport() {
+    if (!panel.style.height && !panel.style.transform) return;
+    panel.style.removeProperty('height');
+    panel.style.removeProperty('transform');
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitViewport);
+    window.visualViewport.addEventListener('scroll', fitViewport);
+  }
+
   function show() {
     state.open = true;
     root.classList.add('is-open');
     panel.removeAttribute('inert');
     panel.setAttribute('aria-hidden', 'false');
     if (button) button.setAttribute('aria-expanded', 'true');
+    // Страница под открытым окном прокручиваться не должна: на телефоне палец
+    // легко попадает мимо ленты, и вместо переписки уезжает витрина.
+    if (narrow()) document.body.classList.add('chat-locked');
     clearUnread();
     open();
     scroll(true);
@@ -498,8 +550,17 @@
     root.classList.remove('is-open');
     panel.setAttribute('inert', '');
     panel.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('chat-locked');
+    resetViewport();
     if (button) { button.setAttribute('aria-expanded', 'false'); button.focus(); }
   }
+
+  /* Клавиатура выезжает уже ПОСЛЕ того, как фокус встал в поле, и `resize`
+   * визуальной области приходит с задержкой в пару кадров. Поэтому подгоняем
+   * панель ещё и по фокусу — иначе первый кадр покупатель видит съехавшую
+   * шапку, и именно он запоминается. */
+  input.addEventListener('focus', function () { setTimeout(fitViewport, 120); });
+  input.addEventListener('blur', function () { setTimeout(fitViewport, 120); });
 
   if (button) button.addEventListener('click', function () { state.open ? hide() : show(); });
   root.addEventListener('click', function (e) {

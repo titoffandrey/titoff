@@ -8776,12 +8776,11 @@ test('после оператора ИИ молчит до конца переп
   assert.equal(chatStore.get(chat.id).mode, 'ai', 'чужой режим не принимается');
 });
 
-test('смену собеседника показывает серая строка в ленте, а не кнопка', () => {
-  /* Кнопки «Позвать менеджера» на витрине нет: диалог целиком уходит в Telegram
-   * с первой реплики, и менеджер вступает сам. Единственное, что говорит об
-   * этом покупателю, — служебная строка в ленте, поэтому её пишет `setMode`, а
-   * не каждый вызывающий: сменить собеседника можно из темы, командой и из
-   * панели, и три копии текста разъехались бы на первой правке. */
+test('покупателю не рассказывают, кто сейчас за клавиатурой', () => {
+  /* Ни кнопки «Позвать менеджера», ни строки «менеджер подключился», ни
+   * меняющейся подписи в шапке. Всё это рассказывало покупателю про устройство
+   * магазина — что до этого отвечал не человек, — а он пришёл за техникой, а не
+   * за составом смены. Меняется только имя над репликой. */
   const html = render.layout(CHAT_ON, { body: '' });
   assert.doesNotMatch(html, /chat-call|Позвать менеджера/, 'кнопки в окне быть не должно');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
@@ -8789,32 +8788,82 @@ test('смену собеседника показывает серая стро
   const widget = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
   assert.doesNotMatch(widget, /chat\/operator/, 'и запроса «позвать» из витрины');
 
+  // В шапке — «online», и подпись эта не меняется никогда: скрипт её не трогает.
+  assert.match(html, /class="chat-status" id="chat-status">online</);
+  const code = require('../lib/minify').js(widget);
+  for (const gone of ['Отвечает менеджер', 'Обычно отвечаем сразу', 'Диалог завершён']) {
+    assert.ok(!code.includes(gone), 'подписи «' + gone + '» в скрипте быть не должно');
+  }
+
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
   chatStore.init(dir);
   const chat = chatStore.create({});
   chatStore.addMessage(chat, 'user', 'есть 256 ГБ?');
   chatStore.addMessage(chat, 'ai', 'да, есть');
-
-  chatStore.setMode(chat, 'operator');
-  const last = chat.messages[chat.messages.length - 1];
-  assert.equal(last.role, 'system', 'отметка идёт служебной строкой, а не репликой собеседника');
-  assert.equal(last.text, chatStore.MODE_NOTES.operator);
-  // Обратно тоже: покупатель должен знать, что снова отвечает бот.
-  chatStore.setMode(chat, 'ai');
-  assert.equal(chat.messages[chat.messages.length - 1].text, chatStore.MODE_NOTES.ai);
-
-  // Повтор того же режима строку не добавляет: «менеджер подключился» дважды
-  // подряд читается как второй менеджер.
   const before = chat.messages.length;
-  chatStore.setMode(chat, 'ai');
-  assert.equal(chat.messages.length, before);
 
-  /* А в ПУСТОМ диалоге строки нет вовсе: «менеджер подключился» первой строкой,
-   * до единого вопроса, — это не событие, а недоразумение. Так бывает, когда
-   * менеджер открывает свежую тему и пишет первым. */
-  const fresh = chatStore.create({});
-  chatStore.setMode(fresh, 'operator');
-  assert.equal(fresh.messages.length, 0, 'в пустом диалоге отметка не нужна');
+  // Смена собеседника не пишет в ленту НИЧЕГО — ни туда, ни обратно.
+  chatStore.setMode(chat, 'operator');
+  assert.equal(chat.messages.length, before, 'подключение менеджера покупателю не показывают');
+  chatStore.setMode(chat, 'ai');
+  assert.equal(chat.messages.length, before, 'возврат бота — тем более');
+  chatStore.setMode(chat, 'closed');
+  assert.equal(chat.messages.length, before, 'и завершение диалога тоже');
+  assert.ok(!chat.messages.some(m => m.role === 'system'), 'служебных строк в переписке не осталось');
+
+  // Поле ввода при этом не прячется: завершение — внутренняя отметка менеджера,
+  // а для покупателя запертое окно без объяснений выглядело бы поломкой.
+  assert.ok(!css.includes('[data-mode=closed] .chat-form'), 'поле ввода прятать нельзя');
+});
+
+test('у собеседников постоянные имена, одни на витрину и панель', () => {
+  /* Имя оператора берётся из списка, а НЕ из его учётной записи Telegram:
+   * иначе покупатель видел бы то «Максим», то «@sales_ivan» — внутреннюю кухню
+   * магазина вместо ровного разговора с одним продавцом. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({});
+  chatStore.addMessage(chat, 'user', 'привет');
+  const ai = chatStore.addMessage(chat, 'ai', 'здравствуйте');
+  // Даже когда имя из Telegram передали — оно не должно доехать до покупателя.
+  const op = chatStore.addMessage(chat, 'operator', 'отвечу сам', { by: '@sales_ivan' });
+  assert.equal(ai.by, chatStore.SPEAKERS.ai);
+  assert.equal(op.by, chatStore.SPEAKERS.operator);
+  assert.equal(chat.messages[0].by, '', 'у покупателя имени нет');
+
+  // Приветствие в разметке подписано тем же именем, что и первый ответ.
+  const html = render.layout(CHAT_ON, { body: '' });
+  assert.ok(html.includes(chatStore.SPEAKERS.ai), 'приветствие подписано консультантом');
+
+  // Панель показывает те же подписи: разные имена под одной репликой читались
+  // бы как разные сообщения.
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const page = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.ok(page.includes(chatStore.SPEAKERS.ai));
+  assert.ok(page.includes(chatStore.SPEAKERS.operator));
+  assert.ok(!page.includes('@sales_ivan'), 'имя из Telegram в переписку не попадает');
+
+  // Своей таблицы имён в браузере нет: она разъехалась бы с серверной.
+  const code = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8'));
+  assert.ok(!code.includes(chatStore.SPEAKERS.ai), 'имя приезжает от сервера, а не зашито в скрипт');
+  assert.ok(!code.includes(chatStore.SPEAKERS.operator));
+});
+
+test('окно чата садится в видимую часть экрана, когда выезжает клавиатура', () => {
+  /* На телефоне окно — position:fixed inset:0, и браузер при открытии
+   * клавиатуры не уменьшает его, а сдвигает видимую область вверх: шапка с
+   * «online» и крестиком уезжает за край, и закрыть чат становится нечем.
+   * Лечится только подгонкой по visualViewport — медиазапросы про размер окна,
+   * а не про видимую его часть. */
+  const code = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8'));
+  assert.match(code, /visualViewport/, 'подгонка окна под клавиатуру обязана быть');
+  assert.match(code, /addEventListener\('resize'/, 'и слушать её изменение');
+  // Прокрутку страницы под открытым окном блокируем: палец легко попадает мимо
+  // ленты, и вместо переписки уезжает витрина.
+  assert.match(code, /chat-locked/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const mobile = css.slice(css.indexOf('@media (max-width:560px)'));
+  assert.match(mobile, /body\.chat-locked\{overflow:hidden\}/);
 });
 
 test('диалог находится по теме Telegram, и связь переживает перезапуск', () => {

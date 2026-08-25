@@ -3780,8 +3780,9 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    узнают об этом от покупателя.
 
    Кнопки «Позвать менеджера» в окне нет: диалог и так уходит в Telegram
-   целиком, и менеджер вступает сам. О смене собеседника говорит серая строка
-   в самой ленте (.chat-sys) — там, куда покупатель и смотрит. */
+   целиком, и менеджер вступает сам. О смене собеседника покупателю не говорят
+   вовсе — ни строкой в ленте, ни подписью в шапке: он пришёл за техникой, а не
+   за составом смены. Меняется только имя над репликой. */
 .chat-widget{position:fixed;right:20px;z-index:70;
   /* Дно отводим от домашней полосы iPhone. */
   bottom:calc(20px + env(safe-area-inset-bottom,0px))}
@@ -3821,9 +3822,22 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-brand b{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Строка состояния — единственное место, где видно, кто сейчас за клавиатурой.
    Зелёная точка означает «отвечаем», у завершённого диалога её нет. */
-.chat-status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px}
-.chat-status::before{content:"";width:7px;height:7px;border-radius:50%;background:#0b7a37;flex:none}
-.chat-widget[data-mode=closed] .chat-status::before{background:var(--muted)}
+/* «online» с живой зелёной точкой — единственная подпись в шапке, и она не
+   меняется никогда. Отвечает она на единственный вопрос, который есть у
+   покупателя перед тем, как написать: ответят ли вообще.
+
+   Мигание — чистый CSS и ничего больше, как у подписи наличия на странице
+   товара: анимируются только opacity и transform, обе идут в композиторе и не
+   вызывают ни перерисовки, ни пересчёта раскладки. Ни скрипта, ни запроса, ни
+   картинки — на скорость загрузки страницы это не влияет.
+
+   Ореола вокруг точки нет намеренно: вторым слоем ::after его пришлось бы
+   позиционировать абсолютно, а свободный transform у этого слоя уже занят
+   самой анимацией. Одного дыхания точки достаточно. */
+.chat-status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.chat-status::before{content:"";width:7px;height:7px;border-radius:50%;
+  background:#0b7a37;flex:none;animation:chat-online 2.2s ease-in-out infinite}
+@keyframes chat-online{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.82)}}
 .chat-x{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:6px;border-radius:50%;
   display:grid;place-items:center;flex:none}
 .chat-x:hover{background:var(--bg2);color:var(--text)}
@@ -3874,15 +3888,28 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-send:hover{opacity:.9}
 .chat-send:active{transform:scale(.94)}
 .chat-send svg{width:18px;height:18px}
-/* Завершённый диалог: писать в него уже некому, но перечитать можно. */
-.chat-widget[data-mode=closed] .chat-form{display:none}
+/* Поле ввода не прячется НИКОГДА, даже когда менеджер завершил диалог у себя.
+   Завершение — его внутренняя отметка «вопрос закрыт», а для покупателя это
+   выглядело бы поломкой: окно открыто, писать нельзя, объяснения нет. Написал
+   снова — разговор просто продолжается (см. /api/chat/send в server.js). */
 
 /* На телефоне окно занимает экран целиком: полупанель в 380 px рядом с краем
    выглядит обрезанной, а места под ленту в ней остаётся на три реплики. */
 @media (max-width:560px){
   .chat-widget{right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  /* `100dvh` — динамическая высота: она уже учитывает адресную строку, которая
+     то появляется, то прячется. Клавиатуру она НЕ учитывает (её браузер
+     показывает поверх, сдвигая видимую область), поэтому высоту и сдвиг панели
+     в этот момент задаёт скрипт по visualViewport — см. fitViewport(). */
   .chat-panel{position:fixed;inset:0;width:100vw;max-width:100vw;height:100dvh;border-radius:0;border:0;
     transform:translateY(16px)}
+  /* Страница под открытым окном не прокручивается: палец легко попадает мимо
+     ленты, и вместо переписки уезжала витрина. Класс ставит скрипт. */
+  body.chat-locked{overflow:hidden}
+  /* Дно окна на телефоне держит сама панель, а не поле ввода: при открытой
+     клавиатуре системного выреза внизу нет вовсе, и лишний отступ поднимал бы
+     строку ввода над клавиатурой пустой полосой. */
+  .chat-foot{padding-bottom:10px}
   .chat-log{padding:12px}
   .chat-msg{max-width:88%}
 }
