@@ -1753,6 +1753,13 @@ body.admin{background:#f4f4f6;color:#242426}
 /* Карточка-ссылка: числа у неё нет вовсе, и 34px под словом «Метрика» читались
    бы как счётчик чего-то. */
 .a-stat-link .a-stat-num{font-size:21px;letter-spacing:-.03em}
+/* «Сейчас на сайте» — единственное число «Обзора», которое живёт прямо в эту
+   секунду, поэтому точка рядом с ним дышит (та же анимация, что в метрике).
+   Прежний счётчик товаров стоял на этом месте и менялся раз в месяц. */
+.a-stat-live .a-stat-num{display:flex;align-items:center;gap:11px}
+.a-stat-live .a-stat-num i{flex:none;width:11px;height:11px;border-radius:50%;background:#27ae60;box-shadow:0 0 0 6px rgba(39,174,96,.12);animation:metric-pulse 2.4s ease-in-out infinite}
+.a-stat-live.is-idle .a-stat-num i{background:#c7c7cc;box-shadow:0 0 0 6px rgba(17,17,26,.05);animation:none}
+@media(prefers-reduced-motion:reduce){.a-stat-live .a-stat-num i{animation:none}}
 
 /* ===== Сводка по заказам: деньги слева, состояния справа =====
    Стоит над списком заказов и на «Обзоре» — разметка одна (`orderStatsBar()` в
@@ -2262,13 +2269,37 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    страница обновляется сама (`public/admin-live.js`), и кнопка предлагала бы
    сделать руками уже сделанное. */
 .metric-updated{margin-left:auto;color:#8e8e93;font-size:11px}
+/* Ссылка на «Кто заходил» справа от диапазонов — на месте прежней подписи
+   «Обновлено 16:36»: единственное действие раздела, у которого есть продолжение */
+.metric-more-link{display:inline-flex;align-items:center;gap:7px;margin-left:auto;padding:8px 13px;border:1px solid var(--border-soft);border-radius:11px;background:#fff;color:var(--text);font-size:12px;font-weight:650}
+.metric-more-link:hover{border-color:#c7c7cc;background:#fafafc}
+.metric-more-link .cico{width:15px;height:15px;color:#8e8e93}
 .metric-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:14px}
-.metric-card{min-width:0;padding:20px;border:1px solid var(--border-soft);border-radius:18px;background:#fff;box-shadow:0 1px 2px rgba(17,17,26,.025)}
-.metric-card>span{display:block;color:#77777c;font-size:12px;font-weight:620}
-.metric-card strong{display:flex;align-items:center;gap:8px;margin:8px 0 3px;font-size:32px;line-height:1;letter-spacing:-.045em}
-.metric-card small{color:#8e8e93;font-size:11px}
+.metric-card{min-width:0;padding:18px;border:1px solid var(--border-soft);border-radius:18px;background:#fff;box-shadow:0 1px 2px rgba(17,17,26,.025)}
+.metric-card>span{display:flex;align-items:center;gap:8px;color:#77777c;font-size:12px;font-weight:620}
+/* Значок в бледном кружке — подпись плитки читается с одного взгляда, а не
+   вычитывается: пять одинаковых белых прямоугольников с числами и были тем
+   «скучно и непонятно», от которого раздел лечили. */
+.metric-card-ico{display:inline-flex;align-items:center;justify-content:center;flex:none;width:26px;height:26px;border-radius:9px;background:color-mix(in srgb,var(--accent) 11%,#fff);color:var(--accent)}
+.metric-card-ico .cico{width:15px;height:15px}
+.metric-card strong{display:flex;align-items:center;gap:8px;margin:10px 0 3px;font-size:30px;line-height:1;letter-spacing:-.045em}
+.metric-card small{display:block;color:#8e8e93;font-size:11px;line-height:1.4}
+/* Стрелка сравнения с прошлым периодом. Зелёная вверх и красная вниз — те же
+   цвета, что у подписи наличия и плашки акции на витрине: два набора «хорошо и
+   плохо» в одном проекте разъехались бы. */
+.metric-trend{margin-left:auto;padding:3px 7px;border-radius:8px;font-size:11.5px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.metric-trend.is-up{background:#eaf7ef;color:#0b7a37}
+.metric-trend.is-down{background:#fdeceb;color:#b42318}
 .metric-live strong i,.metric-status{display:inline-block;width:9px;height:9px;border-radius:50%;background:#c7c7cc}
 .metric-live strong i,.metric-status.online{background:#27ae60;box-shadow:0 0 0 5px rgba(39,174,96,.12)}
+/* Точка «онлайн» дышит: она про то, что происходит прямо в эту секунду, и
+   неподвижный кружок от неё отличался бы только цветом. */
+.metric-live strong i{animation:metric-pulse 2.4s ease-in-out infinite}
+/* Никого на сайте — точка серая и неподвижная: зелёный пульс рядом с нулём
+   обещал бы движение, которого нет. */
+.metric-live.is-idle strong i{background:#c7c7cc;box-shadow:0 0 0 5px rgba(17,17,26,.05);animation:none}
+@keyframes metric-pulse{0%,100%{box-shadow:0 0 0 5px rgba(39,174,96,.12)}50%{box-shadow:0 0 0 9px rgba(39,174,96,.04)}}
+@media(prefers-reduced-motion:reduce){.metric-live strong i{animation:none}}
 .metric-grid-main,.metric-grid-secondary,.metric-grid-tertiary{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr);gap:14px;margin-bottom:14px}
 .metric-grid-secondary{grid-template-columns:repeat(2,minmax(0,1fr))}
 .metric-grid-tertiary{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -2278,21 +2309,80 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .metric-panel-head h2{margin:2px 0 0;font-size:19px;letter-spacing:-.025em}
 .metric-panel-head>span{color:#8e8e93;font-size:11px}
 .metric-kicker{color:#8e8e93;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-.metric-chart{display:flex;align-items:stretch;gap:7px;height:235px;padding-top:12px}
-.metric-day{display:flex;flex:1;min-width:20px;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px;color:#8e8e93}
-.metric-day>span{font-size:9px;font-variant-numeric:tabular-nums}
-.metric-day>i{width:min(28px,76%);min-height:5px;border-radius:7px 7px 3px 3px;background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 72%,#fff));transition:height .2s}
-.metric-day>small{font-size:9px;white-space:nowrap}
-.metric-bars{display:grid;gap:15px}
-.metric-bar-label{display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:12px;margin-bottom:6px;font-size:12px}
-.metric-bar-label span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* График «линия и точки».
+   Раскладка: слева колонка подписей оси, справа поле графика, под ним ряд дат.
+   Линию и заливку рисует растянутый SVG, точки и подписи — обычная разметка,
+   расставленная процентами: у пропорционального SVG подписи на телефоне
+   ужимаются до 5–6 px, а у растянутого точки превращаются в овалы. Штрих линии
+   держит `vector-effect="non-scaling-stroke"` (в разметке), поэтому толщина
+   одна на любой ширине. */
+.metric-chart{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;padding-top:6px}
+.mc-axis{display:flex;flex-direction:column;justify-content:space-between;height:210px;color:#a1a1a6;font-size:10px;font-variant-numeric:tabular-nums;text-align:right}
+.mc-axis span{line-height:1;transform:translateY(-.35em)}
+.mc-axis span:first-child{transform:none}
+.mc-axis span:last-child{transform:translateY(-.7em)}
+/* Сетка — фоном, а не элементами: три волосяные линии на 0/50/100% высоты поля */
+.mc-plot{position:relative;height:210px;
+  background-image:linear-gradient(#ececef 1px,transparent 1px),linear-gradient(#ececef 1px,transparent 1px),linear-gradient(#ececef 1px,transparent 1px);
+  background-size:100% 1px;background-repeat:no-repeat;background-position:0 0,0 50%,0 100%}
+.mc-svg{display:block;width:100%;height:100%}
+/* Точка на каждом дне: сам кружок в i, а обёртка нужна под подпись при
+   наведении и увеличенную область попадания — 8 px кружок мышью не поймать. */
+.mc-dot{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;display:flex;align-items:center;justify-content:center}
+.mc-dot i{width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid var(--accent);transition:transform .12s ease}
+.mc-dot:hover i{transform:scale(1.45)}
+.mc-dot.is-now i{background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent)}
+.mc-peak{position:absolute;transform:translate(-50%,-176%);padding:2px 6px;border-radius:7px;background:#242426;color:#fff;font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
+.mc-marks{position:relative;grid-column:2;height:14px;color:#a1a1a6;font-size:10px;font-variant-numeric:tabular-nums}
+.mc-x{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+.metric-bars{display:grid;gap:14px}
+.metric-bar-label{display:grid;grid-template-columns:minmax(0,1fr) max-content max-content;align-items:center;gap:9px;margin-bottom:6px;font-size:12px}
+/* Колонка под значок появляется по классу самого списка, а не по `:has()`:
+   его поддерживают не все версии Safari, доходящие до панели, — то же правило,
+   что у выбора способа оплаты на витрине. Списки без значков (города — у них
+   флаг стоит в самой подписи) остаются трёхколоночными. */
+.metric-bars.has-ico .metric-bar-label{grid-template-columns:max-content minmax(0,1fr) max-content max-content}
+.metric-bar-ico{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:#f4f4f6;color:#48484a}
+.metric-bar-ico .cico{width:14px;height:14px}
+.metric-bar-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .metric-bar-label b{min-width:max-content;font-variant-numeric:tabular-nums;text-align:right}
-.metric-location-bars .metric-bar-label span{white-space:normal;overflow-wrap:anywhere}
+/* Доля — приглушённая: главное в ряду счётчик и длина полосы, а процент к ним
+   пояснение. Ширина фиксирована, иначе числа не встают в столбик. */
+.metric-bar-label em{min-width:42px;color:#a1a1a6;font-size:11px;font-style:normal;font-variant-numeric:tabular-nums;text-align:right}
+.metric-location-bars .metric-bar-name{white-space:normal;overflow-wrap:anywhere}
 .metric-bar-track{height:7px;overflow:hidden;border-radius:99px;background:#eeeeF0}
 .metric-bar-track i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
 .metric-device-bars .metric-bar-track i{background:#242426}
+/* ---- Страница «Кто заходил»: отбор ----
+   Обычная форма с GET и ссылки-фишки, ни строчки скрипта: панель обновляется
+   подменой серверной разметки, и свой отбор в браузере разъехался бы с тем,
+   что считает модель. */
+.metric-filters{margin-bottom:14px}
+.mf-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin-bottom:14px}
+.mf-date,.mf-sort{display:grid;gap:4px;color:#77777c;font-size:11px;font-weight:620}
+.mf-date input,.mf-sort select{height:36px;padding:0 10px;border:1px solid var(--border);border-radius:10px;background:#fff;color:var(--text);font-family:inherit;font-size:13px}
+.mf-sort select{min-width:190px}
+.mf-form .btn{height:36px}
+.mf-reset{align-self:center;color:#8e8e93;font-size:12px}
+.mf-chips{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding-top:11px;border-top:1px solid var(--border-soft)}
+.mf-chips-title{flex:none;width:86px;color:#8e8e93;font-size:11px;font-weight:700;letter-spacing:.03em}
+.mf-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--border-soft);border-radius:99px;background:#fff;color:#48484a;font-size:12px;font-weight:600}
+.mf-chip i{display:inline-flex;color:#8e8e93}
+.mf-chip .cico{width:14px;height:14px}
+.mf-chip b{color:#a1a1a6;font-size:11px;font-variant-numeric:tabular-nums}
+.mf-chip:hover{border-color:#c7c7cc;background:#fafafc}
+/* Выбранная фишка снимается нажатием по себе же — отдельной кнопки сброса у
+   каждого ряда быть не должно, поэтому она и подписана крестиком. */
+.mf-chip.active{border-color:#242426;background:#242426;color:#fff}
+.mf-chip.active i,.mf-chip.active b{color:rgba(255,255,255,.6)}
+.mf-chip.active::after{content:"✕";margin-left:1px;font-size:10px;color:rgba(255,255,255,.75)}
+.mf-more{padding:14px 20px 20px;text-align:center}
 .metric-visitors{padding:0}
 .metric-visitors .metric-panel-head{margin:0;padding:20px 20px 12px}
+.metric-visitors .metric-panel-head .link{white-space:nowrap;font-size:12px}
+/* Источник в строке посетителя — со значком, как и в списках отбора */
+.mv-source{display:flex;align-items:center;gap:5px}
+.mv-source .cico{width:13px;height:13px;flex:none;color:#a1a1a6}
 .metric-table-wrap{overflow-x:auto}
 .metric-table{min-width:980px}
 .metric-table td{vertical-align:top}
@@ -2906,7 +2996,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .img-chip img{width:82px;height:82px}
   .metric-toolbar{align-items:stretch;flex-wrap:wrap}
   .metric-ranges{order:1;flex:1}
-  .metric-range{flex:1;text-align:center}
+  /* Кегль и поля ужаты, а перенос запрещён: у «Кто заходил» диапазонов четыре
+     («Всё время» в их числе), и на переносе кнопка становилась вдвое выше
+     соседних — ряд читался как поломка, а не как выбор. */
+  .metric-range{flex:1;padding:8px 5px;font-size:11.5px;text-align:center;white-space:nowrap}
   .metric-updated{order:3;width:100%;margin-left:0}
   /* Плиток пять, колонок две — последняя оставалась половинкой рядом с полосой
      пустоты во всю ширину экрана. Это ровно та беда, из-за которой сводка
@@ -2931,8 +3024,20 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .metric-summary:not(.visitor-summary) .metric-card:last-child small{margin-left:auto;text-align:right}
   .metric-grid-main,.metric-grid-secondary,.metric-grid-tertiary{grid-template-columns:1fr;gap:10px;margin-bottom:10px}
   .metric-panel{padding:16px;margin-bottom:0}
-  .metric-chart{height:190px;gap:3px;overflow-x:auto}
-  .metric-day{min-width:34px}
+  /* График не листается вбок и не ужимается в кашу: линия по определению
+     помещается в любую ширину, а подписей оси на телефоне рисуется меньше
+     (их прореживает разметка). Поле ниже — экран телефона выше, чем шире. */
+  .metric-chart{gap:5px 8px}
+  .mc-axis,.mc-plot{height:168px}
+  .mc-dot{width:26px;height:26px;margin:-13px 0 0 -13px}
+  .metric-more-link{margin-left:0;justify-content:center;width:100%}
+  .mf-form{gap:8px}
+  .mf-date,.mf-sort{flex:1;min-width:140px}
+  .mf-sort{min-width:100%}
+  .mf-sort select{width:100%;min-width:0}
+  .mf-form .btn{flex:1}
+  .mf-chips-title{width:100%}
+  .mf-chips{gap:6px;padding-top:9px}
   .metric-visitors{padding:0}
   .metric-bot-grid{grid-template-columns:1fr;gap:20px}
 

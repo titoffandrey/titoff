@@ -33,7 +33,7 @@ const R = require('./lib/render');
 const D = require('./lib/discount');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
-const { Analytics, clientDetails } = require('./lib/analytics');
+const { Analytics, clientDetails, VISITORS_PER_PAGE } = require('./lib/analytics');
 // Адрес посетителя и доверие forwarded-заголовкам: отдельный модуль, потому что
 // от него зависят блокировка перебора пароля и все антиспам-лимиты.
 const CLIENT_IP = require('./lib/client-ip');
@@ -2013,10 +2013,36 @@ app.get('/admin/live', (req, res) => {
   LIVE.subscribe(req, res, req.query.topics);
 });
 
-app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db)); });
+// Пульс витрины («сейчас на сайте» и сегодняшние сутки) — на «Обзоре»: полную
+// сводку там считать незачем, а число людей на сайте прямо сейчас — то, ради
+// чего панель и открывают.
+app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db, metrics.pulse())); });
 app.get('/admin/analytics', (req, res) => {
   if (!guardAdmin(req, res)) return;
   res.send(A.analyticsPage(settings(), db, metrics.snapshot({ days: req.query.days })));
+});
+
+/* «Кто заходил»: вся история посещений за год с отбором по датам, технике и
+ * источнику. Регистрируется РАНЬШЕ `/admin/analytics/visitor/:key` — пути
+ * разные, но правило «первый совпавший выигрывает» в этом файле общее, и
+ * держать соседние маршруты в порядке от частного к общему дешевле, чем
+ * однажды выяснить, что `visitors` уехал в карточку посетителя.
+ *
+ * Все значения приходят из адреса и уходят в модель как есть: там они и
+ * проверяются (даты — регуляркой, сортировка — списком, потолок выдачи —
+ * зажимается). Своей проверки здесь нет, иначе их стало бы две. */
+app.get('/admin/analytics/visitors', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const q = req.query || {};
+  const ordered = String(q.ordered || '') === '1';
+  const result = metrics.queryVisitors({
+    from: q.from, to: q.to, device: q.device, browser: q.browser, system: q.system,
+    source: q.source, ordered, sort: q.sort, show: Number(q.show) || VISITORS_PER_PAGE
+  });
+  res.send(A.visitorsPage(settings(), db, result, {
+    device: q.device || '', browser: q.browser || '', system: q.system || '',
+    source: q.source || '', ordered, today: metrics.today()
+  }));
 });
 
 // Карточка посетителя: по ней открывается вся его история — визиты, страницы и

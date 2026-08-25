@@ -774,6 +774,123 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
 });
 
+test('отчёт метрики по умолчанию — сегодняшний, и рисуется он линией по часам', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-today-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  analytics.recordPageView({ id: 'a'.repeat(32), path: '/', context: { device: 'Телефон', os: 'iOS 18', browser: 'Safari 18' } });
+
+  /* Панель открывают, чтобы узнать, что на витрине происходит СЕЙЧАС. Отчёт за
+   * неделю на этот вопрос не отвечает: сегодняшние два десятка визитов тонут в
+   * недельной сумме. Мусор в адресе приводится к тем же суткам. */
+  assert.equal(analytics.snapshot({}).days, 1);
+  assert.equal(analytics.snapshot({ days: '99' }).days, 1);
+  assert.equal(analytics.snapshot({ days: '7' }).days, 7);
+
+  const today = analytics.snapshot({});
+  assert.equal(today.hourly.length, 24, 'у отчёта «Сегодня» ряд по часам');
+  assert.equal(today.hasHours, true);
+  assert.equal(today.hourly.reduce((s, h) => s + h.pageViews, 0), 1);
+
+  const fakeDb = { getProducts: () => [], pendingReviewCount: () => 0 };
+  const html = adminViews.analyticsPage(SETTINGS, fakeDb, today);
+  assert.match(html, /class="metric-range active">Сегодня</, 'по умолчанию выбран сегодняшний отчёт');
+
+  /* График — линия с точкой на каждом делении, а не столбцы: столбец отвечает
+   * «сколько было в этот день», а у посещаемости вопрос «куда идёт». Точек
+   * ровно столько, сколько делений, иначе часть дня просто не нарисована. */
+  assert.equal((html.match(/class="mc-dot/g) || []).length, 24);
+  assert.match(html, /<path class="mc-line"[^>]*vector-effect="non-scaling-stroke"/, 'штрих линии не должен тянуться вместе с шириной');
+  assert.doesNotMatch(html, /class="metric-day"/, 'столбцов в графике больше нет');
+
+  // Значки в списках — те же, что в строке заказа: подбираются ключом из
+  // lib/client-icons.js, а не своим набором картинок.
+  assert.match(html, /class="metric-bar-ico"/);
+  assert.match(html, /class="metric-card-ico"/);
+
+  const week = analytics.snapshot({ days: 7 });
+  const weekHtml = adminViews.analyticsPage(SETTINGS, fakeDb, week);
+  assert.equal((weekHtml.match(/class="mc-dot/g) || []).length, 7, 'недельный отчёт рисуется по дням');
+});
+
+test('«Кто заходил» — своя страница с отбором, датами и догрузкой', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-visitors-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  const phone = { device: 'Телефон', os: 'iOS 18.5', browser: 'Safari 18.5' };
+  const desk = { device: 'Компьютер', os: 'Windows 10/11', browser: 'Chrome 140' };
+  for (let i = 0; i < 60; i++) {
+    const id = String(i).padStart(2, '0').repeat(16).slice(0, 32);
+    analytics.recordPageView({ id, path: '/', referrer: i % 3 ? '' : 'https://t.me/x', context: Object.assign({}, i % 2 ? phone : desk) });
+    if (i % 10 === 0) analytics.markOrder(id, { id: 'o' + i, number: '10000' + i, createdAt: Date.now() });
+  }
+
+  /* Прежний потолок в 250 записей резал ВЫДАЧУ, а не данные: посмотреть, кто
+   * заходил в прошлый вторник, было нельзя, хотя карточки лежат год. Теперь
+   * страница показывает 50 и догружает по 50, а история доступна вся. */
+  const first = analytics.queryVisitors({});
+  assert.equal(first.total, 60);
+  assert.equal(first.shown, 50);
+  assert.equal(first.hasMore, true);
+  assert.equal(analytics.queryVisitors({ show: 200 }).shown, 60);
+
+  // Отбор: телефоны, браузер по СЕМЕЙСТВУ (версий за год набегают десятки),
+  // источник и «только с заказом».
+  assert.equal(analytics.queryVisitors({ device: 'Телефон', show: 200 }).found, 30);
+  assert.equal(analytics.queryVisitors({ browser: 'Chrome', show: 200 }).found, 30);
+  assert.equal(analytics.queryVisitors({ source: 't.me', show: 200 }).found, 20);
+  assert.equal(analytics.queryVisitors({ ordered: true, show: 200 }).found, 6);
+  // Фасеты считаются по набору ДО отбора по технике: иначе, выбрав «Телефон»,
+  // рядом стояли бы нули у всех остальных, и вернуться было бы не по чему.
+  assert.equal(analytics.queryVisitors({ device: 'Телефон' }).facets.devices['Компьютер'], 30);
+
+  // Даты — по московским суткам. Завтрашний день пуст, сегодняшний полон.
+  const today = analytics.today();
+  const tomorrow = new Date(Date.now() + 27 * 3600 * 1000).toISOString().slice(0, 10);
+  assert.equal(analytics.queryVisitors({ from: today, to: today, show: 200 }).found, 60);
+  assert.equal(analytics.queryVisitors({ from: tomorrow, show: 200 }).found, 0);
+  // Сортировка выбирается из списка, мусор приводится к «последнему заходу».
+  assert.equal(analytics.queryVisitors({ sort: 'visits' }).sort, 'visits');
+  assert.equal(analytics.queryVisitors({ sort: 'взлом' }).sort, 'last');
+
+  const fakeDb = { getProducts: () => [], pendingReviewCount: () => 0 };
+  const html = adminViews.visitorsPage(SETTINGS, fakeDb, first, { today });
+  assert.match(html, /Кто заходил/);
+  assert.match(html, /class="mf-chip"[^>]*href="[^"]*device=/, 'отбор по устройству — ссылка, а не скрипт');
+  assert.match(html, /Показать ещё 50/);
+  assert.match(html, /name="from" value=""/);
+  assert.match(html, /<select name="sort">/);
+  assert.match(html, /data-live="analytics/, 'страница обязана обновляться сама');
+
+  // Выбранный отбор уезжает скрытыми полями рядом с датами: иначе «Показать»
+  // за один нажим стирал бы отбор по технике.
+  const filtered = analytics.queryVisitors({ device: 'Телефон' });
+  const filteredHtml = adminViews.visitorsPage(SETTINGS, fakeDb, filtered, { today, device: 'Телефон' });
+  assert.match(filteredHtml, /<input type="hidden" name="device" value="Телефон">/);
+  assert.match(filteredHtml, /class="mf-chip active"/);
+});
+
+test('«Обзор» показывает, сколько человек на витрине сейчас', () => {
+  const fakeDb = {
+    getProducts: () => [{ id: 'p1', name: 'Товар' }], visibleProducts: () => [{ id: 'p1', name: 'Товар' }],
+    visibleOrders: () => [], pendingReviewCount: () => 0
+  };
+  const html = adminViews.dashboard(SETTINGS, fakeDb, { online: 3, visitors: 26, pageViews: 200, visits: 30, orders: 1 });
+  assert.match(html, /class="a-stat a-stat-live"/);
+  assert.match(html, /Сейчас на сайте/);
+  assert.match(html, /сегодня 26 посетителей · 200 просмотров/);
+  // Счётчик товаров с «Обзора» снят: он менялся раз в месяц и виден в самом
+  // каталоге, а место здесь дороже отдать тому, что меняется каждую минуту.
+  assert.doesNotMatch(html, /Товаров на витрине/);
+  // Число обязано обновляться само, иначе это снимок момента открытия страницы.
+  assert.match(html, /data-live="[^"]*analytics/);
+  // Никого на сайте — точка серая и неподвижная: зелёный пульс рядом с нулём
+  // обещал бы движение, которого нет.
+  assert.match(adminViews.dashboard(SETTINGS, fakeDb, { online: 0 }), /class="a-stat a-stat-live is-idle"/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.a-stat-live\.is-idle \.a-stat-num i\{[^}]*animation:none/);
+});
+
 test('метрика безопасно считает специальные ключи объектов', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-keys-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -1070,7 +1187,16 @@ test('карточка посетителя показывает визиты, �
 test('длинные названия городов не перекрывают числа в метрике', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.metric-bar-label\{display:grid;grid-template-columns:minmax\(0,1fr\) max-content/);
-  assert.match(css, /\.metric-location-bars \.metric-bar-label span\{white-space:normal;overflow-wrap:anywhere\}/);
+  assert.match(css, /\.metric-location-bars \.metric-bar-name\{white-space:normal;overflow-wrap:anywhere\}/);
+  /* Колонку под значок включает КЛАСС списка, а не `:has()` у строки: его
+     поддерживают не все версии Safari, доходящие до панели — то же правило,
+     что у выбора способа оплаты на витрине. */
+  assert.match(css, /\.metric-bars\.has-ico \.metric-bar-label\{grid-template-columns:max-content/);
+  // Смотрим на правила БЕЗ комментариев (той же чисткой, что идёт на отдаче):
+  // упоминание `:has()` в пояснении рядом — это документация, а не селектор.
+  const rules = require('../lib/minify').css(css).split('}');
+  const bad = rules.filter(r => r.includes(':has(') && /\.metric|\.mc-|\.mf-/.test(r));
+  assert.deepEqual(bad, [], 'в метрике не должно быть :has()');
 });
 
 test('каталог не показывает технический счётчик товаров', () => {
