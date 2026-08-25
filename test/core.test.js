@@ -1484,12 +1484,14 @@ test('шапка сворачивается при прокрутке, а Telegr
   assert.match(txt, /line-height:1\.[1-9]/, 'подпись кнопки Telegram снова режет выносные буквы');
 });
 
-test('в подвале Telegram — кнопка с действием, а ник её подписью', () => {
+test('в подвале Telegram — одна кнопка с действием, без ника строкой', () => {
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple' }, fakeDb, {});
   // Голый ник не говорит, что по нему пишут, и нажимать его никто не догадывался.
   assert.match(html, /<a class="tg-cta" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Написать в Telegram<\/span><\/a>/);
-  assert.match(html, /<span class="foot-tg-user">@adc_apple<\/span>/);
+  // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
+  // как второй, недействующий контакт.
+  assert.doesNotMatch(html, /foot-tg-user/);
   assert.doesNotMatch(html, /class="tg-link"/);
   // Без Telegram в настройках блока нет вовсе — пустая кнопка в подвале не нужна.
   assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /tg-cta/);
@@ -7333,6 +7335,10 @@ test('диапазон суммы заказа задаётся в настро�
   const roomy = Object.assign({}, tight, { payMaxTotal: 900000 });
   assert.match(render.homePage(tight, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
   assert.doesNotMatch(render.homePage(roomy, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
+  // И «Нет в наличии» — это ССЫЛКА на товар, а не мёртвая кнопка: посмотреть
+  // характеристики, цену и фото нужно и тогда, когда купить сейчас нельзя.
+  assert.match(render.homePage(tight, db, { category: '', q: '', origin: '' }),
+    /<a class="btn btn-primary btn-block btn-soldout" href="\/product\/vision">Нет в наличии<\/a>/);
   // Потолок уезжает и в скрипт витрины — там он гасит «+» у количества.
   assert.match(render.homePage(roomy, db, { category: '', q: '', origin: '' }), /__ORDER_MAX__\s*=\s*900000/);
 

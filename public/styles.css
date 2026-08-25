@@ -51,6 +51,13 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 }
 .btn:active{transform:scale(.97)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
+/* «Нет в наличии» в карточке каталога — на вид выключенная кнопка, но это
+   ССЫЛКА на страницу товара. Купить нельзя, а посмотреть характеристики, цену
+   и фото — можно и нужно: мёртвая кнопка на месте единственной кнопки карточки
+   читалась как «дальше хода нет». Обещать покупку она при этом не должна,
+   поэтому вид остаётся приглушённым — на наведении лишь чуть светлее. */
+.btn-soldout{opacity:.45}
+.btn-soldout:hover{opacity:.62}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn-primary:hover{filter:brightness(1.05)}
 .btn-lg{padding:13px 26px;font-size:16px}
@@ -1546,9 +1553,9 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .foot-tg,.foot-contact{margin:0}
 /* Связь с магазином — не голый ник строчкой, а кнопка с понятным действием:
    «@adc_apple» само по себе не говорит, что по нему пишут, и нажимать его
-   тоже никто не догадывался. Ник остался подписью под кнопкой — по нему
-   находят магазин поиском внутри Telegram. */
-.foot-tg{display:grid;justify-items:start;gap:8px}
+   тоже никто не догадывался. Ника под кнопкой тоже нет: она ведёт в тот же
+   диалог, а строка под ней читалась как второй, недействующий контакт. */
+.foot-tg{display:grid;justify-items:start}
 .tg-cta{min-height:40px;padding:0 18px;border-radius:980px;background:var(--tg);color:#fff;font-size:14.5px;font-weight:650;letter-spacing:-.012em;
   transition:background .16s ease,transform .12s ease,box-shadow .18s ease}
 .tg-cta:hover{background:var(--tg-dark);color:#fff;box-shadow:0 6px 18px rgba(34,158,217,.28)}
@@ -1557,7 +1564,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    текстом он казался отставшим на пробел: отрицательные поля съедают ровно эту
    пустоту, и подпись встаёт вплотную к фигуре, а не к краю холста. */
 .tg-cta .tg-ico{width:18px;height:18px;margin:0 -2px 0 -3px}
-.foot-tg-user{color:var(--muted);font-size:12.5px;letter-spacing:.005em}
 .footer-bottom{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:16px 24px;padding-top:20px;border-top:1px solid var(--border)}
 /* Знаки оплаты — строкой над копирайтом, без плашек и в цвет соседнего текста */
 .footer-pay{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;color:var(--muted)}
@@ -2573,7 +2579,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .foot-contact{margin:0}
   /* Телеграм — основной способ связи с телефона, поэтому кнопка крупнее и с
      запасом под палец, а блок собирается по центру, как весь подвал. */
-  .foot-tg{justify-items:center;gap:7px}
+  .foot-tg{justify-items:center}
   .tg-cta{min-height:46px;padding:0 24px;font-size:15px}
   .tg-cta .tg-ico{width:19px;height:19px}
   /* Одна колонка: без сброса сетка осталась бы двухколоночной, как на десктопе,
