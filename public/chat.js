@@ -56,7 +56,8 @@
     live: null,          // узел ответа ИИ, который печатается прямо сейчас
     unread: 0,
     sending: false,
-    echo: null           // своя последняя реплика: по ней узнаётся эхо с сервера
+    echo: null,          // своя последняя реплика: по ней узнаётся эхо с сервера
+    day: ''              // последний показанный разделитель дат
   };
 
   /* --------------------------------- Память --------------------------------- */
@@ -108,7 +109,7 @@
     if (at < rest.length) node.appendChild(document.createTextNode(rest.slice(at)));
   }
 
-  function bubble(role, text, by) {
+  function bubble(role, text, by, at) {
     var row = document.createElement('div');
     row.className = 'chat-msg chat-' + (role === 'user' ? 'me' : role === 'system' ? 'sys' : 'them');
     if (role === 'system') {
@@ -129,7 +130,63 @@
     body.className = 'chat-text';
     fillText(body, text);
     row.appendChild(body);
+    /* Время внутри пузыря справа внизу — как в любом мессенджере. Покупатель
+     * возвращается в чат через час и через день, и без времени непонятно,
+     * ответили ему только что или вчера вечером. У растущей реплики времени
+     * ещё нет: оно приедет вместе с готовой (событие `done`). */
+    if (at) row.appendChild(stampNode(at));
     return row;
+  }
+
+  function stampNode(at) {
+    var stamp = document.createElement('span');
+    stamp.className = 'chat-at';
+    stamp.textContent = clock(at);
+    return stamp;
+  }
+
+  function two(n) { return n < 10 ? '0' + n : String(n); }
+  function clock(ms) {
+    var d = new Date(Number(ms) || 0);
+    return two(d.getHours()) + ':' + two(d.getMinutes());
+  }
+
+  var MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+  function sameDay(a, b) {
+    return a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  }
+
+  /* Подпись разделителя дат: «Сегодня», «Вчера», «25 августа». Считается по
+   * часам ПОКУПАТЕЛЯ, а не сервера, — и это именно то, что нужно: «сегодня»
+   * для него означает его собственный день, где бы ни стоял сервер. */
+  function dayLabel(ms) {
+    var d = new Date(Number(ms) || 0);
+    var now = new Date();
+    if (sameDay(d, now)) return 'Сегодня';
+    var yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (sameDay(d, yesterday)) return 'Вчера';
+    var label = d.getDate() + ' ' + MONTHS[d.getMonth()];
+    return d.getFullYear() === now.getFullYear() ? label : label + ' ' + d.getFullYear();
+  }
+
+  /* Разделитель дат ставится перед репликой, если она из другого дня, чем
+   * предыдущая. Помним последний показанный день, а не пересчитываем ленту
+   * заново: реплики приходят по одной, и перебор всего списка на каждую был бы
+   * работой на пустом месте. */
+  function dayDivider(at) {
+    if (!at) return;
+    var label = dayLabel(at);
+    if (label === state.day) return;
+    state.day = label;
+    var row = document.createElement('div');
+    row.className = 'chat-day';
+    var span = document.createElement('span');
+    span.textContent = label;
+    row.appendChild(span);
+    list.appendChild(row);
   }
 
   function append(message) {
@@ -152,7 +209,14 @@
     }
     if (message.at) state.since = message.at;
     hideTyping();
-    list.appendChild(bubble(message.role, message.text, message.by));
+    /* Для ПОКАЗА времени годится и локальное «сейчас»: своя реплика рисуется
+     * до ответа сервера, и висеть без времени, пока идёт сеть, она не должна.
+     * А вот `state.since` двигает только серверное `at` — он уезжает обратно
+     * на сервер курсором, и часы браузера в нём означали бы пропущенные
+     * ответы. */
+    var stamp = message.at || Date.now();
+    dayDivider(stamp);
+    list.appendChild(bubble(message.role, message.text, message.by, stamp));
     scroll();
     if (!state.open && message.role !== 'user') bumpUnread();
   }
@@ -190,6 +254,7 @@
        * же слова — иначе ответ полминуты висит безымянным, а потом имя
        * появляется рывком. Это по-прежнему значение от сервера, а не своя
        * копия списка имён в скрипте. */
+      dayDivider(Date.now());
       state.live = bubble('ai', '', root.getAttribute('data-ai-name') || '');
       list.appendChild(state.live);
     }
@@ -211,6 +276,13 @@
       fillText(body, message.text);
     }
     if (message && message.at) state.since = message.at;
+    /* Время ставим в конце: пока ответ печатался, его в пузыре не было — у
+     * растущей реплики его ещё нет ни у сервера, ни у нас. Локальное «сейчас»
+     * годится и здесь: расхождение с серверным — доли секунды, а показанная
+     * минута от этого не меняется. */
+    if (!state.live.querySelector('.chat-at')) {
+      state.live.appendChild(stampNode((message && message.at) || Date.now()));
+    }
     state.live = null;
     if (!state.open) bumpUnread();
     scroll();
@@ -587,7 +659,8 @@
       (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) {
         if (!m || !m.text) return;
         if (m.at) state.since = Math.max(state.since, m.at);
-        list.appendChild(bubble(m.role, m.text, m.by));
+        dayDivider(m.at);
+        list.appendChild(bubble(m.role, m.text, m.by, m.at));
       });
       state.unread = Math.max(0, Number(d.unread) || 0);
       paintBadge();

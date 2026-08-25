@@ -1258,6 +1258,19 @@ function chatContext(req) {
     ip: clientIp(req),
     city,
     device: [context.model || context.device, context.os, context.browser].filter(Boolean).join(' · '),
+    /* Те же сведения РАЗОБРАННЫМИ полями. Склейка выше уходит в Telegram, где
+     * значков нет; панель же подбирает значок по каждому полю отдельно, и
+     * разбирать строку обратно значило бы гадать о том, что мы сами только что
+     * сложили. */
+    client: {
+      device: context.device || '',
+      model: context.model || '',
+      os: context.os || '',
+      browser: context.browser || '',
+      city: geo.city || (card && card.city) || '',
+      country: geo.country || (card && card.country) || '',
+      countryCode: geo.countryCode || (card && card.countryCode) || ''
+    },
     // Адрес страницы — из закрытого списка публичных путей: он приходит от
     // браузера, а уезжает в тему Telegram ссылкой.
     page: metricPublicPath(req.body && req.body.path) || '',

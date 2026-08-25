@@ -3846,7 +3846,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-log{overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:9px;
   background:var(--bg2);-webkit-overflow-scrolling:touch}
 .chat-msg{max-width:84%;padding:9px 13px;border-radius:16px;font-size:14.5px;line-height:1.45;
-  white-space:pre-line;word-wrap:break-word;overflow-wrap:anywhere}
+  /* break-word, а не anywhere: anywhere уменьшает min-content ширину, и пузырь
+     сжимается в колонку, разрывая обычные слова (см. то же правило у переписки
+     в панели). */
+  white-space:pre-line;word-wrap:break-word;overflow-wrap:break-word}
 /* Свои реплики справа акцентом, чужие слева белым — раскладка, знакомая по
    любому мессенджеру: разбираться в ней покупателю не приходится. */
 .chat-me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
@@ -3862,6 +3865,25 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-sys{align-self:center;max-width:100%;background:transparent;border:0;color:var(--muted);
   font-size:12.5px;line-height:1.4;text-align:center;padding:4px 8px}
 .chat-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
+.chat-me .chat-who{color:rgba(255,255,255,.85)}
+
+/* Время в конце реплики — как в любом мессенджере. Покупатель возвращается в
+   чат через час и через день, и без времени непонятно, ответили ему только что
+   или вчера вечером.
+
+   Обычный inline-элемент, а не float: float не участвует в расчёте max-content
+   ширины, поэтому пузырь не расширялся под время и толкал последнее слово на
+   новую строку (см. то же правило у переписки в панели). */
+.chat-at{display:inline-block;margin-left:8px;font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums;user-select:none;line-height:1.2;vertical-align:baseline}
+.chat-me .chat-at{color:rgba(255,255,255,.75)}
+
+/* Разделитель дат — как в Telegram: подпись по центру на своей подложке. Без
+   него разговор, растянутый на несколько дней, читается одним куском, и
+   вчерашнее «отправим завтра» выглядит сегодняшним обещанием. */
+.chat-day{align-self:center;margin:6px 0 2px}
+.chat-day span{display:inline-block;font-size:11.5px;font-weight:600;color:var(--muted);
+  background:#fff;border:1px solid var(--border);border-radius:999px;padding:3px 12px}
 
 /* «Печатает…» — три точки, чистый CSS. Скрипт только вставляет узел: анимация
    в JS означала бы таймер на каждый кадр ради трёх кружков. */
@@ -3923,6 +3945,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* =========================================================
    ЧАТ В ПАНЕЛИ: список диалогов и одна переписка
    =========================================================
+   Выглядит как мессенджер, и это не украшательство: переписку читают той же
+   частью головы, что и Telegram — взгляд ищет аватар слева, время справа, свои
+   реплики у правого края и дату между днями. Список безликих строк приходится
+   РАЗБИРАТЬ, а привычную раскладку — просто читать.
+
    Классы намеренно не пересекаются с витринными (.chat-widget, .chat-panel,
    .chat-fab): таблица стилей одна на витрину и панель, и одноимённое правило
    молча красило бы окно покупателя. */
@@ -3939,59 +3966,139 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-state-row.is-err{border-color:#f2c4c0;background:#fff5f4;color:#8f2018}
 .chat-state-row.is-off{color:var(--muted)}
 
-/* Список диалогов — строки-ссылки, а не таблица: у реплики длинный текст, и в
-   столбцах он расползается ровно так же, как расползался отзыв. */
-.chat-rows{display:flex;flex-direction:column}
-.chat-row{display:grid;gap:3px;padding:12px 4px;border-bottom:1px solid var(--border);color:inherit}
-.chat-row:last-child{border-bottom:0}
+/* Аватар — кружок с первой буквой. Ни картинок, ни цвета по автору: пёстрая
+   колонка кружков отвлекала бы от самих диалогов (то же решение, что у карточек
+   отзывов на витрине). Точка «в сети» висит на нём, как в мессенджерах. */
+.chat-ava{position:relative;width:42px;height:42px;flex:none;border-radius:50%;
+  display:grid;place-items:center;font-size:16px;font-weight:600;color:#fff;
+  background:linear-gradient(135deg,#8e9bb0,#6b7688)}
+.chat-ava.is-big{width:52px;height:52px;font-size:20px}
+.chat-ava.is-online::after{content:"";position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;
+  border-radius:50%;background:#22c55e;border:2.5px solid #fff}
+.chat-ava.is-big.is-online::after{width:14px;height:14px}
+
+/* Список диалогов — строки-ссылки с аватаром, как лента чатов. */
+.chat-list{padding:6px 0}
+.chat-row{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;color:inherit;
+  border-bottom:1px solid var(--border);transition:background .12s}
+.chat-row:last-of-type{border-bottom:0}
 .chat-row:hover{background:var(--bg2)}
-.chat-row.is-live{box-shadow:inset 3px 0 0 var(--accent)}
-.chat-row-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.chat-row-head b{font-size:14px;font-weight:600}
-.chat-row-when{margin-left:auto;font-size:12px;color:var(--muted)}
+.chat-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.chat-row-top{display:flex;align-items:center;gap:7px;min-width:0}
+.chat-row-name{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-row-when{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;flex:none}
 /* Последняя реплика обрезается двумя строками: в списке диалог надо узнать, а
    не прочесть целиком — то же правило, что у строки отзыва. */
 .chat-row-last{font-size:13px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
   overflow:hidden;line-height:1.4}
 .chat-row-last i{color:var(--muted);font-style:normal}
-.chat-row-meta{font-size:11.5px;color:var(--muted)}
+.chat-row .cmarks{margin-top:2px;gap:8px;font-size:11.5px}
+.chat-row .cmark{gap:4px}
+.chat-row .cmark svg{width:13px;height:13px}
 
-.chat-badge-mode{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.chat-empty{text-align:center;padding:34px 20px}
+.chat-empty-ico{color:var(--muted);opacity:.5;margin-bottom:8px}
+.chat-empty-ico svg{width:38px;height:38px}
+
+.chat-badge-mode{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;flex:none}
 .chat-badge-mode.is-ai{background:#eef4ff;color:#1f4fa8}
 .chat-badge-mode.is-op{background:#f2fbf5;color:#0b5c2c}
 .chat-badge-mode.is-done{background:var(--bg2);color:var(--muted)}
 
-.chat-view-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.chat-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:14px}
-.chat-fact{background:var(--bg2);border-radius:10px;padding:7px 11px;font-size:12px;min-width:0}
-.chat-fact span{display:block;color:var(--muted);font-size:11px}
-.chat-fact b{font-weight:600;word-break:break-word}
+/* ---- Одна переписка ---- */
 
-/* Переписка: те же стороны, что видит покупатель, — свои реплики магазина
-   справа. Менеджер сверяет по ней разговор, и зеркальная раскладка сбивала бы. */
-.chat-thread{display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;
-  padding:12px;background:var(--bg2);border-radius:12px;margin-bottom:14px}
-.chat-line{max-width:82%;padding:8px 12px;border-radius:14px;background:#fff;border:1px solid var(--border);
-  font-size:13.5px;line-height:1.45;white-space:pre-line;word-wrap:break-word;overflow-wrap:anywhere}
-.chat-line.is-user{align-self:flex-start}
-.chat-line.is-ai,.chat-line.is-operator{align-self:flex-end}
-.chat-line.is-operator{border-color:#bfe3cd;background:#f6fdf8}
-.chat-line.is-system{align-self:center;max-width:100%;background:transparent;border:0;color:var(--muted);
-  font-size:12px;text-align:center;padding:2px}
-.chat-line-who{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:2px}
-.chat-line-at{display:block;font-size:10.5px;color:var(--muted);margin-top:3px}
+/* Шапка собеседника — та же, что в мессенджере: аватар, имя, под ним «в сети»
+   или «был в 20:36». Это первое, на что смотрит менеджер: ждёт человек ответа
+   прямо сейчас или прочитает утром. */
+.chat-view{display:flex;flex-direction:column;gap:0}
+.chat-head-card{display:flex;align-items:center;gap:13px;padding:14px 16px;
+  background:#fff;border:1px solid var(--border);border-radius:16px 16px 0 0;border-bottom:0}
+.chat-head-who{flex:1;min-width:0}
+.chat-head-name{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-head-sub{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px;font-size:12.5px}
+.chat-head-go{flex:none}
+.chat-ip{color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* «в сети» — зелёная точка, которая дышит: ровно то, что в мессенджере
+   означает «пишите, он здесь». Ушедший получает ту же точку серой и без
+   движения — иначе она обещала бы присутствие, которого нет. */
+.chat-live{display:inline-flex;align-items:center;gap:5px;color:var(--muted)}
+.chat-live i{width:7px;height:7px;border-radius:50%;background:#b6bcc4;flex:none}
+.chat-live.is-on{color:#0b7a37}
+.chat-live.is-on i{background:#22c55e;animation:chat-online 2.2s ease-in-out infinite}
+
+/* Техника, страна и страница — одной полосой под шапкой: это справка, а не
+   содержание разговора, и плитками она занимала пол-экрана до первой реплики. */
+.chat-head-meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 16px;
+  background:var(--bg2);border:1px solid var(--border);border-bottom:0;font-size:12px}
+.chat-head-meta .cmarks{gap:12px;font-size:12px}
+.chat-page{display:inline-flex;align-items:center;gap:5px;color:var(--accent);min-width:0}
+.chat-page span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-page svg{width:14px;height:14px;flex:none}
+
+/* Лента. Своя рамка снизу продолжает шапку — переписка и собеседник читаются
+   одним блоком, а не тремя карточками подряд. */
+.chat-thread{display:flex;flex-direction:column;gap:6px;max-height:58vh;overflow-y:auto;
+  padding:16px;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 16px 16px}
+.chat-thread-empty{margin:auto;padding:30px 0}
+
+/* Разделитель дат — как в Telegram: подпись по центру на своей подложке.
+   Без него переписка, растянутая на несколько дней, читается одним куском, и
+   вчерашнее «отправим завтра» выглядит сегодняшним обещанием. */
+.chat-day{display:flex;justify-content:center;margin:10px 0 6px}
+.chat-day span{font-size:11.5px;font-weight:600;color:var(--muted);background:#fff;
+  border:1px solid var(--border);border-radius:999px;padding:3px 12px}
+
+/* Пузыри. Реплики магазина справа, покупателя слева — та же сторона, что видит
+   он сам: зеркальная раскладка сбивала бы при сверке разговора.
+
+   Время лежит ВНУТРИ пузыря справа внизу, как в мессенджерах, и текст его
+   обтекает: строкой ниже оно добавляло бы каждой реплике лишний ряд. */
+.chat-line{position:relative;max-width:74%;padding:8px 12px 6px;border-radius:14px;background:#fff;
+  border:1px solid var(--border);font-size:13.5px;line-height:1.45;white-space:pre-line;
+  /* Именно break-word, а НЕ anywhere: последний разрешает разрыв в любом месте
+     и тем самым уменьшает min-content ширину блока — пузырь сжимался почти до
+     колонки, и «Есть iPhone 17 Pro Max?» ломалось на три строки при пустой
+     половине экрана рядом. break-word рвёт только то, что иначе вылезет
+     (длинная ссылка), а на ширину пузыря не влияет. */
+  word-wrap:break-word;overflow-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.chat-line.is-user{align-self:flex-start;border-bottom-left-radius:5px}
+.chat-line.is-ai,.chat-line.is-operator{align-self:flex-end;border-bottom-right-radius:5px}
+.chat-line.is-operator{border-color:#c7e8d4;background:#f4fdf7}
+.chat-line.is-ai{background:#f7f9ff;border-color:#dbe4fb}
+.chat-line.is-system{align-self:center;max-width:100%;background:transparent;border:0;box-shadow:none;
+  color:var(--muted);font-size:12px;text-align:center;padding:2px}
+.chat-line-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
+.chat-line.is-operator .chat-line-who{color:#0b7a37}
+.chat-line-text{display:inline}
+/* Время — обычный inline-элемент в конце текста, а НЕ float.
+   Float не участвует в расчёте max-content ширины: пузырь получался ровно по
+   тексту, время в него не влезало и толкало последнее слово на новую строку —
+   «Есть iPhone 17 Pro Max?» ломалось надвое при пустой половине экрана рядом.
+   Инлайновое время пузырь учитывает и расширяется на него, а у длинной реплики
+   оно просто оказывается в конце последней строки — ровно как в Telegram. */
+.chat-line-at{display:inline-block;margin-left:8px;font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums;user-select:none;vertical-align:baseline}
 .chat-line.is-system .chat-line-at{display:none}
 
+/* Поле ответа — отдельной карточкой под лентой, как строка ввода мессенджера. */
+.chat-answer{margin-top:12px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:12px}
 .chat-answer textarea{width:100%;font-family:inherit;font-size:14px;padding:10px 12px;
-  border:1px solid var(--border);border-radius:12px;resize:vertical}
-.chat-answer-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  border:1px solid var(--border);border-radius:12px;resize:vertical;color:var(--text)}
+.chat-answer textarea:focus{outline:none;border-color:var(--accent)}
+.chat-answer-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.chat-answer-send{margin-right:auto}
 
 @media (max-width:640px){
-  .chat-line{max-width:92%}
-  .chat-thread{max-height:none;padding:10px}
+  .chat-row{padding:10px 12px}
+  .chat-line{max-width:88%}
+  .chat-thread{max-height:none;padding:12px}
+  .chat-head-card,.chat-head-meta,.chat-thread{border-radius:0;border-left:0;border-right:0}
+  .chat-head-go{display:none}
   .chat-answer-acts .btn{flex:1}
+  .chat-answer-send{margin-right:0}
 }
-
 
 /* =========================================================
    ПОЛЯ ВВОДА НА ТЕЛЕФОНЕ: НЕ МЕЛЬЧЕ 16 px

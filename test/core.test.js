@@ -8849,6 +8849,93 @@ test('у собеседников постоянные имена, одни на
   assert.ok(!code.includes(chatStore.SPEAKERS.operator));
 });
 
+test('переписка в панели выглядит как мессенджер: даты, время, аватар', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ city: 'Стокгольм, Швеция', ip: '171.25.193.82' });
+  chatStore.addMessage(chat, 'user', 'есть 256 ГБ?');
+  chatStore.addMessage(chat, 'ai', 'да, есть');
+  // Реплика позавчерашним днём: между днями обязан встать разделитель.
+  chat.messages[0].at = Date.now() - 2 * 24 * 3600 * 1000;
+
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+
+  // Разделители дат — как в Telegram: без них переписка, растянутая на дни,
+  // читается одним куском, и вчерашнее «отправим завтра» выглядит сегодняшним.
+  assert.match(html, /class="chat-day"><span>Сегодня</);
+  assert.match(html, /class="chat-day"><span>\d{1,2} \S+</, 'у старой реплики — своя дата');
+  // Время у каждой реплики.
+  assert.match(html, /class="chat-line-at">\d{2}:\d{2}</);
+
+  /* ГРАБЛЯ, НА КОТОРУЮ УЖЕ НАСТУПИЛИ: у пузыря стоит `white-space:pre-line`
+   * (абзацы в реплике покупателя должны остаться абзацами), а он сохраняет и
+   * переводы строк ИЗ РАЗМЕТКИ. Красиво отформатированный шаблон давал разрыв
+   * перед временем — оно уезжало на свою строку к левому краю, а текст вдобавок
+   * ломался пополам. Поэтому реплика собирается одной строкой. */
+  const bubble = html.slice(html.indexOf('<div class="chat-line'), html.indexOf('class="chat-day"', html.indexOf('<div class="chat-line')));
+  assert.equal(/\n/.test(bubble), false, 'переносов строк внутри пузыря быть не должно');
+
+  // Аватар с буквой и значки техники — по ним диалог узнают, не вчитываясь.
+  assert.match(html, /class="chat-ava is-big/);
+  assert.match(html, /class="cmarks/, 'страна и техника идут значками');
+
+  // Блоков «Начат» и «Реплик» больше нет: сколько реплик, видно по самой ленте,
+  // а дата начала разговора не нужна ни для одного решения менеджера.
+  assert.equal(/Начат|Реплик/.test(html), false, 'справка ужата до нужного');
+});
+
+test('в панели видно, здесь ли покупатель', () => {
+  /* Первое, на что смотрит менеджер: ждёт человек ответа прямо сейчас или
+   * прочитает утром. «В сети» — это открытый живой канал, а не свежая реплика:
+   * человек может молча читать ответ. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({});
+  chatStore.addMessage(chat, 'user', 'привет');
+
+  const p = chatStore.presence(chatStore.get(chat.id));
+  assert.equal(p.online, false, 'канала нет — значит ушёл');
+  assert.ok(p.seenAt > 0, 'но когда был, мы знаем');
+
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const away = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.match(away, /chat-live"><i><\/i>был /);
+  assert.doesNotMatch(away, /is-on/, 'ушедшему зелёная точка не полагается');
+
+  /* Открытый канал — «в сети», и точка на аватаре тоже загорается. Канал здесь
+   * поддельный: `attach` только пишет в него строки и вешает обработчики
+   * закрытия, а нам важно само наличие подписчика. */
+  chatStore.attach(chat.id, {}, { writeHead() {}, write() {}, end() {}, on() {} });
+  const here = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.match(here, /chat-live is-on"><i><\/i>в сети</);
+  assert.match(here, /chat-ava is-big is-online/);
+});
+
+test('витрина показывает время и даты своими часами', () => {
+  /* Покупатель возвращается в чат через час и через день: без времени
+   * непонятно, ответили ему только что или вчера вечером. Считает их браузер, а
+   * не сервер, и это правильно — «сегодня» для него означает его собственный
+   * день, где бы ни стоял сервер. */
+  const code = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8'));
+  assert.match(code, /chat-day/, 'разделители дат рисует сам скрипт');
+  assert.match(code, /Сегодня/);
+  assert.match(code, /Вчера/);
+  assert.match(code, /chat-at/, 'время у реплики');
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  /* Время — обычный inline-элемент, а НЕ float. Float не участвует в расчёте
+   * max-content ширины: пузырь получался ровно по тексту, время в него не
+   * влезало и толкало последнее слово на новую строку. Та же причина, по
+   * которой у пузыря `overflow-wrap:break-word`, а не `anywhere`: последний
+   * уменьшает min-content ширину, и пузырь сжимался почти в колонку. */
+  const stamp = css.slice(css.indexOf('.chat-at{'), css.indexOf('.chat-at{') + 200);
+  assert.equal(/float/.test(stamp), false, 'время не float — иначе пузырь под него не расширится');
+  assert.equal(css.includes('overflow-wrap:anywhere}\n.chat-me'), false);
+  const bubble = css.slice(css.indexOf('.chat-msg{'), css.indexOf('.chat-msg{') + 400);
+  assert.equal(/overflow-wrap:anywhere/.test(bubble), false, 'anywhere ломает ширину пузыря');
+});
+
 test('окно чата садится в видимую часть экрана, когда выезжает клавиатура', () => {
   /* На телефоне окно — position:fixed inset:0, и браузер при открытии
    * клавиатуры не уменьшает его, а сдвигает видимую область вверх: шапка с

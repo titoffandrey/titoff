@@ -80,3 +80,46 @@
   setInterval(tick, 1000);
   tick();
 })();
+
+/* ================= Переписка чата открывается на последней реплике =================
+ *
+ * Ровно то, что делает любой мессенджер: разговор показывают с конца, потому
+ * что нужен последний вопрос, а не первый. Без этого лента открывалась сверху,
+ * и менеджер каждый раз прокручивал её вниз руками — а именно внизу лежит то,
+ * ради чего он диалог и открыл.
+ *
+ * Разметку скрипт не создаёт: он только прокручивает готовый блок. То же
+ * правило, что у отсчёта срока счёта выше.
+ */
+(function () {
+  var thread = document.querySelector('.chat-thread');
+  if (!thread) return;
+
+  function toBottom() {
+    thread.scrollTop = thread.scrollHeight;
+    /* На телефоне у ленты своей прокрутки нет вовсе: высота не ограничена,
+     * чтобы не заводить прокрутку внутри прокрутки — палец не разберёт, какую
+     * из них он тянет. Значит к последней реплике надо вести саму страницу,
+     * иначе длинный разговор открывается на своём начале, то есть на самом
+     * бесполезном месте. */
+    if (thread.scrollHeight <= thread.clientHeight + 4) {
+      var box = thread.getBoundingClientRect();
+      var below = box.bottom - window.innerHeight;
+      if (below > 0) window.scrollBy(0, below + 12);
+    }
+  }
+  toBottom();
+
+  /* Живое обновление подменяет содержимое ленты целиком, и после подмены она
+   * оказывается прокрученной наверх. Возвращаем вниз — но ТОЛЬКО если менеджер
+   * и так стоял внизу: он мог отлистать вверх, чтобы перечитать начало
+   * разговора, и дёргать ленту у него под руками нельзя. */
+  var atBottom = true;
+  thread.addEventListener('scroll', function () {
+    atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+  });
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(function () { if (atBottom) toBottom(); })
+      .observe(thread, { childList: true, subtree: true });
+  }
+})();
