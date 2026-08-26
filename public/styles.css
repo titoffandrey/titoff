@@ -4188,6 +4188,18 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-row .cmarks{margin-top:2px;gap:8px;font-size:11.5px}
 .chat-row .cmark{gap:4px}
 .chat-row .cmark svg{width:13px;height:13px}
+/* Непрочитанный диалог. Тот же счётчик, что стоит у раздела в шапке, — иначе
+   «6 новых» там не с чем сопоставить в списке. Пилюля акцентная и с числом:
+   у мессенджеров это привычная подпись, объяснять её не приходится.
+   Подложка строки бледная — строк в списке десятки, и текст на ней обязан
+   читаться как на белом (то же правило, что у тонов в списке заказов). */
+.chat-row.is-unread{background:#fbfcff}
+.chat-row.is-unread:hover{background:var(--bg2)}
+.chat-row.is-unread .chat-row-name{font-weight:700}
+.chat-row.is-unread .chat-row-last{color:var(--text);font-weight:500}
+.chat-row-unread{flex:none;align-self:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;
+  background:var(--accent);color:#fff;font-size:11.5px;font-weight:700;line-height:20px;text-align:center;
+  font-variant-numeric:tabular-nums}
 
 .chat-empty{text-align:center;padding:34px 20px}
 .chat-empty-ico{color:var(--muted);opacity:.5;margin-bottom:8px}
@@ -4272,7 +4284,35 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
    Время лежит ВНУТРИ пузыря справа внизу, как в мессенджерах, и текст его
    обтекает: строкой ниже оно добавляло бы каждой реплике лишний ряд. */
-.chat-line{position:relative;max-width:74%;padding:8px 12px 6px;border-radius:14px;background:#fff;
+/* Обёртка реплики: пузырь и свёрнутая форма правки под ним. Сторону разговора
+   задаёт она, а не сам пузырь, — иначе форма встала бы отдельным блоком во всю
+   ширину ленты и разорвала бы разговор пополам. */
+.chat-msg{display:flex;flex-direction:column;gap:2px;max-width:74%;min-width:0}
+.chat-msg.is-user{align-self:flex-start;align-items:flex-start}
+.chat-msg.is-ai,.chat-msg.is-operator{align-self:flex-end;align-items:flex-end}
+.chat-msg.is-system{align-self:center;align-items:center;max-width:100%}
+/* Карандаш проявляется на наведении и на фокусе: в переписке из полутора
+   десятков реплик столько же видимых кнопок читались бы как содержание. Не
+   `display:none` — иначе до него нельзя было бы добраться с клавиатуры. */
+/* Свёртка растянута на ширину обёртки, а форме задана СВОЯ ширина в пикселях.
+   С `width:100%` выходил круг: обёртка сжимается по содержимому, содержимое
+   меряется от обёртки — и поле правки получалось у`же пузыря, в три слова.
+   Своя ширина этот круг разрывает: обёртка расширяется под открытую форму,
+   а `max-width` не даёт ей вылезти за свои 74% ленты. */
+.chat-edit{align-self:stretch;max-width:100%}
+.chat-msg.is-ai .chat-edit,.chat-msg.is-operator .chat-edit{text-align:right}
+.chat-edit-open{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:7px;color:var(--muted);opacity:0;transition:opacity .12s,background .12s}
+.chat-edit-open::-webkit-details-marker{display:none}
+.chat-edit-open svg{width:14px;height:14px}
+.chat-msg:hover .chat-edit-open,.chat-edit[open] .chat-edit-open,.chat-edit-open:focus-visible{opacity:1}
+.chat-edit-open:hover{background:var(--bg2);color:var(--text)}
+.chat-edit-form{display:flex;flex-direction:column;gap:6px;width:360px;max-width:100%;margin-top:4px;text-align:left}
+.chat-edit-form textarea{width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:10px;
+  resize:vertical;font-family:inherit}
+.chat-edit-acts{display:flex;gap:6px}
+.chat-edit-drop{color:#b42318}
+.chat-line{position:relative;max-width:100%;padding:8px 12px 6px;border-radius:14px;background:#fff;
   border:1px solid var(--border);font-size:13.5px;line-height:1.45;white-space:pre-line;
   /* Именно break-word, а НЕ anywhere: последний разрешает разрыв в любом месте
      и тем самым уменьшает min-content ширину блока — пузырь сжимался почти до
@@ -4280,11 +4320,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      половине экрана рядом. break-word рвёт только то, что иначе вылезет
      (длинная ссылка), а на ширину пузыря не влияет. */
   word-wrap:break-word;overflow-wrap:break-word;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.chat-line.is-user{align-self:flex-start;border-bottom-left-radius:5px}
-.chat-line.is-ai,.chat-line.is-operator{align-self:flex-end;border-bottom-right-radius:5px}
+.chat-line.is-user{border-bottom-left-radius:5px}
+.chat-line.is-ai,.chat-line.is-operator{border-bottom-right-radius:5px}
 .chat-line.is-operator{border-color:#c7e8d4;background:#f4fdf7}
 .chat-line.is-ai{background:#f7f9ff;border-color:#dbe4fb}
-.chat-line.is-system{align-self:center;max-width:100%;background:transparent;border:0;box-shadow:none;
+.chat-line.is-system{background:transparent;border:0;box-shadow:none;
   color:var(--muted);font-size:12px;text-align:center;padding:2px}
 .chat-line-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 .chat-line.is-operator .chat-line-who{color:#0b7a37}
@@ -4314,7 +4354,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 @media (max-width:640px){
   .chat-row{padding:10px 12px}
-  .chat-line{max-width:88%}
+  .chat-msg{max-width:88%}
   .chat-thread{max-height:none;padding:12px}
   /* Шапка, заказы и лента идут во всю ширину экрана одним блоком: боковые
      рамки на 375 px отбирают у переписки поля дважды, а сам блок разваливается
@@ -4354,5 +4394,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 @media (pointer:coarse){
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),
   .field select,.field textarea,select,textarea,
-  .chat-form textarea,.chat-answer textarea{font-size:16px}
+  .chat-form textarea,.chat-answer textarea,.chat-edit-form textarea{font-size:16px}
+  /* Наведения на телефоне нет вовсе, поэтому карандаш правки стоит открыто:
+     иначе до правки реплики оттуда было бы не добраться совсем. */
+  .chat-edit-open{opacity:.55}
 }

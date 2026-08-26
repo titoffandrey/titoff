@@ -9295,7 +9295,11 @@ test('переписка в панели выглядит как мессенд�
    * переводы строк ИЗ РАЗМЕТКИ. Красиво отформатированный шаблон давал разрыв
    * перед временем — оно уезжало на свою строку к левому краю, а текст вдобавок
    * ломался пополам. Поэтому реплика собирается одной строкой. */
-  const bubble = html.slice(html.indexOf('<div class="chat-line'), html.indexOf('class="chat-day"', html.indexOf('<div class="chat-line')));
+  const from = html.indexOf('<div class="chat-line');
+  // Ровно ОДИН пузырь, до своего же закрывающего тега: вложенных div внутри
+  // него нет. Брать шире нельзя — за пузырём идёт обёртка `.chat-msg` с формой
+  // правки, и её переносы строк к `pre-line` отношения не имеют.
+  const bubble = html.slice(from, html.indexOf('</div>', from));
   assert.equal(/\n/.test(bubble), false, 'переносов строк внутри пузыря быть не должно');
 
   // Аватар с буквой и значки техники — по ним диалог узнают, не вчитываясь.
@@ -9305,6 +9309,86 @@ test('переписка в панели выглядит как мессенд�
   // Блоков «Начат» и «Реплик» больше нет: сколько реплик, видно по самой ленте,
   // а дата начала разговора не нужна ни для одного решения менеджера.
   assert.equal(/Начат|Реплик/.test(html), false, 'справка ужата до нужного');
+});
+
+test('непрочитанное видно в списке диалогов, а не только числом в шапке', t => {
+  /* Счётчик у раздела показывал «6», а по списку было не понять, какие именно
+   * шесть: диалоги стоят по времени последней реплики, и старые, которые ни
+   * разу не открывали, лежат внизу. Признак теперь один на оба места. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-unread-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  chatStore.init(dir);
+  // Диалоги живут в памяти модуля и переживают init на пустом каталоге, поэтому
+  // считаем от того, что уже есть: тест проверяет правило, а не абсолютные числа.
+  const before = chatStore.unreadCount();
+  const cold = chatStore.create({ city: 'Москва, Россия' });
+  chatStore.addMessage(cold, 'user', 'есть 256 ГБ?');
+  chatStore.addMessage(cold, 'user', 'и когда доставите?');
+  const done = chatStore.create({ city: 'Казань, Россия' });
+  chatStore.addMessage(done, 'user', 'спасибо');
+  chatStore.markStore(done, 'read');
+
+  assert.equal(chatStore.storeUnread(cold), 2, 'считаются реплики, а не диалоги');
+  assert.equal(chatStore.storeUnread(done), 0);
+  assert.equal(chatStore.unreadCount(), before + 1, 'в шапке — сколько ДИАЛОГОВ ждут');
+
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const html = adminViews.chatList(SETTINGS, db, '', 1);
+  const marked = (html.match(/class="chat-row is-unread"/g) || []).length;
+  assert.equal(marked, chatStore.unreadCount(), 'помеченных строк ровно столько, сколько обещает шапка');
+  assert.match(html, /class="chat-row-unread"[^>]*>2</, 'у строки стоит то же число, что и у storeUnread');
+
+  // Завершённый разговор не ждёт никого — ни в шапке, ни в списке.
+  chatStore.setMode(cold, 'closed');
+  assert.equal(chatStore.storeUnread(cold), 0);
+  assert.equal(chatStore.unreadCount(), before);
+});
+
+test('реплику можно изменить и удалить, и покупатель этого не видит', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-edit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  chatStore.init(dir);
+  const chat = chatStore.create({ city: 'Москва, Россия' });
+  const ask = chatStore.addMessage(chat, 'user', 'есть 256 гб?');
+  const answer = chatStore.addMessage(chat, 'ai', 'нет, только 128');
+  chatStore.markStore(chat, 'read');
+  chatStore.markUser(chat, 'read');
+  const receiptBefore = JSON.stringify(chat.receipt);
+
+  // Покупатель смотрит в открытое окно прямо сейчас.
+  const sent = [];
+  chatStore.attach(chat.id, {}, { writeHead() {}, write(c) { sent.push(String(c)); }, end() {}, on() {} });
+  sent.length = 0;                          // приветствие канала к делу не относится
+
+  const edited = chatStore.editMessage(chat, answer.at, 'да, есть и 256, и 512');
+  assert.equal(edited.text, 'да, есть и 256, и 512');
+  assert.equal(edited.at, answer.at, 'время реплики — ключ и курсор опроса, оно не двигается');
+  assert.equal(edited.role, 'ai');
+  assert.equal(JSON.stringify(chat.receipt), receiptBefore, 'галочки под соседними репликами не едут');
+  assert.deepEqual(sent, [], 'в открытое окно покупателя ничего не уходит');
+  assert.equal(chatStore.editMessage(chat, answer.at, '   '), null, 'пустой текст — не удаление');
+
+  // Реплика покупателя правится тем же способом.
+  assert.ok(chatStore.editMessage(chat, ask.at, 'есть 512 гб?'));
+  assert.equal(chatStore.get(chat.id).messages[0].text, 'есть 512 гб?');
+
+  const gone = chatStore.dropMessage(chat, answer.at);
+  assert.equal(gone.text, 'да, есть и 256, и 512');
+  assert.equal(chatStore.get(chat.id).messages.length, 1);
+  assert.equal(chatStore.get(chat.id).lastAt, ask.at, 'диалог не висит в списке по времени удалённой реплики');
+  assert.deepEqual(sent, [], 'удаление тоже молча');
+  assert.equal(chatStore.dropMessage(chat, answer.at), null, 'повтор ничего не ломает');
+
+  /* Пометок «изменено» и «удалено» нет и в панели: правка — наше внутреннее
+   * дело, а такая подпись рассказывала бы ровно то, что мы прячем. */
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.equal(/изменен|изменён|отредактирован|удалён/i.test(html), false);
+  assert.match(html, /action="\/admin\/chat\/[^"]+\/message"/, 'форма правки стоит у реплики');
+  assert.match(html, /name="drop"[^>]*data-confirm=/, 'удаление спрашивает подтверждение у самой кнопки');
+  // Подтверждение читается с НАЖАТОЙ кнопки: у формы их две, и «точно удалить?»
+  // на «Сохранить» было бы вопросом не по делу.
+  assert.match(html, /e\.submitter/);
 });
 
 test('в диалоге видно, что покупатель заказал и что у него с оплатой', () => {

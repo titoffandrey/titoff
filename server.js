@@ -3089,6 +3089,35 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   return back('Отправлено');
 });
 
+/* Правка и удаление одной реплики — и своей, и покупателя.
+ *
+ * Ключ реплики — её время (`at`): оно строго возрастает внутри диалога
+ * (`addMessage` берёт `max(Date.now(), предыдущее + 1)`), уникально и есть у
+ * всех записей, включая сделанные до появления этой формы. Своего id заводить
+ * ради этого не пришлось.
+ *
+ * Удаление — вторая кнопка отправки той же формы (`name="drop"`): вложенных
+ * форм в HTML не бывает, а браузер шлёт имя только нажатой (тот же приём, что у
+ * ответа на отзыв). Покупателю правка не показывается ничем — ни событием в
+ * канал, ни пометкой, ни строкой в Telegram: см. `editMessage` в lib/chat.js.
+ */
+app.post('/admin/chat/:id/message', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const chat = CHAT.get(req.params.id);
+  if (!chat) return sendNotFound(req, res);
+  const back = (flash) => res.redirect('/admin/chat/' + encodeURIComponent(chat.id) + (flash ? '?flash=' + encodeURIComponent(flash) : ''), 303);
+  const at = Math.floor(Number(req.body.at) || 0);
+  if (!at) return back('Реплика не найдена');
+  if (req.body.drop) {
+    return back(CHAT.dropMessage(chat, at) ? 'Реплика удалена' : 'Реплика не найдена');
+  }
+  const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
+  // Пустое поле — это не удаление: удаляют отдельной кнопкой и с
+  // подтверждением, а молчаливый пузырь в ленте покупателя не нужен никому.
+  if (!text) return back('Пустая реплика не сохранена — удалите её кнопкой «Удалить»');
+  return back(CHAT.editMessage(chat, at, text) ? 'Реплика изменена' : 'Реплика не изменилась');
+});
+
 /* Подробный отчёт по кассам: лента ПОПЫТОК, а не заказов.
  *
  * Сводка под списком заказов отвечает «сколько отказов и каких», а этот отчёт —
