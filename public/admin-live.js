@@ -234,6 +234,62 @@
     mark.classList.add('is-hit');
   }
 
+  /* ------------------------------------------------------------ уведомления */
+
+  /* Заказ, отзыв и реплика в чате приходят сами, и подмена блоков показывает их
+   * молча: цифра в таблице поменялась — а что именно случилось, видно, только
+   * если стоишь на нужном разделе. Поэтому событие приезжает отдельным
+   * сообщением канала и ложится карточкой поверх страницы.
+   *
+   * Разметку карточки прислал СЕРВЕР (`noteCard()` в lib/admin-views.js) — здесь
+   * её не собирают, как и разметку любой строки: второй рендер в браузере
+   * разъехался бы с серверным на первой правке.
+   */
+  var NOTE_TTL = 12000;        // сколько карточка висит сама по себе
+  var NOTE_KEEP = 4;           // сколько их держим на экране разом
+  var NOTE_FADE = 260;         // столько идёт её уход, см. .a-note в styles.css
+
+  function noteHide(card) {
+    if (!card || !card.parentNode || card.classList.contains('is-out')) return;
+    card.classList.add('is-out');
+    setTimeout(function () { if (card.parentNode) card.parentNode.removeChild(card); }, NOTE_FADE);
+  }
+
+  function noteShow(html) {
+    var box = document.getElementById('a-notes');
+    if (!box || !html) return;
+    /* Разбираем тем же DOMParser, что и свежую страницу в `apply()`. Не потому,
+     * что так короче, а потому, что присваивать innerHTML в этом файле нельзя
+     * вовсе: правило простое и проверяется тестом, а исключение «здесь-то узел
+     * новый» рано или поздно переползло бы на живые блоки. */
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var incoming = doc.body.firstElementChild;
+    if (!incoming) return;
+    var card = document.importNode(incoming, true);
+    box.insertBefore(card, box.firstChild);
+    // Старые уводим сами: десяток карточек закрыл бы половину экрана — ровно
+    // тем, ради чего панель и открыта.
+    while (box.children.length > NOTE_KEEP) noteHide(box.lastElementChild);
+    var timer = setTimeout(function () { noteHide(card); }, NOTE_TTL);
+    // Пока на карточку смотрят (курсор на ней), она не исчезает: читать
+    // уведомление, которое уходит из-под руки, невозможно.
+    card.addEventListener('mouseenter', function () { clearTimeout(timer); });
+    card.addEventListener('mouseleave', function () { timer = setTimeout(function () { noteHide(card); }, NOTE_TTL); });
+  }
+
+  (function () {
+    var box = document.getElementById('a-notes');
+    if (!box) return;
+    // Слушаем контейнер, а не крестик: карточки приходят и уходят, и вешать
+    // обработчик на каждую заново незачем.
+    box.addEventListener('click', function (e) {
+      var x = e.target.closest && e.target.closest('[data-note-close]');
+      if (!x) return;
+      e.preventDefault();
+      noteHide(x.closest('[data-note]'));
+    });
+  })();
+
   /* ------------------------------------------------------------------- канал */
 
   // Первое сообщение задаёт отсчётную точку и ничего не перерисовывает: страницу
@@ -260,6 +316,13 @@
   };
   es.onopen = fresh;
   es.onerror = stale;
+  // Уведомление о событии — своим именем сообщения: номера версий отвечают
+  // «спроси страницу заново», а это карточка, которую надо просто показать.
+  es.addEventListener('note', function (e) {
+    var data; try { data = JSON.parse(e.data); } catch (x) { return; }
+    fresh();
+    if (data && data.html) noteShow(data.html);
+  });
 
   // Запасной путь. EventSource переподключается сам, но между попытками канал
   // мёртв, а сжимающий прокси может не пропустить поток вовсе — тогда страница

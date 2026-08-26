@@ -1736,6 +1736,54 @@ body.admin{background:#f4f4f6;color:#242426}
   100%{box-shadow:0 0 0 0 rgba(11,122,55,0)}
 }
 @media(prefers-reduced-motion:reduce){.a-live i,.a-live.is-hit{animation:none}}
+/* УВЕДОМЛЕНИЯ О СОБЫТИЯХ: заказ, отзыв, реплика в чате.
+   Подмена блоков показывает событие молча — цифра в таблице поменялась, и всё,
+   — а понять, ЧТО случилось, можно было только стоя на нужном разделе. Карточка
+   приходит поверх страницы, с миниатюрой: по ней с одного взгляда видно, о каком
+   товаре (или о ком) речь.
+   Правый нижний угол, а не верхний: сверху липкая шапка со счётчиками, и
+   карточка накрывала бы ровно те цифры, которые сама и меняет.
+   `pointer-events` у контейнера сняты — иначе невидимая колонка во всю высоту
+   экрана перехватывала бы клики по странице под ней. */
+.a-notes{position:fixed;right:16px;bottom:16px;z-index:60;pointer-events:none;
+  display:flex;flex-direction:column-reverse;gap:10px;width:min(360px,calc(100vw - 32px))}
+.a-note{display:flex;align-items:flex-start;pointer-events:auto;background:#fff;
+  border:1px solid var(--border-soft);border-radius:16px;box-shadow:0 16px 40px rgba(17,17,26,.18);
+  animation:a-note-in .26s ease}
+/* Полоска слева — тем же приёмом, что тон строки заказа: тень, а не рамка,
+   поэтому она ничего не двигает. Цвета уже знакомы по панели: зелёный — деньги,
+   тёплый — очередь модерации, акцент магазина — разговор. */
+.a-note-order{box-shadow:inset 3px 0 0 #0b7a37,0 16px 40px rgba(17,17,26,.18)}
+.a-note-review{box-shadow:inset 3px 0 0 #bf4800,0 16px 40px rgba(17,17,26,.18)}
+.a-note-chat{box-shadow:inset 3px 0 0 var(--accent),0 16px 40px rgba(17,17,26,.18)}
+.a-note.is-out{opacity:0;transform:translateY(10px);transition:opacity .26s,transform .26s}
+.a-note-link{display:flex;flex:1;min-width:0;align-items:center;gap:11px;padding:11px 2px 11px 13px;color:inherit}
+.a-note-link:hover .a-note-text b{color:var(--accent)}
+.a-note-pic{flex:none;width:44px;height:44px}
+.a-note-thumb,.a-note-ico{display:grid;place-items:center;width:100%;height:100%;
+  border-radius:12px;overflow:hidden;background:var(--bg2)}
+.a-note-thumb img,.a-note-thumb svg{width:100%;height:100%;object-fit:contain;display:block}
+.a-note-ico svg{width:21px;height:21px;color:#8e8e93}
+.a-note-ava .chat-ava{width:44px;height:44px;font-size:17px}
+.a-note-text{min-width:0;line-height:1.3}
+.a-note-text b{display:block;font-size:13.5px;font-weight:640;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Вторая строка обрезается по ширине, а не переносится: карточек бывает
+   несколько разом, и растущие в высоту они закрыли бы полэкрана. */
+.a-note-text i{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-note-x{flex:none;width:34px;height:34px;margin:6px 6px 0 0;padding:0;display:grid;place-items:center;
+  border:0;background:none;border-radius:9px;color:#b0b0b6;cursor:pointer}
+.a-note-x svg{width:15px;height:15px}
+.a-note-x:hover{background:var(--bg2);color:var(--text)}
+.a-note-x:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes a-note-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@media(max-width:640px){
+  /* На телефоне карточка занимает всю ширину: в 360 px колонка справа оставляла
+     бы поле, в котором всё равно ничего нет. */
+  .a-notes{right:10px;left:10px;bottom:10px;width:auto}
+}
+@media(prefers-reduced-motion:reduce){.a-note{animation:none}.a-note.is-out{transition:none}}
 /* Выход переехал сюда со страницы «Настройки»: в шапке кнопка стояла рядом с
    разделами и нажималась вместо них, а нужна она раз в жизни. */
 /* В блоке выхода осталась одна кнопка: заголовок «Выход» и объяснение, что

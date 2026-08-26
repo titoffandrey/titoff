@@ -8886,6 +8886,185 @@ test('живое обновление рисуется сервером, а ст
   assert.match(ticker, /document\.querySelectorAll\('\.o-left\[data-pay-until\]'\)/);
 });
 
+test('событие приезжает в панель готовой карточкой, а не номером версии', async () => {
+  // Свой экземпляр модуля: набор подписчиков у него общий на процесс.
+  const key = require.resolve('../lib/live');
+  delete require.cache[key];
+  const live = require('../lib/live');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-note-'));
+  live.watch(dir);
+
+  const onOrders = liveClient();
+  const onMetrics = liveClient();
+  live.subscribe({ socket: {} }, onOrders, 'orders');
+  live.subscribe({ socket: {} }, onMetrics, 'analytics');
+
+  const notes = c => c.chunks.filter(x => x.startsWith('event: note'))
+    .map(x => JSON.parse(x.slice(x.indexOf('\ndata: ') + 7)));
+
+  assert.equal(live.note('<div class="a-note" data-note>заказ</div>'), true);
+  // Событие показывают, стоя на ЛЮБОМ разделе: «пришёл заказ» одинаково важно и
+  // на метрике, и в отзывах, поэтому оно не привязано к теме подписки.
+  assert.equal(notes(onOrders).length, 1);
+  assert.equal(notes(onMetrics).length, 1);
+  assert.match(notes(onOrders)[0].html, /a-note/);
+  // Номера версий это не трогает: подмена блоков идёт своим чередом.
+  assert.equal(onOrders.messages().length, 1, 'у карточки своё имя сообщения');
+
+  assert.equal(live.note('<div>' + 'x'.repeat(live.NOTE_MAX) + '</div>'), false, 'разметку без предела не шлём');
+  assert.equal(live.note(''), false);
+
+  onOrders.close(); onMetrics.close();
+  // Подписчиков нет — рассылать некому, и копить события впрок незачем: вкладка,
+  // открытая позже, догонит цифры счётчиками в шапке.
+  assert.equal(live.note('<div class="a-note">поздно</div>'), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+  delete require.cache[key];
+});
+
+test('заказ, отзыв и реплика в чате приходят карточкой с миниатюрой', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const script = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8'));
+
+  /* Три события и три двери, и все три — там же, где уже уходит уведомление
+   * менеджеру: два места с решением «что считать новым заказом» разошлись бы
+   * молча (черновик заказом ещё не является). */
+  assert.match(server, /LIVE\.note\(A\.noteOrder\(/);
+  assert.match(server, /LIVE\.note\(A\.noteReview\(/);
+  assert.match(server, /LIVE\.note\(A\.noteChat\(/);
+
+  const product = { id: 'p1', name: 'iPhone 17 Pro Max', images: ['a.webp'], price: 67990 };
+  const db = { getProduct: id => (id === 'p1' ? product : null), UPLOAD_DIR: '/nonexistent' };
+  const order = { id: 'o1', number: '360317', total: 69000, items: [{ id: 'p1', name: 'iPhone 17 Pro Max 256 ГБ', qty: 1 }, { id: 'p1', name: 'AirTag', qty: 1 }] };
+
+  const card = adminViews.noteOrder(SETTINGS, db, order);
+  assert.match(card, /class="a-note a-note-order"/);
+  // Ссылка ведёт к самой заявке, а не в начало списка: разбирать событие будут
+  // там, где оно случилось.
+  assert.match(card, /href="\/admin\/orders#order-o1"/);
+  assert.match(card, /Новый заказ №360317/);
+  assert.match(card, /и ещё 1/, 'состав не обрывается на первой позиции молча');
+  assert.match(card, /69 000/);
+  assert.match(card, /a-note-thumb/, 'миниатюра товара — то, ради чего карточку и читают');
+  assert.match(card, /data-note-close/, 'закрыть её можно руками, не дожидаясь');
+
+  const review = adminViews.noteReview(SETTINGS, db, { id: 'r1', productId: 'p1', rating: 5, text: 'Всё пришло целым' });
+  assert.match(review, /a-note-review/);
+  assert.match(review, /href="\/admin\/reviews"/, 'отзыв ждёт решения — ведём в очередь модерации');
+  assert.match(review, /★★★★★/);
+
+  const chat = adminViews.noteChat({ id: 'c'.repeat(32), name: 'Марина', messages: [] }, 'Есть 512 ГБ?');
+  assert.match(chat, /a-note-chat/);
+  assert.match(chat, new RegExp('href="/admin/chat/' + 'c'.repeat(32) + '"'));
+  assert.match(chat, /chat-ava/, 'у собеседника вместо фото аватар из списка диалогов');
+
+  // Фото у товара нет — берётся значок раздела: плейсхолдер витрины рисуется
+  // ссылкой на спрайт, которого в панели нет, и вышел бы пустой квадрат.
+  const noPic = adminViews.noteOrder(SETTINGS, { getProduct: () => ({ id: 'p2', name: 'Товар', images: [] }), UPLOAD_DIR: '/nonexistent' }, order);
+  assert.match(noPic, /a-note-ico/);
+  assert.doesNotMatch(noPic, /a-note-thumb/);
+
+  // Текст покупателя разметкой не становится — ни в имени, ни в самой реплике.
+  const evil = adminViews.noteChat({ id: 'd'.repeat(32), name: '<img src=x onerror=alert(1)>', messages: [] }, '<script>alert(1)</script>');
+  assert.doesNotMatch(evil, /<script>/);
+  assert.doesNotMatch(evil, /<img src=x/);
+  // Длинная реплика обрезается: карточек бывает несколько разом, и растущие в
+  // высоту они закрыли бы полэкрана.
+  const long = adminViews.noteChat({ id: 'e'.repeat(32), name: 'Гость', messages: [] }, 'а'.repeat(400));
+  assert.ok(long.length < 900, 'реплика в карточку целиком не едет');
+  assert.match(long, /…/);
+
+  // Разметку прислал сервер — скрипт её только вставляет, и своей не собирает.
+  assert.match(script, /addEventListener\('note'/);
+  assert.match(script, /a-notes/);
+  assert.doesNotMatch(script, /a-note-order|a-note-ico|data-note-close">/, 'разметки карточки в скрипте быть не должно');
+
+  const db2 = {
+    getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [], getOrders: () => [],
+    getReviews: () => [], reviewStats: () => new Map(), pendingReviewCount: () => 0,
+    categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  // Контейнер стоит ВНЕ живых блоков: подмена разметки иначе сносила бы карточку
+  // прямо из-под курсора.
+  const dash = adminViews.dashboard(SETTINGS, db2);
+  assert.match(dash, /id="a-notes"/);
+  assert.ok(dash.indexOf('id="a-notes"') > dash.indexOf('data-live-part="content"'));
+  // Страница без живого канала карточек не получает — и контейнера ей не надо.
+  assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db2), /id="a-notes"/);
+});
+
+test('в шапке панели видно, сколько ждёт: отзывы, заказы и чат', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-seen-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+
+  const base = { items: [{ id: 'p1', name: 'Товар', price: 100, qty: 1 }], total: 100, customerName: 'Иван' };
+  fresh.createOrder(Object.assign({}, base));
+  assert.equal(fresh.newOrderCount(), 1, 'заявка пришла, пока панель была закрыта');
+
+  // Черновик — не заказ: покупатель мог просто заглянуть на страницу оплаты, а
+  // счётчик, который зовёт на брошенную заготовку, перестают замечать.
+  fresh.createOrder(Object.assign({}, base, { draft: true }));
+  assert.equal(fresh.newOrderCount(), 1);
+
+  assert.equal(fresh.markOrdersSeen(), true, 'раздел открыт — заявки увидены');
+  assert.equal(fresh.newOrderCount(), 0);
+  /* Повторное открытие НИЧЕГО не пишет. Это не мелочь: страницу перерисовывает
+   * живое обновление, и метка по текущему времени меняла бы файл на каждой
+   * перерисовке — панель обновляла бы сама себя по кругу. */
+  assert.equal(fresh.markOrdersSeen(), false);
+
+  fresh.createOrder(Object.assign({}, base));
+  assert.equal(fresh.newOrderCount(), 1, 'следующая заявка снова считается новой');
+
+  // Маршрут ставит метку ПОСЛЕ сборки страницы: иначе счётчик пропадал бы на
+  // той самой странице, ради которой его нажали.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.get('/admin/orders'"), server.indexOf("app.post('/admin/orders/:id/delete'"));
+  assert.match(route, /db\.markOrdersSeen\(\)/);
+  assert.ok(route.indexOf('A.ordersList') < route.indexOf('db.markOrdersSeen'), 'сначала страница, потом метка');
+
+  // Счётчики рисуются у своих разделов, а на кнопке меню — одним числом: со
+  // свёрнутым меню разбивки не видно вовсе.
+  const db = {
+    getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [], getOrders: () => [],
+    getReviews: () => [], reviewStats: () => new Map(), categories: () => [], visibleCategories: () => [],
+    ratingFor: () => ({ avg: 0, count: 0 }), pendingReviewCount: () => 2, newOrderCount: () => 3
+  };
+  const html = adminViews.dashboard(SETTINGS, db);
+  assert.match(html, /Отзывы<\/span><span class="a-badge">2<\/span>/);
+  assert.match(html, /Заказы<\/span><span class="a-badge">3<\/span>/);
+  assert.match(html, /a-menu-dot">5</, 'на кнопке — сумма всех троих');
+  // Чат выключен — счётчика нет: звать в раздел, которого покупатель не видит,
+  // незачем.
+  assert.deepEqual(adminViews.navCounts(SETTINGS, db).chat, 0);
+
+  /* Диалоги считаются той же отметкой, по которой покупателю рисуются галочки:
+   * его реплика новее «магазин прочитал». Свой второй признак разъехался бы с
+   * тем, что он видит у себя в окне. */
+  const chats = require('../lib/chat');
+  const cdir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-unread-'));
+  t.after(() => fs.rmSync(cdir, { recursive: true, force: true }));
+  chats.init(cdir);
+  const chat = chats.create({});
+  assert.equal(chats.unreadCount(), 0, 'пустой диалог никого не ждёт');
+  chats.addMessage(chat, 'user', 'Есть 512 ГБ?');
+  assert.equal(chats.unreadCount(), 1);
+  chats.markStore(chat, 'read');
+  assert.equal(chats.unreadCount(), 0, 'прочитали — счётчик гаснет');
+  chats.setMode(chat, 'closed');
+  chats.addMessage(chat, 'user', 'спасибо');
+  assert.equal(chats.unreadCount(), 0, 'завершённый разговор в счётчик не идёт');
+
+  /* А вот когда ИИ НЕ ответил, вопрос прочитанным не считается: он ушёл к
+   * менеджеру, и счётчик обязан его показать. Поэтому отметка «прочитано» стоит
+   * внутри ветки удачного ответа, а не на общем пути до неё. */
+  const ai = server.slice(server.indexOf('async function aiAnswer'), server.indexOf('const excuse'));
+  assert.ok(ai.indexOf('result.ok && result.text') < ai.indexOf("CHAT.markStore(fresh, 'read')"),
+    'вопрос без ответа прочитанным не считается');
+});
+
 /* ============================ ОНЛАЙН-ЧАТ ВИТРИНЫ ============================ */
 
 const chatStore = require('../lib/chat');
@@ -9226,6 +9405,53 @@ test('«вам написали» доходит на каждой страни�
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const opts = server.slice(server.indexOf('function pageOpts('), server.indexOf('function sendNotFound('));
   assert.match(opts, /chatWaiting: chatWaiting\(req\)/);
+});
+
+test('«в сети» в чате и «сейчас на сайте» в метрике — про одного человека', t => {
+  /* Расхождение было настоящим и видно его было в панели: в чате покупатель
+   * «в сети», а в его карточке метрики «был 5 минут назад». Причина — разные
+   * признаки присутствия: чат смотрит на открытый живой канал, метрика на
+   * heartbeat, а heartbeat идёт только у ВИДИМОЙ вкладки. Человек, свернувший
+   * браузер в ожидании ответа, попадал ровно между ними. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-online-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  chatStore.init(dir);
+  const visitorId = 'a'.repeat(32);
+  const chat = chatStore.create({ visitorId });
+  assert.deepEqual(chatStore.onlineVisitorIds(), [], 'канала нет — присутствия нет');
+  chatStore.attach(chat.id, {}, { writeHead() {}, write() {}, end() {}, on() {} });
+  assert.deepEqual(chatStore.onlineVisitorIds(), [visitorId]);
+
+  const { ONLINE_MS } = require('../lib/analytics');
+  const adir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-online-'));
+  t.after(() => fs.rmSync(adir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: adir, geoEnabled: false, flushMs: 600000 });
+  analytics.recordPageView({ id: visitorId, path: '/', host: 'shop.test', context: {} });
+  const v = analytics.findVisitor(visitorId);
+  v.lastSeen = Date.now() - 5 * 60 * 1000;
+  assert.ok(Date.now() - v.lastSeen > ONLINE_MS, 'до отметки он уже «ушёл»');
+
+  assert.equal(analytics.seen(visitorId), true);
+  assert.ok(Date.now() - analytics.findVisitor(visitorId).lastSeen < 1000, 'человек снова на сайте');
+  /* Секунды на странице отметка НЕ начисляет: их считает heartbeat, и
+   * приписывать их фоновой вкладке значило бы завышать длительность визита у
+   * всех, кто просто не закрыл сайт. */
+  assert.equal(Number(analytics.findVisitor(visitorId).activeSeconds) || 0, 0);
+  assert.equal(analytics.seen('b'.repeat(32)), false, 'чужая метка карточки не заводит');
+
+  // Связывает их сервер: чат о метрике не знает, метрика о чате — тоже.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /CHAT\.onlineVisitorIds\(\)/);
+  assert.match(server, /metrics\.seen\(/);
+  // Тик обязан быть чаще, чем протухает онлайн, — иначе отметка успевала бы
+  // остыть между вызовами, и статус мигал бы сам по себе.
+  const every = server.match(/const presenceSweep = setInterval\([\s\S]*?\}, (\d+) \* 1000\)/);
+  assert.ok(every, 'отметка присутствия идёт по своему таймеру');
+  assert.ok(Number(every[1]) * 1000 < ONLINE_MS, 'тик чаще, чем порог «онлайн»');
+  // И сразу при открытии канала: карточку посетителя открывают ровно тогда,
+  // когда в чате загорелось «в сети», а не через тик.
+  const stream = server.slice(server.indexOf("app.get('/api/chat/stream'"), server.indexOf("app.get('/api/chat/poll'"));
+  assert.match(stream, /metrics\.seen\(chat\.visitorId\)/);
 });
 
 test('в панели видно, здесь ли покупатель', () => {
