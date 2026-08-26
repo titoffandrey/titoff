@@ -20,6 +20,7 @@ const PAYMENTS = require('./lib/payments');
 const MERIDIAN = require('./lib/meridianpay');
 const DELIVERY = require('./lib/delivery');
 const SHIP = require('./lib/delivery-price');
+const SHIPDAYS = require('./lib/delivery-days');
 const ADDRESS = require('./lib/address');
 // Телефон покупателя разбирает тот же файл, что и витрина: одна таблица кодов,
 // один формат и один текст отказа. Лежит он в `public/`, потому что его грузит
@@ -906,14 +907,21 @@ app.post('/api/delivery/quote', (req, res) => {
   const check = ADDRESS.checkAddress(address);
   // Неполный адрес — не ошибка запроса: витрина спрашивает цену на каждой
   // правке поля, и половина этих строк заведомо недописана. Отвечаем разбором.
-  if (!check.ok) return res.json({ ok: true, valid: false, error: check.error, prices: null });
+  if (!check.ok) return res.json({ ok: true, valid: false, error: check.error, prices: null, days: null });
   // Цены отдаём сразу все: покупатель должен видеть, во что обойдётся курьер,
   // ДО того как выберет его, а переключение способа не должно ходить на сервер.
   // Потолок заказа приходит из настроек: подгонка итога под круглое число не
   // вправе вывести сумму за границу, которую касса уже не проведёт.
   const q = SHIP.quoteAll(address, Number.isFinite(goods) && goods > 0 ? goods : 0,
     PAYMENTS.limits(settings()).max);
-  res.json({ ok: true, valid: true, error: '', zone: q.zone, zoneName: q.zoneName, prices: q.prices });
+  // Срок едет рядом с ценой и той же зоной: «сколько ждать» — второй вопрос
+  // после «сколько стоит», и на выбор между пунктом выдачи и курьером он влияет
+  // не меньше. Текст собирает сервер (lib/delivery-days.js) — своя вилка со
+  // своим склонением в скрипте разошлась бы с серверной молча.
+  res.json({
+    ok: true, valid: true, error: '', zone: q.zone, zoneName: q.zoneName,
+    prices: q.prices, days: SHIPDAYS.textAll(q.zone)
+  });
 });
 
 /* Ближайшие пункты выдачи по адресу покупателя. Отдельным запросом, а не вместе

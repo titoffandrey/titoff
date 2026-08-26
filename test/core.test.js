@@ -5638,6 +5638,99 @@ test('сетка тарифов полная, курьер дороже ПВЗ, 
   assert.equal(SHIP.quote('cdek', 'дрон', 'г Москва', 67990).price, 0);
 });
 
+test('срок доставки: сетка полная, курьер не опережает ПВЗ, а текст склоняется', () => {
+  const Z = require('../lib/delivery-zones');
+  const DAYS = require('../lib/delivery-days');
+  const DELIVERY = require('../lib/delivery');
+
+  // Сетка обязана быть полной так же, как сетка тарифов: пропущенная клетка —
+  // это карточка варианта без срока, то есть вопрос без ответа.
+  for (const m of DELIVERY.METHODS) {
+    for (const mode of m.modes) {
+      for (const z of Z.ZONES) {
+        const range = DAYS.daysFor(m.id, mode.id, z.id);
+        assert.ok(range, `нет срока: ${m.id}/${mode.id}/${z.id}`);
+        assert.ok(range.min > 0 && range.max >= range.min, `вилка вверх ногами: ${m.id}/${mode.id}/${z.id}`);
+      }
+    }
+    for (const z of Z.ZONES) {
+      const pvz = DAYS.daysFor(m.id, 'pvz', z.id);
+      const courier = DAYS.daysFor(m.id, 'courier', z.id);
+      // Курьер везёт через тот же склад и ждёт своего маршрута: опережать пункт
+      // выдачи он не может, а рядом в одном ряду это читалось бы как ошибка.
+      assert.ok(courier.min >= pvz.min && courier.max >= pvz.max,
+        `курьер быстрее пункта выдачи: ${m.id}/${z.id}`);
+    }
+    // Отправка из Москвы: чем дальше, тем дольше.
+    assert.ok(DAYS.daysFor(m.id, 'pvz', 'dfo').max > DAYS.daysFor(m.id, 'pvz', 'msk').max);
+    // Зона «регион не опознан» не обещает московский срок: недостающие дни
+    // объяснять покупателю потом.
+    assert.ok(DAYS.daysFor(m.id, 'pvz', 'ru').max > DAYS.daysFor(m.id, 'pvz', 'msk').max);
+  }
+  // Неизвестный способ, вариант или зона — пусто, а не выдуманный срок.
+  assert.equal(DAYS.daysFor('почта', 'pvz', 'msk'), null);
+  assert.equal(DAYS.daysFor('cdek', 'дрон', 'msk'), null);
+  assert.equal(DAYS.textFor('cdek', 'pvz', 'европа'), '', 'чужая зона не даёт «undefined дней»');
+
+  // Диапазон склоняется по верхней границе — так его читают вслух.
+  assert.equal(DAYS.text({ min: 1, max: 2 }), '1–2 дня');
+  assert.equal(DAYS.text({ min: 3, max: 5 }), '3–5 дней');
+  assert.equal(DAYS.text({ min: 7, max: 11 }), '7–11 дней');
+  assert.equal(DAYS.text({ min: 3, max: 3 }), '3 дня', 'одинаковые границы — одно число');
+  assert.equal(DAYS.dayWord(1), 'день');
+  assert.equal(DAYS.dayWord(12), 'дней', 'вторая дюжина склоняется как «дней»');
+
+  // Сроки едут срезом по зоне — все способы и варианты сразу, как и цены.
+  const all = DAYS.textAll(Z.zoneFor('Екатеринбург, ул Малышева, д 5'));
+  for (const m of DELIVERY.METHODS) for (const mode of m.modes) {
+    assert.match(all[m.id][mode.id], /^\d+(–\d+)? дн(я|ей|ень)$/, `${m.id}/${mode.id}`);
+  }
+  // Москва ближе Владивостока — и это видно в самом тексте.
+  assert.equal(DAYS.textAll('msk').cdek.pvz, '1–2 дня');
+});
+
+test('срок доставки виден на оформлении рядом с ценой', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/delivery/quote'"), server.indexOf("app.post('/api/delivery/points'"));
+
+  // Срок считает и подписывает СЕРВЕР — тем же ответом, что и цену: своя вилка
+  // со своим склонением в скрипте разошлась бы с серверной молча.
+  assert.match(route, /days: SHIPDAYS\.textAll\(q\.zone\)/);
+  // Неполный адрес — ни цены, ни срока: зона по нему ещё не считается.
+  assert.match(route, /valid: false[^)]*days: null/);
+  assert.doesNotMatch(js, /delivery-days|DAYS\s*=/, 'сетки сроков в скрипте быть не должно');
+  assert.doesNotMatch(js, /'дн(я|ей|ень)'/, 'склонение дней считает сервер');
+
+  // Срок стоит у КАЖДОГО варианта, под его ценой: «сколько» и «когда»
+  // сравнивают между вариантами, и оба ответа должны быть в одном столбце.
+  assert.match(js, /shipDays\(deliveryChoice\(\), m\.id\)/);
+  assert.match(js, /class="co-mode-days"/);
+  assert.match(css, /\.co-mode-days\{/);
+  // До адреса срока нет так же, как и цены: сетка считается по зоне.
+  assert.match(js, /ship\.days = d\.days \|\| null/);
+  assert.match(js, /ship\.days = null/);
+
+  // В сводке срок стоит справа, прямо под ценой доставки, и только когда цена
+  // уже посчитана: «3–5 дней» без суммы обещало бы доставку неизвестно откуда.
+  const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 2600);
+  assert.match(rail, /price != null \? shipDaysCurrent\(\) : ''/);
+
+  /* Тот же срок знает и консультант в чате: «уточнит менеджер» рядом с
+   * написанным на этой же странице «3–5 дней» — два разных ответа на один
+   * вопрос в пределах одного экрана. Числа он берёт из той же сетки. */
+  const DAYS = require('../lib/delivery-days');
+  const prompt = require('../lib/chat-prompt').systemPrompt(
+    { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] },
+    SETTINGS, { page: '/checkout' });
+  assert.ok(prompt.includes(DAYS.summary()), 'сроки в промпте — из той же сетки, что на витрине');
+  assert.match(prompt, /не экспресс/, 'обещаем обычную доставку, а не экспресс-тариф');
+  // Зона «регион не опознан» — наша тарифная страховка, а не место на карте:
+  // в перечне сроков ей делать нечего.
+  assert.doesNotMatch(DAYS.summary(), /Россия/);
+});
+
 test('куда доставить — обязательный выбор, а его цена входит в итог заказа', () => {
   const DELIVERY = require('../lib/delivery');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

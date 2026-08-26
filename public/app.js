@@ -502,8 +502,12 @@
       + (saved > 0 ? '<div class="co-line co-line-save"><span>Скидка</span><span>−' + money(saved) + '</span></div>' : '')
       + '<div class="co-line"><span>Доставка</span><span>'
       + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>'
+      // Срок стоит СПРАВА, прямо под ценой доставки: правый столбец сводки — это
+      // ответы числами, и «сколько» с «когда» читаются вместе. Слева при этом
+      // остаётся способ с тарифной зоной, объясняющей саму цену.
       + (way ? '<div class="co-line co-line-muted"><span>' + escapeHtml(way)
-        + (price != null && ship.zoneName ? ' · ' + escapeHtml(ship.zoneName) : '') + '</span><span></span></div>' : '')
+        + (price != null && ship.zoneName ? ' · ' + escapeHtml(ship.zoneName) : '') + '</span><span>'
+        + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
 
@@ -636,11 +640,17 @@
         // Цена вариантa приходит с сервера; пока адреса нет — считать нечего, и
         // вместо цифры стоит прочерк, а не «0 ₽».
         var price = shipPrice(deliveryChoice(), m.id);
+        // Срок — под ценой, а не в подсказке слева: «сколько стоит» и «сколько
+        // ждать» покупатель сравнивает между вариантами, и оба ответа должны
+        // стоять в одном столбце друг под другом. До адреса срока нет так же,
+        // как и цены: он считается по той же зоне.
+        var days = shipDays(deliveryChoice(), m.id);
         return '<label class="co-mode"><input type="radio" name="co-delivery-mode" value="' + escapeHtml(m.id) + '"'
           + (m.id === picked ? ' checked' : '') + '>'
           + '<span class="co-mode-text"><b>' + escapeHtml(m.name) + '</b>'
           + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span>'
-          + '<span class="co-mode-price">' + (price == null ? '—' : money(price)) + '</span></label>';
+          + '<span class="co-mode-price">' + (price == null ? '—' : money(price))
+          + (days ? '<i class="co-mode-days">' + escapeHtml(days) + '</i>' : '') + '</span></label>';
       }).join('')
       + '</div>';
   }
@@ -965,7 +975,7 @@
    * устарел: показывать «не хватает дома» про адрес, который покупатель уже
    * дописал, нельзя.
    */
-  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, zoneName: '', pending: false, timer: null, requestSeq: 0 };
+  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, days: null, zoneName: '', pending: false, timer: null, requestSeq: 0 };
 
   function shipPrice(method, mode) {
     if (!ship.prices || !method || !mode) return null;
@@ -973,6 +983,18 @@
     var price = byMode && byMode[mode];
     return typeof price === 'number' ? price : null;
   }
+  /* Срок доставки приходит готовым текстом («3–5 дней»), как и список способов:
+   * своей вилки со своим склонением у витрины нет и быть не может — она
+   * разошлась бы с серверной молча, и покупатель увидел бы один срок на
+   * карточке и другой в сводке.
+   */
+  function shipDays(method, mode) {
+    if (!ship.days || !method || !mode) return '';
+    var byMode = ship.days[method];
+    var text = byMode && byMode[mode];
+    return typeof text === 'string' ? text : '';
+  }
+  function shipDaysCurrent() { return shipDays(deliveryChoice(), deliveryModeChoice()); }
   // Цена выбранной доставки или null, пока адрес не введён и считать нечего.
   function shipCurrent() { return shipPrice(deliveryChoice(), deliveryModeChoice()); }
   // Итог заказа: товары плюс доставка. Именно по нему проверяется потолок одной
@@ -997,7 +1019,7 @@
       clearTimeout(ship.timer); ship.timer = null;
       ship.requestSeq++; ship.wanted = ''; ship.pending = false;
       ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
-      ship.prices = null; ship.zoneName = '';
+      ship.prices = null; ship.days = null; ship.zoneName = '';
       syncDelivery();
       return;
     }
@@ -1007,7 +1029,7 @@
     // не относятся к форме. Сбрасываем их сразу, ещё до debounce: иначе на 350 мс
     // оставались активными доставка и итог от предыдущего города.
     ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
-    ship.prices = null; ship.zoneName = ''; ship.pending = false;
+    ship.prices = null; ship.days = null; ship.zoneName = ''; ship.pending = false;
     ship.wanted = key;
     var requestSeq = ++ship.requestSeq;
     syncDelivery();
@@ -1028,7 +1050,7 @@
           if (!d || !d.ok) return;
           ship.key = key; ship.address = address;
           ship.valid = !!d.valid; ship.error = d.error || '';
-          ship.prices = d.prices || null; ship.zoneName = d.zoneName || '';
+          ship.prices = d.prices || null; ship.days = d.days || null; ship.zoneName = d.zoneName || '';
           syncDelivery();
         })
         .catch(function () {

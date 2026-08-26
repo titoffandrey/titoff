@@ -3507,7 +3507,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .co-mode-text b{display:block;font-size:14.5px;font-weight:600}
 .co-mode-text i{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--muted);line-height:1.4}
 /* tabular-nums — чтобы цена не дёргала ширину карточки при смене адреса. */
-.co-mode-price{flex:none;font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.co-mode-price{flex:none;font-size:14.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;
+  text-align:right}
+/* Срок — под ценой, тем же кеглем и цветом, что подсказка слева: два ответа на
+   разные вопросы («сколько» и «когда») стоят в одном столбце, а вес их
+   разделяет — цена полужирная, срок обычный. */
+.co-mode-days{display:block;margin-top:2px;font-style:normal;font-size:12.5px;font-weight:400;
+  color:var(--muted);line-height:1.4}
 /* Пункт выдачи — ВЫПАДАЮЩИЙ СПИСОК, а не пять строк подряд. Пока не выбрано,
    список раскрыт (выбирать всё равно придётся), после выбора схлопывается в одну
    строку: на последнем шаге перед оплатой нужна кнопка, а не перечень, из
