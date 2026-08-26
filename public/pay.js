@@ -87,9 +87,13 @@
       location.reload();
       return;
     }
+    // Часы приписываются, только когда они правда есть, — как в панели
+    // (`payLeftText` в lib/render.js). Счета живут минуты, но касса вправе
+    // выдать и длинный срок, а «291:24» читается не как время, а как ошибка.
     var total = Math.floor(ms / 1000);
-    var mm = Math.floor(total / 60), ss = total % 60;
-    left.textContent = mm + ':' + (ss < 10 ? '0' : '') + ss;
+    var hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    left.textContent = hh ? hh + ':' + pad(mm) + ':' + pad(ss) : mm + ':' + pad(ss);
     // Последние две минуты меняют только цвет карточки, без мигания: срок
     // становится заметен, но интерфейс не давит на покупателя каждую секунду.
     if (timerBox) timerBox.classList.toggle('is-urgent', ms <= 2 * 60 * 1000);

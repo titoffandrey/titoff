@@ -4846,6 +4846,47 @@ test('поздние ответы старого счёта не перезап�
   }).changed, true, 'исправленная точная сверка доращивает mismatch до paid');
 });
 
+test('сверка может сократить срок счёта, но не продлить', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-pay-expiry-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  const order = fresh.createOrder({ items: [], total: 47300, contact: 'tg' });
+  const attemptId = '9'.repeat(24);
+  const invoiceId = 'eeeeeeee-0000-0000-0000-000000000000';
+  const now = Date.now();
+  const issued = now + 15 * 60 * 1000;      // столько касса обещала при выдаче
+
+  fresh.startOrderPayment(order.id, {
+    attemptId, requestId: '9'.repeat(32), token: 'd'.repeat(32),
+    method: 'SBP', amount: 47300, currency: 'RUB'
+  });
+  fresh.attachOrderInvoice(order.id, {
+    attemptId, invoiceId, requisite: '+79000000003', method: 'SBP', expiresAt: issued
+  });
+
+  // CrocoPAY на GET статуса отвечает сроком через пять часов после создания,
+  // а саму сделку отменяет на 15–18 минуте. Продлить выданный срок этот ответ
+  // не должен: реквизит к тому времени уже чужой.
+  fresh.refreshOrderPaymentAttempt(order.id, {
+    attemptId, invoiceId, lastCheckedAt: Date.now(), expiresAt: now + 5 * 60 * 60 * 1000
+  });
+  let saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.expiresAt, issued, 'срок счёта не продлевается задним числом');
+  assert.equal(fresh.findPaymentAttempt(saved, { attemptId }).expiresAt, issued);
+
+  // А сокращение законно: касса вправе закрыть сделку раньше обещанного.
+  fresh.refreshOrderPaymentAttempt(order.id, {
+    attemptId, invoiceId, lastCheckedAt: Date.now(), expiresAt: now + 4 * 60 * 1000
+  });
+  saved = fresh.getOrder(order.id);
+  assert.equal(saved.payment.expiresAt, now + 4 * 60 * 1000, 'ранний конец счёта доезжает');
+
+  // Страница оплаты и панель обязаны считать по одному и тому же полю: у
+  // покупателя таймер шёл на пятнадцать минут, а у менеджера — на пять часов.
+  const pay = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  assert.match(pay, /hh \? hh \+ ':'/, 'часы в отсчёте страницы оплаты приписываются, а не сваливаются в минуты');
+});
+
 test('вебхук сверяет token попытки и подтверждает оплату только через центральную сверку', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const route = source.slice(source.indexOf('function paymentCallbackRoute('), source.indexOf("app.post('/api/pay/crocopay/callback'"));
