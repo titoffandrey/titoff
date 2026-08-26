@@ -9252,3 +9252,62 @@ test('карточки отчёта на телефоне не уезжают з
   // «подпись — значение»: из-за него цифры номера шли вертикально одна под другой.
   assert.match(css, /\.o-req-list \.o-req-bad,\.o-req-list \.o-req-bad-row\{display:block\}/);
 });
+
+test('первая реплика покупателя уходит в Telegram, а не только шапка темы', async () => {
+  /* Ровно та ошибка, что вылезла на боевой витрине: в теме висело «Новый диалог
+   * на сайте», а самого вопроса не было. Маршрут сам решал, звать `openTopic`
+   * или `relayUser`, — и на ПЕРВОМ сообщении звал только первое. На сайте
+   * реплика есть, у менеджера её нет: то есть чат работает, а вопрос теряется.
+   *
+   * Теперь дверь одна (`deliverUser`), и порядок нарушить нельзя: сперва тема,
+   * если её ещё нет, потом сама реплика — всегда.
+   */
+  const tgChat = require('../lib/chat-tg');
+  const sent = [];
+  const realFetch = global.fetch;
+  global.fetch = async (url, opts) => {
+    const method = String(url).split('/').pop().split('?')[0];
+    const body = JSON.parse((opts && opts.body) || '{}');
+    // Длинный опрос обязан ВИСЕТЬ, как настоящий: мгновенный ответ превращает
+    // цикл приёма в busy loop, и таймеры очереди отправки не получают хода.
+    if (method === 'getUpdates') return new Promise(() => {});
+    if (method === 'createForumTopic') {
+      sent.push({ method, name: body.name });
+      return new Response(JSON.stringify({ ok: true, result: { message_thread_id: 4242 } }), { status: 200 });
+    }
+    if (method === 'sendMessage') {
+      sent.push({ method, thread: body.message_thread_id || 0, text: String(body.text) });
+      return new Response(JSON.stringify({ ok: true, result: { message_id: sent.length } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
+  };
+
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-tg-'));
+    chatStore.init(dir);
+    const settings = { chatEnabled: true, telegramBotToken: '123:abc', chatChatId: '-1001234567890' };
+    tgChat.start({ settings: () => settings, chat: chatStore, onOperator() {}, onCommand() {} });
+
+    const chat = chatStore.create({ city: 'Большая Мурта', page: '/product/iphone-17-pro-max' });
+    const question = 'Отправка в Красноярск возможна?';
+    chatStore.say(chat, 'user', question);
+    await tgChat.deliverUser(chat, settings, question);
+    // Второе сообщение сразу следом — вторую тему на тот же разговор заводить
+    // нельзя: создание темы идёт до секунды, и покупатель успевает написать ещё.
+    await tgChat.deliverUser(chat, settings, 'И сколько будет стоить?');
+    // Очередь держит паузу между сообщениями в группу.
+    await new Promise(r => setTimeout(r, tgChat.MIN_GAP * 2 + 800));
+
+    const topics = sent.filter(s => s.method === 'createForumTopic');
+    assert.equal(topics.length, 1, 'тема заводится ровно одна');
+    const texts = sent.filter(s => s.method === 'sendMessage').map(s => s.text).join('\n');
+    assert.match(texts, /Новый диалог на сайте/, 'шапка темы');
+    assert.match(texts, /Отправка в Красноярск возможна\?/, 'ПЕРВЫЙ вопрос покупателя');
+    assert.match(texts, /И сколько будет стоить\?/, 'и следующий тоже');
+    // Всё ушло именно в тему, а не в общий чат.
+    assert.ok(sent.filter(s => s.method === 'sendMessage').every(s => s.thread === 4242));
+  } finally {
+    tgChat.stop();
+    global.fetch = realFetch;
+  }
+});
