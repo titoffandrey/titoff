@@ -24,13 +24,11 @@
   // Номер карты покупатель переносит в банковское приложение — это главное
   // действие на странице, поэтому запасной путь обязателен: clipboard-API нет в
   // старых браузерах и он не работает без https.
-  function copyText(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text);
-    }
+  function legacyCopy(text) {
     return new Promise(function (resolve, reject) {
+      var ta = null;
       try {
-        var ta = document.createElement('textarea');
+        ta = document.createElement('textarea');
         ta.value = text;
         ta.setAttribute('readonly', '');
         ta.style.position = 'fixed';
@@ -38,10 +36,24 @@
         document.body.appendChild(ta);
         ta.select();
         var ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        ok ? resolve() : reject();
+        ok ? resolve() : reject(new Error('copy_failed'));
       } catch (e) { reject(e); }
+      finally {
+        // execCommand иногда бросает исключение (в частности, внутри iframe).
+        // Временное поле и в этом случае не должно остаться в документе.
+        if (ta && ta.parentNode) ta.parentNode.removeChild(ta);
+      }
     });
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      // Отказ в разрешении ещё не означает, что старый безопасный путь не
+      // сработает. Для .onion без привычного secure-context это особенно важно.
+      return Promise.resolve().then(function () {
+        return navigator.clipboard.writeText(text);
+      }).catch(function () { return legacyCopy(text); });
+    }
+    return legacyCopy(text);
   }
 
   page.addEventListener('click', function (e) {
@@ -82,7 +94,8 @@
     // становится заметен, но интерфейс не давит на покупателя каждую секунду.
     if (timerBox) timerBox.classList.toggle('is-urgent', ms <= 2 * 60 * 1000);
   }
-  if (expires && timerBox) { timerBox.hidden = false; tick(); setInterval(tick, 1000); }
+  var countdownTimer = null;
+  if (expires && timerBox) { timerBox.hidden = false; tick(); countdownTimer = setInterval(tick, 1000); }
 
   /* ------------------------------ Выставить счёт ---------------------------- */
   var create = document.getElementById('pay-create');
@@ -158,6 +171,7 @@
     });
   })();
   function startPayment(btn, label) {
+    if (btn.disabled) return;
     var method = chosenMethod();
     if (!method) { showMsg('Выберите способ оплаты'); return; }
     var requestStorageKey = requestKey(method);
@@ -201,10 +215,17 @@
         if (d && d.ok && window.Cart && Cart.clear) Cart.clear();
         // Реквизиты рисует сервер, поэтому на успех открываем выданный им адрес.
         // Это заодно убирает из URL прежний выбор валюты.
-        if (d && d.ok) { location.href = d.url || ('/pay/' + encodeURIComponent(orderId)); return; }
+        if (d && d.ok) { location.href = safePayUrl(d.url); return; }
         var error = (d && d.error) || 'Не удалось выставить счёт';
-        var next = d && d.suggestedMethod
-          ? document.querySelector('input[name="pay-method"][value="' + String(d.suggestedMethod).replace(/"/g, '') + '"]') : null;
+        var next = null;
+        if (d && d.suggestedMethod) {
+          var suggested = String(d.suggestedMethod);
+          Array.prototype.some.call(document.querySelectorAll('input[name="pay-method"]'), function (radio) {
+            if (radio.value !== suggested) return false;
+            next = radio;
+            return true;
+          });
+        }
         if (next) {
           next.checked = true;
           error += ' Мы уже выбрали запасной вариант «' + (d.suggestedName || d.suggestedMethod) + '» — осталось получить реквизиты.';
@@ -218,6 +239,17 @@
         btn.disabled = false; btn.textContent = label;
       });
   }
+  function safePayUrl(value) {
+    var fallback = '/pay/' + encodeURIComponent(orderId);
+    try {
+      var url = new URL(String(value || fallback), location.origin);
+      // Ответ API не является разрешением увести покупателя на произвольный
+      // домен или javascript:-URL. Оплата в этой схеме всегда продолжает ровно
+      // страницу текущего заказа; query может содержать выбранную попытку.
+      if (url.origin !== location.origin || url.pathname !== fallback) return fallback;
+      return url.pathname + url.search + url.hash;
+    } catch (e) { return fallback; }
+  }
   if (create) create.addEventListener('click', function () { startPayment(create, 'Получить реквизиты'); });
 
   /* ------------------------------ Опрос статуса ----------------------------- */
@@ -226,6 +258,7 @@
   var stateBox = document.getElementById('pay-state');
   var recheck = document.getElementById('pay-recheck');
   var busy = false;
+  var pollTimer = null;
 
   function poll(manual) {
     if (busy || state !== 'pending') return;
@@ -235,16 +268,22 @@
       .then(function (r) { return r.json(); })
       .then(function (d) {
         busy = false;
-        if (!d || !d.ok) return;
+        if (!d || !d.ok) {
+          if (manual && stateBox) stateBox.textContent = 'Не удалось проверить оплату. Проверьте соединение и попробуйте ещё раз.';
+          return;
+        }
         // Любое состояние, кроме ожидания, меняет всю страницу целиком.
         if (d.state && d.state !== 'pending') { location.reload(); return; }
         if (manual && stateBox) stateBox.textContent = 'Перевод пока не виден. Это занимает до нескольких минут — страница обновится сама.';
       })
-      .catch(function () { busy = false; });
+      .catch(function () {
+        busy = false;
+        if (manual && stateBox) stateBox.textContent = 'Не удалось проверить оплату. Проверьте соединение и попробуйте ещё раз.';
+      });
   }
 
   if (state === 'pending') {
-    setInterval(function () {
+    pollTimer = setInterval(function () {
       if (document.visibilityState === 'visible') poll(false);
     }, 7000);
     document.addEventListener('visibilitychange', function () {
@@ -254,6 +293,11 @@
   if (recheck) recheck.addEventListener('click', function () {
     if (stateBox) stateBox.textContent = 'Проверяем…';
     poll(true);
+  });
+
+  window.addEventListener('pagehide', function () {
+    if (countdownTimer) clearInterval(countdownTimer);
+    if (pollTimer) clearInterval(pollTimer);
   });
 
 })();

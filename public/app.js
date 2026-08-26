@@ -63,28 +63,41 @@
   // Корзина хранит снимок данных на момент добавления: у позиций, положенных
   // давно, нет фото, а цена могла измениться. Спрашиваем у сервера актуальное —
   // заодно исчезают товары, которых больше нет в каталоге.
+  var cartRefreshSeq = 0;
   function refreshCartFromServer() {
+    // Ответ относится не просто к «корзине такой же длины», а к точному набору
+    // вариантов, который был отправлен. На медленном соединении покупатель мог
+    // успеть удалить одну позицию и добавить другую: прежняя проверка длины в
+    // таком случае применяла цену и наличие товара A к товару B по тому же
+    // индексу. Номер запроса заодно не даёт более медленному ответу перезаписать
+    // уже полученный свежий.
+    var requestSeq = ++cartRefreshSeq;
     if (!Cart.items.length) return;
+    var snapshot = Cart.items.map(itemKey);
     fetch('/api/cart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize, options: i.options }; }) })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (!d || !d.ok || !Array.isArray(d.items) || d.items.length !== Cart.items.length) return;
+        if (requestSeq !== cartRefreshSeq || !d || !d.ok || !Array.isArray(d.items)
+          || d.items.length !== snapshot.length || Cart.items.length !== snapshot.length
+          || Cart.items.some(function (item, idx) { return itemKey(item) !== snapshot[idx]; })) return;
         var next = [];
         d.items.forEach(function (fresh, idx) {
           var item = Cart.items[idx];
           if (!item || fresh.gone) return;              // товар убрали из каталога
-          if (fresh.name) item.name = fresh.name;
-          if (Number(fresh.price) > 0) item.price = Number(fresh.price);
+          if (fresh.name) item.name = cleanText(fresh.name, 240);
+          var freshPrice = Number(fresh.price);
+          if (Number.isFinite(freshPrice) && freshPrice > 0 && freshPrice <= 1e12) item.price = freshPrice;
           // Цена для сравнения приходит от сервера тем же расчётом, что и
           // зачёркнутая на карточке. Ноль — сравнивать не с чем, и ноль тоже
           // является обновлением: акция могла закончиться, пока товар лежал.
-          item.compare = Number(fresh.compare) > 0 ? Number(fresh.compare) : 0;
+          var freshCompare = Number(fresh.compare);
+          item.compare = Number.isFinite(freshCompare) && freshCompare > 0 && freshCompare <= 1e12 ? freshCompare : 0;
           // Пустая строка тоже является обновлением: если фото удалили в панели,
           // старая миниатюра не должна оставаться в localStorage и давать 404.
-          item.img = fresh.img || '';
+          item.img = cleanImageName(fresh.img);
           item.available = fresh.available !== false;
           next.push(item);
         });
@@ -952,7 +965,7 @@
    * устарел: показывать «не хватает дома» про адрес, который покупатель уже
    * дописал, нельзя.
    */
-  var ship = { key: '', address: '', valid: false, error: '', prices: null, zoneName: '', pending: false, timer: null };
+  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, zoneName: '', pending: false, timer: null, requestSeq: 0 };
 
   function shipPrice(method, mode) {
     if (!ship.prices || !method || !mode) return null;
@@ -978,8 +991,11 @@
   // вместе с суммой товаров (от неё зависит подгонка итога под круглое число).
   function quoteDelivery(delay) {
     var address = addressValue();
-    var key = Cart.total() + '|' + address;
+    var total = Cart.total();
+    var key = total + '|' + address;
     if (!address) {
+      clearTimeout(ship.timer); ship.timer = null;
+      ship.requestSeq++; ship.wanted = ''; ship.pending = false;
       ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
       ship.prices = null; ship.zoneName = '';
       syncDelivery();
@@ -987,17 +1003,29 @@
     }
     if (key === ship.key || ship.pending && ship.wanted === key) return;
     clearTimeout(ship.timer);
+    // Пока новый адрес считается, прежняя цена и признак «адрес полный» больше
+    // не относятся к форме. Сбрасываем их сразу, ещё до debounce: иначе на 350 мс
+    // оставались активными доставка и итог от предыдущего города.
+    ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
+    ship.prices = null; ship.zoneName = ''; ship.pending = false;
     ship.wanted = key;
+    var requestSeq = ++ship.requestSeq;
+    syncDelivery();
     ship.timer = setTimeout(function () {
+      ship.timer = null;
+      if (ship.requestSeq !== requestSeq || ship.wanted !== key) return;
       ship.pending = true;
       fetch('/api/delivery/quote', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: address, total: Cart.total() })
+        body: JSON.stringify({ address: address, total: total })
       })
         .then(function (r) { return r.json(); })
         .then(function (d) {
+          // Старый запрос не меняет даже `pending`: в это время уже может идти
+          // новый, и ложный false запустил бы его второй раз.
+          if (ship.requestSeq !== requestSeq || ship.wanted !== key) return;
           ship.pending = false;
-          if (!d || !d.ok || ship.wanted !== key) return;   // ответ устарел
+          if (!d || !d.ok) return;
           ship.key = key; ship.address = address;
           ship.valid = !!d.valid; ship.error = d.error || '';
           ship.prices = d.prices || null; ship.zoneName = d.zoneName || '';
@@ -1006,7 +1034,9 @@
         .catch(function () {
           // Сеть подвела — ни цену, ни разбор адреса не выдумываем: выбор
           // способа останется запертым, а решать всё равно серверу при заказе.
+          if (ship.requestSeq !== requestSeq || ship.wanted !== key) return;
           ship.pending = false;
+          syncDelivery();
         });
     }, delay == null ? 350 : delay);
   }
@@ -1198,6 +1228,10 @@
     }).filter(Boolean);
   }
   function cleanText(value, max) { return String(value == null ? '' : value).slice(0, max); }
+  function cleanImageName(value) {
+    var name = String(value || '');
+    return /^[\w.\-]{1,120}$/.test(name) ? name : '';
+  }
   function cleanItem(item) {
     if (!item || typeof item !== 'object') return null;
     var id = cleanText(item.id, 100);
@@ -1215,8 +1249,10 @@
       bandSize: cleanText(item.bandSize, 30),
       options: cleanOptions(item.options),      // [{name, value}] — покрытие, связь и т. п.
       available: item.available !== false,
+      compare: Number.isFinite(Number(item.compare)) && Number(item.compare) > 0 && Number(item.compare) <= 1e12
+        ? Number(item.compare) : 0,
       // имя файла фото — чтобы в корзине была миниатюра товара, а не заглушка
-      img: /^[\w.\-]{1,120}$/.test(String(item.img || '')) ? String(item.img) : ''
+      img: cleanImageName(item.img)
     };
   }
 

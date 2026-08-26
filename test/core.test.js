@@ -3000,7 +3000,13 @@ test('корзина различает варианты одного товар
   // выдвижная корзина показывает подпись варианта: /api/cart возвращает базовое имя
   assert.match(js, /cart-item-variant/);
   assert.match(css, /\.cart-item-variant\{/);
-  assert.match(js, /item\.img = fresh\.img \|\| ''/);
+  /* Пустое имя файла — тоже обновление: фото могли удалить в панели, и старая
+   * миниатюра не должна остаться в localStorage, давая 404. Имя при этом
+   * проходит ту же проверку, что и при чтении корзины с диска (`cleanImageName`
+   * отдаёт пустую строку всему, что не похоже на имя файла), — ответ сервера
+   * попадает в разметку, и доверять ему на слово нельзя. */
+  assert.match(js, /item\.img = cleanImageName\(fresh\.img\)/);
+  assert.match(js, /function cleanImageName\(value\)/);
   assert.match(js, /addBtn\.dataset\.name = baseName;/);
   // блок вариантов запускается и когда у товара только ремешки или только доп. характеристики
   assert.match(js, /getElementById\('bands'\) \|\| document\.getElementById\('options'\)\)\) \{/);

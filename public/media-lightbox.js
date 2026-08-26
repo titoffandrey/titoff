@@ -48,7 +48,7 @@
     };
     el.innerHTML =
       '<div class="lb-bar">'
-      + '<span class="lb-count" id="lb-count"></span>'
+      + '<span class="lb-count" id="lb-count" aria-live="polite"></span>'
       + '<button type="button" class="lb-btn lb-close" aria-label="Закрыть">' + svg('M6 6l12 12M18 6L6 18') + '</button>'
       + '</div>'
       + '<button type="button" class="lb-btn lb-nav lb-prev" aria-label="Предыдущее вложение">' + svg('M15 5l-7 7 7 7') + '</button>'
@@ -110,8 +110,11 @@
   }
 
   function lbOpen(items, index, opener) {
-    lbItems = items;
-    lbIndex = index;
+    lbItems = Array.isArray(items) ? items.filter(function (item) {
+      return item && (item.kind === 'photo' || item.kind === 'video') && item.src;
+    }) : [];
+    if (!lbItems.length) return;
+    lbIndex = Math.max(0, Math.min(Number(index) || 0, lbItems.length - 1));
     lbReturn = opener || null;
     var el = lbBuild();
     el.hidden = false;
@@ -128,6 +131,7 @@
     lightbox.hidden = true;
     document.body.classList.remove('lb-open');
     lbItems = [];
+    x0 = y0 = null;
     if (lbReturn && document.contains(lbReturn)) lbReturn.focus();
     lbReturn = null;
   }
@@ -156,6 +160,22 @@
     if (e.key === 'Escape') { e.preventDefault(); lbClose(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); lbGo(-1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); lbGo(1); }
+    else if (e.key === 'Tab') {
+      // aria-modal обещает, что клавиатура остаётся внутри диалога. Без этого
+      // после кнопки «дальше» Tab уходил на ссылки невидимой страницы под фото.
+      var controls = Array.prototype.filter.call(
+        lightbox.querySelectorAll('button:not([hidden]):not([disabled]),video[controls]'),
+        function (node) { return !node.hidden; }
+      );
+      if (!controls.length) { e.preventDefault(); return; }
+      var first = controls[0], last = controls[controls.length - 1];
+      var outside = !lightbox.contains(document.activeElement);
+      if (outside || (e.shiftKey && document.activeElement === first)
+        || (!e.shiftKey && document.activeElement === last)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      }
+    }
   });
 
   // Листание пальцем. Порог заметно больше вертикального сдвига, иначе обычная
