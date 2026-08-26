@@ -4003,6 +4003,20 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   font-variant-numeric:tabular-nums;user-select:none;line-height:1.2;vertical-align:baseline}
 .chat-me .chat-at{color:rgba(255,255,255,.75)}
 
+/* Галочки состояния реплики — часы, одна, две, две цветные. Правило ОДНО на
+   витрину и панель: фигура у них общая (спрайт в lib/render.js), и разъехаться
+   размеру с цветом тут не с чего. Своё в каждом месте — только цвет: у
+   покупателя галочка стоит на акцентном пузыре, у менеджера на светлом.
+
+   Прочитанное отличается ЦВЕТОМ, а не третьей галочкой: считать галочки глазами
+   никто не станет, а цвет читается с одного взгляда. Цвет светлый (а не белый
+   поярче): на тёмном акценте белое от белого не отличить. */
+.chat-tick{display:inline-block;width:15px;height:10px;margin-left:4px;vertical-align:-1px;
+  flex:none;user-select:none}
+.chat-tick svg{display:block;width:15px;height:10px}
+.chat-me .chat-tick{color:rgba(255,255,255,.62)}
+.chat-me .chat-tick.is-read{color:#5ddcff}
+
 /* Разделитель дат — как в Telegram: подпись по центру на своей подложке. Без
    него разговор, растянутый на несколько дней, читается одним куском, и
    вчерашнее «отправим завтра» выглядит сегодняшним обещанием. */
@@ -4230,6 +4244,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-line-at{display:inline-block;margin-left:8px;font-size:10.5px;color:var(--muted);
   font-variant-numeric:tabular-nums;user-select:none;vertical-align:baseline}
 .chat-line.is-system .chat-line-at{display:none}
+/* Галочка у своей реплики: дошла ли она до покупателя и открывал ли он окно.
+   Синий — тот же, что у ссылок Telegram в подвале витрины (4.6 на белом): на
+   светлом пузыре бледная отметка «прочитано» не читалась бы вовсе. */
+.chat-line-at .chat-tick{color:var(--muted)}
+.chat-line-at .chat-tick.is-read{color:#1b7dab}
 
 /* Поле ответа — отдельной карточкой под лентой, как строка ввода мессенджера. */
 .chat-answer{margin-top:12px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:12px}

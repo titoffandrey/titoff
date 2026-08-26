@@ -1374,6 +1374,9 @@ function chatView(chat) {
     id: chat.id,
     mode: chat.mode,
     unread: chat.unread,
+    // Галочки у своих реплик: докуда магазин их получил и прочитал. Считает их
+    // сервер — в браузере своего представления о доставке быть не может.
+    receipt: CHAT.receipt(chat),
     messages: chat.messages.map(chatMessageView)
   };
 }
@@ -1410,12 +1413,18 @@ async function aiReply(chat, info) {
 
 async function aiAnswer(chat, info, s) {
   CHAT.push(chat.id, 'typing', {});
+  // Вопрос ушёл в модель — для покупателя это «доставлено»: у его реплики
+  // появляется вторая галочка ещё до того, как придёт ответ.
+  CHAT.markStore(chat, 'got');
   const messages = PROMPT.build(db, s, chat, info);
   const result = await AI.stream(s, messages, piece => {
     CHAT.push(chat.id, 'delta', { text: piece });
   });
   const fresh = CHAT.get(chat.id);
   if (!fresh) return;
+  // Ответ готов — значит вопрос прочитан: галочки у покупателя синеют вместе с
+  // приходом ответа, а не отдельным событием до него.
+  CHAT.markStore(fresh, 'read');
   /* Пока модель печатала, в диалог мог войти оператор. Его ответ главнее — ИИ
    * замолкает, — но недописанную реплику надо ЗАКРЫТЬ, а не бросить.
    *
@@ -1472,6 +1481,10 @@ app.post('/api/chat/open', (req, res) => {
   } else {
     CHAT.touch(chat, info);
   }
+  // Переписка уехала в браузер целиком — реплики магазина доставлены. Прочитаны
+  // они не здесь: окно могло и не открываться (канал подключается в фоне, когда
+  // менеджер написал первым).
+  CHAT.markUser(chat, 'got');
   res.json(chatView(chat));
 });
 
@@ -1504,7 +1517,9 @@ app.post('/api/chat/send', (req, res) => {
   }
   if (chat.mode === 'closed') CHAT.setMode(chat, 'ai');   // написал снова — разговор продолжается
 
-  CHAT.say(chat, 'user', text, { exceptSid: String(req.body && req.body.sid || '') });
+  // Пишет — значит смотрит в окно: всё, что магазин ответил выше, прочитано.
+  CHAT.markUser(chat, 'read');
+  const own = CHAT.say(chat, 'user', text, { exceptSid: String(req.body && req.body.sid || '') });
 
   /* Реплика уходит менеджеру одной дверью (`deliverUser`): она же заводит тему
    * на ПЕРВОМ сообщении, если её ещё нет.
@@ -1512,7 +1527,12 @@ app.post('/api/chat/send', (req, res) => {
    * Раньше выбор делался здесь — и на первом сообщении звался только
    * `openTopic`: в Telegram уходила шапка «Новый диалог на сайте», а сам вопрос
    * не уходил вовсе. На сайте он был, у менеджера его не было. */
-  TGCHAT.deliverUser(chat, s, text).catch(e => console.error('Чат: реплика не ушла в Telegram — ' + e));
+  TGCHAT.deliverUser(chat, s, text)
+    // Ушла менеджеру — у покупателя это вторая галочка. Прочитанной реплика
+    // станет, когда менеджер откроет диалог или ответит: раньше об этом никто
+    // не знает, и обещать «прочитано» по факту отправки было бы неправдой.
+    .then(ok => { if (ok) CHAT.markStore(chat, 'got'); })
+    .catch(e => console.error('Чат: реплика не ушла в Telegram — ' + e));
 
   // Ответ ИИ идёт своим ходом. Оператор в диалоге — бот молчит: он замолкает
   // до конца переписки, и вернуть его можно только кнопкой в Telegram.
@@ -1525,7 +1545,10 @@ app.post('/api/chat/send', (req, res) => {
     aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
   }
-  res.json({ ok: true, mode: chat.mode });
+  /* Время сохранённой реплики уезжает обратно в браузер: своя реплика нарисована
+   * там ещё до ответа сервера, и без серверного `at` галочке не за что
+   * зацепиться — отметки о доставке и прочтении считаются именно по нему. */
+  res.json({ ok: true, mode: chat.mode, at: own ? own.at : 0, receipt: CHAT.receipt(chat) });
 });
 
 /* Живой канал. Через него приходят куски ответа ИИ, реплики оператора и смена
@@ -1549,9 +1572,13 @@ app.get('/api/chat/poll', (req, res) => {
     return res.json({ ok: false }, 429);
   }
   const since = Math.max(0, Math.floor(Number(req.query.since)) || 0);
+  // Реплики уехали в браузер — доставлены. Тот же смысл, что у отметки в
+  // `CHAT.push`: там канал, здесь опрос, а результат для галочки один.
+  CHAT.markUser(chat, 'got');
   res.json({
     ok: true,
     mode: chat.mode,
+    receipt: CHAT.receipt(chat),
     messages: chat.messages.filter(m => m.at > since).map(chatMessageView)
   });
 });
@@ -1566,10 +1593,11 @@ app.get('/api/chat/poll', (req, res) => {
  * lib/chat.js), и она одна на все входы: тему, команду и панель.
  */
 
-// Покупатель открыл окно — значок непрочитанного гаснет.
+// Покупатель открыл окно — значок непрочитанного гаснет, а у реплик магазина в
+// панели появляются синие галочки: он их увидел.
 app.post('/api/chat/read', (req, res) => {
   const chat = currentChat(req);
-  if (chat) CHAT.markRead(chat);
+  if (chat) { CHAT.markRead(chat); CHAT.markUser(chat, 'read'); }
   res.json({ ok: true });
 });
 
@@ -1581,12 +1609,17 @@ TGCHAT.start({
   onOperator: (chat, text) => {
     // Первая же реплика человека выключает бота до конца переписки.
     if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
+    // Отвечает — значит прочитал: у покупателя галочки синеют раньше, чем
+    // придёт сам ответ (менеджер печатает его не мгновенно).
+    CHAT.markStore(chat, 'read');
     /* Имя из учётной записи Telegram сюда НЕ передаём: покупатель видит одного
      * и того же «Александра (Менеджера)», кто бы из смены ни ответил. Кто это
      * был на самом деле, видно в самой теме — там стоит подпись автора. */
     CHAT.say(chat, 'operator', text);
   },
   onCommand: (chat, command, by) => {
+    // Команду набирают в самой теме, то есть переписку читают прямо сейчас.
+    CHAT.markStore(chat, 'read');
     /* В ленту покупателя смена собеседника не пишет ничего — ни здесь, ни в
      * `setMode`. Отметка уходит только в тему Telegram, и там она называет,
      * КТО это сделал: менеджеру в общей группе это важно, покупателю — нет. */
@@ -2946,6 +2979,11 @@ app.get('/admin/chat/:id', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
   if (!chat) return sendNotFound(req, res);
+  /* Диалог открыт — реплики покупателя прочитаны, и у него это видно галочками.
+   * Страницу перерисовывает живое обновление, поэтому отметка обязана двигаться
+   * только до последней РЕПЛИКИ, а не до «сейчас»: иначе каждая перерисовка
+   * помечала бы данные изменёнными и вызывала следующую (см. `markStore`). */
+  CHAT.markStore(chat, 'read');
   res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat)));
 });
 
@@ -2981,6 +3019,7 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
   if (!text) return back('Пустой ответ не отправлен');
   if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
+  CHAT.markStore(chat, 'read');
   // Имя подставляет само хранилище (`SPEAKERS` в lib/chat.js): покупатель видит
   // одного и того же менеджера, откуда бы тот ни ответил — из темы или отсюда.
   CHAT.say(chat, 'operator', text);

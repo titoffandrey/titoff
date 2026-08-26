@@ -57,7 +57,10 @@
     unread: 0,
     sending: false,
     echo: null,          // своя последняя реплика: по ней узнаётся эхо с сервера
-    day: ''              // последний показанный разделитель дат
+    day: '',             // последний показанный разделитель дат
+    mine: [],            // свои реплики и их галочки
+    got: 0,              // докуда магазин получил свои реплики
+    read: 0              // докуда прочитал
   };
 
   /* --------------------------------- Память --------------------------------- */
@@ -135,6 +138,8 @@
      * ответили ему только что или вчера вечером. У растущей реплики времени
      * ещё нет: оно приедет вместе с готовой (событие `done`). */
     if (at) row.appendChild(stampNode(at));
+    // Галочка стоит только у своих реплик: у чужих отвечать ею не на что.
+    if (role === 'user') row.appendChild(tickNode());
     return row;
   }
 
@@ -143,6 +148,83 @@
     stamp.className = 'chat-at';
     stamp.textContent = clock(at);
     return stamp;
+  }
+
+  /* ---------------------------------- Галочки ----------------------------------
+   *
+   * Часы — уходит, одна галочка — отправлено, две — дошло до магазина, две
+   * цветные — прочитано. Язык знакомый по любому мессенджеру, объяснять его не
+   * приходится, а отвечает он на единственный вопрос написавшего: увидели или
+   * нет.
+   *
+   * САМУ ФИГУРУ РИСУЕТ СЕРВЕР — она лежит спрайтом в разметке виджета
+   * (`CHAT_TICK_SPRITE` в lib/render.js), потому что та же галочка нужна
+   * менеджеру в панели. Здесь только ссылка `<use>` на нужный символ: своя копия
+   * путей разъехалась бы с панельной, а увидеть это можно было бы лишь глазами.
+   *
+   * Состояние считается по времени реплики и двум отметкам, пришедшим от
+   * сервера. Своего представления о доставке у браузера быть не может: он знает
+   * только то, что его запрос ушёл. */
+  var SVG = 'http://www.w3.org/2000/svg';
+  var TICKS = { wait: ['wait', 'отправляется'], sent: ['one', 'отправлено'],
+    got: ['two', 'доставлено'], read: ['two', 'прочитано'] };
+
+  function tickNode() {
+    var box = document.createElement('span');
+    box.className = 'chat-tick';
+    box.setAttribute('role', 'img');
+    var svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', '0 0 18 12');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.appendChild(document.createElementNS(SVG, 'use'));
+    box.appendChild(svg);
+    return box;
+  }
+
+  // Своя реплика и её галочка. `at` серверное — по нему считаются отметки; у
+  // только что отправленной его ещё нет, и она висит часами.
+  function mine(row, at) {
+    var box = row.querySelector('.chat-tick');
+    if (!box) return null;
+    var rec = { row: row, box: box, at: Number(at) || 0, kind: '' };
+    state.mine.push(rec);
+    // Лента за долгий разговор растёт, а отметки нужны только последним
+    // репликам: перебирать сотню узлов на каждое событие незачем.
+    if (state.mine.length > 120) state.mine.splice(0, state.mine.length - 120);
+    setTick(rec);
+    return rec;
+  }
+
+  function mineOf(row) {
+    for (var i = state.mine.length - 1; i >= 0; i--) if (state.mine[i].row === row) return state.mine[i];
+    return null;
+  }
+
+  function setTick(rec) {
+    var kind = !rec.at ? 'wait'
+      : rec.at <= state.read ? 'read'
+      : rec.at <= state.got ? 'got' : 'sent';
+    if (rec.kind === kind) return;
+    rec.kind = kind;
+    rec.box.className = 'chat-tick is-' + kind;
+    rec.box.setAttribute('aria-label', TICKS[kind][1]);
+    rec.box.querySelector('use').setAttribute('href', '#ct-' + TICKS[kind][0]);
+  }
+
+  function paintTicks() {
+    for (var i = 0; i < state.mine.length; i++) setTick(state.mine[i]);
+  }
+
+  // Отметки только растут: поздний ответ на старый запрос не должен отматывать
+  // галочки назад.
+  function applyReceipt(r) {
+    if (!r) return;
+    var got = Math.max(state.got, Number(r.got) || 0);
+    var read = Math.max(state.read, Number(r.read) || 0);
+    if (got === state.got && read === state.read) return;
+    state.got = got;
+    state.read = read;
+    paintTicks();
   }
 
   function two(n) { return n < 10 ? '0' + n : String(n); }
@@ -254,9 +336,12 @@
      * ответы. */
     var stamp = message.at || Date.now();
     dayDivider(stamp);
-    list.appendChild(bubble(message.role, message.text, message.by, stamp));
+    var row = bubble(message.role, message.text, message.by, stamp);
+    if (message.role === 'user') mine(row, message.at);
+    list.appendChild(row);
     scroll();
-    if (!state.open && message.role !== 'user') bumpUnread();
+    if (message.role !== 'user') { if (state.open) seen(); else bumpUnread(); }
+    return row;
   }
 
   // Лента прокручивается вниз только когда покупатель и так внизу: он мог
@@ -322,7 +407,7 @@
       state.live.appendChild(stampNode((message && message.at) || Date.now()));
     }
     state.live = null;
-    if (!state.open) bumpUnread();
+    if (state.open) seen(); else bumpUnread();
     scroll();
   }
 
@@ -345,6 +430,23 @@
     state.unread = 0;
     paintBadge();
     if (state.id) post('/api/chat/read', {});
+  }
+
+  /* Реплика пришла в ОТКРЫТОЕ окно — покупатель её видит, и менеджеру об этом
+   * надо сказать: у его реплики в панели от этого синеют галочки. Значок
+   * непрочитанного тут ни при чём — он и не зажигался, — поэтому `clearUnread`
+   * этот случай не покрывает вовсе.
+   *
+   * Запрос откладываем: реплики приходят по одной, а ответ ИИ ещё и
+   * заканчивается отдельным событием — иначе на один ход разговора уходило бы
+   * три одинаковых POST. */
+  var seenTimer = null;
+  function seen() {
+    if (!state.started || seenTimer) return;
+    seenTimer = setTimeout(function () {
+      seenTimer = null;
+      if (state.open) post('/api/chat/read', {});
+    }, 900);
   }
 
   /* --------------------------------- Состояние -------------------------------- */
@@ -395,6 +497,7 @@
       state.id = d.id || '';
       state.started = true;
       setMode(d.mode);
+      applyReceipt(d.receipt);
       // Сервер отдаёт всю переписку: покупатель мог начать разговор на другой
       // странице или вчера — окно обязано открыться там же, где он его оставил.
       (Array.isArray(d.messages) ? d.messages : []).forEach(append);
@@ -475,6 +578,9 @@
     });
     src.addEventListener('done', function (e) { endDelta(parse(e.data)); });
     src.addEventListener('typing', function () { showTyping(); });
+    /* Галочки меняются и без новых реплик — менеджер просто открыл диалог,
+     * поэтому у них своё событие, а не поле у сообщения. */
+    src.addEventListener('receipt', function (e) { applyReceipt(parse(e.data)); });
     src.addEventListener('mode', function (e) {
       var d = parse(e.data);
       if (d && d.mode) setMode(d.mode);
@@ -509,6 +615,7 @@
       .then(function (d) {
         if (generation !== state.pollGeneration || !d || !d.ok) return;
         if (d.mode) setMode(d.mode);
+        applyReceipt(d.receipt);
         (Array.isArray(d.messages) ? d.messages : []).forEach(function (message) {
           // Если поток успел прислать части ответа перед обрывом, полный ответ
           // завершает тот же bubble, а не рисуется рядом вторым сообщением.
@@ -537,7 +644,7 @@
      * Отметку «ждём эхо» ставим ПОСЛЕ отрисовки: поставленная до неё, она
      * подавляла бы саму эту реплику — сообщение покупателя не появлялось в
      * окне вовсе. */
-    append({ role: 'user', text: body });
+    var row = append({ role: 'user', text: body });
     state.echo = { text: body, at: Date.now() };
     input.value = '';
     resize();
@@ -564,6 +671,12 @@
           return;
         }
         if (d.mode) setMode(d.mode);
+        /* Реплика сохранена — у неё появляется первая галочка. Время берём
+         * серверное: по нему считаются и «доставлено», и «прочитано», а часы
+         * браузера идут по-своему. */
+        var rec = row && mineOf(row);
+        if (rec && d.at) { rec.at = Number(d.at) || 0; setTick(rec); }
+        applyReceipt(d.receipt);
         // Ответ ИИ не ждём — он приедет по каналу. Но если канала нет (запасной
         // опрос), сервер вернёт готовый ответ прямо здесь.
         if (d.reply) append(d.reply);
@@ -708,11 +821,14 @@
       state.id = d.id || '';
       state.started = true;
       setMode(d.mode);
+      applyReceipt(d.receipt);
       (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) {
         if (!m || !m.text) return;
         if (m.at) state.since = Math.max(state.since, m.at);
         dayDivider(m.at);
-        list.appendChild(bubble(m.role, m.text, m.by, m.at));
+        var row = bubble(m.role, m.text, m.by, m.at);
+        if (m.role === 'user') mine(row, m.at);
+        list.appendChild(row);
       });
       state.unread = Math.max(0, Number(d.unread) || 0);
       paintBadge();

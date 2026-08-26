@@ -5602,7 +5602,7 @@ test('сетка тарифов полная, курьер дороже ПВЗ, 
 
   const addresses = ['г Москва, ул Тверская', 'Екатеринбург', 'г Владивосток', 'ПВЗ у метро'];
   for (const address of addresses) {
-    for (const goods of [1990, 7990, 23250, 67990, 99990, 189990, 249000]) {
+    for (const goods of [1990, 7990, 23250, 67990, 99990, 189990, 245000]) {
       const all = SHIP.quoteAll(address, goods);
       for (const m of DELIVERY.METHODS) {
         for (const mode of m.modes) {
@@ -5629,8 +5629,8 @@ test('сетка тарифов полная, курьер дороже ПВЗ, 
   }
 
   // Круглая тысяча — когда попадает: 67 990 + 1 010 = 69 000.
-  assert.equal(SHIP.quote('cdek', 'courier', 'г Владивосток', 67990).price, 1010);
-  assert.equal(SHIP.quote('cdek', 'courier', 'г Владивосток', 67990).total, 69000);
+  assert.equal(SHIP.quote('cdek', 'pvz', 'г Владивосток', 67990).price, 1010);
+  assert.equal(SHIP.quote('cdek', 'pvz', 'г Владивосток', 67990).total, 69000);
   // Пустая корзина — чистый тариф, подгонять нечего.
   assert.equal(SHIP.quote('cdek', 'pvz', 'г Москва', 0).price, SHIP.rate('cdek', 'pvz', 'msk'));
   // Неизвестный вариант — отказ, а не «доставка бесплатно».
@@ -7728,12 +7728,13 @@ test('диапазон суммы заказа задаётся в настро�
   // Округлённый вариант, помещающийся под потолок, выбирается как обычно.
   assert.equal(249800 + capped.pvz, 250000);
   /* А вот курьеру под потолком места нет вовсе: любой круглый итог с ним уходит
-   * за 250 000. Тогда берётся чистый тариф (360), а не округление вверх (400) —
-   * и заказ у самого потолка просто не оформляется. Это задокументированное
-   * следствие, а не недосмотр: «заказ на 249 900 ₽ может не пройти — доставка
-   * выведет его за потолок». */
+   * за 250 000. Тогда берётся чистый тариф, а не подогнанная цена — и заказ у
+   * самого потолка просто не оформляется. Это задокументированное следствие, а
+   * не недосмотр: «заказ на 249 900 ₽ может не пройти — доставка выведет его за
+   * потолок». */
   assert.equal(capped.courier, SHIP.rate('cdek', 'courier', 'msk'));
-  assert.equal(uncapped.courier > capped.courier, true, 'без потолка округление вверх разрешено');
+  assert.notEqual(uncapped.courier, capped.courier, 'без потолка подгонка свободна');
+  assert.ok(249800 + uncapped.courier > 250000, 'без потолка итог уходит за него');
   // Сверяем с теми же настройками, при которых считали доставку: у `on` потолок
   // расширен до 900 000, и 250 160 ₽ там как раз проходят.
   assert.equal(PAYMENTS.payable(249800 + capped.courier, tight), false);
@@ -9599,6 +9600,89 @@ test('первая реплика покупателя уходит в Telegram,
     tgChat.stop();
     global.fetch = realFetch;
   }
+});
+
+test('галочки: отправлено, доставлено, прочитано — и панель от них не зацикливается', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-tick-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ city: 'Пермь' });
+
+  // Реплик покупателя ещё нет — отмечать нечего, и лишней записи на диск тоже.
+  assert.equal(chatStore.markStore(chat, 'read'), false);
+  assert.deepEqual(chatStore.receipt(chat), { got: 0, read: 0 });
+
+  const ask = chatStore.addMessage(chat, 'user', 'Есть 512 ГБ?');
+  assert.equal(chatStore.markStore(chat, 'got'), true);
+  assert.deepEqual(chatStore.receipt(chat), { got: ask.at, read: 0 });
+
+  /* Повтор ничего не меняет, и это НЕ мелочь: страницу диалога перерисовывает
+   * живое обновление, а каждая перерисовка снова зовёт «прочитано». Двигайся
+   * отметка по текущему времени, панель обновляла бы сама себя по кругу. */
+  assert.equal(chatStore.markStore(chat, 'got'), false);
+  assert.equal(chatStore.markStore(chat, 'read'), true);
+  assert.equal(chatStore.markStore(chat, 'read'), false, 'вторая перерисовка ничего не двигает');
+  // Прочитанное заведомо доставлено: иначе у соседних реплик галочек было бы
+  // разное число при одном и том же состоянии.
+  assert.deepEqual(chatStore.receipt(chat), { got: ask.at, read: ask.at });
+
+  // Следующая реплика снова без галочек — отметка осталась на прежней.
+  const more = chatStore.addMessage(chat, 'user', 'А в чёрном?');
+  assert.ok(more.at > chatStore.receipt(chat).read);
+
+  // Отметки покупателя — своя пара, и покупателю она не уезжает: его окно
+  // отвечает на вопрос «увидели ли меня», а не «что видел я».
+  const answer = chatStore.addMessage(chat, 'ai', 'Есть.');
+  chatStore.markUser(chat, 'read');
+  assert.equal(chat.receipt.userRead, answer.at);
+  assert.equal(chat.receipt.userGot, answer.at, 'прочитанное заведомо доставлено');
+  assert.deepEqual(chatStore.receipt(chat), { got: ask.at, read: ask.at });
+
+  // Отметки переживают перезапуск: иначе после каждого рестарта покупатель
+  // видел бы у старых реплик одну галочку.
+  chatStore.markStore(chat, 'read');
+  const now = chatStore.receipt(chat);
+  chatStore.flush();
+  chatStore.init(dir);
+  assert.deepEqual(chatStore.receipt(chatStore.get(chat.id)), now);
+
+  // Прежние диалоги (поля нет вовсе) читаются без миграции — просто без галочек
+  // до первой новой реплики.
+  assert.deepEqual(chatStore.create({}).receipt, { storeGot: 0, storeRead: 0, userGot: 0, userRead: 0 });
+  assert.deepEqual(chatStore.receipt({}), { got: 0, read: 0 });
+});
+
+test('галочка одна на витрину и панель, и рисует её сервер', () => {
+  /* У покупателя реплики строит скрипт, у менеджера — сервер. Две копии одной
+   * фигуры разъехались бы на первой правке, а увидеть это можно было бы только
+   * глазами: поэтому пути лежат спрайтом в lib/render.js, а скрипт витрины
+   * ссылается на него через `<use>`. */
+  const html = render.layout(CHAT_ON, { body: '' });
+  for (const id of ['ct-wait', 'ct-one', 'ct-two']) {
+    assert.ok(html.includes('<symbol id="' + id + '"'), 'символ ' + id + ' в разметке виджета');
+  }
+  const code = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8'));
+  assert.match(code, /#ct-/, 'скрипт ссылается на спрайт');
+  assert.doesNotMatch(code, /\bd:|setAttribute\('d'/, 'своих путей в скрипте быть не должно');
+
+  // Панель несёт тот же спрайт: её страницу витринная разметка не сопровождает.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-tick-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({});
+  chatStore.addMessage(chat, 'user', 'есть 256 ГБ?');
+  const answer = chatStore.addMessage(chat, 'ai', 'да, есть');
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+
+  const sent = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.ok(sent.includes('<symbol id="ct-two"'), 'спрайт на странице диалога');
+  assert.match(sent, /chat-tick is-sent/, 'покупатель ответ ещё не получил');
+  assert.doesNotMatch(sent, /chat-tick is-read/);
+
+  chatStore.markUser(chat, 'read', answer.at);
+  const read = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.match(read, /chat-tick is-read/, 'покупатель открыл окно');
+  // У реплики покупателя галочки нет: отвечать ею не на что.
+  const own = read.slice(read.indexOf('chat-line is-user'), read.indexOf('chat-line is-ai'));
+  assert.doesNotMatch(own, /chat-tick/);
 });
 
 /* ============ ВРЕМЯ МАГАЗИНА — МОСКОВСКОЕ ============ */
