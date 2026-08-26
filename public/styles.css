@@ -2536,6 +2536,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .visitor-title h2{margin:0;font-size:23px;letter-spacing:-.025em}
 .visitor-when{color:#8e8e93;font-size:12px}
 .visitor-ip{margin:6px 0 2px;color:#6e6e73;font-size:13px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+/* «Написать в чат» — прямо в шапке карточки: решение написать принимают, глядя
+   на то, что человек смотрел и что заказал, и уходить за этим в другой раздел
+   значило бы потерять повод по дороге. */
+.visitor-write{margin-top:11px}
 .visitor-head .cmarks{gap:6px 14px;font-size:12.5px}
 .visitor-summary{margin-bottom:14px;grid-template-columns:repeat(6,minmax(0,1fr))}
 .visitor-summary .metric-card{padding:16px}
@@ -4158,6 +4162,30 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-page span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-page svg{width:14px;height:14px;flex:none}
 
+/* Заказы собеседника — между справкой о нём и самой перепиской.
+   Половина разговоров про них и есть («оплатил, а статус прежний», «счёт не
+   открывается»), и отвечать на такое, не видя заявки, значит переспрашивать
+   номер заказа у человека, который сидит на странице оплаты.
+
+   Каждая заявка — ссылка на свою строку в списке заказов: там всё остальное,
+   включая реквизиты и адрес. */
+.chat-orders{border:1px solid var(--border);border-bottom:0;background:#fff;padding:10px 16px 12px}
+.chat-orders-head{font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:7px}
+.chat-order{display:grid;gap:2px;padding:8px 0;color:inherit;text-decoration:none}
+.chat-order+.chat-order{border-top:1px solid var(--border-soft)}
+.chat-order-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.chat-order-top b{font-size:14px}
+/* Сумма прижата к правому краю: деньги сравнивают столбиком сверху вниз, а не
+   ищут глазами после состава. */
+.chat-order-sum{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
+.chat-order-items{font-size:12.5px;color:#48484a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-order-state{margin-top:3px}
+/* Плашка состояния здесь та же, что в списке заказов, но приписки под ней
+   («срок вышел · 26.08 в 13:04») идут в строку с ней: в переписке это справка,
+   а не содержание страницы. */
+.chat-order-state .o-when,.chat-order-state .o-left,.chat-order-state .o-note{display:inline;margin-left:7px}
+.chat-order:hover .chat-order-top b{color:var(--accent)}
+
 /* Лента. Своя рамка снизу продолжает шапку — переписка и собеседник читаются
    одним блоком, а не тремя карточками подряд. */
 .chat-thread{display:flex;flex-direction:column;gap:6px;max-height:58vh;overflow-y:auto;
@@ -4215,7 +4243,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .chat-row{padding:10px 12px}
   .chat-line{max-width:88%}
   .chat-thread{max-height:none;padding:12px}
-  .chat-head-card,.chat-head-meta,.chat-thread{border-radius:0;border-left:0;border-right:0}
+  /* Шапка, заказы и лента идут во всю ширину экрана одним блоком: боковые
+     рамки на 375 px отбирают у переписки поля дважды, а сам блок разваливается
+     на три карточки подряд. */
+  .chat-head-card,.chat-head-meta,.chat-orders,.chat-thread{border-radius:0;border-left:0;border-right:0}
+  .chat-orders{padding:10px 12px 12px}
   .chat-head-go{display:none}
   .chat-answer-acts .btn{flex:1}
   .chat-answer-send{margin-right:0}

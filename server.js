@@ -613,8 +613,25 @@ function pageOpts(req, extra) {
   return Object.assign({
     origin: originOf(req),
     categories: db.visibleCategories(),
-    payRemind: payRemind(req)
+    payRemind: payRemind(req),
+    chatWaiting: chatWaiting(req)
   }, extra || {});
+}
+
+/* Сколько сообщений ждёт покупателя в чате.
+ *
+ * Витрина сама к серверу не стучится: канал открывается, только когда человек
+ * открыл окно, а страниц открывают в сотни раз больше, чем разговоров ведут.
+ * Поэтому «вам написали» приезжает разметкой — так же, как полоса напоминания
+ * о неоплаченном счёте.
+ *
+ * Без этого менеджер, написавший первым, оставался бы неуслышанным: у
+ * покупателя нет ни отметки в localStorage, ни причины открывать окно.
+ */
+function chatWaiting(req) {
+  if (!CHAT.visible(settings())) return 0;
+  const chat = currentChat(req);
+  return chat ? Math.max(0, Number(chat.unread) || 0) : 0;
 }
 
 // Страница «не найдено» — одна на 404-маршрут, битую ссылку товара и чужой заказ.
@@ -1237,12 +1254,67 @@ app.post('/api/order', async (req, res) => {
  */
 CHAT.init(db.DATA_DIR);
 
-// Диалог этого покупателя. Ключ — подписанная cookie-сессия, тот же приём, что
-// у своих отзывов и своих заказов: чужую переписку так не открыть, а угадать
-// 32-значный id нельзя.
+/* Диалог этого покупателя. Ключ — подписанная cookie-сессия, тот же приём, что
+ * у своих отзывов и своих заказов: чужую переписку так не открыть, а угадать
+ * 32-значный id нельзя.
+ *
+ * Второй ключ — метка посетителя метрики, и нужен он ровно для одного случая:
+ * менеджер написал ПЕРВЫМ человеку, который в окно чата ещё не заглядывал.
+ * Такому диалогу неоткуда взяться в сессии покупателя — её он получает только
+ * здесь, при первой же встрече. Дальше разговор живёт на подписанной сессии,
+ * как любой другой.
+ *
+ * Подхватываем по метке ТОЛЬКО начатое менеджером: разговоры, заведённые самим
+ * покупателем, уже лежат в его сессии, и второй путь к ним был бы послаблением
+ * на ровном месте. Сама метка — httpOnly-cookie из 16 случайных байт, и знать
+ * её посторонний может лишь оттуда же, откуда и cookie сессии.
+ */
 function currentChat(req) {
   const id = req.session && req.session.chatId;
-  return CHAT.validId(id) ? CHAT.get(id) : null;
+  const own = CHAT.validId(id) ? CHAT.get(id) : null;
+  if (own) return own;
+  const visitorId = metrics.visitorId(req);
+  if (!visitorId) return null;
+  const started = CHAT.byVisitorId(visitorId);
+  if (!started || started.startedBy !== 'operator') return null;
+  if (req.session) req.session.chatId = started.id;
+  return started;
+}
+
+/* Заказы этого собеседника — с состоянием оплаты.
+ *
+ * Половина вопросов в чате про них и есть: «оплатил, а статус прежний», «когда
+ * отправите», «почему счёт не открывается». Отвечать на такое, не видя заявки,
+ * означает переспрашивать номер заказа у человека, который сидит на сайте с
+ * открытой страницей оплаты.
+ *
+ * Черновики берём тоже — в отличие от блока «Покупки» в карточке посетителя.
+ * Там они читались бы как состоявшиеся покупки, а здесь это самый частый повод
+ * написать: покупатель дошёл до выбора способа и не смог заплатить.
+ */
+/* Заказ одной строкой — для Telegram, где нет ни плашек, ни ссылок.
+ *
+ * Подпись состояния берётся у `R.payView()`, то есть ровно та же, что стоит в
+ * панели: «счёт истёк» в теме и «счёт истёк» в списке заказов обязаны означать
+ * одно и то же, а разъехавшиеся слова об одном заказе — первый признак двух
+ * разных реализаций.
+ */
+function chatOrderLine(order) {
+  const view = R.payView(order) || { label: 'без оплаты' };
+  return R.orderNo(order.number) + ' · ' + R.money(order.total, settings()) + ' · ' + view.label;
+}
+
+function chatOrders(chat, limit) {
+  if (!chat) return [];
+  const visitorId = String(chat.visitorId || '');
+  const ip = String(chat.ip || '');
+  return db.visibleOrders()
+    // У заявок до появления `visitorId` есть только адрес, и по нему же их
+    // находит карточка посетителя. Совпадение адреса засчитываем лишь тогда,
+    // когда метки у заказа нет вовсе: иначе за одним офисным NAT в переписку
+    // попали бы чужие покупки.
+    .filter(o => (visitorId && o.visitorId === visitorId) || (!o.visitorId && ip && o.clientIp === ip))
+    .slice(0, limit || 10);
 }
 
 // Обстановка вокруг покупателя. Собирается из запроса, а не с его слов: город,
@@ -1446,7 +1518,12 @@ app.post('/api/chat/send', (req, res) => {
   // до конца переписки, и вернуть его можно только кнопкой в Telegram.
   const cart = Array.isArray(req.body && req.body.cart) ? req.body.cart : [];
   if (chat.mode === 'ai' && AI.configured(s)) {
-    aiReply(chat, Object.assign({}, info, { cart })).catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
+    // Заказы этого покупателя уходят в промпт фактами: «где мой заказ» и
+    // «оплатил, а статус прежний» — самые частые вопросы в чате, и без них
+    // консультант мог только переспросить номер у того, кто и так на странице
+    // оплаты. Подбирает их сервер по метке посетителя — чужие сюда не попадут.
+    aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
+      .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
   }
   res.json({ ok: true, mode: chat.mode });
 });
@@ -1524,15 +1601,24 @@ TGCHAT.start({
       return;
     }
     if (command === 'info') {
+      const orders = chatOrders(chat).map(o => '  ' + chatOrderLine(o));
       TGCHAT.relaySystem(chat, [
         chat.city && ('Город: ' + chat.city),
         chat.device && ('Техника: ' + chat.device),
         chat.page && ('Страница: ' + chat.page),
         chat.ip && ('IP: ' + chat.ip),
+        // Заказы с состоянием оплаты — то, ради чего команду и зовут: «что у
+        // него с оплатой» дежурный спрашивает чаще, чем «с какого он браузера».
+        orders.length ? 'Заказы:\n' + orders.join('\n') : 'Заказов нет',
         'Сообщений: ' + chat.messages.length,
         'Режим: ' + chat.mode
       ].filter(Boolean).join('\n'));
     }
+  },
+  // Строку про заказы собирает сервер: мост о хранилище не знает вовсе.
+  ordersLine: chat => {
+    const list = chatOrders(chat, 3);
+    return list.length ? list.map(chatOrderLine).join(' · ') : '';
   }
 });
 
@@ -2754,11 +2840,113 @@ app.get('/admin/chat', (req, res) => {
   if (!guardAdmin(req, res)) return;
   res.send(A.chatList(settings(), db, req.query.flash, req.query.page));
 });
+/* Написать покупателю первым.
+ *
+ * Регистрируется РАНЬШЕ `/admin/chat/:id`: побеждает первый совпавший маршрут,
+ * и «new» иначе прочиталось бы как идентификатор диалога (та же очерёдность,
+ * что у ленты отзывов товара и у порядка товаров).
+ *
+ * Адресат — посетитель метрики: его метка стоит и в карточке визитов, и в
+ * заказе, и по ней же витрина находит разговор, которого покупатель не начинал.
+ * Поэтому писать можно и тому, кто ничего не заказывал, — просто зашёл на сайт.
+ */
+/* Кому пишем. Адресует МЕТКА посетителя, а карточка метрики лишь добавляет
+ * справку — город, технику, историю визитов.
+ *
+ * Разделять это важно: карточку вытесняет срок хранения (365 дней) и потолок в
+ * 10 000 записей, а метка живёт в cookie покупателя год и стоит в его заказе.
+ * Требуй мы карточку, менеджер не смог бы написать ровно тем, кому нужнее
+ * всего, — покупателям со старым заказом. Витрине для доставки сообщения хватает
+ * одной метки.
+ */
+function chatTarget(key) {
+  const found = lookupVisitor(String(key || ''));
+  if (found.visitor) return found;
+  // Карточки нет — собираем, что знаем, из его же заказов. Пустой профиль тоже
+  // годится: диалог доедет по метке, просто менеджер увидит меньше.
+  const id = String(key || '').trim();
+  if (!/^[a-f0-9]{32}$/.test(id)) return found;
+  const orders = db.visibleOrders().filter(o => o.visitorId === id).slice(0, 20);
+  const last = orders[0] || null;
+  return {
+    key: id,
+    visitor: {
+      id,
+      ip: (last && last.clientIp) || '',
+      city: (last && last.clientCity) || '', country: (last && last.clientCountry) || '',
+      countryCode: (last && last.clientCountryCode) || '',
+      device: (last && last.clientDevice) || '', model: (last && last.clientModel) || '',
+      os: (last && last.clientOs) || '', browser: (last && last.clientBrowser) || '',
+      // Признак «истории визитов у нас нет»: карточка в метрике не открывается,
+      // и вести туда кнопкой незачем.
+      noCard: true
+    },
+    orders, alsoOnIp: []
+  };
+}
+
+app.get('/admin/chat/new', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const found = chatTarget(req.query.to);
+  if (!found.visitor) return sendNotFound(req, res);
+  // Разговор с этим человеком мог уже идти — тогда и писать надо в него, а не
+  // заводить второй: у покупателя окно чата одно.
+  const existing = CHAT.byVisitorId(found.visitor.id);
+  if (existing) return res.redirect('/admin/chat/' + encodeURIComponent(existing.id), 303);
+  res.send(A.chatNewPage(settings(), db, found, req.query.flash));
+});
+
+app.post('/admin/chat/new', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const s = settings();
+  const found = chatTarget(req.body.to);
+  if (!found.visitor) return sendNotFound(req, res);
+  const to = '/admin/chat/new?to=' + encodeURIComponent(found.key);
+  /* Выключенный чат — отказ, а не молчаливая отправка в никуда: у покупателя
+   * нет ни кнопки, ни окна, и написанное он не увидит никогда. Проверка идёт ДО
+   * записи, как и во всех формах панели. */
+  if (!CHAT.visible(s)) {
+    return res.redirect(to + '&flash=' + encodeURIComponent('Чат на витрине выключен — включите его в настройках'), 303);
+  }
+  const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
+  if (!text) return res.redirect(to + '&flash=' + encodeURIComponent('Пустое сообщение не отправлено'), 303);
+
+  const visitor = found.visitor;
+  let chat = CHAT.byVisitorId(visitor.id);
+  if (!chat) {
+    /* Обстановку берём из карточки посетителя, а не из запроса: запрос сейчас
+     * пришёл от владельца панели, и его город с браузером к покупателю
+     * отношения не имеют. */
+    chat = CHAT.create({
+      startedBy: 'operator',
+      visitorId: visitor.id,
+      ip: visitor.ip || '',
+      city: [visitor.city, visitor.country].filter(Boolean).join(', '),
+      device: [visitor.device, visitor.os, visitor.browser].filter(Boolean).join(' · '),
+      client: {
+        device: visitor.device || '', os: visitor.os || '', browser: visitor.browser || '',
+        city: visitor.city || '', country: visitor.country || '', countryCode: visitor.countryCode || ''
+      },
+      // Имя и контакт — из его же заказа, если он есть: обращаться к человеку
+      // по имени лучше, чем «здравствуйте, посетитель».
+      name: (found.orders[0] && found.orders[0].customerName) || '',
+      contact: (found.orders[0] && found.orders[0].contact) || '',
+      origin: originOf(req)
+    });
+  }
+  if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
+  CHAT.say(chat, 'operator', text);
+  // Дальше разговор ведут из Telegram — там уведомления. Тема заводится той же
+  // дверью, что и у реплики покупателя.
+  TGCHAT.deliverOperator(chat, s, text).catch(e => console.error('Чат: сообщение из панели не ушло в Telegram — ' + e));
+  res.redirect('/admin/chat/' + encodeURIComponent(chat.id) + '?flash=' + encodeURIComponent('Сообщение отправлено'), 303);
+});
+
 app.get('/admin/chat/:id', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
   if (!chat) return sendNotFound(req, res);
-  res.send(A.chatPage(settings(), db, chat, req.query.flash));
+  res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat)));
 });
 
 /* Ответ оператора из панели. Делает ровно то же, что сообщение в теме

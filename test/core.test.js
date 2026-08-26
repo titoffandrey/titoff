@@ -8958,6 +8958,147 @@ test('переписка в панели выглядит как мессенд�
   assert.equal(/Начат|Реплик/.test(html), false, 'справка ужата до нужного');
 });
 
+test('в диалоге видно, что покупатель заказал и что у него с оплатой', () => {
+  /* Половина разговоров в чате про это и есть: «оплатил, а статус прежний»,
+   * «счёт не открывается». Отвечать на такое, не видя заявки, означает
+   * переспрашивать номер заказа у человека, который сидит на странице оплаты. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
+  chatStore.init(dir);
+  const visitorId = 'c'.repeat(32);
+  const chat = chatStore.create({ visitorId, ip: '95.24.11.8' });
+  chatStore.addMessage(chat, 'user', 'оплатил, а заказ не подтверждён');
+
+  const now = Date.now();
+  const order = {
+    id: 'o1', number: 258676, total: 103100, createdAt: now - 3600000, visitorId,
+    items: [{ name: 'iPhone 17 Pro Max 1 ТБ', price: 102700, qty: 1 }],
+    payment: {
+      status: 'failed', method: 'SBP', invoiceId: 'inv', requisite: '+79915748505',
+      startedAt: now - 3600000, expiresAt: now - 1800000, closedAt: now - 1800400
+    }
+  };
+  const db = {
+    pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [],
+    getOrders: () => [order], visibleOrders: () => [order]
+  };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', [order]);
+  assert.match(html, /chat-orders/);
+  assert.match(html, /№258676/);
+  assert.match(html, /iPhone 17 Pro Max 1 ТБ/, 'состав — чтобы понять, о чём речь');
+  // Плашка и подпись — те же, что в списке заказов: «счёт истёк» в чате и в
+  // заявке обязаны означать одно и то же, а своя копия слов разъехалась бы.
+  assert.match(html, /pay-tag pay-off/);
+  assert.match(html, /счёт истёк/);
+  // Заказов нет — нет и блока: пустая карточка «заказов не найдено» занимала бы
+  // место до первой реплики ради сообщения о том, чего нет.
+  assert.doesNotMatch(adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []), /chat-orders/);
+
+  /* То же знает и ИИ: «где мой заказ» — самый частый вопрос в чате, и прежде
+   * консультант мог только переспросить номер у того, кто и так на странице
+   * оплаты. Подбирает заказы сервер по метке посетителя. */
+  const prompt = require('../lib/chat-prompt').systemPrompt(
+    { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] },
+    SETTINGS, { page: '/checkout', orders: [order] });
+  assert.match(prompt, /№258676/);
+  assert.match(prompt, /оплата: счёт истёк/);
+  // Деньги остаются за человеком: подтверждать поступление перевода бот не
+  // вправе ни при каких обстоятельствах.
+  assert.match(prompt, /Никогда не подтверждай, что деньги пришли/);
+});
+
+test('менеджер пишет первым, и сообщение доходит до покупателя', async () => {
+  /* Диалог, начатый из панели, попасть в подписанную сессию покупателя не
+   * может — он окно чата ни разу не открывал. Связывает их метка посетителя:
+   * та же, что стоит в его заказе и в карточке метрики. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-'));
+  chatStore.init(dir);
+  const visitorId = 'd'.repeat(32);
+  const started = chatStore.create({ visitorId, startedBy: 'operator' });
+  chatStore.addMessage(started, 'operator', 'Здравствуйте! Помочь с оплатой?');
+
+  assert.equal(chatStore.byVisitorId(visitorId).id, started.id, 'диалог ищется по метке посетителя');
+  assert.equal(chatStore.byVisitorId('e'.repeat(32)), null, 'чужая метка ничего не открывает');
+  assert.equal(chatStore.byVisitorId(''), null);
+  assert.equal(chatStore.get(started.id).unread, 1, 'покупателю есть что прочесть');
+
+  // Метка переехала (покупатель впервые получил её позже) — индекс идёт следом,
+  // иначе диалог остался бы висеть на прежнем ключе.
+  chatStore.touch(started, { visitorId: 'f'.repeat(32) });
+  assert.equal(chatStore.byVisitorId('f'.repeat(32)).id, started.id);
+  assert.equal(chatStore.byVisitorId(visitorId), null, 'прежний ключ освобождён');
+
+  /* Витрина узнаёт о таком сообщении из РАЗМЕТКИ: канал чата открывается только
+   * когда человек сам открыл окно, а страниц открывают в сотни раз больше, чем
+   * ведут разговоров. Ноль в разметку не пишем вовсе. */
+  const on = Object.assign({}, SETTINGS, { chatEnabled: true, aiApiKey: 'k' });
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
+  const shop = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['Категория'], visibleCategories: () => ['Категория'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const waiting = render.homePage(on, shop, { category: '', q: '', origin: '', chatWaiting: 2 }, null);
+  assert.match(waiting, /data-chat-waiting="2"/);
+  assert.match(waiting, /id="chat-badge">2</, 'значок рисует сервер: до ответа кнопка не пустая');
+  const quiet = render.homePage(on, shop, { category: '', q: '', origin: '' }, null);
+  assert.doesNotMatch(quiet, /data-chat-waiting/);
+  assert.match(quiet, /id="chat-badge" hidden/);
+
+  // Скрипт витрины по этому атрибуту подключает канал — тем же путём, каким
+  // возвращается к начатому разговору.
+  const chatJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.match(chatJs, /getAttribute\('data-chat-waiting'\)/);
+  assert.match(chatJs, /if \(recall\(\) \|\| waiting\)/);
+
+  /* Побеждает первый совпавший маршрут, а «/admin/chat/:id» подходит и под
+   * «/admin/chat/new»: переставь регистрацию — и страница «написать
+   * покупателю» превратится в поиск диалога с идентификатором «new». */
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const newRoute = source.indexOf("app.get('/admin/chat/new'");
+  const idRoute = source.indexOf("app.get('/admin/chat/:id'");
+  assert.ok(newRoute > -1 && idRoute > -1, 'маршруты на месте');
+  assert.ok(newRoute < idRoute, '«написать» регистрируется раньше открытия диалога');
+
+  /* Разговор, начатый ПОКУПАТЕЛЕМ, по метке не подхватывается: он и так лежит в
+   * его подписанной сессии, а второй путь к переписке был бы послаблением на
+   * ровном месте. */
+  const current = source.slice(source.indexOf('function currentChat('), source.indexOf('function chatOrderLine('));
+  assert.match(current, /startedBy !== 'operator'/);
+  assert.match(current, /req\.session\.chatId = started\.id/, 'дальше разговор живёт на сессии, как любой другой');
+});
+
+test('«вам написали» доходит на каждой странице витрины', async () => {
+  /* Та же грабля, что была с полосой напоминания об оплате: поле протаскивается
+   * в layout поимённо, и забытая страница молча остаётся без него. Здесь это
+   * означало бы, что сообщение менеджера доходит через раз — смотря куда
+   * покупатель зашёл. */
+  const on = Object.assign({}, SETTINGS, { chatEnabled: true, aiApiKey: 'k' });
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
+  const shop = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['Категория'], visibleCategories: () => ['Категория'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const order = { id: 'o1', number: 482913, total: 68200, items: [], createdAt: Date.now() };
+  const pages = {
+    'главная': render.homePage(on, shop, { category: '', q: '', origin: '', chatWaiting: 1 }, null),
+    'товар': render.productPage(on, shop, product, { origin: '', chatWaiting: 1 }),
+    'оформление': render.checkoutPage(on, { origin: '', chatWaiting: 1 }),
+    'оплата': render.payPage(on, order, { origin: '', chatWaiting: 1 }),
+    'политика': render.privacyPage(on, { origin: '', chatWaiting: 1 }),
+    'гарантия': render.warrantyPage(on, { origin: '', chatWaiting: 1 }),
+    'возврат': render.returnsPage(on, { origin: '', chatWaiting: 1 }),
+    'не найдено': render.notFoundPage(on, { origin: '', chatWaiting: 1 })
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    assert.match(html, /data-chat-waiting="1"/, name + ': покупатель не узнает, что ему написали');
+  }
+  // Собирает признак обвязка страниц, а не каждый маршрут по отдельности.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const opts = server.slice(server.indexOf('function pageOpts('), server.indexOf('function sendNotFound('));
+  assert.match(opts, /chatWaiting: chatWaiting\(req\)/);
+});
+
 test('в панели видно, здесь ли покупатель', () => {
   /* Первое, на что смотрит менеджер: ждёт человек ответа прямо сейчас или
    * прочитает утром. «В сети» — это открытый живой канал, а не свежая реплика:
