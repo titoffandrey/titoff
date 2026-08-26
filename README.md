@@ -280,6 +280,7 @@ sudo apt install -y imagemagick webp
    npm i -g pm2
    mkdir -p /var/lib/apple-store
    STORE_DATA_DIR=/var/lib/apple-store \
+   PUBLIC_ORIGIN='https://shop.ru' \
    ADMIN_PASSWORD='длинный-пароль-панели' \
    pm2 start server.js --name shop --update-env
    pm2 save
@@ -296,7 +297,7 @@ sudo apt install -y imagemagick webp
    }
    ```
 
-`ADMIN_PASSWORD` применяется только при первом создании базы; существующий хеш он не перезаписывает. `STORE_DATA_DIR` нужно задавать при каждом запуске (в конфигурации PM2/systemd). При переустановке из GitHub сначала сделайте резервную копию данных и uploads; каталог вне репозитория позволяет обновлять код, не затрагивая их.
+`ADMIN_PASSWORD` применяется только при первом создании базы; существующий хеш он не перезаписывает. `STORE_DATA_DIR` и `PUBLIC_ORIGIN` нужно задавать при каждом запуске (в конфигурации PM2/systemd). `PUBLIC_ORIGIN` — единственный публичный HTTPS-origin без пути; из него собираются callback-адреса платёжных касс, поэтому брать его из заголовка запроса небезопасно. При переустановке из GitHub сначала сделайте резервную копию данных и uploads; каталог вне репозитория позволяет обновлять код, не затрагивая их.
 
 Если пароль панели утрачен, введите новый без сохранения в истории shell:
 ```

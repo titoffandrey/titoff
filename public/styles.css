@@ -323,6 +323,9 @@ body.lb-open{overflow:hidden}
 .field input[type=text],.field input[type=search],.field input[type=tel],.field input[type=password],.field input[type=number],.field input[type=date],.field input:not([type]),.field textarea,.field select{
   width:100%;border:1px solid var(--border);border-radius:12px;padding:11px 14px;font-size:15px;font-family:inherit;outline:none;background:#fff;color:var(--text)
 }
+.secret-clear{display:flex!important;align-items:center;gap:7px;margin-top:7px;color:var(--muted);
+  font-size:11.5px;font-weight:400!important}
+.secret-clear input{width:15px!important;height:15px!important;margin:0;accent-color:var(--accent)}
 .field textarea{resize:vertical}
 .field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent)}
 .field-check label{display:flex;align-items:center;gap:8px;font-weight:400}
@@ -2125,7 +2128,21 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders .o-items{min-width:210px;max-width:330px}
 .a-orders .o-items-list{font-size:12.5px;color:#48484a}
 .a-orders .o-items-list div+div{margin-top:4px}
+.a-orders .o-flow{width:1%;min-width:150px}
+.o-flow-form{display:grid;gap:5px}
+.o-flow-form select{width:100%;min-width:145px;background:#fff}
+.o-flow-form .btn{justify-self:start;padding:4px 8px;font-size:11.5px}
+.order-flow{display:inline-flex;padding:4px 8px;border-radius:8px;background:#f2f2f5;color:#48484a;
+  font-size:11.5px;font-weight:620;white-space:nowrap}
+.order-flow-confirmed,.order-flow-processing{background:#edf5ff;color:#1769aa}
+.order-flow-shipped{background:#f3efff;color:#6941a5}
+.order-flow-done{background:#eaf8ef;color:#207a45}
+.order-flow-cancelled{background:#f2f2f5;color:#8e8e93;text-decoration:line-through}
 .a-orders .o-state{width:1%;white-space:nowrap}
+.o-reconcile{margin-top:5px}
+.o-reconcile .link-btn{padding:0;border:0;background:none;color:var(--accent);cursor:pointer;
+  font-size:11.5px;text-decoration:underline;text-underline-offset:2px}
+.o-reconcile .link-btn:hover{color:var(--text)}
 .a-orders .o-pay{width:1%;white-space:nowrap;font-size:12.5px;color:#48484a}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
 .a-orders .o-sum b{font-size:14.5px;font-variant-numeric:tabular-nums}
@@ -2231,6 +2248,12 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-list-switch b{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;
   background:#f1f1f4;color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
 .o-list-switch a[aria-current="page"] b{background:rgba(255,255,255,.2);color:#fff}
+.o-filters{display:grid;grid-template-columns:minmax(230px,1fr) auto auto auto auto;gap:8px;
+  align-items:center;margin:0 0 14px;padding:10px;border:1px solid var(--border-soft);border-radius:14px;background:#fff}
+.o-filters label{min-width:0}
+.o-filters input,.o-filters select{width:100%;height:35px;padding:0 10px;border:1px solid var(--border);
+  border-radius:9px;background:#fff;color:var(--text);font-size:12.5px}
+.o-filters .link{white-space:nowrap}
 
 /* Режим правки: пока он выключен, столбца с удалением нет вовсе. «✕» у каждой
    строки — это удаление заказа в один промах мыши, а список открывают, чтобы
@@ -2985,6 +3008,9 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-state{grid-column:2;grid-row:1;justify-self:end;width:auto;text-align:right}
   .a-orders .o-client{grid-column:1/-1;grid-row:2;max-width:none;min-width:0}
   .a-orders .o-items{grid-column:1/-1;grid-row:3;max-width:none;min-width:0}
+  .a-orders .o-flow{grid-column:1/-1;grid-row:4;width:auto;min-width:0;margin-top:2px}
+  .o-flow-form{display:flex;align-items:center;gap:7px}
+  .o-flow-form select{min-width:0;flex:1}
   /* Ряд денег отбит волосяной линией: выше в карточке «что за заявка», ниже —
      «чем и сколько», и без границы это читалось одним списком строк.
      Линия висит на СОСТАВЕ, а не на ячейках ряда денег: состав идёт во всю
@@ -2992,8 +3018,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      кусков с дырой посередине выглядела бы обрывом. */
   .a-orders .o-items{padding-bottom:9px;border-bottom:1px solid var(--border-soft)}
   .a-orders .o-items-list{font-size:12.5px}
-  .a-orders .o-pay{grid-column:1;grid-row:4;width:auto;text-align:left;font-size:12px}
-  .a-orders .o-sum{grid-column:2;grid-row:4;text-align:right}
+  .a-orders .o-pay{grid-column:1;grid-row:5;width:auto;text-align:left;font-size:12px}
+  .a-orders .o-sum{grid-column:2;grid-row:5;text-align:right}
   .a-orders .o-sum b{font-size:16px;letter-spacing:-.02em}
   .a-orders .o-via{font-size:11px}
   .a-orders .o-note{max-width:none}
@@ -3008,11 +3034,14 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-req-list div{display:block}
   .a-orders .o-req-list b{display:block;text-align:left}
   /* Строка удаления идёт во всю ширину, кнопка прижата вправо. */
-  .a-orders .o-act{grid-column:1/-1;grid-row:5;width:auto;margin-top:2px;padding-top:9px;
+  .a-orders .o-act{grid-column:1/-1;grid-row:6;width:auto;margin-top:2px;padding-top:9px;
     border-top:1px solid var(--border-soft);text-align:right}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
   .a-orders td:empty{display:none}
+
+  .o-filters{grid-template-columns:1fr 1fr}
+  .o-filters label:first-of-type{grid-column:1/-1}
 
   /* Строка кассы: на телефоне состояние всё равно переносится под название, и
      без этого правила оно вставало по левому краю, а приписка про сделки — с

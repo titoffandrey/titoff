@@ -41,9 +41,9 @@ if [ -z "$REPO" ]; then
   echo "== Заливаю текущее дерево проекта на $ALIAS"
   ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   # Только то, что нужно для запуска: данные, фото и сборочный мусор остаются дома.
-  tar -czf - -C "$ROOT" \
-    --exclude='./data' --exclude='./.git' --exclude='./apple_svg' --exclude='./node_modules' \
-    --exclude='./.DS_Store' --exclude='*.tmp' . \
+  COPYFILE_DISABLE=1 tar --no-xattrs -czf - -C "$ROOT" \
+    --exclude='./data' --exclude='./.git' --exclude='./apple_svg' --exclude='./apple-photos' \
+    --exclude='./node_modules' --exclude='./.DS_Store' --exclude='._*' --exclude='*.tmp' . \
     | ssh -o BatchMode=yes "$ALIAS" \
       'set -e; id -u titoff >/dev/null 2>&1 || adduser --disabled-password --gecos "" titoff;
        mkdir -p /home/titoff/istore && tar -xzf - -C /home/titoff/istore && chown -R titoff:titoff /home/titoff/istore'

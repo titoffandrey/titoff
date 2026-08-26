@@ -57,6 +57,27 @@ const migration = db.ensureSeeded();
 const metrics = new Analytics({ dataDir: db.DATA_DIR, geoEnabled: process.env.GEOIP_ENABLED !== '0' });
 
 const PORT = process.env.PORT || 3000;
+// Публичный origin задаётся развёртыванием и не зависит от Host конкретного
+// запроса. Для callback платёжки это финансовый адрес: собрать его из заголовка
+// покупателя означало бы отправить уведомление на чужой домен. В локальной
+// разработке переменная необязательна, поэтому обычные http://localhost остаются
+// рабочими.
+function parsePublicOrigin(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1';
+    if ((u.protocol !== 'https:' && !(local && u.protocol === 'http:'))
+      || u.username || u.password || (u.pathname && u.pathname !== '/') || u.search || u.hash) return '';
+    return u.origin;
+  } catch (e) { return ''; }
+}
+const PUBLIC_ORIGIN_INPUT = String(process.env.PUBLIC_ORIGIN || '').trim();
+const PUBLIC_ORIGIN = parsePublicOrigin(PUBLIC_ORIGIN_INPUT);
+if (PUBLIC_ORIGIN_INPUT && !PUBLIC_ORIGIN) {
+  throw new Error('PUBLIC_ORIGIN должен быть origin вида https://shop.example без пути и параметров');
+}
 // Слушаем только петлю. Процесс всегда стоит за обратным прокси (Caddy/nginx),
 // и открытый наружу порт сводил на нет всю защиту входов: при TRUST_PROXY=1
 // приложение верит X-Forwarded-For, поэтому любой, кто достучался до порта
@@ -124,6 +145,16 @@ const ordersBackUrl = (body, flash, forcedView) => {
   // показываются только в нём, и без этого он выключался бы после каждого
   // удаления — чистка десятка заявок означала десять лишних нажатий «Изменить».
   if (body && body.edit) params.push('edit=1');
+  const q = String(body && body.q || '').trim().slice(0, 100);
+  if (q) params.push('q=' + encodeURIComponent(q));
+  const pay = String(body && body.filterPay || '');
+  if (['ok', 'wait', 'warn', 'off', 'none', 'draft'].includes(pay)) {
+    params.push('pay=' + encodeURIComponent(pay));
+  }
+  const status = String(body && body.filterStatus || '');
+  if (Array.isArray(db.ORDER_STATUSES) && db.ORDER_STATUSES.includes(status)) {
+    params.push('status=' + encodeURIComponent(status));
+  }
   if (flash) params.push('flash=' + encodeURIComponent(flash));
   return '/admin/orders' + (params.length ? '?' + params.join('&') : '');
 };
@@ -386,6 +417,17 @@ function originOf(req) {
   const proto = process.env.FORCE_HTTPS === '1' || forwardedProto === 'https' || !!(req.socket && req.socket.encrypted) ? 'https' : 'http';
   const host = requestHost(req);
   return proto + '://' + host;
+}
+// Финансовые callback используют только заданный развёртыванием адрес. Host
+// запроса разрешён исключительно на localhost для разработки: на боевом сайте
+// подставной Host не должен стать callback-адресом кассы.
+function paymentOrigin(req) {
+  if (PUBLIC_ORIGIN) return PUBLIC_ORIGIN;
+  try {
+    const local = new URL(originOf(req));
+    if (local.hostname === 'localhost' || local.hostname === '127.0.0.1' || local.hostname === '::1') return local.origin;
+  } catch (e) {}
+  return '';
 }
 // Оптимизировать загруженные фото: WebP + очистка метаданных.
 // У фото ТОВАРА (`square`) рядом сразу делаются уменьшённые копии для карточки
@@ -674,7 +716,7 @@ app.get('/checkout', (req, res) => {
       : '';
   // `payOnline` решает подпись кнопки: «Перейти к оплате» либо «Оформить заказ».
   res.send(R.checkoutPage(settings(), pageOpts(req, {
-    payOnline: PAYMENTS.enabled(settings()), notice
+    payOnline: PAYMENTS.enabled(settings()) && !!paymentOrigin(req), notice
   })));
 });
 
@@ -1002,6 +1044,50 @@ function notifyNewOrder(order) {
 // на ту же страницу оплаты. Изменился хоть один товар, контакт, адрес или тариф
 // — это уже новый заказ.
 const ORDER_REUSE_TTL = 24 * 60 * 60 * 1000;
+
+// Отпечаток запроса оформления не содержит серверных цен: его задача — узнать
+// повтор ТОГО ЖЕ нажатия после потерянного ответа. Позиции и дополнительные
+// параметры сортируются, поэтому перестановка строк в localStorage не превращает
+// тот же заказ в другой.
+function checkoutRequestHash(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const items = (Array.isArray(b.items) ? b.items : []).slice(0, 101).map(it => {
+    const x = it && typeof it === 'object' ? it : {};
+    const options = (Array.isArray(x.options) ? x.options : []).slice(0, 41)
+      .map(o => ({ name: String(o && o.name || '').trim(), value: String(o && o.value || '').trim() }))
+      .sort((a, c) => JSON.stringify(a).localeCompare(JSON.stringify(c)));
+    return {
+      id: String(x.id || ''), qty: String(x.qty == null ? '' : x.qty),
+      price: String(x.price == null ? '' : x.price),
+      storage: String(x.storage || ''), color: String(x.color || ''),
+      band: String(x.band || ''), bandSize: String(x.bandSize || ''), options
+    };
+  }).sort((a, c) => JSON.stringify(a).localeCompare(JSON.stringify(c)));
+  const shape = {
+    items,
+    firstName: String(b.firstName || '').trim(), lastName: String(b.lastName || '').trim(),
+    phone: String(b.phone || '').trim(), contact: String(b.contact || '').trim(),
+    address: String(b.address || '').trim(), delivery: String(b.delivery || '').trim(),
+    deliveryMode: String(b.deliveryMode || '').trim(), pickupCode: String(b.pickupCode || '').trim()
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(shape)).digest('hex');
+}
+
+function rememberOwnOrder(req, order) {
+  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
+  req.session.myOrders = [order.id].concat(mine.filter(id => id !== order.id)).slice(0, 20);
+}
+
+function orderApiBody(order, reused) {
+  const pay = !!(order && (order.draft || order.payment));
+  return {
+    ok: true, reused: !!reused, id: order.id, number: order.number,
+    total: order.total, itemsTotal: order.itemsTotal,
+    delivery: { price: order.deliveryPrice, zone: order.deliveryZone },
+    pay, telegram: reused ? 'already_queued' : 'queued'
+  };
+}
+
 function reusableOrder(req, data) {
   const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
   const scalars = [
@@ -1018,7 +1104,7 @@ function reusableOrder(req, data) {
     const age = order ? now - Number(order.createdAt || 0) : NaN;
     if (!order || !Number.isFinite(age) || age < 0 || age >= ORDER_REUSE_TTL) continue;
     if (db.isOrderArchived(order)) continue;
-    if (!['new', 'processing'].includes(order.status)
+    if (!['new', 'confirmed', 'processing'].includes(order.status)
       || (pay && (pay.status === 'paid' || pay.status === 'mismatch'))) continue;
     if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
     if (scalars.some(key => String(order[key] == null ? '' : order[key]) !== String(data[key] == null ? '' : data[key]))) continue;
@@ -1029,25 +1115,53 @@ function reusableOrder(req, data) {
 }
 
 app.post('/api/order', async (req, res) => {
-  // Tor/proxy не должен превращать лимит одного общего IP в лимит всего
-  // магазина. Основной счётчик — случайная подписанная сессия; широкий IP-лимит
-  // остаётся только против бота, который удаляет cookie после каждого запроса.
+  const checkoutRequestId = String(req.body && req.body.requestId || '');
+  if (!/^[a-f0-9]{32}$/.test(checkoutRequestId)) {
+    return res.json({ ok: false, errorCode: 'bad_request_id', error: 'Обновите страницу оформления и попробуйте ещё раз' }, 400);
+  }
+  const requestHash = checkoutRequestHash(req.body);
+  const replay = db.getOrderByCheckoutRequest(checkoutRequestId);
+  if (replay) {
+    if (replay.checkoutRequestHash !== requestHash) {
+      return res.json({ ok: false, errorCode: 'idempotency_conflict', error: 'Данные заказа изменились. Обновите страницу и повторите оформление.' }, 409);
+    }
+    rememberOwnOrder(req, replay);
+    return res.json(orderApiBody(replay, true));
+  }
+
+  // Идемпотентный повтор уже записанного заказа проходит ДО лимита: потерянный
+  // ответ обязан восстановиться даже после нескольких сетевых ретраев. Новые
+  // ключи по-прежнему ограничены сессией и широким IP-лимитом.
   const buyerRateId = anonymousSessionId(req);
   if (rateLimited(req, 'order', 10, 10 * 60 * 1000, buyerRateId)
     || rateLimited(req, 'order-ip', 120, 10 * 60 * 1000)) {
     return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   }
-  const rawItems = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
-  const items = []; let total = 0;
+
+  const sourceItems = Array.isArray(req.body.items) ? req.body.items : [];
+  if (sourceItems.length > 100) {
+    return res.json({ ok: false, errorCode: 'cart_changed', error: 'В корзине слишком много разных позиций. Обновите корзину.', changes: [{ reason: 'too_many' }] }, 409);
+  }
+  const rawItems = sourceItems.slice(0, 100);
+  const items = []; const changes = []; let total = 0;
+  const changed = (it, reason, name, price) => {
+    const row = { id: String(it && it.id || ''), reason, name: String(name || it && it.id || 'Товар').slice(0, 160) };
+    if (Number.isFinite(Number(price)) && Number(price) >= 0) row.price = Number(price);
+    changes.push(row);
+  };
   for (const it of rawItems) {
-    if (!it || typeof it !== 'object') continue;
+    if (!it || typeof it !== 'object') { changed(it, 'invalid'); continue; }
     const view = db.visibleProduct(it.id);
-    if (!view || !view.inStock) continue;
+    if (!view) { changed(it, 'gone'); continue; }
+    if (!view.inStock) { changed(it, 'out_of_stock', view.name); continue; }
     // Выбранного варианта больше нет в каталоге — заявку по базовой цене
     // вместо него не оформляем.
-    if (variantMissing(view, it)) continue;
+    if (variantMissing(view, it)) { changed(it, 'variant_changed', view.name); continue; }
     const rawQty = Number(it.qty);
-    const qty = Number.isInteger(rawQty) ? Math.max(1, Math.min(99, rawQty)) : 1;
+    if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 99) {
+      changed(it, 'quantity_changed', view.name); continue;
+    }
+    const qty = rawQty;
     let price = D.effectivePrice(view);
     let name = view.name;
     // Наличие варианта проверяем на сервере: корзина живёт в localStorage и могла
@@ -1055,21 +1169,21 @@ app.post('/api/order', async (req, res) => {
     const storageLabel = String(it.storage || '').trim();
     if (storageLabel && Array.isArray(view.storages)) {
       const s = view.storages.find(x => x.label === storageLabel);
-      if (s && s.inStock === false) continue;
+      if (s && s.inStock === false) { changed(it, 'out_of_stock', view.name + ' ' + s.label); continue; }
       if (s) { price += Number(s.add) || 0; name += ' ' + s.label; }
     }
     const color = String(it.color || '').trim();
     if (color && Array.isArray(view.colors)) {
       const c = view.colors.find(x => x.name === color);
-      if (c && c.inStock === false) continue;
+      if (c && c.inStock === false) { changed(it, 'out_of_stock', view.name + ', ' + c.name); continue; }
       if (c) name += ', ' + color;
     }
     // Ремешок часов: доплата за вариацию и за размер, наличие тоже перепроверяем
     const band = findBand(view, it.band);
     if (band) {
-      if (band.option.inStock === false) continue;
+      if (band.option.inStock === false) { changed(it, 'out_of_stock', view.name + ', ' + band.option.name); continue; }
       // вариация «в цвет корпуса» продаётся только со своим корпусом
-      if (band.option.forColor && band.option.forColor !== color) continue;
+      if (band.option.forColor && band.option.forColor !== color) { changed(it, 'variant_changed', view.name); continue; }
       price += Number(band.option.add) || 0;
       name += ', ' + band.group.name + ' \u00b7 ' + band.option.name;
       const sz = (band.group.sizes || []).find(x => x.label === String(it.bandSize || '').trim());
@@ -1079,15 +1193,33 @@ app.post('/api/order', async (req, res) => {
     // так же, как у ремешка, — корзина могла сохраниться до правки каталога.
     const chosen = findOptions(view, it);
     const picked = choiceMap(chosen);
-    if (chosen.some(c => !c.value || c.value.inStock === false || !optionFits(c.value, storageLabel, picked))) continue;
+    if (chosen.some(c => !c.value || c.value.inStock === false || !optionFits(c.value, storageLabel, picked))) {
+      changed(it, 'variant_changed', view.name); continue;
+    }
     // Конфигурация, привязанная к чипу (8 ТБ только с M5 Max), проверяется здесь же.
     const stPick = (view.storages || []).find(x => x.label === storageLabel);
-    if (stPick && !optionFits(stPick, storageLabel, picked)) continue;
+    if (stPick && !optionFits(stPick, storageLabel, picked)) { changed(it, 'variant_changed', view.name); continue; }
     price += optionsAdd(chosen);
     for (const c of chosen) name += ', ' + c.value.label;
-    if (!Number.isFinite(price) || price < 0) continue;
+    if (!Number.isFinite(price) || price < 0) { changed(it, 'price_changed', view.name); continue; }
+    // Цена из браузера — не источник истины, а снимок того, что покупатель видел.
+    // Разошлась с сервером — не оформляем заказ молча, а просим подтвердить новый
+    // итог. Старые открытые вкладки без поля price остаются совместимыми.
+    if (it.price !== undefined && it.price !== null && it.price !== '') {
+      const seenPrice = Number(it.price);
+      if (!Number.isFinite(seenPrice) || Math.round(seenPrice * 100) !== Math.round(price * 100)) {
+        changed(it, 'price_changed', name, price); continue;
+      }
+    }
     items.push({ id: view.id, name, price, qty });
     total += price * qty;
+  }
+  if (changes.length) {
+    return res.json({
+      ok: false, errorCode: 'cart_changed',
+      error: 'Корзина изменилась. Мы обновили цены и наличие — проверьте итог и подтвердите заказ ещё раз.',
+      changes: changes.slice(0, 100)
+    }, 409);
   }
   if (!items.length) return res.json({ ok: false, error: 'В корзине нет доступных товаров' }, 400);
   if (!Number.isFinite(total) || total > 1e12) return res.json({ ok: false, error: 'Сумма заказа некорректна' }, 400);
@@ -1169,8 +1301,12 @@ app.post('/api/order', async (req, res) => {
   if (limit) return res.json({ ok: false, error: limit }, 400);
 
   const s = settings();
-  const draft = PAYMENTS.enabled(s);
+  // Без фиксированного публичного origin касса не может получить безопасный
+  // callback. В таком развёртывании оформляем обычную заявку, а не оставляем
+  // покупателя с невидимым черновиком на неработающей странице оплаты.
+  const draft = PAYMENTS.enabled(s) && !!paymentOrigin(req);
   const orderData = {
+    checkoutRequestId, checkoutRequestHash: requestHash,
     draft,
     host: db.normHost(req.headers.host),
     items, total: grandTotal, itemsTotal: total,
@@ -1185,14 +1321,8 @@ app.post('/api/order', async (req, res) => {
   // а не присланная браузером догадка.
   const reused = draft ? reusableOrder(req, orderData) : null;
   if (reused) {
-    const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
-    req.session.myOrders = [reused.id].concat(mine.filter(x => x !== reused.id)).slice(0, 20);
-    return res.json({
-      ok: true, reused: true, id: reused.id, number: reused.number,
-      total: reused.total, itemsTotal: reused.itemsTotal,
-      delivery: { price: reused.deliveryPrice, zone: reused.deliveryZone, zoneName: ship.zoneName },
-      pay: true, telegram: 'already_queued'
-    });
+    rememberOwnOrder(req, reused);
+    return res.json(orderApiBody(reused, true));
   }
 
   const visitorId = metrics.visitorId(req) || null;
@@ -1241,16 +1371,11 @@ app.post('/api/order', async (req, res) => {
   // id заказа нужен следующему шагу — онлайн-оплате. Он же кладётся в подписанную
   // cookie-сессию покупателя (как id своего отзыва), поэтому запустить оплату
   // можно только по своей заявке, а не по чужой, угадав идентификатор.
-  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
-  req.session.myOrders = [order.id].concat(mine.filter(x => x !== order.id)).slice(0, 20);
+  rememberOwnOrder(req, order);
   // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
   // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
   // её чистит pay.js, когда способ выбран).
-  res.json({
-    ok: true, id: order.id, number: order.number, total: grandTotal, itemsTotal: total,
-    delivery: { price: ship.price, zone: ship.zone, zoneName: ship.zoneName },
-    pay: draft, telegram: 'queued'
-  });
+  res.json(orderApiBody(order, false));
 });
 
 /* ============================ ОНЛАЙН-ЧАТ ВИТРИНЫ ============================
@@ -1803,7 +1928,7 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
 
   // Адрес callback свой у каждой кассы и у каждой попытки: по нему и только по
   // нему потом понятно, о чём вообще пришло уведомление.
-  const callbackUrl = originOf(req) + '/api/pay/' + p.id + '/callback?order=' + encodeURIComponent(id)
+  const callbackUrl = paymentOrigin(req) + '/api/pay/' + p.id + '/callback?order=' + encodeURIComponent(id)
     + '&attempt=' + encodeURIComponent(attemptId) + '&token=' + attempt.token;
   let r, tries = 0;
   do {
@@ -1832,6 +1957,7 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
       db.attachOrderInvoice(id, {
         attemptId, invoiceId: r.invoice.id, requisite: '', bank: r.invoice.bank,
         owner: '', method, actualMethod: r.invoice.method || '',
+        actualGateway: r.invoice.gateway || '', actualRegion: r.invoice.region || '',
         expiresAt: r.invoice.expiresAt, providerTries: tries,
         /* То, что касса прислала и что мы забраковали, — отдельным полем для
          * разбора. Покупателю оно не показывается нигде (в `requisite` выше
@@ -1862,7 +1988,9 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   const attached = db.attachOrderInvoice(id, {
     attemptId, invoiceId: r.invoice.id, requisite: r.invoice.requisite,
     bank: r.invoice.bank, owner: r.invoice.owner,
-    method, actualMethod: r.invoice.method, expiresAt: r.invoice.expiresAt,
+    method, actualMethod: r.invoice.method,
+    actualGateway: r.invoice.gateway || '', actualRegion: r.invoice.region || '',
+    expiresAt: r.invoice.expiresAt,
     providerTries: tries
   });
   if (!attached) {
@@ -2074,6 +2202,12 @@ async function payContext(s, order, wanted) {
 async function startPaymentRoute(req, res) {
   const s = settings();
   if (!PAYMENTS.enabled(s)) return res.json({ ok: false, error: 'Онлайн-оплата отключена' }, 400);
+  if (!paymentOrigin(req)) {
+    return res.json({
+      ok: false, errorCode: 'payment_origin_missing',
+      error: 'Онлайн-оплата временно не настроена. Менеджер поможет оформить заказ.'
+    }, 503);
+  }
   const id = String((req.body && req.body.orderId) || '');
   const order = ownOrder(req, id);
   if (!order) return res.json({ ok: false, error: 'Заказ не найден' }, 404);
@@ -2086,7 +2220,7 @@ async function startPaymentRoute(req, res) {
       error: 'Заказ закрыт. Оформите новый заказ.'
     }, 410);
   }
-  if (!['new', 'processing'].includes(order.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
+  if (!['new', 'confirmed', 'processing'].includes(order.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Пределы касс проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму они всё равно не выставят.
   if (!PAYMENTS.payable(order.total, s)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
@@ -2130,7 +2264,7 @@ async function startPaymentRoute(req, res) {
       error: 'Заказ закрыт. Оформите новый заказ.'
     }, 410);
   }
-  if (!['new', 'processing'].includes(currentOrder.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
+  if (!['new', 'confirmed', 'processing'].includes(currentOrder.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Сначала живая работа: после startOrderPayment попытка уже есть в файле, и
   // поиск known иначе возвращал 409 вместо ожидания того же Promise.
   const running = paymentStartJobs.get(id);
@@ -2875,7 +3009,7 @@ app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res))
 /* ---------- Заказы ---------- */
 app.get('/admin/orders', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  const html = A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.view, req.query.edit);
+  const html = A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.view, req.query.edit, req.query);
   /* Список открыт — заявки увидены, счётчик в шапке гаснет. Метка ставится ПОСЛЕ
    * сборки страницы: иначе бейдж пропадал бы на той самой странице, ради которой
    * его нажали, и «сколько пришло» разглядеть было бы негде.
@@ -2886,6 +3020,41 @@ app.get('/admin/orders', (req, res) => {
    */
   db.markOrdersSeen();
   res.send(html);
+});
+app.post('/admin/orders/:id/status', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const current = db.getOrder(req.params.id);
+  const wanted = String(req.body && req.body.orderStatus || '');
+  const order = current && !db.isOrderArchived(current)
+    ? db.setOrderStatus(req.params.id, wanted, 'admin') : null;
+  const flash = order ? `Выполнение: ${R.orderWorkflowLabel(order.status)}` : 'Не удалось изменить выполнение заказа';
+  res.redirect(ordersBackUrl(req.body, flash, 'active'), 303);
+});
+app.post('/admin/orders/:id/reconcile', async (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const order = db.getOrder(req.params.id);
+  const attemptId = String(req.body && req.body.attemptId || '');
+  const attempt = order ? db.findPaymentAttempt(order, attemptId ? { attemptId } : {}) : null;
+  let flash = 'Счёт не найден';
+  if (order && attempt) {
+    try {
+      const result = await reconcilePaymentAttempt(settings(), order.id, attempt);
+      const labels = {
+        paid: 'Оплата подтверждена кассой', pending: 'Касса ещё ждёт оплату',
+        mismatch: 'Деньги найдены, но реквизиты или сумма не совпали — нужна проверка',
+        expired: 'Касса подтвердила истечение счёта', cancelled: 'Касса подтвердила отмену счёта',
+        failed: 'Касса вернула отказ'
+      };
+      flash = result.ok
+        ? (labels[result.state] || (result.mismatch ? 'Ответ кассы не совпал с заказом — нужна проверка' : 'Счёт перепроверен'))
+        : (result.error === 'not_reconcilable'
+          ? 'Этот счёт нельзя перепроверить: касса выключена или не настроена'
+          : 'Касса не ответила. Состояние заказа не изменено');
+    } catch (e) {
+      flash = 'Касса не ответила. Состояние заказа не изменено';
+    }
+  }
+  res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
 });
 app.post('/admin/orders/:id/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
@@ -2913,9 +3082,10 @@ app.post('/admin/orders/:id/restore', (req, res) => {
 app.post('/admin/orders/purge-all', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const result = db.purgeArchivedOrders();
-  const flash = result.removed
-    ? `Удалено навсегда: ${result.removed}`
-    : 'Удалённых заказов нет';
+  const parts = [];
+  if (result.removed) parts.push(`Удалено навсегда: ${result.removed}`);
+  if (result.protected) parts.push(`Сохранено с платёжной историей: ${result.protected}`);
+  const flash = parts.join('. ') || 'Черновиков без платёжной истории нет';
   res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
 });
 app.post('/admin/orders/:id/purge', (req, res) => {
@@ -2923,7 +3093,11 @@ app.post('/admin/orders/:id/purge', (req, res) => {
   const result = db.purgeOrder(req.params.id);
   const flash = result.ok
     ? 'Заказ удалён навсегда'
-    : (result.reason === 'not_archived' ? 'Сначала удалите заказ из списка' : 'Заказ не найден');
+    : (result.reason === 'not_archived'
+      ? 'Сначала удалите заказ из списка'
+      : result.reason === 'financial_history'
+        ? 'Заказ с платёжной историей хранится для сверки и не удаляется навсегда'
+        : 'Заказ не найден');
   res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
 });
 
@@ -3157,12 +3331,17 @@ app.post('/admin/settings', async (req, res) => {
   // Галочка кассы снимается отсутствием поля в теле формы, как notifyReviews.
   patch.crocopayEnabled = req.body.crocopayEnabled !== undefined;
   if (req.body.crocopayClientId !== undefined) patch.crocopayClientId = String(req.body.crocopayClientId).trim().slice(0, 200);
-  if (req.body.crocopayClientSecret !== undefined) patch.crocopayClientSecret = String(req.body.crocopayClientSecret).trim().slice(0, 300);
+  const keepOrReplaceSecret = (field, clearField, max) => {
+    if (req.body[clearField] !== undefined) { patch[field] = ''; return; }
+    const value = String(req.body[field] || '').trim();
+    if (value) patch[field] = value.slice(0, max);
+  };
+  keepOrReplaceSecret('crocopayClientSecret', 'clearCrocopayClientSecret', 300);
   // Вторая касса. Настраивается независимо от первой: включить можно любую, обе
   // или ни одной — покупатель разницы не увидит.
   patch.meridianpayEnabled = req.body.meridianpayEnabled !== undefined;
-  if (req.body.meridianpayApiKey !== undefined) patch.meridianpayApiKey = String(req.body.meridianpayApiKey).trim().slice(0, 200);
-  if (req.body.meridianpaySecret !== undefined) patch.meridianpaySecret = String(req.body.meridianpaySecret).trim().slice(0, 300);
+  keepOrReplaceSecret('meridianpayApiKey', 'clearMeridianpayApiKey', 200);
+  keepOrReplaceSecret('meridianpaySecret', 'clearMeridianpaySecret', 300);
   // UUID мерчанта проверяем ДО записи, как и всё в этой форме: с мусором в этом
   // поле касса не примет ни одной сделки, а владелец увидел бы «Сохранено» и
   // потом гадал, почему оплата не работает. Пустое поле — это «касса не

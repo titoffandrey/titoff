@@ -72,9 +72,9 @@
     // индексу. Номер запроса заодно не даёт более медленному ответу перезаписать
     // уже полученный свежий.
     var requestSeq = ++cartRefreshSeq;
-    if (!Cart.items.length) return;
+    if (!Cart.items.length) return Promise.resolve(false);
     var snapshot = Cart.items.map(itemKey);
-    fetch('/api/cart', {
+    return fetch('/api/cart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize, options: i.options }; }) })
     })
@@ -82,7 +82,7 @@
       .then(function (d) {
         if (requestSeq !== cartRefreshSeq || !d || !d.ok || !Array.isArray(d.items)
           || d.items.length !== snapshot.length || Cart.items.length !== snapshot.length
-          || Cart.items.some(function (item, idx) { return itemKey(item) !== snapshot[idx]; })) return;
+          || Cart.items.some(function (item, idx) { return itemKey(item) !== snapshot[idx]; })) return false;
         var next = [];
         d.items.forEach(function (fresh, idx) {
           var item = Cart.items[idx];
@@ -105,8 +105,9 @@
         Cart.items = next;
         Cart.save(); Cart.render();
         if (changed) toast('Корзина обновлена: часть товаров больше недоступна');
+        return true;
       })
-      .catch(function () { /* офлайн — работаем с тем, что сохранено */ });
+      .catch(function () { return false; /* офлайн — работаем с тем, что сохранено */ });
   }
 
   /* Скидка позиции: цена для сравнения, процент и выгода в рублях — или null,
@@ -2438,6 +2439,39 @@
     if (ok) { try { ok.focus(); } catch (e) {} }
   }
 
+  /* Идемпотентный ключ оформления.
+   *
+   * Сервер мог записать заказ, а ответ потеряться в сети. Повтор с тем же ключом
+   * вернёт уже созданный заказ вместо дубля. Ключ меняется, как только меняются
+   * товары или поля формы; сутки достаточно для повторов и не оставляет служебную
+   * запись в браузере навсегда.
+   */
+  var ORDER_REQUEST_KEY = 'checkout_order_request_v1';
+  var ORDER_REQUEST_TTL = 24 * 60 * 60 * 1000;
+  function newOrderRequestId() {
+    var bytes = new Uint8Array(16);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (var i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return Array.prototype.map.call(bytes, function (n) { return n.toString(16).padStart(2, '0'); }).join('');
+  }
+  function orderRequestId(payload) {
+    var signature = JSON.stringify(payload);
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(ORDER_REQUEST_KEY) || 'null'); } catch (e) {}
+    var age = saved ? Date.now() - Number(saved.at || 0) : NaN;
+    if (saved && /^[a-f0-9]{32}$/.test(String(saved.id || ''))
+      && saved.signature === signature && isFinite(age) && age >= 0 && age < ORDER_REQUEST_TTL) return saved.id;
+    var next = { id: newOrderRequestId(), signature: signature, at: Date.now() };
+    try { localStorage.setItem(ORDER_REQUEST_KEY, JSON.stringify(next)); } catch (e) {}
+    return next.id;
+  }
+  function clearOrderRequest(expected) {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(ORDER_REQUEST_KEY) || 'null'); } catch (e) {}
+    if (expected && saved && saved.id !== expected) return;
+    try { localStorage.removeItem(ORDER_REQUEST_KEY); } catch (e) {}
+  }
+
   function submitOrder(btn) {
     // В активном поле `change` мог ещё не случиться (Enter, автозаполнение), а
     // после ответа страница уйдёт на оплату. Снимаем полный снимок прямо сейчас.
@@ -2504,7 +2538,7 @@
     var btnHtml = btn.innerHTML;
     btn.textContent = online ? 'Открываем оплату...' : 'Отправляем...';
     var payload = {
-      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '', options: i.options || [] }; }),
+      items: Cart.items.map(function (i) { return { id: i.id, qty: i.qty, price: i.price, storage: i.storage || '', color: i.color || '', band: i.band || '', bandSize: i.bandSize || '', options: i.options || [] }; }),
       firstName: val('co-first-name'),
       lastName: val('co-last-name'),
       // Номер уходит как есть: приводит его к единому виду сервер — тем же
@@ -2519,10 +2553,14 @@
       // базы — присланной строке он не верит так же, как не верит цене.
       pickupCode: pickup.code
     };
+    var requestId = orderRequestId(payload);
+    payload.requestId = requestId;
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
+      .then(function (r) { return r.json().then(function (d) { return { status: r.status, data: d }; }); })
+      .then(function (reply) {
+        var d = reply.data;
         if (d.ok) {
+          clearOrderRequest(requestId);
           // Идём ли на оплату, говорит СЕРВЕР (`d.pay`): только он знает
           // пересчитанную сумму и пределы кассы. Витринная догадка выше нужна
           // была лишь для подписи кнопки.
@@ -2560,7 +2598,17 @@
           if (foot) foot.innerHTML = '<button class="btn btn-primary btn-block btn-lg" onclick="Cart.close()">Продолжить покупки</button>';
         } else {
           btn.disabled = false; btn.innerHTML = btnHtml;
-          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = d.error || 'Не удалось оформить заказ'; }
+          if (d && d.errorCode === 'cart_changed') {
+            clearOrderRequest(requestId);
+            refreshCartFromServer().then(function () {
+              if (msg) {
+                msg.hidden = false; msg.className = 'form-msg err';
+                msg.textContent = d.error || 'Корзина изменилась. Проверьте новый итог и подтвердите заказ ещё раз.';
+              }
+            });
+          } else if (msg) {
+            msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = d.error || 'Не удалось оформить заказ';
+          }
         }
       })
       .catch(function () {

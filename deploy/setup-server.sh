@@ -79,7 +79,7 @@ say 'PM2'
 sudo -u "$USER_NAME" -H bash -lc "
   set -e
   cd '$PROJECT'
-  export STORE_DATA_DIR='$DATA_DIR' PORT='$PORT'
+  export STORE_DATA_DIR='$DATA_DIR' PORT='$PORT' PUBLIC_ORIGIN='https://$DOMAIN'
   pm2 describe istore >/dev/null 2>&1 && pm2 restart istore --update-env || pm2 start server.js --name istore
   pm2 save
 "

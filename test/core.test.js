@@ -2956,6 +2956,19 @@ test('домен нигде не выбирается приложением —
   }
 });
 
+test('callback кассы берёт origin из развёртывания, а не из Host покупателя', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /process\.env\.PUBLIC_ORIGIN/);
+  const paymentOrigin = source.slice(source.indexOf('function paymentOrigin('), source.indexOf('// Оптимизировать загруженные фото'));
+  assert.match(paymentOrigin, /if \(PUBLIC_ORIGIN\) return PUBLIC_ORIGIN/);
+  assert.match(paymentOrigin, /hostname === 'localhost'/);
+  assert.match(paymentOrigin, /return ''/,
+    'без настройки боевой Host не становится финансовым callback-адресом');
+  assert.match(source, /payOnline: PAYMENTS\.enabled\(settings\(\)\) && !!paymentOrigin\(req\)/);
+  const deploy = fs.readFileSync(path.join(__dirname, '..', 'deploy', 'setup-server.sh'), 'utf8');
+  assert.match(deploy, /PUBLIC_ORIGIN='https:\/\/\$DOMAIN'/);
+});
+
 test('заказ и отзыв больше не помечаются доменом, а прежние читаются как были', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-no-site-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -3077,10 +3090,13 @@ test('строка заказа: свой столбец у каждого во�
   };
   const panels = { 'панель': adminViews.ordersList(SETTINGS, db, null, 1) };
   for (const [name, html] of Object.entries(panels)) {
-    // Состояние оплаты, способ и сумма — три разных вопроса и три столбца.
+    // Выполнение, состояние оплаты, способ и сумма — четыре разных вопроса и
+    // четыре столбца. Оплата не подменяет работу магазина с заказом.
     // В одной ячейке они читались как одно целое.
-    assert.match(html, /<th>Статус<\/th>/, name);
-    assert.match(html, /<th>Оплата<\/th>/, name);
+    assert.match(html, /<th>Выполнение<\/th>/, name);
+    assert.match(html, /<th>Статус оплаты<\/th>/, name);
+    assert.match(html, /<th>Способ<\/th>/, name);
+    assert.match(html, /<td class="o-flow">/, name);
     assert.match(html, /<td class="o-state">/, name);
     assert.match(html, /<td class="o-pay">/, name);
     assert.match(html, /<td class="o-sum"><b>/, name);
@@ -3444,6 +3460,60 @@ test('карточки посетителей метрики ищутся по �
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('выполнение заказа журналируется, а список ищет и фильтрует независимо от оплаты', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-workflow-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const order = fresh.createOrder({ items: [], total: 1000, customerName: 'Иван Петров', phone: '+79990000000' });
+  fresh.setOrderStatus(order.id, 'confirmed', 'admin');
+  fresh.setOrderStatus(order.id, 'processing', 'admin');
+  const saved = fresh.getOrder(order.id);
+  assert.equal(saved.status, 'processing');
+  assert.deepEqual(saved.statusHistory.map(x => x.status), ['new', 'confirmed', 'processing']);
+  assert.equal(fresh.setOrderStatus(order.id, 'paid', 'admin'), null,
+    'состояние кассы не является выполнением заказа');
+
+  const other = {
+    id: 'other', number: '700002', status: 'new', createdAt: Date.now() - 1000,
+    customerName: 'Анна', phone: '+78880000000', total: 2000, items: [{ name: 'MacBook', qty: 1, price: 2000 }],
+    payment: { status: 'pending', invoiceId: 'invoice-other', requisite: '79991112233', expiresAt: Date.now() + 60000 }
+  };
+  const paid = Object.assign({}, saved, {
+    payment: { status: 'paid', method: 'SBP', attempts: [] },
+    items: [{ name: 'iPhone', qty: 1, price: 1000 }]
+  });
+  const db = Object.assign({}, fresh, {
+    ORDER_STATUSES: fresh.ORDER_STATUSES,
+    visibleOrders: () => [paid, other], getOrders: () => [paid, other], archivedOrders: () => []
+  });
+  const html = adminViews.ordersList(SETTINGS, db, null, 1, 'active', null,
+    { q: 'Иван', pay: 'ok', status: 'processing' });
+  assert.match(html, new RegExp(`id="order-${order.id}"`));
+  assert.doesNotMatch(html, /id="order-other"/);
+  assert.match(html, /name="q" value="Иван"/);
+  assert.match(html, /name="filterPay" value="ok"/);
+});
+
+test('архивирование оплаченного заказа не уменьшает выручку', () => {
+  const active = {
+    id: 'active', number: '700010', status: 'new', createdAt: 1000,
+    customerName: 'Клиент', total: 1000, items: [], payment: null
+  };
+  const archivedPaid = {
+    id: 'paid', number: '700011', status: 'done', createdAt: 900,
+    customerName: 'Покупатель', total: 5000, items: [], payment: { status: 'paid' },
+    archive: { active: true, at: Date.now() }
+  };
+  const db = {
+    visibleOrders: () => [active], archivedOrders: () => [archivedPaid], getOrders: () => [active, archivedPaid],
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
+  };
+  const dash = adminViews.dashboard(SETTINGS, db);
+  assert.match(dash, /Выручка<\/span>\s*<strong>5\s?000\s?₽/);
+  assert.match(dash, /<dd>1 из 2 заказа · 50%<\/dd>/);
 });
 
 test('осознанный sparkles отличается от промаха подбора иконки', () => {
@@ -4379,6 +4449,33 @@ test('повтор оформления возвращает тот же сво�
   assert.equal(reusableOrder({ session: { myOrders: [] } }, base), null, 'чужая сессия заказ не видит');
 });
 
+test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-request-id-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const requestId = 'a'.repeat(32);
+  const requestHash = 'b'.repeat(64);
+  const order = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: requestHash,
+    items: [], total: 1000, contact: '@buyer'
+  });
+  assert.equal(fresh.getOrderByCheckoutRequest(requestId).id, order.id);
+  assert.equal(fresh.getOrderByCheckoutRequest('не-ключ'), null);
+
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('/* ============================ ОНЛАЙН-ЧАТ'));
+  assert.match(route, /getOrderByCheckoutRequest\(checkoutRequestId\)/);
+  assert.match(route, /errorCode: 'idempotency_conflict'/);
+  assert.match(route, /errorCode: 'cart_changed'/);
+  assert.ok(route.indexOf('if (changes.length)') < route.indexOf('db.createOrder'),
+    'изменившаяся позиция останавливает весь заказ до записи');
+  const browser = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(browser, /checkout_order_request_v1/);
+  assert.match(browser, /qty: i\.qty, price: i\.price/,
+    'сервер получает цену, которую покупатель видел перед подтверждением');
+});
+
 test('идентификатор запроса кассы хранится отдельно по способу и удаляется адресно', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
   const from = js.indexOf('var REQUEST_TTL');
@@ -4594,7 +4691,7 @@ test('оплата хранит отдельные попытки и закры�
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
 });
 
-test('удалить навсегда можно только из «Удалённых», и заказ исчезает из файла', t => {
+test('навсегда удаляется только архив без платёжной истории', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-purge-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
@@ -4619,15 +4716,18 @@ test('удалить навсегда можно только из «Удалё�
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).some(o => o.id === live.id), false);
   assert.equal(fresh.purgeOrder(live.id).reason, 'not_found', 'второй раз стирать нечего');
 
-  // Про заказ с выставленным счётом вызывающий обязан узнать: деньги по нему
-  // ещё могут прийти, и привязать их будет не к чему. Запрета здесь нет —
-  // решение владельца, — но панель на этом строит текст предупреждения.
+  // Заказ с выставленным счётом остаётся финансовым журналом: деньги по нему
+  // ещё могут прийти, и callback обязан найти прежнюю привязку.
   const paidish = fresh.createOrder({ items: [], total: 2000, contact: 'tg' });
   const attempt = '7'.repeat(24);
   fresh.startOrderPayment(paidish.id, { attemptId: attempt, token: '8'.repeat(32), amount: 2000, currency: 'RUB' });
   fresh.attachOrderInvoice(paidish.id, { attemptId: attempt, invoiceId: 'cccccccc-0000-0000-0000-000000000000' });
   fresh.archiveOrder(paidish.id, 'admin');
-  assert.equal(fresh.purgeOrder(paidish.id).hadInvoice, true);
+  const protectedResult = fresh.purgeOrder(paidish.id);
+  assert.equal(protectedResult.ok, false);
+  assert.equal(protectedResult.reason, 'financial_history');
+  assert.equal(protectedResult.hadInvoice, true);
+  assert.ok(fresh.getOrder(paidish.id));
 
   assert.equal(fresh.purgeOrder('нет-такого').reason, 'not_found');
 });
@@ -4638,7 +4738,7 @@ test('удалить навсегда можно только из «Удалё�
  * списка, и дальше они лежат там навсегда. По одной их чистить — подтверждение
  * на каждую, и на полусотне записей за этим перестают следить вовсе.
  */
-test('«Очистить корзину» стирает весь архив и не трогает рабочий список', t => {
+test('«Очистить корзину» стирает только архив без платёжной истории', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-purge-all-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
@@ -4655,16 +4755,17 @@ test('«Очистить корзину» стирает весь архив и 
   for (const o of trash) fresh.archiveOrder(o.id, 'admin');
 
   const result = fresh.purgeArchivedOrders();
-  assert.equal(result.removed, 3);
+  assert.equal(result.removed, 2);
+  assert.equal(result.protected, 1);
   assert.equal(result.hadInvoice, 1);
   // Рабочий список не трогается ни при каких условиях: это единственная защита
   // от «одним нажатием снёс все заказы».
   assert.ok(fresh.getOrder(working.id), 'заказ из рабочего списка на месте');
-  assert.equal(fresh.archivedOrders().length, 0);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).length, 1,
-    'из файла удалённые исчезли физически');
-  // Пустая корзина — не ошибка: чистить нечего, и файл трогать незачем.
-  assert.deepEqual(fresh.purgeArchivedOrders(), { ok: true, removed: 0, hadInvoice: 0 });
+  assert.equal(fresh.archivedOrders().length, 1, 'финансовый заказ остался для callback и сверки');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).length, 2,
+    'из файла исчезли только чистые архивные записи');
+  // Повтор не трогает защищённую историю и честно сообщает о ней.
+  assert.deepEqual(fresh.purgeArchivedOrders(), { ok: true, removed: 0, protected: 1, hadInvoice: 1 });
 });
 
 /* Список заказов: режим правки переживает действие, а «Очистить корзину» живёт
@@ -4693,7 +4794,7 @@ test('режим правки не выключается после удале�
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const back = server.slice(server.indexOf('const ordersBackUrl'), server.indexOf('// Тот же возврат для отзывов'));
   assert.match(back, /body\.edit[\s\S]{0,40}edit=1/);
-  assert.match(server, /A\.ordersList\(settings\(\), db, req\.query\.flash, req\.query\.page, req\.query\.view, req\.query\.edit\)/);
+  assert.match(server, /A\.ordersList\(settings\(\), db, req\.query\.flash, req\.query\.page, req\.query\.view, req\.query\.edit, req\.query\)/);
 
   // Режим держится в адресе, поэтому он переживает и переход по страницам, и
   // смену вкладки: чистят список подряд, и возвращать человека в режим чтения
@@ -4705,7 +4806,7 @@ test('режим правки не выключается после удале�
   // что-то есть. В рабочем списке ей делать нечего.
   const archive = adminViews.ordersList(s, fresh, null, 1, 'archive');
   assert.match(archive, /action="\/admin\/orders\/purge-all"/);
-  assert.match(archive, /Стереть все удалённые заказы \(1\)\?/);
+  assert.match(archive, /Стереть черновики без платёжной истории \(1\)\?/);
   assert.doesNotMatch(plain, /purge-all/, 'в рабочем списке очистки нет');
   fresh.purgeArchivedOrders();
   assert.doesNotMatch(adminViews.ordersList(s, fresh, null, 1, 'archive'), /purge-all/,
@@ -5145,7 +5246,7 @@ test('оплату можно выключить: витрина принима�
   // Заявка сразу настоящая: черновиком заказ становится только ради выбора
   // способа оплаты, а выбирать в этом режиме нечего.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const draft = PAYMENTS\.enabled\(s\);/);
+  assert.match(server, /const draft = PAYMENTS\.enabled\(s\) && !!paymentOrigin\(req\);/);
 });
 
 test('в настройках видно режим витрины, а касса переживает выключение целиком', () => {
@@ -5161,7 +5262,9 @@ test('в настройках видно режим витрины, а касс�
   // отсутствуют, и пропавшая секция стёрла бы выбор владельца первым же
   // «Сохранить». Свёрнутый <details> при этом отправляется как обычно.
   assert.match(offHtml, /name="crocopayClientId" value="ID-КАССЫ"/);
-  assert.match(offHtml, /name="crocopayClientSecret" value="СЕКРЕТ"/);
+  assert.match(offHtml, /name="crocopayClientSecret" type="password" value=""/);
+  assert.match(offHtml, /name="clearCrocopayClientSecret"/);
+  assert.doesNotMatch(offHtml, /СЕКРЕТ/, 'секрет кассы не возвращается в HTML панели');
   assert.match(offHtml, /name="payMethodsForm"/);
   assert.match(offHtml, /name="payMethods" value="SBP" checked/);
   assert.match(offHtml, /name="crocopayCurrencyChoice"/);
@@ -5234,7 +5337,9 @@ test('в настройках видно режим витрины, а касс�
   assert.match(onHtml, /Порядок опроса/, 'с одной кассой выбор первой всё равно доступен');
   assert.match(offHtml, /name="payPrimary"/, 'в режиме заявок настройка тоже на месте');
   // Ключи второй кассы так же переживают выключение и так же не теряются.
-  assert.match(both, /name="meridianpayApiKey" value="КЛЮЧ"/);
+  assert.match(both, /name="meridianpayApiKey" type="password" value=""/);
+  assert.match(both, /name="clearMeridianpayApiKey"/);
+  assert.doesNotMatch(both, /КЛЮЧ/, 'ключ не возвращается в HTML');
   // Порядок опроса — настройка владельца, а не порядок в коде.
   assert.match(both, /name="payPrimary"/);
   // Переключатели остаются на месте при любом режиме: их отсутствие стёрло бы
@@ -6774,9 +6879,11 @@ test('состояние оплаты видно в обеих панелях и
   for (const html of [adminViews.ordersList(SETTINGS, db, null, 1)]) {
     assert.match(html, /pay-ok/);
     assert.match(html, /pay-warn/);
-    // Ручной статус заказа с панелей убран: рядом с настоящим состоянием оплаты
-    // от кассы он только путал — заказ бывает и «новым», и уже оплаченным.
-    assert.doesNotMatch(html, /option value="new"|name="status"/);
+    // Выполнение снова ведётся отдельно от кассы: один и тот же заказ может
+    // быть одновременно оплачен и собираться.
+    assert.match(html, /name="orderStatus"/);
+    assert.match(html, /option value="processing">Собирается<\/option>/);
+    assert.match(html, /<th>Выполнение<\/th>[\s\S]*<th>Статус оплаты<\/th>/);
   }
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.pay-tag\.pay-ok/);
@@ -6985,7 +7092,8 @@ test('состояние оплаты красит панель одним на�
   // Ряды карточки заданы явно: порядок ячеек в таблице задан столбцами, и
   // автоматической раскладке взяться за «состояние справа от номера» неоткуда.
   assert.match(mobile, /\.a-orders \.o-state\{grid-column:2;grid-row:1/);
-  assert.match(mobile, /\.a-orders \.o-sum\{grid-column:2;grid-row:4/);
+  assert.match(mobile, /\.a-orders \.o-flow\{grid-column:1\/-1;grid-row:4/);
+  assert.match(mobile, /\.a-orders \.o-sum\{grid-column:2;grid-row:5/);
   // Сводка на телефоне — карточками друг под другом, список состояний в одну
   // колонку: в две подпись вроде «Способ не выбран» переносится посреди слова.
   assert.match(mobile, /\.o-stats\{grid-template-columns:minmax\(0,1fr\)/);
@@ -7287,6 +7395,26 @@ test('MeridianPay: способ переводится в параметры к�
   } finally {
     if (real) global.fetch = real; else delete global.fetch;
   }
+});
+
+test('MeridianPay не забывает подмену маршрута, если повторный GET неполный', () => {
+  const mp = require('../lib/meridianpay');
+  const expected = {
+    invoiceId: '566c2485-7909-41d4-9fed-98d92e3f9b5f',
+    currency: 'RUB', amount: 1000, method: 'SBP', actualMethod: 'card'
+  };
+  const actual = {
+    id: expected.invoiceId, currency: 'RUB', amount: 1000,
+    state: 'paid', method: ''
+  };
+  assert.deepEqual(mp.matchesInvoice(expected, actual), { ok: false, reason: 'method' },
+    'GET без detail_type не стирает подмену, уже сохранённую из POST');
+  assert.deepEqual(mp.matchesInvoice(Object.assign({}, expected, {
+    method: 'SBP_TBANK', actualMethod: 'phone', actualGateway: 'sberbank_rub'
+  }), Object.assign({}, actual, { method: 'phone' })), { ok: false, reason: 'method' });
+  assert.deepEqual(mp.matchesInvoice(Object.assign({}, expected, {
+    method: 'TO_CARD', actualMethod: 'card', actualRegion: 'Таджикистан'
+  }), Object.assign({}, actual, { method: 'card' })), { ok: false, reason: 'method' });
 });
 
 test('MeridianPay: у НСПК реквизит — ссылка, а не картинка base64', async () => {
@@ -7918,7 +8046,9 @@ test('в настройках есть касса, а ключи не утека
     crocopayClientSecret: 'СЕКРЕТ', meridianpayEnabled: true, meridianpayApiKey: 'ТОКЕН',
     meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40', meridianpaySecret: 'СЕКРЕТ-2'
   }), db, null);
-  assert.match(withMeridian, /name="meridianpaySecret" value="СЕКРЕТ-2"/);
+  assert.match(withMeridian, /name="meridianpaySecret" type="password" value=""/);
+  assert.match(withMeridian, /name="clearMeridianpaySecret"/);
+  assert.doesNotMatch(withMeridian, /СЕКРЕТ-2|ТОКЕН/, 'ключи MeridianPay не возвращаются в HTML панели');
   const shop = render.checkoutPage(Object.assign({}, settings, {
     meridianpayApiKey: 'ТОКЕН', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40',
     meridianpaySecret: 'СЕКРЕТ-2', crocopayClientSecret: 'СЕКРЕТ'
@@ -7934,6 +8064,9 @@ test('в настройках есть касса, а ключи не утека
   const route = source.slice(source.indexOf("app.post('/admin/settings'"));
   assert.match(route, /patch\.crocopayEnabled = req\.body\.crocopayEnabled !== undefined/);
   assert.match(route, /patch\.meridianpayEnabled = req\.body\.meridianpayEnabled !== undefined/);
+  assert.match(route, /keepOrReplaceSecret\('crocopayClientSecret', 'clearCrocopayClientSecret'/);
+  assert.match(route, /if \(value\) patch\[field\] = value\.slice/,
+    'пустое скрытое поле сохраняет прежний ключ, а не стирает его');
   // UUID мерчанта проверяется ДО записи: с мусором в этом поле касса не примет
   // ни одной сделки, а владелец увидел бы «Сохранено».
   assert.match(route, /MERIDIAN\.validMerchantId\(merchant\)/);
