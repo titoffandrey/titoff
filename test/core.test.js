@@ -6525,9 +6525,60 @@ test('состояние оплаты видно в обеих панелях и
 
   // Состояния, которых в схеме Express не было вовсе: касса отдаёт настоящий
   // статус счёта, и «истёк» больше не выглядит как «ждём оплату».
-  assert.match(render.orderStatus({ payment: { status: 'expired' } }), /pay-off/);
-  assert.match(render.orderStatus({ payment: { status: 'cancelled' } }), /pay-off/);
-  assert.match(render.orderStatus({ payment: { status: 'failed' } }), /pay-warn/);
+  const closedInvoice = {
+    invoiceId: 'i-0', requisite: '79104693811',
+    expiresAt: Date.now() - 60000, closedAt: Date.now() - 60000
+  };
+  assert.match(render.orderStatus({ payment: Object.assign({ status: 'expired' }, closedInvoice) }), /pay-off/);
+  assert.match(render.orderStatus({ payment: Object.assign({ status: 'cancelled' }, closedInvoice) }), /pay-off/);
+
+  /* `failed` — это НЕ «смотрит человек».
+   *
+   * У MeridianPay нет статуса «истёк» вовсе: сгоревшую сделку она закрывает как
+   * `fail`, и заказ, где покупателю выдали реквизиты, а он просто не заплатил,
+   * показывался владельцу оранжевым «оплата не прошла» в разделе «Проверить ·
+   * сбой». Проверять там нечего — касса сама говорит, что денег нет.
+   *
+   * Числа взяты с боевого заказа №258676: счёт закрыт за полсекунды ДО своего
+   * `expiresAt` (наши часы против часов кассы), поэтому у «закрыт на своём
+   * сроке» есть допуск — без него истёкший счёт читался бы как отменённый.
+   */
+  const burnt = {
+    payment: {
+      status: 'failed', method: 'SBP', invoiceId: 'i-1', requisite: '+79915748505',
+      startedAt: Date.now() - 20 * 60000, expiresAt: Date.now() - 5 * 60000,
+      closedAt: Date.now() - 5 * 60000 - 531
+    }
+  };
+  assert.match(render.orderStatus(burnt), /pay-off/, 'сгоревший счёт — «денег нет», а не «смотрит человек»');
+  assert.match(render.orderStatus(burnt), /счёт истёк/);
+  assert.doesNotMatch(render.orderStatus(burnt), /не прош/, 'покупатель не платил — «оплата не прошла» здесь неправда');
+  assert.equal(render.orderTone(burnt), 'off');
+
+  // Тот же `failed`, но счёт закрыли задолго до срока — это решение кассы, а не
+  // «покупатель не успел», и звучит оно иначе.
+  const dropped = Object.assign({}, burnt, {
+    payment: Object.assign({}, burnt.payment, { closedAt: Date.now() - 18 * 60000 })
+  });
+  assert.match(render.orderStatus(dropped), /счёт отменён/);
+  assert.match(render.orderStatus(dropped), /касса закрыла счёт/);
+  assert.equal(render.orderTone(dropped), 'off');
+
+  // Реквизитов покупатель не видел вовсе (касса отказала или мы забраковали её
+  // реквизит) — платить было нечем, и это тот же «не завершена», что у pending.
+  for (const state of ['failed', 'cancelled', 'expired']) {
+    const html = render.orderStatus({ payment: { status: state, startedAt: Date.now() } });
+    assert.match(html, /pay-idle/, state + ': без реквизитов платить было нечем');
+    assert.match(html, /не завершена/);
+  }
+
+  // Оранжевый остаётся ровно за одним состоянием: касса утверждает, что деньги
+  // ПРИШЛИ, а что-то не сошлось.
+  assert.match(render.orderStatus({ payment: { status: 'mismatch' } }), /pay-warn/);
+  for (const state of ['failed', 'cancelled', 'expired']) {
+    assert.doesNotMatch(render.orderStatus({ payment: { status: state } }), /pay-warn/,
+      state + ' не будит менеджера: денег нет и не будет');
+  }
   // Способ оплаты — свой столбец, а не приписка к состоянию: «сколько», «чем» и
   // «дошло ли» — разные вопросы, и в одной ячейке они читались как одно целое.
   assert.match(render.orderPayMethod({ payment: { status: 'paid', method: 'SBP' } }), /СБП/);
@@ -6583,11 +6634,15 @@ function statsOrders() {
     payment: status ? Object.assign({ status, method: 'SBP' }, extra || {}) : null
   });
   const invoice = { invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() + 600000 };
+  // Счёт, который покупатель ВИДЕЛ и не оплатил: реквизиты выданы, срок вышел.
+  // Именно так выглядят сгоревшие счета на боевых данных — и `expired`, и
+  // `failed` от MeridianPay, у которой статуса «истёк» нет вовсе.
+  const burnt = { invoiceId: 'inv', requisite: '79104693811', expiresAt: Date.now() - 600000, closedAt: Date.now() - 600000 };
   return [
     make('o1', 100000, 'paid'), make('o2', 50000, 'paid'),
     make('o3', 30000, 'pending', invoice), make('o4', 20000, 'pending', invoice),
-    make('o5', 70000, 'expired'), make('o6', 60000, 'cancelled'),
-    make('o7', 40000, 'mismatch'), make('o8', 10000, 'failed'),
+    make('o5', 70000, 'expired', burnt), make('o6', 60000, 'cancelled', burnt),
+    make('o7', 40000, 'mismatch'), make('o8', 10000, 'failed', burnt),
     make('o9', 90000, null),
     // Нажал «Оплатить», реквизитов не получил: касса отказала, покупатель ушёл.
     make('o10', 80000, 'pending', { startedAt: Date.now() })
@@ -6608,8 +6663,8 @@ test('сводка по заказам считает выручку по опл
   // `payment.amount` лежит в валюте счёта и в общую сумму не годится.
   assert.equal(stats.revenue, 150000);
   assert.equal(stats.paid, 2);
-  // «Истёк» и «отменён» для менеджера одно и то же, «сумма не сошлась» и
-  // «платёж не прошёл» — тоже: шесть состояний кассы складываются в тона.
+  // «Истёк», «отменён» и «не прошёл» для менеджера одно и то же — «денег нет и
+  // не будет»: шесть состояний кассы складываются в четыре тона.
   assert.equal(stats.tones.ok.n, 2);
   // «Ждут оплату» — только действующие счета, и сумма в плитке та же: это
   // деньги, которые прямо сейчас переводят.
@@ -6618,14 +6673,24 @@ test('сводка по заказам считает выручку по опл
   // Незавершённая оплата считается отдельно: покупатель до перевода не дошёл.
   assert.equal(stats.tones.idle.n, 1);
   assert.equal(stats.tones.idle.sum, 80000);
-  assert.equal(stats.tones.off.n, 2);
-  assert.equal(stats.tones.warn.n, 2);
+  // Сгоревшие счета — все три состояния кассы разом: «истёк», «отменён» и
+  // закрытый как `fail`. Проверять там нечего, поэтому и тон один.
+  assert.equal(stats.tones.off.n, 3);
+  // «Проверить» — ровно `mismatch`: касса говорит, что деньги пришли, а сумма
+  // не сошлась. Больше в этой плитке не должно быть ничего.
+  assert.equal(stats.tones.warn.n, 1);
   // Заказ без оплаты (и любой прежний) — свой тон, а не «ждём оплату».
   assert.equal(stats.tones.none.n, 1);
   assert.equal(render.orderTone({ payment: null }), 'none');
   assert.equal(render.orderTone({ payment: { status: 'выдумка' } }), 'none');
   assert.equal(render.orderTone({ payment: { status: 'paid' } }), 'ok');
-  assert.equal(render.orderTone({ payment: { status: 'cancelled' } }), 'off');
+  assert.equal(render.orderTone({
+    payment: { status: 'cancelled', invoiceId: 'i', requisite: '79104693811', expiresAt: Date.now() - 1000 }
+  }), 'off');
+  // А вот отменённый счёт БЕЗ реквизитов — «оплата не завершена»: покупателю
+  // платить было нечем, и звонить по такой заявке надо так же, как по той, где
+  // касса вовсе отказала.
+  assert.equal(render.orderTone({ payment: { status: 'cancelled' } }), 'idle');
   // Пустой список не падает и не выдумывает выручку.
   assert.equal(render.orderStats([]).revenue, 0);
   assert.equal(render.orderStats(undefined).count, 0);
@@ -6683,10 +6748,10 @@ test('счётчики и выручка одинаковы на «Обзоре�
     // Средний чек считается по оплаченным: 150 000 на два заказа.
     assert.match(html, /<dt>Средний чек<\/dt><dd>75\s?000\s?₽<\/dd>/);
     assert.match(html, /o-leg o-stat-ok"><i><\/i><span class="o-leg-k">Оплачено<\/span><b>2<\/b>/);
-    assert.match(html, /o-leg o-stat-off"><i><\/i><span class="o-leg-k">Не оплачены<\/span><b>2<\/b>/);
-    // Сумма стоит у КАЖДОГО состояния: «не оплачены 2 · 130 000 ₽» — ровно те
+    assert.match(html, /o-leg o-stat-off"><i><\/i><span class="o-leg-k">Не оплачены<\/span><b>3<\/b>/);
+    // Сумма стоит у КАЖДОГО состояния: «не оплачены 3 · 140 000 ₽» — ровно те
     // деньги, которых магазин не получил, и знать их так же полезно, как выручку.
-    assert.match(html, /Не оплачены<\/span><b>2<\/b><small><span>счёт истёк или отменён<\/span><em>130\s?000\s?₽<\/em>/);
+    assert.match(html, /Не оплачены<\/span><b>3<\/b><small><span>счёт истёк или отменён<\/span><em>140\s?000\s?₽<\/em>/);
     // Составная полоса: доли задаёт flex-grow, чтобы сумма сходилась без
     // округлений, дающих щель в конце.
     assert.match(html, /<div class="o-share"><i class="o-stat-ok" style="flex-grow:2"/);
@@ -6703,7 +6768,9 @@ test('счётчики и выручка одинаковы на «Обзоре�
   // Строка заказа красится по состоянию оплаты: оплаченную от отменённой надо
   // отличать с одного взгляда, не вчитываясь в плашку.
   assert.equal(render.orderRowClass({ payment: { status: 'paid' } }), 'o-row o-row-ok');
-  assert.equal(render.orderRowClass({ payment: { status: 'expired' } }), 'o-row o-row-off');
+  assert.equal(render.orderRowClass({
+    payment: { status: 'expired', invoiceId: 'i', requisite: '79104693811', expiresAt: Date.now() - 1000 }
+  }), 'o-row o-row-off');
   assert.equal(render.orderRowClass({}), 'o-row', 'заявка без оплаты остаётся белой');
   assert.match(list, /<tr id="order-o1" class="o-row o-row-ok">/);
   assert.match(list, /<tr id="order-o6" class="o-row o-row-off">/);
@@ -9237,6 +9304,46 @@ test('подробный отчёт по кассам показывает ле�
   assert.doesNotMatch(bad, /pay-log-row[^>]*>[\s\S]*CrocoPAY/, 'чужой отказ в этот набор не попадает');
   // Мусор в адресе сводится к «Все», а не роняет страницу.
   assert.match(adminViews.paymentsPage(SETTINGS, db, { tab: 'выдумка' }), /a-tab active/);
+
+  /* Номер набран как номер — тем же `requisiteView`, что на странице оплаты.
+   * Голая цепочка цифр рвалась на телефоне посреди номера («+7991574 / 8505»),
+   * то есть отчёт показывал номер, которого не бывает, ровно в том месте, ради
+   * которого его открывают. */
+  const issued = [{
+    id: 'o2', number: 258676, total: 103100, createdAt: Date.now(),
+    payment: {
+      status: 'failed', provider: 'meridianpay', method: 'SBP',
+      attempts: [{
+        id: 'b1', provider: 'meridianpay', method: 'SBP', actualMethod: 'phone',
+        amount: 103100, currency: 'RUB', status: 'failed', invoiceId: 'inv-1',
+        requisite: '+79915748505', owner: 'Хабибуллаев А. Л.', bank: 'Т-Банк', startedAt: Date.now()
+      }]
+    }
+  }];
+  const issuedPage = adminViews.paymentsPage(SETTINGS, {
+    getOrders: () => issued, visibleOrders: () => issued, pendingReviewCount: () => 0,
+    getProducts: () => [], visibleProducts: () => []
+  }, {});
+  assert.match(issuedPage, /\+7 991 574-85-05/, 'реквизит показан так же, как покупателю на странице оплаты');
+  // А забракованный — ровно так, как прислала касса: он и забракован за то, что
+  // номером не является, и расставить в нём разделители значило бы выдать мусор
+  // за настоящий реквизит.
+  assert.match(all, /987777777777/);
+  const PAY = require('../lib/pay-methods');
+
+  /* «Касса дала …» — только когда она правда выдала другое.
+   *
+   * У CrocoPAY в ответе стоит код способа (`TO_CARD`), у MeridianPay — вид
+   * реквизита (`phone`), поэтому прямое сравнение со строкой запроса вешало
+   * приписку «касса дала phone» на КАЖДУЮ её сделку: техническое слово и ложная
+   * тревога о подмене способа там, где подменять было нечего. */
+  assert.doesNotMatch(issuedPage, /касса дала/, 'СБП и есть перевод по номеру телефона — говорить не о чем');
+  assert.equal(PAY.actualHint('SBP', 'phone'), '');
+  assert.equal(PAY.actualHint('SBP', 'sim'), '');
+  assert.equal(PAY.actualHint('QR_NSPK', 'nspk'), '');
+  assert.equal(PAY.actualHint('SBP', 'card'), 'перевод на карту', 'а вот карта вместо телефона — правда другое');
+  assert.equal(PAY.actualHint('TO_CARD', 'TO_CARD_TRANSGRAN'), PAY.describe('TO_CARD_TRANSGRAN').name);
+  assert.equal(PAY.actualHint('TO_CARD', 'NEW_CODE'), 'NEW_CODE', 'незнакомый код честнее выдуманного названия');
 
   // На самой странице отчёта ссылки на неё же нет.
   assert.doesNotMatch(all, /pay-prov-more/);

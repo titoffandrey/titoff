@@ -1953,8 +1953,16 @@ body.admin{background:#f4f4f6;color:#242426}
 .pay-log td{vertical-align:top}
 .pay-log-at{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
 /* Реквизит — главное, ради чего сюда приходят, поэтому он крупнее соседей и
-   набран табличными цифрами: номера сравнивают глазами, столбик в столбик. */
-.pay-log-req{font-weight:600;font-variant-numeric:tabular-nums;word-break:break-all}
+   набран табличными цифрами: номера сравнивают глазами, столбик в столбик.
+
+   Перенос — `break-word`, а НЕ `break-all`: номер телефона приходит сюда уже с
+   разделителями (`R.requisiteView`, тот же вид, что на странице оплаты), и по
+   ним строка и переносится. `break-all` рвал её посреди цифр — на телефоне из
+   «+7 991 574-85-05» получалось «+7991574 / 8505», то есть номер, которого не
+   бывает, ровно в том месте отчёта, ради которого его открывают. Ломать по
+   любому месту остаётся только длинная цепочка без пробелов (карта на 16 цифр),
+   и то лишь когда она не влезает целиком. */
+.pay-log-req{font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:break-word}
 .pay-log-row.is-bad{background:#fffaf2}
 .pay-log-row.is-bad .pay-log-req{text-decoration:line-through;text-decoration-color:#d0a894}
 
@@ -1978,8 +1986,48 @@ body.admin{background:#f4f4f6;color:#242426}
   .pay-log thead{display:none}
   .pay-log tbody,.pay-log tr,.pay-log td{display:block;width:auto}
   .pay-log tr{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:10px}
-  .pay-log td{border:0;padding:2px 0;display:flex;gap:10px;align-items:baseline}
+  .pay-log td{border:0;padding:2px 0;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
   .pay-log td::before{content:attr(data-l);color:var(--muted);font-size:11.5px;flex:none;min-width:78px}
+  /* Приписка под значением («Хабибуллаев … · Т-Банк», «касса дала перевод на
+     карту», причина браковки) занимает свою строку, а не жмётся в остаток ряда
+     рядом с номером: на 390 px там оставалось меньше половины ширины, и имя
+     владельца шло столбиком по слову. Отступ слева равняет её под значение —
+     78 px подписи и 10 px зазора. */
+  .pay-log td>div,.pay-log td>.pay-log-why{flex-basis:100%;margin:2px 0 0}
+  /* Отступ равняет приписку под значение — 78 px подписи и 10 px зазора, — и
+     нужен он ровно там, где подпись есть. У «Итога» её нет, и причина отказа с
+     этим отступом уезжала под сумму, в правую колонку: объяснение плашки
+     вставало не под плашкой, а рядом с числом, к которому не относится. */
+  .pay-log td[data-l="Способ"]>div,.pay-log td[data-l="Реквизит"]>div{margin-left:88px}
+
+  /* Карточка попытки: шапка «когда · какой заказ», под ней касса, способ и
+     реквизит, внизу — чем кончилось и на сколько.
+     Семью рядами «подпись — значение» карточка занимала четверть экрана, при
+     том что половина подписей ничего не добавляла: дату, номер заказа и сумму
+     узнают по ним самим. Ряды остаются те же, меняется только их расстановка —
+     подписи по-прежнему приезжают из `data-l`, а не повторяются словами тут. */
+  .pay-log tr{display:grid;align-items:baseline;gap:2px 10px;
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-areas:"when order" "prov prov" "method method" "req req" "result sum"}
+  .pay-log td[data-l="Когда"]{grid-area:when}
+  .pay-log td[data-l="Заказ"]{grid-area:order;justify-content:flex-end}
+  .pay-log td[data-l="Касса"]{grid-area:prov}
+  .pay-log td[data-l="Способ"]{grid-area:method}
+  /* Чем кончилось и на сколько — отбито волосяной линией, как ряд денег в
+     карточке заказа. И висит она, как там же, на ряде ВЫШЕ: «итог» и «сумма» —
+     две колонки с зазором между ними, и линия из их собственных границ шла бы
+     двумя кусками с дырой посередине, то есть читалась бы обрывом. */
+  .pay-log td[data-l="Реквизит"]{grid-area:req;margin-top:2px;padding-bottom:8px;
+    border-bottom:1px solid var(--border-soft)}
+  .pay-log td[data-l="Итог"]{grid-area:result;margin-top:6px}
+  .pay-log td[data-l="Сумма"]{grid-area:sum;justify-content:flex-end;margin-top:6px;
+    font-weight:600;font-variant-numeric:tabular-nums}
+  /* Подпись остаётся там, где значение без неё не прочесть. */
+  .pay-log td[data-l="Когда"]::before,.pay-log td[data-l="Заказ"]::before,
+  .pay-log td[data-l="Касса"]::before,.pay-log td[data-l="Сумма"]::before,
+  .pay-log td[data-l="Итог"]::before{content:none}
+  .pay-log td[data-l="Заказ"] a{font-weight:600}
+  .pay-log td[data-l="Касса"]{color:var(--muted);font-size:12px}
   .pay-log-why{display:inline}
 }
 
@@ -2849,9 +2897,15 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      чёрточкой у номера заказа. */
   .a-orders tr.o-row td{background:none}
   .a-orders tr.o-row td:first-child{box-shadow:none}
-  .a-orders .o-num{grid-column:1;grid-row:1}
+  /* Номер и дата — соседи по ряду, а не одна строка текста: у длинной плашки
+     («оплата не завершена») правый столбец забирает почти всю ширину, и дата
+     обрезалась посреди года — «26.08.20». Перенести её обычным `white-space`
+     нельзя: в разметке между номером и датой нет пробела, и для браузера это
+     одно слово. Флекс переносит её целиком под номер и только когда не влезла. */
+  .a-orders .o-num{grid-column:1;grid-row:1;display:flex;flex-wrap:wrap;
+    align-items:baseline;gap:0 6px;white-space:normal}
   .a-orders .o-num b{display:inline;font-size:15px;letter-spacing:-.02em}
-  .a-orders .o-num .small{display:inline;margin-left:6px;font-size:11.5px}
+  .a-orders .o-num .small{display:inline;margin-left:0;font-size:11.5px}
   /* Приписка под плашкой («реквизиты не выданы · 19.08 в 20:47») — самая
      длинная строка правого столбца, и в кегле карточки она забирала полторы
      строки у номера заказа. */
@@ -2917,13 +2971,21 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .pay-prov td,.pay-prov th:not(:last-child),.pay-prov td:not(:last-child){width:auto;white-space:normal}
   .pay-prov td{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
     padding:4px 0;border:0;font-size:13px}
-  .pay-prov td::before{content:attr(data-l);flex:none;color:var(--muted);font-size:12px}
+  /* Подпись забирает свободную ширину, а не делит её с числом поровну.
+     У «Отказов» значение состоит из ДВУХ узлов («7» и «(54%)»), и при
+     `space-between` с `flex:none` у подписи они расползались по всей строке:
+     число повисало ровно посередине карточки, отдельно и от подписи слева, и от
+     доли справа. С растянутой подписью значение любой длины остаётся одним
+     куском у правого края. */
+  .pay-prov td::before{content:attr(data-l);flex:1;color:var(--muted);font-size:12px}
   /* Имя кассы — заголовок карточки, а не строка «Касса: CrocoPAY». */
   .pay-prov td:first-child{padding:0 0 7px;margin-bottom:5px;border-bottom:1px solid var(--border-soft);font-size:15px}
   .pay-prov td:first-child::before{content:none}
   /* Причины отказов — единственная длинная строка: подпись сверху, текст под
-     ней, иначе он сжимается в колонку шириной в пару слов. */
+     ней, иначе он сжимается в колонку шириной в пару слов. Растяжка подписи
+     нужна только в ряду «подпись — число», поэтому здесь она снимается. */
   .pay-prov td:last-child{flex-direction:column;align-items:flex-start;gap:2px}
+  .pay-prov td:last-child::before{flex:none}
 
   /* Вкладки и сортировка встают друг под другом, обе ленты прокручиваются
      вбок — три кнопки сортировки в 375 px в одну строку с «Сортировка:» не
