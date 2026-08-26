@@ -7723,10 +7723,10 @@ test('диапазон суммы заказа задаётся в настро�
    * проведёт. Потолок приходит параметром: модуль доставки о настройках не
    * знает и знать не должен. */
   const addr = 'г Москва, ул Тверская, д 1';
-  const capped = SHIP.quoteAll(addr, 249800, 250000).prices.cdek;
-  const uncapped = SHIP.quoteAll(addr, 249800, 900000).prices.cdek;
+  const capped = SHIP.quoteAll(addr, 249700, 250000).prices.cdek;
+  const uncapped = SHIP.quoteAll(addr, 249700, 900000).prices.cdek;
   // Округлённый вариант, помещающийся под потолок, выбирается как обычно.
-  assert.equal(249800 + capped.pvz, 250000);
+  assert.equal(249700 + capped.pvz, 250000);
   /* А вот курьеру под потолком места нет вовсе: любой круглый итог с ним уходит
    * за 250 000. Тогда берётся чистый тариф, а не подогнанная цена — и заказ у
    * самого потолка просто не оформляется. Это задокументированное следствие, а
@@ -7734,13 +7734,13 @@ test('диапазон суммы заказа задаётся в настро�
    * потолок». */
   assert.equal(capped.courier, SHIP.rate('cdek', 'courier', 'msk'));
   assert.notEqual(uncapped.courier, capped.courier, 'без потолка подгонка свободна');
-  assert.ok(249800 + uncapped.courier > 250000, 'без потолка итог уходит за него');
+  assert.ok(249700 + uncapped.courier > 250000, 'без потолка итог уходит за него');
   // Сверяем с теми же настройками, при которых считали доставку: у `on` потолок
-  // расширен до 900 000, и 250 160 ₽ там как раз проходят.
-  assert.equal(PAYMENTS.payable(249800 + capped.courier, tight), false);
-  assert.equal(PAYMENTS.payable(249800 + capped.courier, on), true);
+  // расширен до 900 000, и итог с курьером там как раз проходит.
+  assert.equal(PAYMENTS.payable(249700 + capped.courier, tight), false);
+  assert.equal(PAYMENTS.payable(249700 + capped.courier, on), true);
   // Ноль означает «потолка нет» (оплата на витрине выключена).
-  assert.ok(SHIP.quoteAll(addr, 249800, 0).prices.cdek.pvz > 0);
+  assert.ok(SHIP.quoteAll(addr, 249700, 0).prices.cdek.pvz > 0);
 });
 
 test('форма настроек не сохраняет кривой диапазон суммы', () => {
