@@ -9311,3 +9311,65 @@ test('первая реплика покупателя уходит в Telegram,
     global.fetch = realFetch;
   }
 });
+
+/* ============ ВРЕМЯ МАГАЗИНА — МОСКОВСКОЕ ============ */
+
+test('панель показывает московское время, где бы ни стоял сервер', () => {
+  /* Сервер живёт по UTC (Амстердам), и панель показывала время на три часа
+   * меньше настоящего: покупатель писал в 11:23 по своим часам и по часам
+   * Telegram, а у той же реплики в панели стояло 08:23. Владелец в Москве —
+   * значит и время московское. */
+  const at = Date.UTC(2026, 7, 26, 8, 23);          // 11:23 по Москве
+  assert.equal(render.mskTime(at), '11:23');
+  assert.equal(render.formatDate(at), '26.08.2026');
+  assert.match(render.mskDateTime(at), /26\.08\.2026 в 11:23/);
+
+  // Ночь — самый опасный случай: у московской даты уже следующий день, а у
+  // UTC ещё предыдущий.
+  const night = Date.UTC(2026, 7, 25, 22, 30);      // 01:30 26-го по Москве
+  assert.equal(render.mskTime(night), '01:30');
+  assert.equal(render.formatDate(night), '26.08.2026', 'день считается по московскому календарю');
+
+  // «Один ли это день» — тоже по Москве.
+  assert.equal(render.mskSameDay(night, Date.UTC(2026, 7, 26, 20, 0)), true);
+  assert.equal(render.mskSameDay(night, Date.UTC(2026, 7, 25, 20, 0)), false);
+});
+
+test('дата отзыва не уезжает при сохранении формы', () => {
+  /* Поле показывает московское время, а `Date.parse` читает строку без зоны
+   * как локальное время ПРОЦЕССА — на сервере это UTC. Показывай мы одно, а
+   * разбирай другое, дата отзыва сдвигалась бы на три часа при КАЖДОМ
+   * сохранении формы, накапливая сдвиг. */
+  const at = Date.UTC(2026, 7, 26, 8, 23);
+  const value = render.mskInputValue(at);
+  assert.equal(value, '2026-08-26T11:23', 'в поле — московское время');
+  assert.equal(render.parseMskInput(value), at, 'и разбирается оно обратно в тот же момент');
+
+  // Пустое поле — это «дату не меняли», а не «1970 год».
+  assert.equal(render.parseMskInput(''), null);
+  assert.equal(render.parseMskInput('чепуха'), null);
+  // Строка со своей зоной разбирается как есть: её вводят руками.
+  assert.equal(render.parseMskInput('2026-08-26T08:23:00Z'), at);
+});
+
+test('время в чате одно и то же у покупателя и у менеджера', () => {
+  /* Магазин работает по Москве: «отправим сегодня» означает московский день.
+   * Показывай витрина местное время покупателя, они с менеджером обсуждали бы
+   * одно и то же сообщение под подписями, разошедшимися на часы. */
+  const code = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8'));
+  assert.match(code, /Europe\/Moscow/, 'витрина считает время по Москве');
+  // Запасной путь обязателен: сборка браузера без нужной зоны молча отдала бы
+  // UTC, то есть время на три часа меньше московского.
+  assert.match(code, /MSK_OFFSET\s*=\s*180/);
+  // И ни одного расчёта по локальной зоне там, где показывается время.
+  assert.doesNotMatch(code.slice(code.indexOf('function clock'), code.indexOf('function dayLabel')),
+    /new Date\(Number\(ms\)[^)]*\)\.getHours/, 'часы берём у московской даты, а не у локальной');
+
+  // В панели — та же зона и тот же источник.
+  /* В панели — та же зона и тот же источник. Смотрим на КОД без комментариев:
+   * в объяснениях слово «new Date()» стоит по делу, и по сырому тексту тест
+   * ловил бы собственную документацию (та же грабля, что была с innerHTML). */
+  const views = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'));
+  const chatBlock = views.slice(views.indexOf('function chatSeenAgo'), views.indexOf('function chatModeBadge'));
+  assert.doesNotMatch(chatBlock, /new Date\(/, 'все даты в чате панели идут через московские помощники');
+});

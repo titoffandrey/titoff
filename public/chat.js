@@ -146,8 +146,45 @@
   }
 
   function two(n) { return n < 10 ? '0' + n : String(n); }
-  function clock(ms) {
+
+  /* ВРЕМЯ В ЧАТЕ — МОСКОВСКОЕ, а не по часам покупателя.
+   *
+   * Магазин работает по Москве: «отправим сегодня» в переписке означает
+   * московский день, и менеджер в панели видит ту же подпись. Показывай мы
+   * местное время, покупатель из Красноярска и менеджер обсуждали бы одно и
+   * то же сообщение под подписями, разошедшимися на четыре часа.
+   *
+   * Зону берём у браузера (Intl с timeZone), а если он её не знает — считаем
+   * постоянное смещение +3: у Москвы оно неизменно с 2014 года. Без запасного
+   * пути такой браузер молча показывал бы UTC.
+   */
+  var MSK_OFFSET = 180;
+  var mskFormat = (function () {
+    try {
+      var fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Moscow', hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      });
+      // Проверка на заведомо известной точке: 1 января 2021 года в Москве 03:00.
+      var probe = {};
+      fmt.formatToParts(new Date(Date.UTC(2021, 0, 1, 0, 0))).forEach(function (p) { probe[p.type] = p.value; });
+      return Number(probe.hour) % 24 === 3 ? fmt : null;
+    } catch (e) { return null; }
+  })();
+
+  // Дата, у которой локальные геттеры дают московское время.
+  function msk(ms) {
     var d = new Date(Number(ms) || 0);
+    if (!mskFormat) return new Date(d.getTime() + (MSK_OFFSET + d.getTimezoneOffset()) * 60000);
+    var parts = {};
+    mskFormat.formatToParts(d).forEach(function (p) { parts[p.type] = p.value; });
+    return new Date(Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour) % 24, Number(parts.minute));
+  }
+
+  function clock(ms) {
+    var d = msk(ms);
     return two(d.getHours()) + ':' + two(d.getMinutes());
   }
 
@@ -158,14 +195,15 @@
     return a.getDate() === b.getDate() && a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
   }
 
-  /* Подпись разделителя дат: «Сегодня», «Вчера», «25 августа». Считается по
-   * часам ПОКУПАТЕЛЯ, а не сервера, — и это именно то, что нужно: «сегодня»
-   * для него означает его собственный день, где бы ни стоял сервер. */
+  /* Подпись разделителя дат: «Сегодня», «Вчера», «25 августа» — тоже по Москве.
+   * «Сегодня» обязано означать тот же день, что у менеджера в панели: иначе
+   * покупатель из Владивостока видел бы «Вчера» там, где магазин отвечал
+   * сегодня. */
   function dayLabel(ms) {
-    var d = new Date(Number(ms) || 0);
-    var now = new Date();
+    var d = msk(ms);
+    var now = msk(Date.now());
     if (sameDay(d, now)) return 'Сегодня';
-    var yesterday = new Date();
+    var yesterday = msk(Date.now());
     yesterday.setDate(yesterday.getDate() - 1);
     if (sameDay(d, yesterday)) return 'Вчера';
     var label = d.getDate() + ' ' + MONTHS[d.getMonth()];
