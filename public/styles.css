@@ -1082,8 +1082,19 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 }
 
 /* Отступ якоря = высота липкой шапки (58 ряд + 48 меню) с небольшим запасом */
-html{scroll-behavior:smooth;scroll-padding-top:120px}
-body{min-width:320px;overflow-x:hidden;text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth;scroll-padding-top:120px;overscroll-behavior-x:none}
+/* `touch-action:manipulation` снимает двойной тап (то есть увеличение по нему)
+   и заодно задержку в 300 мс перед кликом — нажатие становится мгновенным, как
+   в приложении. Прокрутку и щипок оно не трогает: щипок гасится отдельно, в
+   `public/mobile-shell.js`. Двойной тап нельзя перехватывать скриптом — там это
+   стоит второго клика (см. комментарий в самом файле).
+   `overscroll-behavior-x:none` убирает горизонтальную резинку: тянуть страницу
+   вбок не за чем, вбок ничего не уезжает. */
+body{min-width:320px;overflow-x:hidden;overscroll-behavior-x:none;touch-action:manipulation;
+  text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}
+/* Долгое нажатие по кнопке в приложении не выделяет её подпись. Текст товара,
+   цены и реквизиты выделяются как раньше — их копируют руками. */
+button,.btn,summary,.nav-cat,.chat-fab{-webkit-user-select:none;user-select:none}
 body.cart-open{overflow:hidden}
 button,input,textarea,select{font:inherit}
 button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}
@@ -4275,8 +4286,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Разделитель дат — как в Telegram: подпись по центру на своей подложке.
    Без него переписка, растянутая на несколько дней, читается одним куском, и
    вчерашнее «отправим завтра» выглядит сегодняшним обещанием. */
-.chat-day{display:flex;justify-content:center;margin:10px 0 6px}
-.chat-day span{font-size:11.5px;font-weight:600;color:var(--muted);background:#fff;
+.chat-date{display:flex;justify-content:center;margin:10px 0 6px}
+.chat-date span{font-size:11.5px;font-weight:600;color:var(--muted);background:#fff;
   border:1px solid var(--border);border-radius:999px;padding:3px 12px}
 
 /* Пузыри. Реплики магазина справа, покупателя слева — та же сторона, что видит
@@ -4287,10 +4298,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Обёртка реплики: пузырь и свёрнутая форма правки под ним. Сторону разговора
    задаёт она, а не сам пузырь, — иначе форма встала бы отдельным блоком во всю
    ширину ленты и разорвала бы разговор пополам. */
-.chat-msg{display:flex;flex-direction:column;gap:2px;max-width:74%;min-width:0}
-.chat-msg.is-user{align-self:flex-start;align-items:flex-start}
-.chat-msg.is-ai,.chat-msg.is-operator{align-self:flex-end;align-items:flex-end}
-.chat-msg.is-system{align-self:center;align-items:center;max-width:100%}
+.chat-item{display:flex;flex-direction:column;gap:2px;max-width:74%;min-width:0}
+.chat-item.is-user{align-self:flex-start;align-items:flex-start}
+.chat-item.is-ai,.chat-item.is-operator{align-self:flex-end;align-items:flex-end}
+.chat-item.is-system{align-self:center;align-items:center;max-width:100%}
 /* Карандаш проявляется на наведении и на фокусе: в переписке из полутора
    десятков реплик столько же видимых кнопок читались бы как содержание. Не
    `display:none` — иначе до него нельзя было бы добраться с клавиатуры. */
@@ -4300,12 +4311,12 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    Своя ширина этот круг разрывает: обёртка расширяется под открытую форму,
    а `max-width` не даёт ей вылезти за свои 74% ленты. */
 .chat-edit{align-self:stretch;max-width:100%}
-.chat-msg.is-ai .chat-edit,.chat-msg.is-operator .chat-edit{text-align:right}
+.chat-item.is-ai .chat-edit,.chat-item.is-operator .chat-edit{text-align:right}
 .chat-edit-open{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
   width:22px;height:22px;border-radius:7px;color:var(--muted);opacity:0;transition:opacity .12s,background .12s}
 .chat-edit-open::-webkit-details-marker{display:none}
 .chat-edit-open svg{width:14px;height:14px}
-.chat-msg:hover .chat-edit-open,.chat-edit[open] .chat-edit-open,.chat-edit-open:focus-visible{opacity:1}
+.chat-item:hover .chat-edit-open,.chat-edit[open] .chat-edit-open,.chat-edit-open:focus-visible{opacity:1}
 .chat-edit-open:hover{background:var(--bg2);color:var(--text)}
 .chat-edit-form{display:flex;flex-direction:column;gap:6px;width:360px;max-width:100%;margin-top:4px;text-align:left}
 .chat-edit-form textarea{width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:10px;
@@ -4354,7 +4365,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 @media (max-width:640px){
   .chat-row{padding:10px 12px}
-  .chat-msg{max-width:88%}
+  .chat-item{max-width:88%}
   .chat-thread{max-height:none;padding:12px}
   /* Шапка, заказы и лента идут во всю ширину экрана одним блоком: боковые
      рамки на 375 px отбирают у переписки поля дважды, а сам блок разваливается

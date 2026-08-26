@@ -9285,8 +9285,8 @@ test('переписка в панели выглядит как мессенд�
 
   // Разделители дат — как в Telegram: без них переписка, растянутая на дни,
   // читается одним куском, и вчерашнее «отправим завтра» выглядит сегодняшним.
-  assert.match(html, /class="chat-day"><span>Сегодня</);
-  assert.match(html, /class="chat-day"><span>\d{1,2} \S+</, 'у старой реплики — своя дата');
+  assert.match(html, /class="chat-date"><span>Сегодня</);
+  assert.match(html, /class="chat-date"><span>\d{1,2} \S+</, 'у старой реплики — своя дата');
   // Время у каждой реплики.
   assert.match(html, /class="chat-line-at">\d{2}:\d{2}</);
 
@@ -9794,6 +9794,20 @@ test('стили чата не пересекаются у витрины и п�
   for (const cls of ['.chat-row', '.chat-line', '.chat-thread', '.chat-answer', '.chat-state']) {
     assert.ok(css.includes(cls), 'правило панели ' + cls + ' на месте');
   }
+  /* Присутствия правил МАЛО — так эта проверка и пропустила две коллизии сразу.
+   *
+   * `.chat-msg` — пузырь реплики в окне покупателя, и панель однажды назвала
+   * так обёртку своей строки: правило панели стоит ниже по файлу, специфичность
+   * та же — и лента на витрине разъехалась (узкие пузыри, пустота справа).
+   * `.chat-day` жил в обоих местах ещё дольше. Увидеть такое можно только
+   * глазами и только на телефоне, поэтому проверяем не список имён, а САМО
+   * пересечение: классы, которыми пользуются оба чата, обязаны отсутствовать. */
+  const classesOf = f => new Set(
+    (fs.readFileSync(path.join(__dirname, '..', f), 'utf8').match(/chat-[a-z0-9-]+/g) || []));
+  const shop = new Set([...classesOf('public/chat.js'), ...classesOf('lib/render.js')]);
+  const panel = classesOf('lib/admin-views.js');
+  const shared = [...panel].filter(c => shop.has(c));
+  assert.deepEqual(shared, [], 'классы чата у витрины и панели не пересекаются');
   /* Поле ввода не мельче 16 px на телефоне, иначе Safari приближает страницу и
    * обратно не отъезжает.
    *
@@ -9816,6 +9830,46 @@ test('стили чата не пересекаются у витрины и п�
     assert.ok(coarse.includes(selector),
       'поле «' + selector + '» мельче 16 px и не перекрыто в coarse-блоке — Safari будет зумить');
   }
+});
+
+test('на телефоне сайт ведёт себя как приложение: без масштаба и сдвига вбок', () => {
+  /* Увеличенную щипком страницу можно было таскать вправо-влево, и она
+   * оставалась съехавшей. Хуже всего это выглядело в чате: у `position:fixed`
+   * координаты считаются от layout viewport, поэтому окно стояло шире видимой
+   * области и по краям торчала витрина — со стороны это читается как поехавшая
+   * вёрстка, а не как «я увеличил страницу». */
+  const shop = render.layout(SETTINGS, { body: '', categories: [] });
+  const panel = adminViews.loginPage(SETTINGS, '');
+  for (const [name, html] of [['витрина', shop], ['панель', panel]]) {
+    assert.match(html, /name="viewport"[^>]*maximum-scale=1/, name + ': масштаб ограничен');
+    assert.match(html, /name="viewport"[^>]*user-scalable=no/, name + ': увеличение выключено');
+  }
+  assert.match(shop, /mobile-shell\.js/, 'витрина подключает общий скрипт');
+
+  const shell = fs.readFileSync(path.join(__dirname, '..', 'public', 'mobile-shell.js'), 'utf8');
+  // Safari щипок мета-тегом не отдаёт — только через свои gesture-события.
+  for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+    assert.ok(shell.includes(ev), 'щипок гасится через ' + ev);
+  }
+  /* А вот двойной тап перехватывать НЕЛЬЗЯ: `preventDefault()` на `touchend`
+   * съедает второй click, и быстрые повторные нажатия по «+» в счётчике
+   * количества перестают срабатывать. Его гасит CSS.
+   * Смотрим на КОД без комментариев — той же чисткой, что идёт на отдаче:
+   * иначе проверка спотыкается о собственное объяснение в самом файле. */
+  const shellCode = require('../lib/minify').js(shell);
+  assert.equal(/touchend/.test(shellCode), false, 'двойной тап скриптом не перехватывается');
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const body = css.match(/\nbody\{[^}]*min-width:320px[^}]*\}/);
+  assert.ok(body, 'базовое правило body на месте');
+  assert.match(body[0], /touch-action:manipulation/, 'двойной тап гасит CSS');
+  assert.match(body[0], /overscroll-behavior-x:none/, 'горизонтальной резинки нет');
+
+  /* Окно чата садится в видимую область не только при клавиатуре: сдвиг бывает
+   * и от щипка, который случился до загрузки скрипта. */
+  const chat = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.match(chat, /vv\.offsetLeft/, 'горизонтальный сдвиг видимой области учитывается');
+  assert.match(chat, /panel\.style\.width = vv\.width/, 'ширина берётся у видимой области');
 });
 
 /* ============ ОТЧЁТ ПО КАССАМ: ЧТО ИМЕННО ОНА ПРИСЛАЛА ============ */

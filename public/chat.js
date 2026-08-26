@@ -729,18 +729,29 @@
   function fitViewport() {
     var vv = window.visualViewport;
     if (!vv || !state.open || !narrow()) return resetViewport();
-    // Клавиатура закрыта — не трогаем ничего: лишний inline-стиль перебил бы
+    var keyboard = window.innerHeight - vv.height > 80;
+    /* Видимая область бывает сдвинута и без клавиатуры — щипком. Масштаб мы
+       гасим (мета-тег плюс `public/mobile-shell.js`), но щипок мог случиться до
+       загрузки скрипта или в браузере, который его не отдаёт, — и тогда окно
+       чата стоит шире экрана и по краям торчит витрина. Проверяем, а не верим:
+       у `position:fixed` координаты считаются от layout viewport, и никакой CSS
+       про эту разницу не знает. */
+    var shifted = Math.abs(vv.offsetLeft) > 1 || Math.abs(vv.offsetTop) > 1;
+    var zoomed = Math.abs((vv.scale || 1) - 1) > 0.01;
+    // Всё на своих местах — не трогаем ничего: лишний inline-стиль перебил бы
     // анимацию открытия и обычную раскладку.
-    if (window.innerHeight - vv.height < 80) return resetViewport();
+    if (!keyboard && !shifted && !zoomed) return resetViewport();
+    panel.style.width = vv.width + 'px';
     panel.style.height = vv.height + 'px';
-    // Сдвиг именно transform, а не top: он идёт в композиторе и не заставляет
-    // пересчитывать раскладку на каждый кадр выезжающей клавиатуры.
-    panel.style.transform = 'translateY(' + vv.offsetTop + 'px)';
+    // Сдвиг именно transform, а не top/left: он идёт в композиторе и не
+    // заставляет пересчитывать раскладку на каждый кадр выезжающей клавиатуры.
+    panel.style.transform = 'translate(' + vv.offsetLeft + 'px,' + vv.offsetTop + 'px)';
     scroll(true);
   }
 
   function resetViewport() {
-    if (!panel.style.height && !panel.style.transform) return;
+    if (!panel.style.height && !panel.style.transform && !panel.style.width) return;
+    panel.style.removeProperty('width');
     panel.style.removeProperty('height');
     panel.style.removeProperty('transform');
   }
