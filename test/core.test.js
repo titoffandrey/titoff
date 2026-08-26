@@ -9731,6 +9731,77 @@ test('ключ ИИ и адрес API наружу не уезжают', () => {
   assert.match(ai.endpointOf({}), /api\.openai\.com/);
 });
 
+test('форма запроса к модели чинится по отказу API, а не по имени модели', async () => {
+  /* Новые модели OpenAI не принимают ни `max_tokens`, ни свою температуру, и на
+   * витрине это выглядит так, будто консультант молчит: на каждый вопрос —
+   * запасная фраза «секунду, уточню». Ровно так и было с `gpt-5.6-luna`.
+   *
+   * Лечим не списком моделей (он живёт у OpenAI и меняется в панели без
+   * выкатки), а чтением самого отказа: API называет параметр, из-за которого не
+   * взялось. */
+  const enc = new TextEncoder();
+  const refusal = (param) => ({
+    ok: false, status: 400,
+    text: async () => JSON.stringify({ error: { message: 'Unsupported parameter', param, code: 'unsupported_parameter' } })
+  });
+  const answer = (text) => {
+    let sent = false;
+    return {
+      ok: true, status: 200,
+      body: { getReader: () => ({
+        read: async () => {
+          if (sent) return { done: true, value: undefined };
+          sent = true;
+          const sse = 'data: ' + JSON.stringify({ choices: [{ delta: { content: text } }] }) + '\n\ndata: [DONE]\n\n';
+          return { done: false, value: enc.encode(sse) };
+        },
+        cancel: async () => {}
+      }) }
+    };
+  };
+
+  const realFetch = global.fetch;
+  const quietLog = console.log, quietErr = console.error;
+  const seen = [];
+  global.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    seen.push(body);
+    if ('max_tokens' in body) return refusal('max_tokens');
+    if ('temperature' in body) return refusal('temperature');
+    return answer('Есть, 256 ГБ в наличии');
+  };
+  console.log = () => {}; console.error = () => {};
+  try {
+    const cfg = { aiApiKey: 'k', aiModel: 'модель-из-будущего' };
+    const out = await ai.stream(cfg, [{ role: 'user', content: 'есть 256?' }], () => {});
+    assert.equal(out.ok, true, 'покупатель получает ответ, а не запасную фразу');
+    assert.equal(out.text, 'Есть, 256 ГБ в наличии');
+
+    // Заход, поправка на предел, поправка на температуру — и ни одного лишнего.
+    assert.equal(seen.length, 3);
+    assert.equal(seen[0].max_tokens, ai.MAX_TOKENS, 'начинаем как раньше: старые модели и шлюзы знают именно его');
+    assert.ok(!('max_tokens' in seen[2]));
+    assert.equal(seen[2].max_completion_tokens, ai.MAX_TOKENS);
+    assert.ok(!('temperature' in seen[2]), 'температуру у такой модели не задаём вовсе');
+
+    /* Поправка запоминается на модель: следующий покупатель не платит теми же
+     * двумя лишними заходами. */
+    const again = await ai.stream(cfg, [{ role: 'user', content: 'а 512?' }], () => {});
+    assert.equal(again.ok, true);
+    assert.equal(seen.length, 4, 'второй разговор идёт сразу верной формой');
+
+    // Отказ, который повтором не лечится, повторять нельзя вовсе.
+    seen.length = 0;
+    global.fetch = async (url, opts) => { seen.push(JSON.parse(opts.body)); return refusal('model'); };
+    const dead = await ai.stream({ aiApiKey: 'k', aiModel: 'модель-которой-нет' }, [{ role: 'user', content: '?' }], () => {});
+    assert.equal(dead.ok, false);
+    assert.equal(seen.length, 1);
+  } finally {
+    global.fetch = realFetch;
+    console.log = quietLog; console.error = quietErr;
+  }
+});
+
 test('чужая разметка в переписку не попадает', () => {
   // В ленту приходит текст постороннего человека — и текст, который сочинила
   // модель по его просьбе. Ни одна из этих строк не должна стать разметкой.
