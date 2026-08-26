@@ -15,6 +15,28 @@
   var baseInput = document.querySelector('input[name="price"]');
 
   function base() { return Number(baseInput && baseInput.value) || 0; }
+  // Доплата — свойство самого значения («+5000 за физическую SIM»), а НЕ разница
+  // с текущим содержимым поля цены. Поэтому она живёт у строки, а поле показывает
+  // полную цену «база + доплата» и пересчитывается, когда базовая цена меняется.
+  //
+  // Раньше при правке базовой цены пересчитывалась доплата: владелец снижал цену
+  // товара на 10 000, поля полных цен оставались прежними — и базовое значение
+  // группы получало доплату +10 000. Витрина показывает «база + доплата первого
+  // доступного значения», то есть ровно прежнюю цену, и правка выглядела как
+  // «цена не сохранилась». У товара с тремя группами разница складывалась трижды,
+  // и цена на витрине не возвращалась к прежней, а вырастала.
+  function addOf(row) { var v = row.dataset.add; return v == null || v === '' ? 0 : Number(v) || 0; }
+  function readAdd(row) {
+    var priceStr = row.querySelector('.ov-price').value.replace(/\s+/g, '');
+    var price = Number(priceStr);
+    row.dataset.add = (priceStr === '' || isNaN(price)) ? '' : String(Math.max(0, Math.round(price - base())));
+  }
+  function reprice() {
+    editor.querySelectorAll('.option-val-row').forEach(function (row) {
+      if (row.dataset.add == null || row.dataset.add === '') return;
+      row.querySelector('.ov-price').value = String(base() + addOf(row));
+    });
+  }
   function escHtml(s) { return String(s).replace(/[&<>]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]; }); }
   function escAttr(s) { return String(s).replace(/[&<>"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]; }); }
   // Конфигурации берём из живого редактора памяти: значение можно ограничить
@@ -57,6 +79,7 @@
       '</div>' +
       '<details class="ov-only-fold"><summary>Только для конфигураций</summary><div class="ov-only"></div></details>';
     row.querySelector('.ov-label').value = value.label || '';
+    row.dataset.add = value.add != null ? String(Number(value.add || 0)) : '';
     row.querySelector('.ov-price').value = value.add != null ? String(base() + Number(value.add || 0)) : '';
     var stock = row.querySelector('.ov-stock');
     stock.checked = value.inStock !== false;
@@ -69,7 +92,7 @@
     // форма стирала бы её при каждой правке, как когда-то forColor у ремешков.
     if (value.forChoice) row.dataset.forChoice = value.forChoice;
     row.querySelector('.ov-label').addEventListener('input', sync);
-    row.querySelector('.ov-price').addEventListener('input', sync);
+    row.querySelector('.ov-price').addEventListener('input', function () { readAdd(row); sync(); });
     stock.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
     only.addEventListener('change', sync);
     row.querySelector('.color-del').addEventListener('click', function () { row.remove(); sync(); });
@@ -115,9 +138,7 @@
       box.querySelectorAll('.option-val-row').forEach(function (row) {
         var label = row.querySelector('.ov-label').value.trim();
         if (!label) return;
-        var priceStr = row.querySelector('.ov-price').value.replace(/\s+/g, '');
-        var price = Number(priceStr);
-        var add = (priceStr === '' || isNaN(price)) ? 0 : Math.max(0, Math.round(price - base()));
+        var add = addOf(row);
         var forStorage = [];
         row.querySelectorAll('.ov-only input:checked').forEach(function (c) { forStorage.push(c.value); });
         values.push({ label: label, add: add, inStock: row.querySelector('.ov-stock').checked,
@@ -176,8 +197,8 @@
   }
 
   parse(raw.value).forEach(makeGroup);
-  // Конфигурации правятся рядом: список галочек и пересчёт доплат должны идти за ними
-  if (baseInput) baseInput.addEventListener('input', sync);
+  // Базовая цена двигает все полные цены товара, а доплаты остаются прежними.
+  if (baseInput) baseInput.addEventListener('input', function () { reprice(); sync(); });
   var storageEditor = document.getElementById('storage-editor');
   if (storageEditor) storageEditor.addEventListener('input', function () {
     editor.querySelectorAll('.option-val-row').forEach(function (row) {
