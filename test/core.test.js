@@ -9431,7 +9431,7 @@ test('в шапке панели видно, сколько ждёт: отзыв
    * менеджеру, и счётчик обязан его показать. Поэтому отметка «прочитано» стоит
    * внутри ветки удачного ответа, а не на общем пути до неё. */
   const ai = server.slice(server.indexOf('async function aiAnswer'), server.indexOf('const excuse'));
-  assert.ok(ai.indexOf('result.ok && result.text') < ai.indexOf("CHAT.markStore(fresh, 'read')"),
+  assert.ok(ai.indexOf('result.ok && result.text') < ai.indexOf("CHAT.markStore(fresh, 'read', question.at)"),
     'вопрос без ответа прочитанным не считается');
 });
 
@@ -9482,6 +9482,12 @@ test('окно чата закрыто для клавиатуры, пока н�
   assert.match(panel, /aria-hidden="true"/);
   assert.match(panel, / inert>/);
   assert.match(html, /id="chat-open"[^>]*aria-expanded="false"/);
+  /* Скрепка остаётся доступна с клавиатуры. Атрибут `hidden` однажды молча
+   * отменил всю визуально-скрытую раскладку из CSS: label мышью работал, а Tab
+   * перескакивал сразу к сообщению. */
+  const file = html.match(/<input[^>]*id="chat-file"[^>]*>/)[0];
+  assert.doesNotMatch(file, /\shidden(?:[\s=>])/, 'файловый input скрывает CSS, а не HTML');
+  assert.match(html, /placeholder="Напишите сообщение…"/, 'короткая подсказка не обрезается в узком поле');
 });
 
 test('переписка помнит последние реплики и режим', () => {
@@ -9656,6 +9662,7 @@ test('непрочитанное видно в списке диалогов, а
   const done = chatStore.create({ city: 'Казань, Россия' });
   chatStore.addMessage(done, 'user', 'спасибо');
   chatStore.markStore(done, 'read');
+  const empty = chatStore.create({ city: 'Тула, Россия' });
 
   assert.equal(chatStore.storeUnread(cold), 2, 'считаются реплики, а не диалоги');
   assert.equal(chatStore.storeUnread(done), 0);
@@ -9666,6 +9673,7 @@ test('непрочитанное видно в списке диалогов, а
   const marked = (html.match(/class="chat-row is-unread"/g) || []).length;
   assert.equal(marked, chatStore.unreadCount(), 'помеченных строк ровно столько, сколько обещает шапка');
   assert.match(html, /class="chat-row-unread"[^>]*>2</, 'у строки стоит то же число, что и у storeUnread');
+  assert.ok(!html.includes(empty.id), 'одно открытие виджета не засоряет список пустым диалогом');
 
   // Завершённый разговор не ждёт никого — ни в шапке, ни в списке.
   chatStore.setMode(cold, 'closed');
@@ -10347,6 +10355,27 @@ test('ответ консультанта печатается, а не пада
     'пустой узел текста убирается стилем, чтобы не давать отступ под фото');
 });
 
+test('быстрые уточнения ждут следующий ответ, а галочки не забегают вперёд', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const reply = server.slice(server.indexOf('async function aiReply('), server.indexOf('async function aiAnswer('));
+  /* Пока первый ответ печатается, следующий вопрос кладётся в очередь. Раньше
+   * `aiBusy` просто делал return, и «а в чёрном?» оставалось без ответа до
+   * следующего сообщения покупателя. */
+  assert.match(server, /const aiQueued = new Map\(\)/);
+  assert.match(reply, /if \(aiBusy\.has\(chat\.id\)\) \{[\s\S]{0,160}aiQueued\.set\(chat\.id, info \|\| \{\}\)/);
+  assert.match(reply, /while \(current\)[\s\S]{0,700}const next = aiQueued\.get\(chat\.id\)/,
+    'после текущего ответа очередь забирается тем же последовательным работником');
+
+  const answer = server.slice(server.indexOf('async function aiAnswer('), server.indexOf("app.post('/api/chat/open'"));
+  assert.match(answer, /const question = lastQuestion\(chat\)/);
+  assert.match(answer, /CHAT\.markStore\(chat, 'got', question\.at\)/);
+  assert.match(answer, /CHAT\.markStore\(fresh, 'read', question\.at\)/,
+    'первый ответ не помечает прочитанным уточнение, которого модель ещё не видела');
+  const send = server.slice(server.indexOf("app.post('/api/chat/send'"), server.indexOf("app.get('/api/chat/stream'"));
+  assert.match(send, /CHAT\.markStore\(chat, 'got', own && own\.at\)/,
+    'поздний ответ Telegram двигает галочку только своей реплики');
+});
+
 test('Enter отправляет, а время с галочкой держатся вместе в углу', () => {
   const shop = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
@@ -10498,6 +10527,13 @@ test('к сообщению в чате прикладывается до трё
   assert.match(shopJs, /setAttribute\('data-kind', 'photo'\)/);
   // В href берём только свои загрузки: чужая схема ведёт неизвестно куда.
   assert.match(shopJs, /src\.indexOf\('\/uploads\/'\) !== 0/);
+  /* Фоновое восстановление раньше имело свою урезанную сборку: проверка
+   * `!m.text` выбрасывала фото без подписи, а `bubble` вызывался вообще без
+   * `m.photos`. Теперь история идёт через общий append в тихом режиме. */
+  const restore = shopJs.slice(shopJs.indexOf('var restoring ='), shopJs.indexOf("document.addEventListener('visibilitychange'"));
+  assert.match(restore, /forEach\(function \(m\) \{ append\(m, true\); \}\)/);
+  const restoreCode = restore.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.doesNotMatch(restoreCode, /!m\.text/, 'реплика из одних снимков не исчезает после перехода');
 
   const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
   const page = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
@@ -10505,7 +10541,11 @@ test('к сообщению в чате прикладывается до трё
   assert.match(page, /data-kind="photo"/);
   assert.match(page, /href="\/uploads\/a\.webp"/);
   // Реплика из одних снимков не оставляет в списке диалогов пустую строку.
-  assert.match(adminViews.chatList(SETTINGS, Object.assign({}, db, { }), ''), /📷|Пустой диалог/);
+  const photoOnly = chatStore.create({ city: 'Фото' });
+  chatStore.addMessage(photoOnly, 'user', '', { photos: ['only.webp'] });
+  const rows = adminViews.chatList(SETTINGS, Object.assign({}, db, { }), '');
+  const photoRow = rows.slice(rows.indexOf(photoOnly.id), rows.indexOf('</a>', rows.indexOf(photoOnly.id)));
+  assert.match(photoRow, /📷 1 фото/);
 });
 
 test('стили чата не пересекаются у витрины и панели', () => {
@@ -10855,6 +10895,15 @@ test('галочки: отправлено, доставлено, прочита
   // Следующая реплика снова без галочек — отметка осталась на прежней.
   const more = chatStore.addMessage(chat, 'user', 'А в чёрном?');
   assert.ok(more.at > chatStore.receipt(chat).read);
+
+  // Ответ на первый из двух быстрых вопросов не имеет права «прочитать» второй.
+  const bounded = chatStore.create({ city: 'Тверь' });
+  const first = chatStore.addMessage(bounded, 'user', 'Есть 512 ГБ?');
+  const second = chatStore.addMessage(bounded, 'user', 'А в чёрном?');
+  chatStore.markStore(bounded, 'read', first.at);
+  assert.deepEqual(chatStore.receipt(bounded), { got: first.at, read: first.at });
+  assert.equal(chatStore.storeUnread(bounded), 1, 'уточнение всё ещё ждёт своего ответа');
+  assert.ok(second.at > chatStore.receipt(bounded).read);
 
   // Отметки покупателя — своя пара, и покупателю она не уезжает: его окно
   // отвечает на вопрос «увидели ли меня», а не «что видел я».
@@ -11362,9 +11411,14 @@ test('переписку можно удалить целиком — сразу
   chatStore.setTopic(chatStore.get(chat.id), 987654);
   chatStore.addMessage(chatStore.get(chat.id), 'user', 'привет');
   assert.ok(chatStore.get(chat.id));
+  let ended = 0;
+  chatStore.attach(chat.id, {}, { writeHead() {}, write() {}, end() { ended++; }, on() {} });
+  assert.equal(chatStore.online(chat.id), true);
 
   assert.equal(chatStore.remove(chat.id), true);
   assert.equal(chatStore.get(chat.id), null);
+  assert.equal(ended, 1, 'живой канал удалённой переписки закрыт');
+  assert.equal(chatStore.online(chat.id), false, 'призрачного подключения не осталось');
   // Индексы обязаны обновиться вместе с самим диалогом: иначе ответ оператора
   // из темы Telegram нашёл бы призрак.
   assert.equal(chatStore.byTopicId(987654), null);

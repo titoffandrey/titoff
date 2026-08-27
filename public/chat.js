@@ -383,7 +383,7 @@
     list.appendChild(row);
   }
 
-  function append(message) {
+  function append(message, quiet) {
     // Реплика без слов законна, когда в ней есть снимок.
     if (!message || (!message.text && !(message.photos && message.photos.length))) return;
     if (message.at && message.at <= state.since) return;    // уже показано
@@ -416,7 +416,10 @@
     if (message.role === 'user') mine(row, message.at);
     list.appendChild(row);
     scroll();
-    if (message.role !== 'user') arrived();
+    // История из `/open` уже была в разговоре до этого запроса. Она не должна
+    // звенеть по одному разу на каждую старую реплику и раздувать счётчик:
+    // `quiet` отделяет восстановление ленты от действительно нового события.
+    if (!quiet && message.role !== 'user') arrived();
     return row;
   }
 
@@ -618,7 +621,13 @@
       applyReceipt(d.receipt);
       // Сервер отдаёт всю переписку: покупатель мог начать разговор на другой
       // странице или вчера — окно обязано открыться там же, где он его оставил.
-      (Array.isArray(d.messages) ? d.messages : []).forEach(append);
+      (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) { append(m, true); });
+      state.unread = Math.max(0, Number(d.unread) || 0);
+      paintBadge();
+      // Окно уже открыто — вся восстановленная история прочитана. Раньше
+      // `clearUnread()` вызывался до `/open`, когда id ещё не было, и отметка
+      // оставалась на сервере до следующего открытия.
+      if (state.open) clearUnread();
       remember();
       connect();
       return true;
@@ -894,6 +903,21 @@
           return;
         }
         if (d.mode) setMode(d.mode);
+        /* Сервер мог завести новый разговор прямо маршрутом отправки — например,
+         * прежний диалог менеджер удалил, пока окно покупателя оставалось
+         * открытым. Перепривязываем транспорт к новому id, иначе ответ шёл бы в
+         * канал уже удалённой переписки. */
+        if (d.id && d.id !== state.id) {
+          clearStreamWatch();
+          if (state.stream) { try { state.stream.close(); } catch (e) {} }
+          state.stream = null;
+          stopPolling();
+          state.sid = '';
+          state.id = d.id;
+          state.started = true;
+          remember();
+          connect();
+        }
         /* Реплика сохранена — у неё появляется первая галочка. Время берём
          * серверное: по нему считаются и «доставлено», и «прочитано», а часы
          * браузера идут по-своему. */
@@ -1063,14 +1087,12 @@
       state.started = true;
       setMode(d.mode);
       applyReceipt(d.receipt);
-      (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) {
-        if (!m || !m.text) return;
-        if (m.at) state.since = Math.max(state.since, m.at);
-        dayDivider(m.at);
-        var row = bubble(m.role, m.text, m.by, m.at);
-        if (m.role === 'user') mine(row, m.at);
-        list.appendChild(row);
-      });
+      /* Восстановление идёт той же дверью, что обычная история. Отдельная
+       * сборка здесь теряла `photos` целиком и отбрасывала реплику из одних
+       * снимков проверкой `!m.text`: после перехода на другую страницу фото
+       * исчезали из разговора до следующего ручного открытия. `quiet` оставляет
+       * все данные, но не выдаёт старую историю за новое входящее. */
+      (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) { append(m, true); });
       state.unread = Math.max(0, Number(d.unread) || 0);
       paintBadge();
       scroll(true);

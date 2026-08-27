@@ -4248,6 +4248,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   cursor:pointer;display:grid;place-items:center;transition:opacity .15s,transform .06s}
 .chat-send:hover{opacity:.9}
 .chat-send:active{transform:scale(.94)}
+.chat-send:disabled{opacity:.5;cursor:wait;transform:none}
 .chat-send svg{width:18px;height:18px}
 /* Скрепка. Родной ввод файлов спрятан визуально (`hidden` выкинул бы его из
    порядка обхода — та же грабля, что у ввода снимков в форме отзыва), а
@@ -4323,7 +4324,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 @media (prefers-reduced-motion:reduce){
   .chat-panel,.chat-fab{transition:none}
-  .chat-typing i{animation:none}
+  .chat-typing i,.chat-status::before{animation:none}
 }
 
 
@@ -4644,6 +4645,13 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
     padding-bottom:calc(10px + env(safe-area-inset-bottom));
     margin-bottom:calc(-1 * env(safe-area-inset-bottom))}
   .chat-answer-dock .chat-answer-acts .btn{flex:none}
+}
+
+/* Пульс статуса в панели объявлен ниже витринного блока, поэтому и отказ от
+   анимации стоит после него: порядок не должен возвращать движение тому, кто
+   явно попросил его уменьшить. */
+@media (prefers-reduced-motion:reduce){
+  .chat-live.is-on i{animation:none}
 }
 
 /* =========================================================

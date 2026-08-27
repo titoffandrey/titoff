@@ -1645,6 +1645,12 @@ function chatView(chat) {
  * истории следующим ходом.
  */
 const aiBusy = new Set();
+/* Пока консультант отвечает, покупатель может дописать уточнение. Такой ход
+ * нельзя запускать параллельно — ответы перемешаются, — но нельзя и терять:
+ * после текущего ответа запускаем ещё один с уже полной историей. Несколько
+ * быстрых уточнений схлопываются в один следующий ход: отвечать на каждую
+ * строку отдельным абзацем было бы хуже, чем ответить на весь вопрос целиком. */
+const aiQueued = new Map();
 
 /* ОПЕРАТОР ЗАМОЛЧАЛ — КОНСУЛЬТАНТ ВОЗВРАЩАЕТСЯ САМ.
  *
@@ -1676,18 +1682,20 @@ function cancelTakeover(id) {
 
 function armTakeover(chat) {
   cancelTakeover(chat.id);
-  const wait = takeoverMs(settings());
+  const s = settings();
+  const minutes = CHAT.takeoverMinutes(s);
+  const wait = takeoverMs(s);
   if (!wait) return;                       // ноль — консультант не возвращается
   const timer = setTimeout(() => {
     aiTakeover.delete(chat.id);
     const s = settings();
     const fresh = CHAT.get(chat.id);
     if (!fresh || fresh.mode !== 'operator' || !AI.enabled(s)) return;
-    // За эти пять минут менеджер мог ответить — тогда возвращать некого.
+    // За заданный срок менеджер мог ответить — тогда возвращать некого.
     const last = fresh.messages[fresh.messages.length - 1];
     if (!last || last.role !== 'user') return;
     CHAT.setMode(fresh, 'ai');
-    TGCHAT.relaySystem(fresh, 'Менеджер не ответил пять минут — отвечает консультант');
+    TGCHAT.relaySystem(fresh, 'Менеджер не ответил за ' + minutes + ' мин. — отвечает консультант');
     aiReply(fresh, { page: fresh.page, cart: [], orders: chatOrders(fresh, 5) })
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
   }, wait);
@@ -1700,28 +1708,52 @@ async function aiReply(chat, info) {
   // Выключенный галочкой консультант молчит, даже когда ключ на месте: все
   // вопросы уходят менеджеру, и это осознанный режим владельца.
   if (!AI.enabled(s)) return;
-  if (aiBusy.has(chat.id)) return;
+  /* Второе сообщение не запускаем поверх первого, но и не бросаем. Раньше
+   * `aiBusy` просто выходил отсюда: покупатель дописывал «и в чёрном?», видел
+   * ответ только на первый вопрос и оставался без продолжения до третьей
+   * реплики. Последняя обстановка заменяет предыдущую, а сама переписка уже
+   * лежит в `chat.messages` целиком. */
+  if (aiBusy.has(chat.id)) {
+    aiQueued.set(chat.id, info || {});
+    return;
+  }
   aiBusy.add(chat.id);
   try {
-    await aiAnswer(chat, info, s);
+    let current = chat;
+    let context = info || {};
+    while (current) {
+      const currentSettings = settings();
+      if (current.mode !== 'ai' || !AI.enabled(currentSettings)) break;
+      await aiAnswer(current, context, currentSettings);
+      const next = aiQueued.get(chat.id);
+      aiQueued.delete(chat.id);
+      current = CHAT.get(chat.id);
+      if (!next || !current || current.mode !== 'ai') break;
+      context = next;
+    }
   } finally {
+    aiQueued.delete(chat.id);
     aiBusy.delete(chat.id);
   }
 }
 
-// Последний вопрос покупателя — по его длине считается пауза перед ответом:
-// на «а 512 есть?» человек отвечает быстрее, чем на абзац с тремя условиями.
-function lastAsk(chat) {
+// Последний вопрос покупателя: текстом считается пауза перед ответом, а временем
+// — ровно до какой реплики дошли галочки этого ответа. Второе важно, когда
+// покупатель успел дописать уточнение, пока консультант печатал первое.
+function lastQuestion(chat) {
   const list = (chat && chat.messages) || [];
-  for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'user') return list[i].text || '';
-  return '';
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].role === 'user') return { text: list[i].text || '', at: list[i].at || 0 };
+  }
+  return { text: '', at: 0 };
 }
 
 async function aiAnswer(chat, info, s) {
+  const question = lastQuestion(chat);
   CHAT.push(chat.id, 'typing', {});
   // Вопрос ушёл в модель — для покупателя это «доставлено»: у его реплики
   // появляется вторая галочка ещё до того, как придёт ответ.
-  CHAT.markStore(chat, 'got');
+  CHAT.markStore(chat, 'got', question.at);
   const messages = PROMPT.build(db, s, chat, info);
   /* Ответ идёт покупателю не как его отдаёт модель, а как его печатал бы
    * человек: с паузой на прочтение вопроса и ровным темпом (lib/chat-typing.js).
@@ -1731,7 +1763,7 @@ async function aiAnswer(chat, info, s) {
    * `alive` — про оператора: он мог войти в разговор, пока шла печать, и
    * допечатывать поверх живого человека нельзя. */
   const pace = TYPING.start({
-    ask: lastAsk(chat),
+    ask: question.text,
     send: piece => CHAT.push(chat.id, 'delta', { text: piece }),
     alive: () => {
       const at = CHAT.get(chat.id);
@@ -1775,7 +1807,7 @@ async function aiAnswer(chat, info, s) {
      * модель не ответила — вопрос лежит у менеджера, и «прочитано» было бы
      * неправдой и для покупателя, и для счётчика диалогов в шапке панели,
      * который считает непрочитанное этой же отметкой. */
-    CHAT.markStore(fresh, 'read');
+    CHAT.markStore(fresh, 'read', question.at);
     const message = CHAT.addMessage(fresh, 'ai', result.text);
     CHAT.push(fresh.id, 'done', message);
     TGCHAT.relayAi(fresh, result.text);
@@ -1903,7 +1935,7 @@ app.post('/api/chat/send', async (req, res) => {
     // Ушла менеджеру — у покупателя это вторая галочка. Прочитанной реплика
     // станет, когда менеджер откроет диалог или ответит: раньше об этом никто
     // не знает, и обещать «прочитано» по факту отправки было бы неправдой.
-    .then(ok => { if (ok) CHAT.markStore(chat, 'got'); })
+    .then(ok => { if (ok) CHAT.markStore(chat, 'got', own && own.at); })
     .catch(e => console.error('Чат: реплика не ушла в Telegram — ' + e));
 
   // Ответ ИИ идёт своим ходом. Оператор в диалоге — бот молчит: он замолкает
@@ -1921,14 +1953,14 @@ app.post('/api/chat/send', async (req, res) => {
     aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
   } else if (chat.mode === 'operator' && AI.enabled(s)) {
-    // Менеджер в диалоге — ждём его. Не ответил за пять минут, значит отошёл:
+    // Менеджер в диалоге — ждём его. Не ответил за заданный срок, значит отошёл:
     // консультант вернётся сам и ответит на эту же реплику (см. armTakeover).
     armTakeover(chat);
   }
   /* Время сохранённой реплики уезжает обратно в браузер: своя реплика нарисована
    * там ещё до ответа сервера, и без серверного `at` галочке не за что
    * зацепиться — отметки о доставке и прочтении считаются именно по нему. */
-  res.json({ ok: true, mode: chat.mode, at: own ? own.at : 0, receipt: CHAT.receipt(chat) });
+  res.json({ ok: true, id: chat.id, mode: chat.mode, at: own ? own.at : 0, receipt: CHAT.receipt(chat) });
 });
 
 /* Живой канал. Через него приходят куски ответа ИИ, реплики оператора и смена
