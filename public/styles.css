@@ -3223,6 +3223,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   /* Кнопки делят строку поровну: у «← Все отзывы» и «+ Добавить отзыв» разная
      длина, и по содержимому вторая занимала бы вдвое больше первой. */
   .a-topbar-acts>*{flex:1 1 0;min-width:0}
+  /* Кнопка в разделе одна — растягивать её во всю ширину незачем: получалась
+     полоса на весь экран ради двух слов, а место это на телефоне дорогое.
+     Делят ширину поровну именно НЕСКОЛЬКО кнопок разной длины. */
+  .a-topbar-acts>:only-child{flex:0 0 auto}
   .a-topbar .btn{max-width:none;justify-content:center;padding-inline:12px;overflow:hidden;text-overflow:ellipsis}
   /* Слово «живое» остаётся: в своём ряду место под него есть, а одна точка без
      подписи читается как значок состояния, а не как «страница живая». */
@@ -4401,10 +4405,18 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Обёртка реплики: пузырь и свёрнутая форма правки под ним. Сторону разговора
    задаёт она, а не сам пузырь, — иначе форма встала бы отдельным блоком во всю
    ширину ленты и разорвала бы разговор пополам. */
-.chat-item{display:flex;flex-direction:column;gap:2px;max-width:74%;min-width:0}
-.chat-item.is-user{align-self:flex-start;align-items:flex-start}
-.chat-item.is-ai,.chat-item.is-operator{align-self:flex-end;align-items:flex-end}
-.chat-item.is-system{align-self:center;align-items:center;max-width:100%}
+/* Карандаш правки стоит СБОКУ от пузыря, а не под ним: своей строкой он
+   добавлял по 24 px к каждой реплике — на полутора десятках это целый экран
+   пустоты. Открытая форма правки уезжает под пузырь переносом (`flex-wrap`),
+   потому что в строку она не поместится никогда. */
+.chat-item{display:flex;align-items:flex-end;flex-wrap:wrap;gap:2px 4px;max-width:74%;min-width:0}
+.chat-item.is-user{align-self:flex-start;justify-content:flex-start}
+.chat-item.is-ai,.chat-item.is-operator{align-self:flex-end;flex-direction:row-reverse}
+.chat-item.is-system{align-self:center;justify-content:center;max-width:100%}
+/* Место под карандаш в строке пузыря: без этого длинный пузырь занимает всю
+   ширину, и карандаш всё равно переносится вниз. */
+.chat-item .chat-line{max-width:calc(100% - 26px)}
+.chat-edit[open]{flex-basis:100%}
 /* Карандаш проявляется на наведении и на фокусе: в переписке из полутора
    десятков реплик столько же видимых кнопок читались бы как содержание. Не
    `display:none` — иначе до него нельзя было бы добраться с клавиатуры. */
@@ -4413,8 +4425,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    меряется от обёртки — и поле правки получалось у`же пузыря, в три слова.
    Своя ширина этот круг разрывает: обёртка расширяется под открытую форму,
    а `max-width` не даёт ей вылезти за свои 74% ленты. */
-.chat-edit{align-self:stretch;max-width:100%}
-.chat-item.is-ai .chat-edit,.chat-item.is-operator .chat-edit{text-align:right}
+.chat-edit{max-width:100%}
+.chat-item.is-ai .chat-edit[open],.chat-item.is-operator .chat-edit[open]{text-align:right}
 .chat-edit-open{list-style:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
   width:22px;height:22px;border-radius:7px;color:var(--muted);opacity:0;transition:opacity .12s,background .12s}
 .chat-edit-open::-webkit-details-marker{display:none}
@@ -4466,6 +4478,24 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .chat-answer-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
 .chat-answer-send{margin-right:auto}
 
+/* ---- Поле ответа ПРИЛИПАЕТ к низу, как в мессенджере ----
+ *
+ * Раньше оно стояло просто последним блоком страницы: чтобы ответить, менеджер
+ * прокручивал к нему всю переписку, а прочитав старую реплику наверху — снова
+ * вниз. `sticky` решает это без единой строчки скрипта и, что важнее, БЕЗ
+ * прокрутки внутри прокрутки: страница остаётся одной прокручиваемой областью,
+ * а поле просто не уезжает с экрана. Прокрутили до конца — оно встаёт на своё
+ * место в потоке, поэтому последнюю реплику собой не закрывает. */
+.chat-answer-dock{position:sticky;bottom:0;z-index:3;
+  box-shadow:0 -10px 24px rgba(15,23,42,.07)}
+/* Ввод и «Отправить» — одной строкой: кнопка относится к тексту, а снизу она
+   вместе с двумя служебными занимала три ряда на самом дорогом месте экрана. */
+.chat-answer-row{display:flex;align-items:flex-end;gap:8px}
+.chat-answer-row textarea{min-height:42px;max-height:132px;resize:none;overflow-y:auto}
+.chat-answer-row .chat-answer-send{flex:none;margin:0}
+.chat-answer-dock .chat-answer-acts{margin-top:8px;gap:6px}
+.chat-answer-dock .chat-answer-acts .btn{flex:none;font-size:12.5px}
+
 @media (max-width:640px){
   .chat-row{padding:10px 12px}
   .chat-item{max-width:88%}
@@ -4478,6 +4508,23 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .chat-head-go{display:none}
   .chat-answer-acts .btn{flex:1}
   .chat-answer-send{margin-right:0}
+  /* Шапка диалога ужата: до первой реплики на 390 px уходило полэкрана —
+     карточка посетителя, ряд техники и заказы подряд. Кто это и откуда, узнают
+     один раз, а переписку читают всё время. */
+  .chat-head-card{padding:10px 12px;gap:10px}
+  .chat-head-card .chat-ava.is-big{width:42px;height:42px;font-size:17px}
+  .chat-head-name{font-size:15px}
+  .chat-head-meta{padding:7px 12px;gap:10px}
+  /* Поле ответа во всю ширину экрана: рамка с полями отбирала бы у него по
+     16 px с каждой стороны там, где каждый пиксель на счету. */
+  .chat-answer-dock{margin-top:0;border-radius:0;border-left:0;border-right:0;padding:10px 12px;
+    /* Вырез под домашнюю полосу — только пока поле ПРИЛИПЛО. Отрицательное поле
+       снизу схлопывает его, когда поле встало на своё место в потоке: иначе под
+       ним зияла бы дыра в 34 px (та же грабля, что у ряда покупки на витрине).
+       Отдельным объявлением — без поддержки env() шорткат отменился бы весь. */
+    padding-bottom:calc(10px + env(safe-area-inset-bottom));
+    margin-bottom:calc(-1 * env(safe-area-inset-bottom))}
+  .chat-answer-dock .chat-answer-acts .btn{flex:none}
 }
 
 /* =========================================================

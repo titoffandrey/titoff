@@ -95,18 +95,38 @@
   var thread = document.querySelector('.chat-thread');
   if (!thread) return;
 
+  var dock = document.querySelector('.chat-answer-dock');
+
   function toBottom() {
     thread.scrollTop = thread.scrollHeight;
     /* На телефоне у ленты своей прокрутки нет вовсе: высота не ограничена,
      * чтобы не заводить прокрутку внутри прокрутки — палец не разберёт, какую
      * из них он тянет. Значит к последней реплике надо вести саму страницу,
      * иначе длинный разговор открывается на своём начале, то есть на самом
-     * бесполезном месте. */
+     * бесполезном месте.
+     *
+     * Поле ответа прилипло к низу экрана (`position:sticky`), поэтому вести
+     * страницу надо не к нижней границе ленты, а выше на его высоту: иначе
+     * последняя реплика оказывается ровно под ним — то есть невидимой. */
     if (thread.scrollHeight <= thread.clientHeight + 4) {
       var box = thread.getBoundingClientRect();
-      var below = box.bottom - window.innerHeight;
+      var docked = dock ? dock.getBoundingClientRect().height : 0;
+      var below = box.bottom - window.innerHeight + docked;
       if (below > 0) window.scrollBy(0, below + 12);
     }
+  }
+
+  /* Поле растёт под текст, как в мессенджере: одна строка под короткий ответ,
+   * до четырёх под длинный. Своя высота у него потому, что `rows` задаёт только
+   * начальную, а `resize` на телефоне не потянешь пальцем. */
+  var field = dock && dock.querySelector('textarea');
+  if (field) {
+    var grow = function () {
+      field.style.height = 'auto';
+      field.style.height = Math.min(field.scrollHeight, 132) + 'px';
+    };
+    field.addEventListener('input', grow);
+    grow();
   }
   toBottom();
 
