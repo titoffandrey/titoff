@@ -4176,11 +4176,31 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    чат через час и через день, и без времени непонятно, ответили ему только что
    или вчера вечером.
 
-   Обычный inline-элемент, а не float: float не участвует в расчёте max-content
-   ширины, поэтому пузырь не расширялся под время и толкал последнее слово на
-   новую строку (см. то же правило у переписки в панели). */
-.chat-at{display:inline-block;margin-left:8px;font-size:10.5px;color:var(--muted);
-  font-variant-numeric:tabular-nums;user-select:none;line-height:1.2;vertical-align:baseline}
+   ВРЕМЯ И ГАЛОЧКА — ОДНИМ УЗЛОМ В ПРАВОМ НИЖНЕМ УГЛУ, как в WhatsApp.
+
+   Порознь они и разъезжались: два соседних inline-элемента, строка рвётся между
+   ними — время остаётся в конце текста, а галочка уезжает на следующую строку
+   одна. В обёртке с `nowrap` разорвать их нечем.
+
+   Обёртка плавающая (`float:right`), и это тот самый float, от которого раньше
+   здесь отказывались. Отказывались по делу: float не участвует в расчёте
+   max-content ширины, поэтому пузырь не расширялся под время — у короткой
+   реплики оно не влезало и уезжало вниз. Лечится это не отказом от float, а
+   местом, которое ему оставляют: `.chat-text::after` резервирует в конце текста
+   ровно столько, сколько занимает обёртка. Так делают все мессенджеры, и только
+   так время встаёт на последнюю строку, когда там есть место, и уходит вниз
+   вправо, когда места нет. */
+.chat-meta{float:right;white-space:nowrap;margin:2px 0 0 8px;user-select:none}
+/* Место под обёртку в конце текста. Числа — ширина самой обёртки: у чужой
+   реплики это только время, у своей ещё и галочка. Разъедутся — время начнёт
+   переноситься вниз у коротких реплик, и это будет видно сразу. */
+.chat-msg .chat-text::after{content:'';display:inline-block;width:34px}
+.chat-me .chat-text::after{width:54px}
+/* Плавающая обёртка не увеличивает высоту пузыря: если она ушла на свою строку,
+   без этого она вылезла бы за нижний край. */
+.chat-msg::after{content:'';display:block;clear:both}
+.chat-at{font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums;line-height:1.2;vertical-align:baseline}
 .chat-me .chat-at{color:rgba(255,255,255,.75)}
 
 /* Галочки состояния реплики — часы, одна, две, две цветные. Правило ОДНО на
@@ -4192,7 +4212,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    никто не станет, а цвет читается с одного взгляда. Цвет светлый (а не белый
    поярче): на тёмном акценте белое от белого не отличить. */
 .chat-tick{display:inline-block;width:15px;height:10px;margin-left:4px;vertical-align:-1px;
-  flex:none;user-select:none}
+  flex:none;user-select:none;white-space:nowrap}
 .chat-tick svg{display:block;width:15px;height:10px}
 .chat-me .chat-tick{color:rgba(255,255,255,.62)}
 .chat-me .chat-tick.is-read{color:#5ddcff}
@@ -4555,7 +4575,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    Инлайновое время пузырь учитывает и расширяется на него, а у длинной реплики
    оно просто оказывается в конце последней строки — ровно как в Telegram. */
 .chat-line-at{display:inline-block;margin-left:8px;font-size:10.5px;color:var(--muted);
-  font-variant-numeric:tabular-nums;user-select:none;vertical-align:baseline}
+  font-variant-numeric:tabular-nums;user-select:none;vertical-align:baseline;
+  /* Время и галочка внутри — одной строкой: разорвать их переносом нельзя, это
+     одна подпись. Та же беда, что была у окна покупателя. */
+  white-space:nowrap}
 .chat-line.is-system .chat-line-at{display:none}
 /* Галочка у своей реплики: дошла ли она до покупателя и открывал ли он окно.
    Синий — тот же, что у ссылок Telegram в подвале витрины (4.6 на белом): на
