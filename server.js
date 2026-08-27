@@ -627,6 +627,15 @@ function payRemind(req) {
     const order = db.getOrder(String(id || ''));
     if (!order || order.draft) continue;                       // черновик заказом ещё не стал
     const pay = order.payment;
+    /* Заказ по своим реквизитам: кассы нет, а напомнить надо тем же способом —
+     * покупатель точно так же уходит из вкладки за банковским приложением, а
+     * ссылки на свою страницу оплаты у него больше нигде нет. Срока у таких
+     * реквизитов не бывает, поэтому полоса идёт без отсчёта. */
+    if (!pay && order.payMode === 'own') {
+      if (order.manualPaid || db.isOrderArchived(order)) continue;
+      if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
+      return card(order, 0);
+    }
     if (!pay) continue;
     const shown = R.payDisplay(pay, now);
     // Уже выданный счёт нельзя отменить удалением в панели: до конца срока он
@@ -712,7 +721,10 @@ app.get('/checkout', (req, res) => {
       : '';
   // `payOnline` решает подпись кнопки: «Перейти к оплате» либо «Оформить заказ».
   res.send(R.checkoutPage(settings(), pageOpts(req, {
-    payOnline: PAYMENTS.enabled(settings()) && !!paymentOrigin(req), notice
+    // `payOnline` решает подпись кнопки, и своими реквизитами покупатель платит
+    // на нашей же странице — значит «Перейти к оплате» тоже.
+    payOnline: (PAYMENTS.enabled(settings()) && !!paymentOrigin(req)) || PAYMENTS.ownEnabled(settings()),
+    notice
   })));
 });
 
@@ -1075,12 +1087,16 @@ function rememberOwnOrder(req, order) {
 }
 
 function orderApiBody(order, reused) {
-  const pay = !!(order && (order.draft || order.payment));
+  // `pay` — вести ли покупателя на страницу оплаты. Своими реквизитами платят
+  // там же, поэтому режим `own` ведёт туда наравне с кассой.
+  const pay = !!(order && (order.draft || order.payment || order.payMode === 'own'));
   return {
     ok: true, reused: !!reused, id: order.id, number: order.number,
     total: order.total, itemsTotal: order.itemsTotal,
     delivery: { price: order.deliveryPrice, zone: order.deliveryZone },
-    pay, telegram: reused ? 'already_queued' : 'queued'
+    // Корзину витрина чистит по этому полю: у ЧЕРНОВИКА товары обязаны
+    // остаться (способ ещё не выбран), а у настоящего заказа — уехать.
+    pay, draft: !!(order && order.draft), telegram: reused ? 'already_queued' : 'queued'
   };
 }
 
@@ -1300,9 +1316,13 @@ app.post('/api/order', async (req, res) => {
   // callback. В таком развёртывании оформляем обычную заявку, а не оставляем
   // покупателя с невидимым черновиком на неработающей странице оплаты.
   const draft = PAYMENTS.enabled(s) && !!paymentOrigin(req);
+  /* Свои реквизиты: черновика нет вовсе. Черновиком заказ становится ради
+   * ВЫБОРА способа оплаты, а выбирать тут нечего — реквизиты одни и те же, и
+   * менеджеру заявка нужна сразу, вместе с уведомлением. */
+  const payMode = !draft && PAYMENTS.ownEnabled(s) ? 'own' : '';
   const orderData = {
     checkoutRequestId, checkoutRequestHash: requestHash,
-    draft,
+    draft, payMode,
     host: db.normHost(req.headers.host),
     items, total: grandTotal, itemsTotal: total,
     firstName, lastName, phone, contact, address, delivery,
@@ -2519,6 +2539,9 @@ app.get('/pay/:id', async (req, res) => {
     amounts: ctx.amounts,
     orderArchived: db.isOrderArchived(currentOrder),
     canDiscardDraft: db.canDiscardDraftOrder(currentOrder),
+    // Свои реквизиты владельца — третий режим витрины (см. lib/payments.js).
+    // Заказ, оформленный в нём, кассы не касается вовсе.
+    own: currentOrder.payMode === 'own' ? PAYMENTS.ownRequisites(s) : null,
     // На самой странице оплаты напоминать о неоплаченном счёте незачем: она и
     // есть напоминание.
     payRemind: null
@@ -3071,6 +3094,26 @@ app.post('/admin/orders/:id/reconcile', async (req, res) => {
   }
   res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
 });
+/* Ручная отметка «оплачено» — для перевода на СВОИ реквизиты владельца.
+ *
+ * Касса о таком переводе не знает, сверять его не с чем: единственный, кто
+ * видит деньги, — человек в своём банковском приложении. Отметка снимается тем
+ * же маршрутом: ошиблись строкой — вернули как было.
+ *
+ * Заказ, который ведёт касса, руками не трогаем вовсе (проверяет хранилище):
+ * два источника правды об одних деньгах — худшее, что можно сделать с оплатой.
+ */
+app.post('/admin/orders/:id/paid', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const paid = String(req.body && req.body.paid || '') === '1';
+  const result = db.setOrderPaidManually(req.params.id, paid, 'admin');
+  const flash = result.ok
+    ? (paid ? 'Заказ отмечен оплаченным' : 'Отметка оплаты снята')
+    : (result.reason === 'settled_by_provider'
+      ? 'Этот заказ ведёт касса — её подтверждение рукой не меняется'
+      : 'Заказ не найден');
+  res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
+});
 app.post('/admin/orders/:id/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const result = db.archiveOrder(req.params.id, 'admin');
@@ -3406,6 +3449,33 @@ app.post('/admin/settings', async (req, res) => {
   const highest = high.value !== null ? high.value : Number(current.payMaxTotal);
   if (Number.isFinite(lowest) && Number.isFinite(highest) && highest < lowest) {
     return fail('Максимальная сумма заказа не может быть меньше минимальной');
+  }
+  /* Свои реквизиты — оплата вообще без кассы (см. lib/payments.js).
+   *
+   * Проверяем ДО записи, как и всё в этой форме: реквизит, которого не бывает,
+   * покупатель увидит на странице оплаты, переведёт деньги «в никуда» — и
+   * узнает об этом владелец от него же. Карту сверяем Луной, телефон — тем же
+   * модулем, что и поле заказа. */
+  patch.ownPayEnabled = req.body.ownPayEnabled !== undefined;
+  if (req.body.ownPayCard !== undefined) {
+    const digits = String(req.body.ownPayCard).replace(/\D+/g, '').slice(0, 24);
+    if (digits && !PAY.luhnOk(digits)) return fail('Номер карты для перевода введён с ошибкой');
+    patch.ownPayCard = digits;
+  }
+  if (req.body.ownPayPhone !== undefined) {
+    const raw = String(req.body.ownPayPhone).trim();
+    const stored = PHONE.store(raw);
+    if (raw && !stored) return fail('Телефон для СБП введён с ошибкой');
+    patch.ownPayPhone = stored;
+  }
+  if (req.body.ownPayOwner !== undefined) patch.ownPayOwner = String(req.body.ownPayOwner).trim().slice(0, 120);
+  if (req.body.ownPayBank !== undefined) patch.ownPayBank = String(req.body.ownPayBank).trim().slice(0, 80);
+  // Включённый режим без реквизитов — кнопка, ведущая на пустую страницу оплаты.
+  if (patch.ownPayEnabled) {
+    const next = PAYMENTS.ownRequisites(Object.assign({}, current, patch));
+    if (!next.owner || !(next.card || next.phone)) {
+      return fail('Для оплаты по своим реквизитам нужны получатель и хотя бы один реквизит — карта или телефон');
+    }
   }
   // Способы оплаты — галочки, поэтому снятые в теле формы просто отсутствуют.
   // Скрытое поле payMethodsForm говорит, что секция вообще пришла: без него

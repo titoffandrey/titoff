@@ -2964,7 +2964,7 @@ test('callback кассы берёт origin из развёртывания, а 
   assert.match(paymentOrigin, /hostname === 'localhost'/);
   assert.match(paymentOrigin, /return ''/,
     'без настройки боевой Host не становится финансовым callback-адресом');
-  assert.match(source, /payOnline: PAYMENTS\.enabled\(settings\(\)\) && !!paymentOrigin\(req\)/);
+  assert.match(source, /payOnline: \(PAYMENTS\.enabled\(settings\(\)\) && !!paymentOrigin\(req\)\) \|\| PAYMENTS\.ownEnabled/);
   const deploy = fs.readFileSync(path.join(__dirname, '..', 'deploy', 'setup-server.sh'), 'utf8');
   assert.match(deploy, /PUBLIC_ORIGIN='https:\/\/\$DOMAIN'/);
 });
@@ -4312,7 +4312,7 @@ test('оформление с онлайн-оплатой не чистит ко
 
   // Корзина остаётся до выбора способа: иначе ушедший со страницы оплаты
   // покупатель теряет и заказ, и товары разом.
-  assert.match(js, /if \(!online\) Cart\.clear\(\)/);
+  assert.match(js, /if \(!online \|\| !d\.draft\) Cart\.clear\(\)/);
   // А при отказе кассы корзина ОСТАЁТСЯ: заплатить не вышло, и покупателю нужно
   // чем-то попробовать ещё раз. Раньше она чистилась и здесь — по флагу
   // `placed`, — и «назад» возвращало пустую корзину с пустой формой.
@@ -10608,4 +10608,85 @@ test('время в чате одно и то же у покупателя и у
   const views = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'));
   const chatBlock = views.slice(views.indexOf('function chatSeenAgo'), views.indexOf('function chatModeBadge'));
   assert.doesNotMatch(chatBlock, /new Date\(/, 'все даты в чате панели идут через московские помощники');
+});
+
+test('свои реквизиты: третий режим витрины, без кассы и без таймера', () => {
+  /* P2P-кассы живут чужим пулом трейдеров, и он кончается: 27 августа 2026 обе
+   * отказывали сутки подряд, то есть магазин не мог принять ни одного платежа.
+   * Свои реквизиты этой зависимости не имеют вовсе — но и сверки у них нет, а
+   * значит нет ни срока у реквизитов, ни автоматического «оплачено». */
+  const PAYMENTS = require('../lib/payments');
+  const own = {
+    ownPayEnabled: true, ownPayCard: '5599 0021 4381 5845',
+    ownPayPhone: '89229191365', ownPayOwner: 'Сергеев Александр Викторович'
+  };
+  const ss = Object.assign({}, SETTINGS, own);
+
+  // Карта проверяется Луной, телефон — тем же модулем, что и поле заказа.
+  const req = PAYMENTS.ownRequisites(ss);
+  assert.equal(req.card, '5599002143815845');
+  assert.equal(req.phone, '+79229191365', 'номер хранится в E.164, как и в заказе');
+  assert.equal(req.ready, true);
+  assert.equal(PAYMENTS.mode(ss), 'own');
+  // Реквизит без имени получателя покупателю не показать: он по нему сверяет,
+  // туда ли переводит.
+  assert.equal(PAYMENTS.ownRequisites(Object.assign({}, ss, { ownPayOwner: '' })).ready, false);
+  assert.equal(PAYMENTS.ownRequisites(Object.assign({}, ss, { ownPayCard: '1234', ownPayPhone: '' })).ready, false);
+  // Пока кассы работают, свои реквизиты молчат: сверка кассы надёжнее руки.
+  const withCashbox = Object.assign({}, ss, { crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' });
+  assert.equal(PAYMENTS.mode(withCashbox), 'cashbox');
+  assert.equal(PAYMENTS.ownEnabled(withCashbox), false);
+  // Пределы одной покупки принадлежат кассам и вместе с ними исчезают.
+  assert.deepEqual(PAYMENTS.limits(ss), { min: 0, max: 0 });
+
+  const order = { id: 'a1', number: '482913', total: 67990, createdAt: Date.now(), items: [], payment: null, payMode: 'own' };
+  const html = render.payPage(ss, order, { origin: '', own: PAYMENTS.ownRequisites(ss) });
+  assert.match(html, /Телефон для СБП/);
+  assert.match(html, /\+7 922 919-13-65/, 'номер набран для чтения, как реквизит кассы');
+  assert.match(html, /data-copy="79229191365"/, 'а копируется голыми цифрами');
+  assert.match(html, /5599 0021 4381 5845/);
+  assert.match(html, /data-copy="5599002143815845"/);
+  assert.match(html, /Сергеев Александр Викторович/);
+  assert.match(html, /Переведите по СБП на номер телефона или на карту/);
+  // Ни таймера, ни выбора способа: срок реквизитам назначает касса, а своим
+  // назначать некому — и выбирать не из чего, реквизиты одни.
+  assert.doesNotMatch(html, /id="pay-timer"/);
+  assert.doesNotMatch(html, /name="method"/);
+  assert.doesNotMatch(html, /Проверить перевод/);
+  // Точную сумму просим по-прежнему: по ней менеджер найдёт перевод.
+  assert.match(html, /<b class="pay-exact">Переведите точную сумму<\/b>/);
+
+  // В панели такой заказ ждёт перевода, а после отметки — оплачен.
+  assert.deepEqual(render.payView(order), { tone: 'wait', label: 'ждём перевод' });
+  const paid = Object.assign({}, order, { manualPaid: { at: Date.now(), by: 'admin' } });
+  const view = render.payView(paid);
+  assert.equal(view.tone, 'ok');
+  assert.equal(view.label, 'оплачено вручную');
+  assert.equal(view.whenLabel, 'отметил менеджер');
+  // Покупатель, вернувшийся на страницу, видит подтверждение.
+  assert.match(render.payPage(ss, paid, { origin: '', own: PAYMENTS.ownRequisites(ss) }), /Оплата подтверждена/);
+
+  /* Отметка живёт ОТДЕЛЬНЫМ полем, а не подменяет `payment`: там переписка с
+   * кассой, её сверяет фон и по ней ищет заказ callback. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'own-pay-'));
+  const store = freshDb(dir);
+  const saved = store.createOrder({ items: [{ id: 'x', name: 'iPhone', price: 67990, qty: 1 }], total: 67990, payMode: 'own' });
+  assert.equal(saved.payMode, 'own');
+  assert.equal(saved.draft, false, 'выбирать способ не из чего — заявка настоящая сразу');
+  assert.equal(store.setOrderPaidManually(saved.id, true, 'admin').changed, true);
+  assert.equal(store.getOrder(saved.id).payment, null, 'переписку с кассой рукой не подменяем');
+  assert.ok(store.getOrder(saved.id).manualPaid.at > 0);
+  assert.equal(store.setOrderPaidManually(saved.id, true, 'admin').changed, false, 'повтор ничего не пишет');
+  assert.equal(store.setOrderPaidManually(saved.id, false, 'admin').changed, true, 'ошиблись строкой — вернули как было');
+  assert.equal(store.getOrder(saved.id).manualPaid, null);
+
+  // Заказ, который ведёт касса, рукой не трогаем: два источника правды об одних
+  // деньгах — худшее, что можно сделать с оплатой.
+  const byCashbox = store.createOrder({ items: [], total: 1000 });
+  store.startOrderPayment(byCashbox.id, {
+    provider: 'crocopay', attemptId: 'a'.repeat(24), requestId: 'r'.repeat(32),
+    token: 't'.repeat(32), method: 'SBP', amount: 1000, currency: 'RUB'
+  });
+  store.settleOrderPayment(byCashbox.id, { attemptId: 'a'.repeat(24), status: 'paid', paidTotal: 1000 });
+  assert.equal(store.setOrderPaidManually(byCashbox.id, false, 'admin').reason, 'settled_by_provider');
 });
