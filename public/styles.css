@@ -4150,7 +4150,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 .chat-log{overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:9px;
   background:var(--bg2);-webkit-overflow-scrolling:touch}
-.chat-msg{max-width:84%;padding:9px 13px;border-radius:16px;font-size:14.5px;line-height:1.45;
+.chat-msg{position:relative;max-width:84%;padding:9px 13px;border-radius:16px;font-size:14.5px;line-height:1.45;
   /* break-word, а не anywhere: anywhere уменьшает min-content ширину, и пузырь
      сжимается в колонку, разрывая обычные слова (см. то же правило у переписки
      в панели). */
@@ -4182,23 +4182,24 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    ними — время остаётся в конце текста, а галочка уезжает на следующую строку
    одна. В обёртке с `nowrap` разорвать их нечем.
 
-   Обёртка плавающая (`float:right`), и это тот самый float, от которого раньше
-   здесь отказывались. Отказывались по делу: float не участвует в расчёте
-   max-content ширины, поэтому пузырь не расширялся под время — у короткой
-   реплики оно не влезало и уезжало вниз. Лечится это не отказом от float, а
-   местом, которое ему оставляют: `.chat-text::after` резервирует в конце текста
-   ровно столько, сколько занимает обёртка. Так делают все мессенджеры, и только
-   так время встаёт на последнюю строку, когда там есть место, и уходит вниз
-   вправо, когда места нет. */
-.chat-meta{float:right;white-space:nowrap;margin:2px 0 0 8px;user-select:none}
+   Узел стоит абсолютно от пузыря. В потоке остаётся только прозрачный резерв в
+   конце текста: он расширяет короткий пузырь и, если последняя строка правда
+   заполнена, сам переносится вниз. `float:right` здесь давал ложный перенос:
+   браузер начинал float уже после текста и ронял метаданные на вторую строку,
+   хотя справа оставалась половина пузыря — именно так появлялась пустота на
+   длинных исходящих репликах. */
+.chat-meta{position:absolute;right:13px;bottom:10px;display:inline-flex;align-items:center;
+  white-space:nowrap;margin:0;user-select:none}
 /* Место под обёртку в конце текста. Числа — ширина самой обёртки: у чужой
    реплики это только время, у своей ещё и галочка. Разъедутся — время начнёт
    переноситься вниз у коротких реплик, и это будет видно сразу. */
-.chat-msg .chat-text::after{content:'';display:inline-block;width:34px}
-.chat-me .chat-text::after{width:54px}
-/* Плавающая обёртка не увеличивает высоту пузыря: если она ушла на свою строку,
-   без этого она вылезла бы за нижний край. */
-.chat-msg::after{content:'';display:block;clear:both}
+.chat-msg.chat-has-meta .chat-text::after{content:'';display:inline-block;width:34px}
+.chat-me.chat-has-meta .chat-text::after{width:54px}
+/* У реплики только со снимками нет строки текста, в которой можно оставить
+   резерв. Там метаданные честно идут следующим компактным рядом и сами
+   участвуют в высоте пузыря — поверх фотографии их класть нельзя. */
+.chat-shots+.chat-text:empty+.chat-meta{position:static;display:flex;width:max-content;
+  margin:6px 0 0 auto}
 .chat-at{font-size:10.5px;color:var(--muted);
   font-variant-numeric:tabular-nums;line-height:1.2;vertical-align:baseline}
 .chat-me .chat-at{color:rgba(255,255,255,.75)}
@@ -4211,7 +4212,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    Прочитанное отличается ЦВЕТОМ, а не третьей галочкой: считать галочки глазами
    никто не станет, а цвет читается с одного взгляда. Цвет светлый (а не белый
    поярче): на тёмном акценте белое от белого не отличить. */
-.chat-tick{display:inline-block;width:15px;height:10px;margin-left:4px;vertical-align:-1px;
+.chat-tick{display:inline-block;width:15px;height:10px;margin-left:4px;vertical-align:middle;
   flex:none;user-select:none;white-space:nowrap}
 .chat-tick svg{display:block;width:15px;height:10px}
 .chat-me .chat-tick{color:rgba(255,255,255,.62)}

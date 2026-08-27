@@ -10393,15 +10393,20 @@ test('Enter отправляет, а время с галочкой держат
   assert.match(shop, /meta\.className = 'chat-meta'/);
   assert.match(shop, /if \(at\) meta\.appendChild\(stampNode\(at\)\)[\s\S]{0,200}meta\.appendChild\(tickNode\(\)\)/);
   assert.match(css, /\.chat-meta\{[^}]*white-space:nowrap/, 'разорвать их переносом нечем');
-  assert.match(css, /\.chat-meta\{[^}]*float:right/, 'угол правый нижний, как в WhatsApp');
-  /* Место под обёртку в конце текста. Без него плавающая обёртка не участвует в
-   * расчёте max-content ширины: пузырь короткой реплики не расширяется под
-   * время, и оно уезжает вниз. Ровно из-за этого от float здесь когда-то и
-   * отказались — лечится не отказом, а резервом. */
-  assert.match(css, /\.chat-msg \.chat-text::after\{content:'';display:inline-block;width:\d+px\}/);
-  assert.match(css, /\.chat-me \.chat-text::after\{width:\d+px\}/);
-  // Плавающая обёртка не увеличивает высоту пузыря сама по себе.
-  assert.match(css, /\.chat-msg::after\{content:'';display:block;clear:both\}/);
+  assert.match(css, /\.chat-meta\{[^}]*position:absolute[^}]*right:13px[^}]*bottom:\d+px/,
+    'метаданные стоят от края пузыря, а не от случайного места float в потоке');
+  assert.doesNotMatch(css, /\.chat-meta\{[^}]*float:/,
+    'float проваливает время на отдельную строку при свободном месте справа');
+  /* Резерв в конце текста участвует в max-content ширине и не даёт времени
+   * накрыть последнее слово. Он есть только у динамической реплики с meta:
+   * серверное приветствие без времени не должно становиться шире впустую. */
+  assert.match(shop, /row\.classList\.add\('chat-has-meta'\)/);
+  assert.match(css, /\.chat-msg\.chat-has-meta \.chat-text::after\{content:'';display:inline-block;width:\d+px\}/);
+  assert.match(css, /\.chat-me\.chat-has-meta \.chat-text::after\{width:\d+px\}/);
+  assert.doesNotMatch(css, /\.chat-msg::after\{[^}]*clear:/,
+    'clear от прежнего float добавил бы пузырю пустую нижнюю строку');
+  // У фото без подписи время идёт отдельным поточным рядом и не накрывает кадр.
+  assert.match(css, /\.chat-shots\+\.chat-text:empty\+\.chat-meta\{position:static/);
   // Время у растущего ответа дописывается в ту же обёртку, а не рядом с ней.
   assert.match(shop, /var meta = state\.live\.querySelector\('\.chat-meta'\)/);
 
