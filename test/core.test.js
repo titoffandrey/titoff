@@ -10898,3 +10898,47 @@ test('переписку можно удалить целиком — сразу
   assert.match(source, /app\.post\('\/admin\/chat\/:id\/delete'/);
   assert.match(source, /CHAT\.remove\(chat\.id\)/);
 });
+
+test('оформил заказ — в чате он по имени, а не по городу', () => {
+  /* Имени в чате покупатель не называет никогда: окно его не спрашивает. Пока
+   * заказа нет, звать его городом — единственное, что можно. А оформив заказ,
+   * он имя назвал, и «Даллас» в шапке диалога становится шагом назад: менеджер
+   * отвечает человеку, а не точке на карте. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-name-'));
+  chatStore.init(dir);
+  const mark = 'c7d1'.repeat(8);
+  const chat = chatStore.create({ visitorId: mark, city: 'Даллас', ip: '185.220.100.240' });
+  chatStore.addMessage(chatStore.get(chat.id), 'user', 'а 512 есть?');
+  const order = {
+    id: 'o1', number: 176318, total: 50000, createdAt: Date.now(), visitorId: mark,
+    customerName: 'Сергей Петров', items: [{ name: 'iPhone 15 Pro Max', qty: 1 }]
+  };
+  const db = {
+    pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0,
+    getOrders: () => [order], visibleOrders: () => [order]
+  };
+
+  // Пока заказа нет — город, как и было.
+  const noOrder = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []);
+  assert.match(noOrder, /chat-head-name">Даллас/);
+
+  // С заказом — имя, и в шапке, и в кружке с буквой.
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', [order]);
+  assert.match(html, /chat-head-name">Сергей Петров/);
+  assert.doesNotMatch(html, /chat-head-name">Даллас/);
+  assert.match(html, /class="chat-ava is-big[^"]*"[^>]*>С</, 'буква аватара — от имени, а не от города');
+
+  // И в списке диалогов: там имя берётся из заказов того же посетителя одним
+  // проходом, а не поиском на каждую строку.
+  const list = adminViews.chatList(SETTINGS, db, '', 1);
+  assert.match(list, /chat-row-name">Сергей Петров/);
+
+  /* У новых диалогов имя попадает в сам диалог в момент заказа — иначе его
+   * пришлось бы искать по заказам ещё и в шапке темы Telegram, и в карточке
+   * уведомления. */
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /CHAT\.byVisitorId\(visitorId\)/);
+  assert.match(source, /CHAT\.touch\(ownChat, \{ name: named \}\)/);
+  chatStore.touch(chatStore.get(chat.id), { name: 'Сергей Петров' });
+  assert.match(adminViews.chatList(SETTINGS, { ...db, visibleOrders: () => [] }, '', 1), /Сергей Петров/);
+});

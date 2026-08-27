@@ -1371,6 +1371,19 @@ app.post('/api/order', async (req, res) => {
     clientSource: (metricVisitor && metricVisitor.source) || client.source
   }));
   if (!draft) metrics.markOrder(visitorId, order);
+  /* Диалог этого покупателя теперь знает, КАК ЕГО ЗОВУТ.
+   *
+   * Имени в чате покупатель не называет никогда — окно его не спрашивает, — и
+   * до сих пор в панели он значился городом: «Даллас». Оформив заказ, он имя
+   * назвал, и звать его в переписке городом больше незачем: менеджер отвечает
+   * человеку, а не точке на карте.
+   *
+   * Пишем прямо в диалог, а не подставляем при показе: имя нужно и в списке
+   * диалогов, и в шапке темы Telegram, и в карточке уведомления — искать по
+   * заказам в каждом из этих мест значило бы делать одну работу трижды. */
+  const named = String(order.customerName || '').trim();
+  const ownChat = named && visitorId ? CHAT.byVisitorId(visitorId) : null;
+  if (ownChat && ownChat.name !== named) CHAT.touch(ownChat, { name: named });
   // Медленные геобаза и Telegram больше не держат покупателя на «Отправляем».
   // Заказ уже записан; технические поля безопасно обогащаются в фоне.
   metrics.describeRequest(req, requestIp, proxyTrusted).then(enriched => {
