@@ -1456,7 +1456,11 @@ app.post('/api/order', async (req, res) => {
  * покупателя открытым все пять секунд генерации — и на плохой сети потерять и
  * ответ, и вопрос.
  */
-CHAT.init(db.DATA_DIR);
+/* Снимки удалённых реплик убирает хранилище загрузок — модуль чата про него не
+ * знает вовсе и знать не должен. Все пути удаления (срок хранения, потолок
+ * диалогов, обрезка переписки, удаление реплики и всего разговора) сходятся в
+ * одной его функции, поэтому подставить уборку достаточно один раз здесь. */
+CHAT.init(db.DATA_DIR, { dropFiles: files => files.forEach(db.deleteUploadIfUnused) });
 
 /* Открытый чат — это тоже «человек на сайте», и метрика обязана знать об этом.
  *
@@ -1588,8 +1592,24 @@ function chatContext(req) {
  * репликой одно имя, а в панели у той же реплики другое. Заодно так
  * подписываются и старые записи, сделанные до появления имён.
  */
+// Корзина покупателя из тела запроса: массив как есть либо строка JSON — так
+// она приходит вместе со снимками, где тело multipart и массивов не бывает.
+function chatCart(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+
 function chatMessageView(m) {
-  return { role: m.role, text: m.text, at: m.at, by: CHAT.speakerOf(m.role, m.by) };
+  const view = { role: m.role, text: m.text, at: m.at, by: CHAT.speakerOf(m.role, m.by) };
+  // Снимки уезжают готовыми адресами: собирать путь в браузере значило бы
+  // завести там второе знание о том, где лежат загрузки.
+  const photos = CHAT.photosOf(m);
+  if (photos.length) view.photos = photos.map(f => '/uploads/' + encodeURIComponent(f));
+  return view;
 }
 
 function chatView(chat) {
@@ -1776,7 +1796,7 @@ app.post('/api/chat/open', (req, res) => {
  * «принято» сразу, а вопрос уже лежит и в переписке, и в Telegram — даже если
  * модель откажет совсем.
  */
-app.post('/api/chat/send', (req, res) => {
+app.post('/api/chat/send', async (req, res) => {
   const s = settings();
   if (!CHAT.visible(s)) return res.json({ ok: false, error: 'off' }, 404);
   // Лимит по подписанной сессии, а не по IP: за одним адресом сидит целый офис
@@ -1785,7 +1805,34 @@ app.post('/api/chat/send', (req, res) => {
     return res.json({ ok: false, error: 'Слишком много сообщений подряд. Подождите минуту.' }, 429);
   }
   const text = CHAT.clean(req.body && req.body.text, CHAT.MAX_TEXT).trim();
-  if (!text) return res.json({ ok: false, error: 'Введите сообщение' }, 400);
+  /* Снимки покупателя.
+   *
+   * ЧТО ИМЕННО ЗАЩИЩАЕТ НАС ЗДЕСЬ, по порядку:
+   *   - тип файла определяется ПО СИГНАТУРЕ, а не по имени и не по MIME от
+   *     браузера (`imageExtension` в lib/server-lib.js): проходят только jpg,
+   *     png, gif и webp. SVG — а вместе с ним и любая разметка со скриптом —
+   *     не проходит вовсе, и расширение файлу тоже даёт сигнатура;
+   *   - имя на диске случайное, из него же собирается адрес: путь из запроса в
+   *     файловую систему не попадает никогда;
+   *   - файл не остаётся тем, чем пришёл: `optimizeUploads` перекодирует его в
+   *     WebP через ImageMagick и снимает ВСЕ метаданные (`-strip` плюс явное
+   *     гашение `date:*`) — ни EXIF с координатами съёмки, ни модели телефона,
+   *     ни времени в файле не остаётся. Пиксели при этом не режутся: 1400 px по
+   *     длинной стороне и качество WebP, на котором разница не видна глазом;
+   *   - размер одного файла ограничен 6 МБ ещё разбором multipart, а числом их
+   *     ограничивает CHAT.MAX_PHOTOS.
+   */
+  const raw = req.filesFor ? req.filesFor('photos').slice(0, CHAT.MAX_PHOTOS) : [];
+  /* Свой лимит на файлы, помимо общего лимита реплик: сорок сообщений по три
+   * снимка в каждом — это уже гигабайты на диске за пять минут. Считается он
+   * ТОЛЬКО когда файлы правда пришли, поэтому обычную переписку не задевает. */
+  if (raw.length && rateLimited(req, 'chat-photo', 24, 10 * 60 * 1000, anonymousSessionId(req))) {
+    return res.json({ ok: false, error: 'Слишком много снимков подряд. Попробуйте через несколько минут.' }, 429);
+  }
+  const photos = raw.length ? await optimizeUploads(raw, 1400) : [];
+  // Реплика без текста законна, если в ней есть снимок: фото коробки без единого
+  // слова — обычное дело. Пустая во всех смыслах — нет.
+  if (!text && !photos.length) return res.json({ ok: false, error: 'Введите сообщение' }, 400);
 
   const info = chatContext(req);
   let chat = currentChat(req);
@@ -1799,7 +1846,15 @@ app.post('/api/chat/send', (req, res) => {
 
   // Пишет — значит смотрит в окно: всё, что магазин ответил выше, прочитано.
   CHAT.markUser(chat, 'read');
-  const own = CHAT.say(chat, 'user', text, { exceptSid: String(req.body && req.body.sid || '') });
+  const own = CHAT.say(chat, 'user', text, { photos, exceptSid: String(req.body && req.body.sid || '') });
+  /* Что видит менеджер в Telegram. Сами файлы туда не уходят: `sendPhoto` — это
+   * второй канал доставки со своими лимитами и своими отказами, а переписка со
+   * снимками и так открыта в панели одним нажатием на уведомление. Молчать о
+   * них при этом нельзя — реплика «посмотрите» без единого слова про вложение
+   * читалась бы как оборванная. */
+  const withPhotos = photos.length
+    ? (text ? text + '\n' : '') + '📷 ' + photos.length + ' фото — смотреть в панели'
+    : text;
 
   /* Реплика уходит менеджеру одной дверью (`deliverUser`): она же заводит тему
    * на ПЕРВОМ сообщении, если её ещё нет.
@@ -1810,9 +1865,9 @@ app.post('/api/chat/send', (req, res) => {
   // Карточкой в открытую панель — рядом с отправкой менеджеру в Telegram.
   // Реплика покупателя и есть событие: ответить на неё можно из панели так же,
   // как из темы, и узнать о ней надо, стоя на любом разделе.
-  LIVE.note(A.noteChat(chat, text));
+  LIVE.note(A.noteChat(chat, withPhotos));
 
-  TGCHAT.deliverUser(chat, s, text)
+  TGCHAT.deliverUser(chat, s, withPhotos)
     // Ушла менеджеру — у покупателя это вторая галочка. Прочитанной реплика
     // станет, когда менеджер откроет диалог или ответит: раньше об этом никто
     // не знает, и обещать «прочитано» по факту отправки было бы неправдой.
@@ -1821,7 +1876,11 @@ app.post('/api/chat/send', (req, res) => {
 
   // Ответ ИИ идёт своим ходом. Оператор в диалоге — бот молчит: он замолкает
   // до конца переписки, и вернуть его можно только кнопкой в Telegram.
-  const cart = Array.isArray(req.body && req.body.cart) ? req.body.cart : [];
+  /* Корзина приезжает массивом в обычном JSON-запросе и СТРОКОЙ, когда реплика
+   * ушла со снимками (multipart полей-массивов не знает). Без разбора строки
+   * консультант терял бы содержимое корзины ровно в тех разговорах, где к
+   * вопросу приложили фото. */
+  const cart = chatCart(req.body && req.body.cart);
   if (chat.mode === 'ai' && AI.enabled(s)) {
     // Заказы этого покупателя уходят в промпт фактами: «где мой заказ» и
     // «оплатил, а статус прежний» — самые частые вопросы в чате, и без них
@@ -3385,7 +3444,12 @@ app.get('/admin/chat/:id', (req, res) => {
    * только до последней РЕПЛИКИ, а не до «сейчас»: иначе каждая перерисовка
    * помечала бы данные изменёнными и вызывала следующую (см. `markStore`). */
   CHAT.markStore(chat, 'read');
-  res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat)));
+  /* `sent=1` в адресе ставит редирект после успешного ответа — по нему панель
+   * даёт тот же звук отправки, что и окно покупателя. Отдельным признаком, а не
+   * сравнением текста плашки: подпись правят словами, и звук отвалился бы молча.
+   * Скрипт убирает параметр из адреса сразу, чтобы обновление страницы не
+   * повторяло сигнал. */
+  res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat), req.query.sent === '1'));
 });
 
 /* Ответ оператора из панели. Делает ровно то же, что сообщение в теме
@@ -3398,7 +3462,15 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
   if (!chat) return sendNotFound(req, res);
-  const back = (flash) => res.redirect('/admin/chat/' + encodeURIComponent(chat.id) + (flash ? '?flash=' + encodeURIComponent(flash) : ''), 303);
+  // `sent` добавляет к адресу возврата признак «ответ ушёл»: по нему панель
+  // даёт звук отправки — тот же, что слышит покупатель у себя в окне.
+  const back = (flash, sent) => {
+    const params = [];
+    if (flash) params.push('flash=' + encodeURIComponent(flash));
+    if (sent) params.push('sent=1');
+    return res.redirect('/admin/chat/' + encodeURIComponent(chat.id)
+      + (params.length ? '?' + params.join('&') : ''), 303);
+  };
 
   /* Значок консультанта в шапке — отправка той же формы с `mode=ai`: вложенных
    * форм в HTML не бывает, а браузер шлёт имя только нажатой кнопки (тот же
@@ -3428,7 +3500,7 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   // В тему уходит и ответ из панели: иначе дежурный в Telegram видел бы вопрос
   // без ответа и написал бы второй раз то же самое.
   TGCHAT.relaySystem(chat, 'Ответ из панели: ' + text);
-  return back('Отправлено');
+  return back('Отправлено', true);
 });
 
 /* Удалить переписку целиком. Сразу и насовсем — корзины у диалогов нет: денег,

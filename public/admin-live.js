@@ -255,6 +255,25 @@
     setTimeout(function () { if (card.parentNode) card.parentNode.removeChild(card); }, NOTE_FADE);
   }
 
+  /* Уведомление о реплике В ТОМ ЖЕ ДИАЛОГЕ, который сейчас открыт, показывать
+   * незачем: менеджер смотрит на эту переписку, реплика приезжает в ленту живым
+   * обновлением у него на глазах — а карточка поверх неё сообщала бы о том, что
+   * он уже видит, да ещё и звенела бы на каждое слово.
+   *
+   * Свой диалог узнаём по адресу самой карточки (`/admin/chat/<id>`): он там
+   * уже есть, и заводить ради этого отдельное поле в событии не пришлось.
+   * Правило касается ТОЛЬКО чата — карточка о новом заказе на странице заказов
+   * по-прежнему нужна: там она говорит о том, чего на экране ещё нет.
+   */
+  function noteMine(card) {
+    if (!card.classList || !card.classList.contains('a-note-chat')) return false;
+    var link = card.querySelector('.a-note-link');
+    var href = link && link.getAttribute('href');
+    if (!href) return false;
+    var here = location.pathname.replace(/\/+$/, '');
+    return href.replace(/\/+$/, '') === here;
+  }
+
   function noteShow(html) {
     var box = document.getElementById('a-notes');
     if (!box || !html) return;
@@ -266,6 +285,12 @@
     var incoming = doc.body.firstElementChild;
     if (!incoming) return;
     var card = document.importNode(incoming, true);
+    if (noteMine(card)) return;
+    /* Звук — вместе с карточкой и только вместе с ней: показанное уведомление и
+     * есть «пришло что-то, чего на экране нет». Файл общий с витриной
+     * (`public/chat-sound.js`), поэтому менеджер и покупатель слышат одно и то
+     * же — двух представлений о том, как звучит чат, быть не должно. */
+    if (window.ChatSound) window.ChatSound.play('in');
     box.insertBefore(card, box.firstChild);
     // Старые уводим сами: десяток карточек закрыл бы половину экрана — ровно
     // тем, ради чего панель и открыта.

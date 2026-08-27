@@ -10274,6 +10274,123 @@ test('состояние чата в настройках называет пр�
   assert.doesNotMatch(off, /is-err/);
 });
 
+test('чат звучит одинаково у покупателя и у менеджера, и только по делу', () => {
+  const sound = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat-sound.js'), 'utf8');
+  const shop = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+
+  /* Сигнал синтезируется, а не лежит файлом: чужие звуки мессенджеров — это
+   * чужие права, да и пара mp3 стала бы первыми бинарниками в дереве без
+   * единой зависимости и лишними запросами на каждого посетителя. */
+  assert.match(sound, /AudioContext/);
+  assert.match(sound, /window\.ChatSound = \{ play: play \}/);
+  assert.ok(!/\.mp3|\.ogg|\.wav|base64/i.test(sound), 'звук считается, а не грузится файлом');
+
+  // Файл ОДИН на витрину и панель — как media-lightbox.js и phone.js.
+  const shopLayout = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  const panelLayout = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
+  assert.match(shopLayout, /chat-sound\.js/);
+  assert.match(panelLayout, /chat-sound\.js/);
+  // Своего синтезатора ни у одной из сторон быть не должно.
+  for (const [name, src] of [['chat.js', shop], ['admin-live.js', live], ['admin-ui.js', ui]]) {
+    assert.ok(!/AudioContext|createOscillator/.test(src), name + ' не заводит свой звук');
+  }
+
+  /* ВХОДЯЩИЙ ЗВУЧИТ, ТОЛЬКО ЕСЛИ ОКНО ЗАКРЫТО. У покупателя это одно место —
+   * `bumpUnread()`: с открытым окном вызывается `seen()`, и звенеть ему в ухо
+   * на каждое слово консультанта незачем. Второго условия «окно закрыто» в
+   * файле быть не должно — оно разошлось бы с этим. */
+  assert.match(shop, /function bumpUnread\(\)[\s\S]{0,160}sound\('in'\)/);
+  assert.equal((shop.match(/sound\('in'\)/g) || []).length, 1, 'входящий сигнал ровно в одном месте');
+  // Отправка звучит вместе с появлением пузыря, а не после ответа сети: над
+  // Tor он приходит через секунды, и подтверждение опаздывало бы за нажатием.
+  assert.match(shop, /clearPicks\(\);[\s\S]{0,240}sound\('out'\)/);
+
+  /* В панели звук идёт ВМЕСТЕ С КАРТОЧКОЙ и только вместе с ней: показанное
+   * уведомление и есть «пришло то, чего на экране нет». */
+  assert.match(live, /if \(noteMine\(card\)\) return;[\s\S]{0,600}ChatSound.*play\('in'\)/);
+  assert.match(ui, /chat-view\[data-chat-sent\][\s\S]{0,200}play\('out'\)/);
+});
+
+test('уведомление не приходит про диалог, который и так открыт', () => {
+  /* Менеджер смотрит на эту переписку, реплика приезжает в ленту живым
+   * обновлением у него на глазах — карточка поверх неё сообщала бы о том, что
+   * он уже видит, да ещё и звенела бы на каждое слово. */
+  const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  assert.match(live, /function noteMine\(card\)/);
+  // Свой диалог узнаётся по адресу самой карточки — отдельного поля в событии
+  // для этого заводить не пришлось.
+  assert.match(live, /a-note-chat/);
+  assert.match(live, /location\.pathname/);
+  /* Правило касается ТОЛЬКО чата: карточка о новом заказе на странице заказов
+   * по-прежнему нужна — там она говорит о том, чего на экране ещё нет. */
+  assert.match(live, /if \(!card\.classList \|\| !card\.classList\.contains\('a-note-chat'\)\) return false/);
+
+  // Адрес в карточке — тот самый, по которому её и сравнивают.
+  const chat = { id: 'b'.repeat(32), messages: [], name: '', city: 'Москва' };
+  assert.match(adminViews.noteChat(chat, 'вопрос'), new RegExp('href="/admin/chat/' + chat.id + '"'));
+});
+
+test('к сообщению в чате прикладывается до трёх фото, и они безопасны', () => {
+  const { imageExtension } = require('../lib/server-lib');
+  /* ГЛАВНОЕ — ЧТО ВООБЩЕ СЧИТАЕТСЯ ФОТО. Тип решает сигнатура файла, а не имя
+   * и не MIME от браузера: SVG со скриптом внутри не проходит вовсе, поэтому
+   * «картинкой» нельзя прислать разметку. */
+  assert.equal(imageExtension(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>')), null);
+  assert.equal(imageExtension(Buffer.from('GIF89a' + 'x'.repeat(20))), '.gif');
+  assert.equal(imageExtension(Buffer.from([0xff, 0xd8, 0xff].concat(new Array(20).fill(0)))), '.jpg');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-shots-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ ip: '1.2.3.4' });
+
+  // Предел — три: больше в переписке уже галерея, разбирать её менеджеру негде.
+  assert.equal(chatStore.MAX_PHOTOS, 3);
+  const many = chatStore.addMessage(chat, 'user', 'вот', { photos: ['a.webp', 'b.webp', 'c.webp', 'd.webp'] });
+  assert.deepEqual(many.photos, ['a.webp', 'b.webp', 'c.webp']);
+  // Имя файла проверяется так же, как в хранилище загрузок: оно уезжает и в
+  // путь на диске, и в адрес на странице.
+  assert.deepEqual(chatStore.cleanPhotos(['../../etc/passwd', 'ok.webp', 'ok.webp']), ['ok.webp']);
+
+  // Реплика без слов законна, когда в ней есть снимок, и незаконна без него.
+  assert.ok(chatStore.addMessage(chat, 'user', '', { photos: ['e.webp'] }));
+  assert.equal(chatStore.addMessage(chat, 'user', '   '), null);
+  // Поля нет у обычной реплики: пустой массив в каждой зря раздувал бы файл.
+  assert.equal(chatStore.addMessage(chat, 'user', 'просто текст').photos, undefined);
+
+  /* ФАЙЛЫ УХОДЯТ ВМЕСТЕ С РЕПЛИКОЙ. Срок жизни снимка — срок жизни переписки,
+   * а путей удаления четыре (реплика, диалог, срок хранения, потолок), и все
+   * они сходятся в одной двери: забыть один уже нельзя. */
+  const dropped = [];
+  chatStore.init(dir, { dropFiles: files => dropped.push(...files) });
+  const live = chatStore.create({ ip: '1.2.3.4' });
+  const shot = chatStore.addMessage(live, 'user', 'фото', { photos: ['gone.webp'] });
+  chatStore.dropMessage(live, shot.at);
+  assert.deepEqual(dropped, ['gone.webp'], 'снимок удалённой реплики уходит в уборку');
+  const whole = chatStore.create({ ip: '1.2.3.4' });
+  chatStore.addMessage(whole, 'user', 'фото', { photos: ['bye.webp'] });
+  chatStore.remove(whole.id);
+  assert.ok(dropped.includes('bye.webp'), 'удаление диалога уносит снимки с собой');
+
+  /* Разметка — ТОТ ЖЕ ДОГОВОР с просмотрщиком, что у вложений отзыва
+   * (`data-media` у группы, `data-kind` у ссылки): своего окна просмотра в чате
+   * заводить не пришлось, и снимок открывается ровно так же. */
+  const shopJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.match(shopJs, /setAttribute\('data-media', ''\)/);
+  assert.match(shopJs, /setAttribute\('data-kind', 'photo'\)/);
+  // В href берём только свои загрузки: чужая схема ведёт неизвестно куда.
+  assert.match(shopJs, /src\.indexOf\('\/uploads\/'\) !== 0/);
+
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const page = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
+  assert.match(page, /chat-line-shots is-3/);
+  assert.match(page, /data-kind="photo"/);
+  assert.match(page, /href="\/uploads\/a\.webp"/);
+  // Реплика из одних снимков не оставляет в списке диалогов пустую строку.
+  assert.match(adminViews.chatList(SETTINGS, Object.assign({}, db, { }), ''), /📷|Пустой диалог/);
+});
+
 test('стили чата не пересекаются у витрины и панели', () => {
   /* Таблица стилей одна на обе, и одноимённое правило молча красило бы окно
    * покупателя. Классы панели живут в своём пространстве имён. */
@@ -10292,8 +10409,13 @@ test('стили чата не пересекаются у витрины и п�
    * `.chat-day` жил в обоих местах ещё дольше. Увидеть такое можно только
    * глазами и только на телефоне, поэтому проверяем не список имён, а САМО
    * пересечение: классы, которыми пользуются оба чата, обязаны отсутствовать. */
+  /* Имена ФАЙЛОВ из выборки убираем: `chat-sound.js` подключают оба макета, и
+   * как «общий класс» он читался бы ложной тревогой — а файл общий как раз
+   * намеренно, по тому же правилу, что `media-lightbox.js` и `phone.js`. */
   const classesOf = f => new Set(
-    (fs.readFileSync(path.join(__dirname, '..', f), 'utf8').match(/chat-[a-z0-9-]+/g) || []));
+    (fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
+      .replace(/chat-[a-z0-9-]+\.js/g, '')
+      .match(/chat-[a-z0-9-]+/g) || []));
   const shop = new Set([...classesOf('public/chat.js'), ...classesOf('lib/render.js')]);
   const panel = classesOf('lib/admin-views.js');
   const shared = [...panel].filter(c => shop.has(c));

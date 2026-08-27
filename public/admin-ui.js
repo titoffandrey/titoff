@@ -97,6 +97,22 @@
 
   var dock = document.querySelector('.chat-answer-dock');
 
+  /* Звук отправки — тот же, что слышит покупатель у себя в окне
+   * (`public/chat-sound.js`, один файл на витрину и панель).
+   *
+   * Играет он ПОСЛЕ перезагрузки, а не на отправке формы: ответ уходит обычным
+   * POST с редиректом, и начатый перед уходом со страницы звук браузер обрывает.
+   * Признак приезжает в разметке (`data-chat-sent`), а из адреса убирается
+   * сразу — иначе обновление страницы повторяло бы сигнал на пустом месте. */
+  var view = document.querySelector('.chat-view[data-chat-sent]');
+  if (view) {
+    if (window.ChatSound) window.ChatSound.play('out');
+    view.removeAttribute('data-chat-sent');
+    if (window.history && history.replaceState) {
+      history.replaceState(null, '', location.pathname);
+    }
+  }
+
   function toBottom() {
     thread.scrollTop = thread.scrollHeight;
     /* На телефоне у ленты своей прокрутки нет вовсе: высота не ограничена,

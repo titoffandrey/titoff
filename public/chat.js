@@ -36,6 +36,8 @@
   var badge = document.getElementById('chat-badge');
   var button = document.getElementById('chat-open');
   var sendBtn = form && form.querySelector('button[type="submit"]');
+  var fileInput = document.getElementById('chat-file');
+  var picksBox = document.getElementById('chat-picks');
   if (!panel || !list || !form || !input) return;
 
   var STORE = 'chat_v1';
@@ -60,8 +62,16 @@
     day: '',             // последний показанный разделитель дат
     mine: [],            // свои реплики и их галочки
     got: 0,              // докуда магазин получил свои реплики
-    read: 0              // докуда прочитал
+    read: 0,             // докуда прочитал
+    files: [],           // выбранные снимки: прикреплены, но ещё не отправлены
+    blobs: []            // их локальные адреса — освобождаем, когда лента перерисована
   };
+  // Предел приходит от сервера: своя копия числа разошлась бы с ним и обещала
+  // покупателю то, что маршрут потом отрежет молча.
+  var MAX_SHOTS = Math.max(1, Number(root.getAttribute('data-max-photos')) || 3);
+  // Тот же предел, что у разбора multipart на сервере (`MAX_FILE`). Проверка
+  // здесь — вежливость: сказать сразу, а не после долгой загрузки впустую.
+  var MAX_SHOT_BYTES = 6 * 1024 * 1024;
 
   /* --------------------------------- Память --------------------------------- */
 
@@ -112,7 +122,47 @@
     if (at < rest.length) node.appendChild(document.createTextNode(rest.slice(at)));
   }
 
-  function bubble(role, text, by, at) {
+  /* Снимки в реплике.
+   *
+   * Разметка — ТОТ ЖЕ ДОГОВОР, что у вложений отзыва: группа с `data-media`,
+   * внутри ссылки с `data-kind="photo"`. По ним работает общий просмотрщик
+   * (`public/media-lightbox.js`), который витрина и так грузит на каждой
+   * странице, — своего окна просмотра здесь заводить не пришлось, и открывается
+   * снимок ровно так же, как в отзывах.
+   *
+   * Ссылки настоящие: без скрипта клик просто откроет файл, как и в отзывах.
+   */
+  function photoGrid(photos, local) {
+    var box = document.createElement('span');
+    box.className = 'chat-shots is-' + Math.min(photos.length, 3);
+    box.setAttribute('data-media', '');
+    for (var i = 0; i < photos.length; i++) {
+      var src = String(photos[i] || '');
+      /* Адрес уезжает в `href` как есть, поэтому берём только два вида: свою
+       * загрузку с сервера и `blob:` собственной реплики, который мы сами же и
+       * создали строкой выше. Чужая схема в ссылке ведёт неизвестно куда, и
+       * пришла бы она из ответа сервера — то есть из места, которому в этом
+       * файле не верят и в остальном. */
+      if (src.indexOf('/uploads/') !== 0 && !(local && src.indexOf('blob:') === 0)) continue;
+      var link = document.createElement('a');
+      link.className = 'chat-shot';
+      link.href = src;
+      link.setAttribute('data-kind', 'photo');
+      link.setAttribute('aria-label', 'Открыть фото ' + (i + 1));
+      var img = document.createElement('img');
+      img.src = src;
+      img.alt = '';
+      img.loading = 'lazy';
+      // Размеры обязательны: без них лента прыгает по мере загрузки снимков —
+      // та же грабля, что у миниатюр отзывов.
+      img.width = 200; img.height = 200;
+      link.appendChild(img);
+      box.appendChild(link);
+    }
+    return box;
+  }
+
+  function bubble(role, text, by, at, photos, local) {
     var row = document.createElement('div');
     row.className = 'chat-msg chat-' + (role === 'user' ? 'me' : role === 'system' ? 'sys' : 'them');
     if (role === 'system') {
@@ -129,10 +179,16 @@
       who.textContent = by;
       row.appendChild(who);
     }
-    var body = document.createElement('span');
-    body.className = 'chat-text';
-    fillText(body, text);
-    row.appendChild(body);
+    /* Снимки идут ПЕРЕД текстом — как в любом мессенджере: подпись относится к
+     * картинке, а не наоборот. Реплика бывает и вовсе без слов, поэтому пустой
+     * пузырь текста в неё не добавляется. */
+    if (photos && photos.length) row.appendChild(photoGrid(photos, local));
+    if (text) {
+      var body = document.createElement('span');
+      body.className = 'chat-text';
+      fillText(body, text);
+      row.appendChild(body);
+    }
     /* Время внутри пузыря справа внизу — как в любом мессенджере. Покупатель
      * возвращается в чат через час и через день, и без времени непонятно,
      * ответили ему только что или вчера вечером. У растущей реплики времени
@@ -310,7 +366,8 @@
   }
 
   function append(message) {
-    if (!message || !message.text) return;
+    // Реплика без слов законна, когда в ней есть снимок.
+    if (!message || (!message.text && !(message.photos && message.photos.length))) return;
     if (message.at && message.at <= state.since) return;    // уже показано
     /* Страховка от собственного эха на ПЕРВОМ сообщении.
      *
@@ -322,6 +379,7 @@
      * Два одинаковых сообщения подряд («да», «да») от этого не теряются: оба
      * нарисованы здесь локально в момент отправки, подавляется только эхо. */
     if (message.role === 'user' && state.echo && message.text === state.echo.text
+      && (message.photos ? message.photos.length : 0) === state.echo.shots
       && Date.now() - state.echo.at < 15000) {
       state.echo = null;
       if (message.at) state.since = message.at;
@@ -336,7 +394,7 @@
      * ответы. */
     var stamp = message.at || Date.now();
     dayDivider(stamp);
-    var row = bubble(message.role, message.text, message.by, stamp);
+    var row = bubble(message.role, message.text, message.by, stamp, message.photos, message.local);
     if (message.role === 'user') mine(row, message.at);
     list.appendChild(row);
     scroll();
@@ -413,9 +471,22 @@
 
   /* ------------------------------- Непрочитанное ------------------------------- */
 
+  /* Сигнал звучит РОВНО ЗДЕСЬ — в единственном месте, куда сходятся оба пути
+   * входящей реплики: и обычный `append`, и дописанный ответ ИИ (`endDelta`).
+   * А сходятся они здесь именно потому, что сюда попадает только то, что пришло
+   * в ЗАКРЫТОЕ окно: с открытым вызывается `seen()`, и звук там не нужен —
+   * покупатель и так смотрит на ленту, а звенеть ему в ухо на каждое слово
+   * консультанта незачем.
+   *
+   * Своего условия «окно закрыто» тут нет и быть не должно: второе такое
+   * условие рано или поздно разошлось бы с этим. */
+  function sound(name) {
+    if (window.ChatSound) window.ChatSound.play(name);
+  }
   function bumpUnread() {
     state.unread++;
     paintBadge();
+    sound('in');
   }
   function paintBadge() {
     if (!badge) return;
@@ -469,6 +540,26 @@
       credentials: 'same-origin',
       body: JSON.stringify(data || {})
     }).then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .catch(function () { return { ok: false, error: 'network' }; });
+  }
+
+  /* Та же отправка, но со снимками: multipart вместо JSON.
+   *
+   * Заголовок Content-Type НЕ ставим руками — его обязан выставить браузер
+   * вместе с границей частей. Составные значения (корзина) уезжают строкой
+   * JSON: полей-массивов в multipart не бывает, и сервер разбирает эту строку
+   * обратно (`chatCart` в server.js).
+   */
+  function postFiles(url, data, files) {
+    var body = new FormData();
+    Object.keys(data || {}).forEach(function (key) {
+      var value = data[key];
+      if (value === undefined || value === null) return;
+      body.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+    });
+    for (var i = 0; i < files.length; i++) body.append('photos', files[i]);
+    return fetch(url, { method: 'POST', credentials: 'same-origin', body: body })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
       .catch(function () { return { ok: false, error: 'network' }; });
   }
 
@@ -628,11 +719,103 @@
       });
   }
 
+  /* ------------------------------ Прикреплённые фото ------------------------------
+   *
+   * Выбранный снимок НЕ УЛЕТАЕТ сразу: он становится плиткой над полем ввода, и
+   * до нажатия «отправить» его можно убрать или добавить к нему ещё один. Так
+   * это устроено во всех мессенджерах, и по делу — снимок почти всегда идёт с
+   * подписью, а промахнуться в выборе файла проще простого.
+   *
+   * Проверки здесь — вежливость, а не защита: тип файла решает сигнатура на
+   * сервере, число — маршрут, размер — разбор multipart. Смысл их в том, чтобы
+   * сказать «так не выйдет» сразу, а не после минуты загрузки впустую.
+   */
+  function pickShots(chosen) {
+    var added = 0, tooMany = false, tooBig = false, notImage = false;
+    for (var i = 0; i < chosen.length; i++) {
+      var file = chosen[i];
+      if (!file) continue;
+      if (state.files.length >= MAX_SHOTS) { tooMany = true; break; }
+      if (!/^image\//.test(file.type || '')) { notImage = true; continue; }
+      if (file.size > MAX_SHOT_BYTES) { tooBig = true; continue; }
+      state.files.push(file);
+      added++;
+    }
+    if (notImage) note('Приложить можно только фотографии.');
+    else if (tooBig) note('Один снимок — не больше 6 МБ.');
+    else if (tooMany) note('К сообщению можно приложить не больше ' + MAX_SHOTS + ' фото.');
+    if (added) renderPicks();
+  }
+
+  // Короткая строка о том, почему не вышло. Обычная системная реплика в ленте:
+  // своего места для ошибок в окне нет, а это ровно то место, куда смотрят.
+  function note(text) { append({ role: 'system', text: text }); }
+
+  function renderPicks() {
+    if (!picksBox) return;
+    /* Полоса пересобирается на каждое добавление и удаление, и адреса прошлой
+     * сборки надо освободить: без этого браузер держит в памяти по копии
+     * снимка на каждое нажатие. Адреса уже ОТПРАВЛЕННЫХ реплик сюда не
+     * попадают — они живут в ленте, пока живёт страница. */
+    for (var b = 0; b < state.blobs.length; b++) URL.revokeObjectURL(state.blobs[b]);
+    state.blobs = [];
+    picksBox.textContent = '';
+    picksBox.hidden = !state.files.length;
+    for (var i = 0; i < state.files.length; i++) {
+      var url = URL.createObjectURL(state.files[i]);
+      state.blobs.push(url);
+      var cell = document.createElement('span');
+      cell.className = 'chat-pick';
+      var img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      cell.appendChild(img);
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'chat-pick-x';
+      x.setAttribute('data-pick', String(i));
+      x.setAttribute('aria-label', 'Убрать фото ' + (i + 1));
+      x.textContent = '×';
+      cell.appendChild(x);
+      picksBox.appendChild(cell);
+    }
+  }
+
+  function clearPicks() {
+    state.files = [];
+    // Адреса самой полосы освобождаем, а адреса отправленной реплики — нет: по
+    // ним показан снимок в ленте, пока не приедут настоящие.
+    for (var b = 0; b < state.blobs.length; b++) URL.revokeObjectURL(state.blobs[b]);
+    state.blobs = [];
+    if (picksBox) { picksBox.textContent = ''; picksBox.hidden = true; }
+    if (fileInput) fileInput.value = '';
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', function () {
+      pickShots(fileInput.files ? [].slice.call(fileInput.files) : []);
+      /* Значение сбрасываем всегда: без этого повторный выбор ТОГО ЖЕ файла не
+       * даёт события `change` вовсе — покупатель нажимает скрепку, выбирает тот
+       * же снимок, и не происходит ничего. */
+      fileInput.value = '';
+    });
+  }
+  if (picksBox) {
+    picksBox.addEventListener('click', function (e) {
+      var x = e.target.closest && e.target.closest('[data-pick]');
+      if (!x) return;
+      state.files.splice(Number(x.getAttribute('data-pick')), 1);
+      renderPicks();
+    });
+  }
+
   /* ---------------------------------- Отправка ---------------------------------- */
 
   function send(text) {
     var body = String(text || '').trim();
-    if (!body || state.sending) return;
+    var files = state.files.slice();
+    // Реплика без слов законна, когда к ней приложен снимок.
+    if ((!body && !files.length) || state.sending) return;
     state.sending = true;
     if (sendBtn) sendBtn.disabled = true;
     /* Своя реплика рисуется БЕЗ времени, и это важно: `state.since` уезжает на
@@ -644,10 +827,20 @@
      * Отметку «ждём эхо» ставим ПОСЛЕ отрисовки: поставленная до неё, она
      * подавляла бы саму эту реплику — сообщение покупателя не появлялось в
      * окне вовсе. */
-    var row = append({ role: 'user', text: body });
-    state.echo = { text: body, at: Date.now() };
+    /* Снимки в своей реплике показываем СРАЗУ — по локальным `blob:`-адресам,
+     * не дожидаясь загрузки на сервер: пауза в несколько секунд между «отправил»
+     * и «увидел» читается как сбой. Настоящие адреса приедут вместе с эхом или
+     * при следующем открытии окна, а до тех пор картинка уже в ленте. */
+    var localShots = files.map(function (f) { return URL.createObjectURL(f); });
+    var row = append({ role: 'user', text: body, photos: localShots, local: true });
+    state.echo = { text: body, shots: files.length, at: Date.now() };
     input.value = '';
+    clearPicks();
     resize();
+    // Звук отправки — здесь, вместе с появлением пузыря: покупатель нажал, и
+    // подтверждение должно прийти в тот же миг, а не через ответ сети. Ошибку,
+    // если она случится, он увидит отдельной строкой в ленте.
+    sound('out');
 
     var go = state.started ? Promise.resolve(true) : open();
     go.then(function (ok) {
@@ -662,7 +855,10 @@
       // «Печатает…» показываем сразу, не дожидаясь ответа сервера: ждать здесь
       // нечего, а пустая пауза после своего сообщения читается как сбой.
       if (state.mode === 'ai') showTyping();
-      return post('/api/chat/send', payload).then(function (d) {
+      var request = files.length
+        ? postFiles('/api/chat/send', payload, files)
+        : post('/api/chat/send', payload);
+      return request.then(function (d) {
         state.sending = false;
         if (sendBtn) sendBtn.disabled = false;
         if (!d || !d.ok) {
