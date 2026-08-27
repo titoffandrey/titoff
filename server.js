@@ -50,6 +50,9 @@ const CHAT = require('./lib/chat');
 const AI = require('./lib/ai');
 const PROMPT = require('./lib/chat-prompt');
 const TGCHAT = require('./lib/chat-tg');
+// Ответ консультанта печатается, а не падает целиком: пауза на прочтение
+// вопроса и ровный темп по длине ответа (см. шапку модуля).
+const TYPING = require('./lib/chat-typing');
 const { App } = require('./lib/server-lib');
 LIVE.watch(db.DATA_DIR);
 
@@ -1706,15 +1709,39 @@ async function aiReply(chat, info) {
   }
 }
 
+// Последний вопрос покупателя — по его длине считается пауза перед ответом:
+// на «а 512 есть?» человек отвечает быстрее, чем на абзац с тремя условиями.
+function lastAsk(chat) {
+  const list = (chat && chat.messages) || [];
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'user') return list[i].text || '';
+  return '';
+}
+
 async function aiAnswer(chat, info, s) {
   CHAT.push(chat.id, 'typing', {});
   // Вопрос ушёл в модель — для покупателя это «доставлено»: у его реплики
   // появляется вторая галочка ещё до того, как придёт ответ.
   CHAT.markStore(chat, 'got');
   const messages = PROMPT.build(db, s, chat, info);
-  const result = await AI.stream(s, messages, piece => {
-    CHAT.push(chat.id, 'delta', { text: piece });
+  /* Ответ идёт покупателю не как его отдаёт модель, а как его печатал бы
+   * человек: с паузой на прочтение вопроса и ровным темпом (lib/chat-typing.js).
+   * Модель отвечает быстрее любого человека, и без этого окно выглядело так,
+   * будто на том конце подставляют заранее готовый текст.
+   *
+   * `alive` — про оператора: он мог войти в разговор, пока шла печать, и
+   * допечатывать поверх живого человека нельзя. */
+  const pace = TYPING.start({
+    ask: lastAsk(chat),
+    send: piece => CHAT.push(chat.id, 'delta', { text: piece }),
+    alive: () => {
+      const at = CHAT.get(chat.id);
+      return !!at && at.mode === 'ai';
+    }
   });
+  const result = await AI.stream(s, messages, piece => pace.feed(piece));
+  // Допечатываем остаток. Даже когда печатать нечего (модель не ответила),
+  // пауза выдерживается: мгновенное «уточню и вернусь» выдавало бы автоматику.
+  await pace.finish();
   const fresh = CHAT.get(chat.id);
   if (!fresh) return;
   /* Пока модель печатала, в диалог мог войти оператор. Его ответ главнее — ИИ
@@ -1727,8 +1754,13 @@ async function aiAnswer(chat, info, s) {
    * тему Telegram его не шлём: там оператор уже пишет сам.
    */
   if (fresh.mode !== 'ai') {
-    if (result.text) {
-      const partial = CHAT.addMessage(fresh, 'ai', result.text);
+    /* Сохраняем НАПЕЧАТАННОЕ (`pace.sent()`), а не весь текст модели: печать
+     * остановилась там же, где вошёл оператор, и покупатель увидел ровно этот
+     * кусок. Сохрани мы полный ответ — человек и панель видели бы разные
+     * разговоры, а в окне текст дописался бы сам при следующем открытии. */
+    const typed = pace.sent();
+    if (typed) {
+      const partial = CHAT.addMessage(fresh, 'ai', typed);
       CHAT.push(fresh.id, 'done', partial);
     } else {
       CHAT.push(fresh.id, 'done', null);

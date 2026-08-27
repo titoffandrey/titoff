@@ -10274,6 +10274,79 @@ test('состояние чата в настройках называет пр�
   assert.doesNotMatch(off, /is-err/);
 });
 
+test('ответ консультанта печатается, а не падает целиком', async () => {
+  const typing = require('../lib/chat-typing');
+
+  /* Пауза перед первым словом считается по длине ВОПРОСА: на «а 512 есть?»
+   * человек отвечает быстрее, чем на абзац с тремя условиями. */
+  assert.ok(typing.thinkDelay('а 512 есть?') < typing.thinkDelay('x'.repeat(200)));
+  assert.equal(typing.thinkDelay(''), typing.THINK_MIN);
+  assert.equal(typing.thinkDelay('x'.repeat(5000)), typing.THINK_MAX, 'пауза не растёт бесконечно');
+
+  /* Длительность печати — по длине ОТВЕТА, и у неё свой потолок. Настоящий
+   * человек печатал бы абзац полминуты; магазину столько молчать нельзя —
+   * скорость первого ответа тут дороже достоверности. */
+  assert.ok(typing.typeDuration(20) < typing.typeDuration(200));
+  assert.equal(typing.typeDuration(1), typing.TYPE_MIN);
+  assert.equal(typing.typeDuration(100000), typing.TYPE_MAX);
+  // Ожидание и чтение ощущаются по-разному: молчание терпят хуже, чем текст,
+  // который уже идёт, — поэтому печати отведено заметно больше, чем паузе.
+  assert.ok(typing.TYPE_MAX > typing.THINK_MAX);
+
+  // Текст доходит целиком, по порядку и не раньше конца паузы.
+  const seen = [];
+  const began = Date.now();
+  let firstAt = 0;
+  const pace = typing.start({
+    ask: 'есть 512?',
+    send: piece => { if (!firstAt) firstAt = Date.now() - began; seen.push(piece); }
+  });
+  const answer = 'Да, есть — 99 990 ₽, доставка СДЭК 2–3 дня.';
+  pace.feed(answer);
+  const out = await pace.finish();
+  assert.equal(out, answer);
+  assert.equal(seen.join(''), answer, 'текст доходит целиком и по порядку');
+  assert.ok(seen.length > 1, 'ответ идёт кусками, а не одним пятном');
+  assert.ok(firstAt >= typing.THINK_MIN - 60, 'первое слово не раньше конца паузы: ' + firstAt);
+  assert.ok(Date.now() - began <= typing.THINK_MAX + typing.TYPE_MAX + 400, 'уложились в потолок');
+
+  /* ОПЕРАТОР ВОШЁЛ ПОСРЕДИ ОТВЕТА — печать останавливается. Допечатывать поверх
+   * живого человека нельзя, и сохранить надо ровно напечатанное: сохрани мы
+   * полный текст модели, покупатель и панель видели бы разные разговоры. */
+  let live = true;
+  const cut = typing.start({ ask: 'вопрос', send: () => {}, alive: () => live });
+  cut.feed('y'.repeat(600));
+  setTimeout(() => { live = false; }, typing.THINK_MIN + 300);
+  const typed = await cut.finish();
+  assert.ok(typed.length > 0 && typed.length < 600, 'напечатана только часть: ' + typed.length);
+  assert.equal(cut.sent(), typed);
+
+  // Модель не ответила вовсе — пауза всё равно выдерживается: мгновенное
+  // «уточню и вернусь» выдавало бы автоматику с головой.
+  const silentAt = Date.now();
+  await typing.start({ ask: 'вопрос', send: () => {} }).finish();
+  assert.ok(Date.now() - silentAt >= typing.THINK_MIN - 60);
+
+  // Маршрут ответа обязан идти через пейсер, а не пушить куски модели напрямую.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const fn = server.slice(server.indexOf('async function aiAnswer('), server.indexOf('app.post(\'/api/chat/open\''));
+  assert.match(fn, /AI\.stream\(s, messages, piece => pace\.feed\(piece\)\)/);
+  assert.match(fn, /await pace\.finish\(\)/);
+  assert.doesNotMatch(fn, /AI\.stream\([\s\S]{0,120}CHAT\.push\(chat\.id, 'delta'/, 'куски модели не уходят покупателю напрямую');
+  assert.match(fn, /const typed = pace\.sent\(\)/, 'при входе оператора сохраняется напечатанное');
+
+  /* Пузырь растущего ответа рождается БЕЗ ТЕКСТА, и узел текста в нём обязан
+   * быть: печатать иначе некуда. Однажды его уже не стало — реплика повисала с
+   * одним именем и временем, а ответ не появлялся вовсе. */
+  const shopJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  const bubbleFn = shopJs.slice(shopJs.indexOf('function bubble(role'), shopJs.indexOf('function stampNode'));
+  assert.match(bubbleFn, /body\.className = 'chat-text';\s*\n\s*if \(text\) fillText\(body, text\)/,
+    'узел текста создаётся всегда, а не только при непустом тексте');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.chat-msg \.chat-text:empty\{display:none\}/,
+    'пустой узел текста убирается стилем, чтобы не давать отступ под фото');
+});
+
 test('чат звучит одинаково у покупателя и у менеджера, и только по делу', () => {
   const sound = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat-sound.js'), 'utf8');
   const shop = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
