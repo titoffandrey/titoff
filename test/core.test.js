@@ -3597,6 +3597,50 @@ test('отказ кассы объяснён покупателю, а «нет �
   assert.match(start, /console\.error\(p\.id \+ ' invoice:'[^)]*способ[^)]*сумма/);
 });
 
+test('счёт со ссылкой уступает обычным реквизитам, а на странице становится кнопкой', () => {
+  /* Касса может прислать не номер, а адрес своей платёжной страницы. Терять
+   * из-за этого оплату нельзя, но и предпочитать её обычному переводу — тоже:
+   * ссылка уводит покупателя на чужой домен с последнего шага покупки. */
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const create = source.slice(source.indexOf('async function requestInvoiceFrom('), source.indexOf('function paymentAlternative('));
+  assert.match(create, /PAY\.isPayLink\(r\.invoice\.requisite\) && !lastInChain/,
+    'ссылка не заканчивает очередь, пока есть кого спросить');
+  assert.ok(create.indexOf('db.attachOrderInvoice') < create.indexOf('deferred: true'),
+    'отложенный счёт всё равно привязан к попытке: терять id кассы нельзя');
+  const chain = source.slice(source.indexOf('async function startPaymentRoute('), source.indexOf("app.post('/api/pay/start'"));
+  assert.match(chain, /if \(outcome\.deferred\)/, 'очередь идёт дальше за обычными реквизитами');
+  assert.match(chain, /if \(!linkFallback\) linkFallback = outcome/, 'запасным остаётся первый ссылочный счёт');
+  assert.ok(chain.indexOf('if (linkFallback) return') < chain.indexOf('if (processing) {'),
+    'ссылка на руках лучше просьбы подождать');
+
+  // На странице оплаты у ссылки нет ни поля для копирования, ни подписи
+  // «Номер карты»: копировать нечего, переписывать в банк нечего.
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const order = {
+    id: 'a1b2', number: '482913', total: 68200, createdAt: Date.now(), items: [],
+    payment: {
+      provider: 'crocopay', status: 'pending', method: 'TO_CARD', invoiceId: '11111111-2222-3333-4444-555555555555',
+      requisite: 'https://dunapayments.xyz/payment/order-7mz4aCQxVXze', bank: 'Система быстрых платежей',
+      owner: '', expiresAt: Date.now() + 10 * 60 * 1000
+    }
+  };
+  const html = render.payPage(ss, order, { origin: '' });
+  assert.match(html, /Страница оплаты/);
+  assert.match(html, /<a class="btn btn-primary pay-qr-link" href="https:\/\/dunapayments\.xyz[^"]*" target="_blank" rel="noopener noreferrer">Перейти к оплате<\/a>/);
+  assert.doesNotMatch(html, /data-copy="https/, 'копировать адрес страницы незачем');
+  assert.doesNotMatch(html, /Номер карты/);
+  // Требование точной суммы остаётся: касса сводит перевод с заказом по ней.
+  assert.match(html, /<b class="pay-exact">Переведите точную сумму<\/b>/);
+  assert.match(html, /откроются на защищённой странице оплаты/);
+
+  // Обычные реквизиты рисуются как раньше — полем с кнопкой «Копировать».
+  const usual = render.payPage(ss, Object.assign({}, order, {
+    payment: Object.assign({}, order.payment, { method: 'SBP', requisite: '79104693811' })
+  }), { origin: '' });
+  assert.match(usual, /class="pay-copy" data-copy="79104693811"/);
+  assert.doesNotMatch(usual, /Перейти к оплате/);
+});
+
 test('страница оплаты: точная сумма выделена, подписи без рода, отмены счёта нет', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
@@ -7174,6 +7218,41 @@ test('счёт создаётся в основных единицах и тол
     const pastExpiry = providerInvoice('TO_CARD');
     pastExpiry.response.transaction.expiredAt = new Date(Date.now() - 1000).toISOString();
     stub(json(pastExpiry));
+    assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'bad_expiry');
+
+    /* Ссылочный счёт: с 27 августа 2026 касса отвечает на «перевод на карту»
+     * адресом своей платёжной страницы и БЕЗ срока. Выбрасывать такие счета
+     * значило бы терять оплату (за одно утро потеряли шесть), а выдумывать срок
+     * нельзя — спрашиваем его у самой кассы отдельным запросом статуса. */
+    const linkInvoice = { message: 'Data successfully received', response: {
+      transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', currency: 'RUB', amount: '67990.00000000' },
+      paymentRequisites: { paymentOption: 'TO_CARD', paymentMethod: 'Система быстрых платежей', holder: null,
+        requisites: 'https://dunapayments.xyz/payment/order-7mz4aCQxVXze', manual: true }
+    } };
+    const statusExpiry = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
+    let call = 0;
+    global.fetch = async (url, opts) => {
+      sent = { url, opts };
+      call++;
+      return call === 1 ? json(linkInvoice)
+        : json({ transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending', currency: 'RUB', amount: '67990.00000000', expiredAt: statusExpiry } });
+    };
+    const link = await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' });
+    assert.equal(link.ok, true, 'ссылку на страницу кассы принимаем: иначе покупатель остаётся без оплаты');
+    assert.equal(link.invoice.requisite, 'https://dunapayments.xyz/payment/order-7mz4aCQxVXze');
+    assert.equal(link.invoice.expiresAt, Date.parse(statusExpiry), 'срок взят у кассы, а не выдуман');
+    assert.equal(call, 2, 'статус спрашиваем ровно один раз и только из-за пропавшего срока');
+    // Луна и разбор телефона к адресу неприменимы, а вот схема — граница:
+    // значение уезжает в href на странице оплаты.
+    const payMethods = require('../lib/pay-methods');
+    assert.equal(payMethods.requisiteProblem('card', 'https://pay.example/x', true), '');
+    assert.equal(payMethods.isPayLink('https://pay.example/x'), true);
+    for (const bad of ['http://pay.example/x', 'javascript:alert(1)', 'data:text/html,x', '//pay.example', 'ссылка']) {
+      assert.equal(payMethods.isPayLink(bad), false, bad + ' ссылкой оплаты быть не может');
+    }
+    // Срока нет и у самой кассы — счёт по-прежнему не показываем.
+    call = 0;
+    global.fetch = async () => { call++; return json(call === 1 ? linkInvoice : { transaction: { id: '911c2823-f55b-43b5-9881-d5653107f7dc', status: 'Pending' } }); };
     assert.equal((await croco.createInvoice(on, { amount: 67990, method: 'TO_CARD' })).error, 'bad_expiry');
 
     // Реквизит приходит с внешней границы и для QR становится href. Неизвестную

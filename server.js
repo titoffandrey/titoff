@@ -1993,7 +1993,24 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   }
   const terminalAfterCreate = terminalPaymentBody(db.getOrder(id));
   if (terminalAfterCreate) return { done: true, status: 200, body: terminalAfterCreate };
-  return { done: true, status: 200, body: { ok: true, placed: true, url: '/pay/' + encodeURIComponent(id) } };
+  const body = { ok: true, placed: true, url: '/pay/' + encodeURIComponent(id) };
+  /* Реквизиты НА НАШЕЙ СТРАНИЦЕ лучше ссылки на страницу кассы, поэтому счёт со
+   * ссылкой не заканчивает очередь, а откладывается: спрашиваем следующую кассу
+   * и берём ссылку, только если обычных реквизитов не дал никто.
+   *
+   * Ссылка — вынужденный вариант (CrocoPAY стала отвечать так на «перевод на
+   * карту», см. lib/crocopay.js), и она уводит покупателя на чужой домен с
+   * последнего шага покупки. Терять из-за этого оплату нельзя, но и
+   * предпочитать её обычному переводу по номеру — тоже.
+   *
+   * Счёт при этом уже привязан к попытке и никуда не девается: если следующая
+   * касса выдаст нормальные реквизиты, ссылочный останется в истории заказа
+   * неоплаченным и сгорит по своему сроку. Покупателю он не показывается, а
+   * значит и заплатить по нему мимо нас нельзя. */
+  if (PAY.isPayLink(r.invoice.requisite) && !lastInChain) {
+    return { deferred: true, status: 200, body };
+  }
+  return { done: true, status: 200, body };
 }
 
 function paymentAlternative(methods, current) {
@@ -2317,6 +2334,7 @@ async function startPaymentRoute(req, res) {
     const tried = [];          // [{provider, code}] — для Telegram и статистики
     let conflict = false;      // тот же requestId прислан с другим способом/суммой
     let processing = false;    // ответ прошлого POST потерян — новый слать нельзя
+    let linkFallback = null;   // счёт со ссылкой: годится, но уступает реквизитам
 
     for (let i = 0; i < chain.length; i++) {
       const p = chain[i];
@@ -2361,12 +2379,25 @@ async function startPaymentRoute(req, res) {
       const outcome = await requestInvoiceFrom(p, s, req, order, ctx, method, providerRequestId,
         i === chain.length - 1);
       if (outcome.done) return { status: outcome.status, body: outcome.body };
+      // Счёт со ссылкой на страницу кассы: держим про запас и спрашиваем
+      // следующую — обычные реквизиты на нашей странице лучше (см.
+      // requestInvoiceFrom). Первый такой и остаётся запасным: второй ссылочный
+      // счёт ничем не лучше первого, а лишний счёт у кассы — хуже.
+      if (outcome.deferred) {
+        if (!linkFallback) linkFallback = outcome;
+        tried.push({ provider: p.id, code: 'link_only' });
+        continue;
+      }
       tried.push({ provider: p.id, code: outcome.code });
     }
 
     if (conflict) {
       return { status: 409, body: { ok: false, placed: true, errorCode: 'idempotency_conflict', error: 'Этот идентификатор уже использован для другого запроса.' } };
     }
+    /* Обычных реквизитов не дал никто — открываем отложенный счёт со ссылкой.
+     * Стоит это ВЫШЕ «подождите»: ссылка на руках лучше просьбы вернуться
+     * позже, и счёт по ней уже выставлен. */
+    if (linkFallback) return { status: linkFallback.status, body: linkFallback.body };
     // Хоть одна касса могла молча выпустить счёт, ответ которого до нас не
     // дошёл. Пока это не выяснено, честнее попросить подождать, чем звать
     // покупателя платить ещё раз и рисковать вторыми реквизитами.
