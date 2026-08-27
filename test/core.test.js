@@ -10710,7 +10710,19 @@ test('оператор замолчал — консультант возвра�
    * и упирается в молчание. Хуже случая в чате магазина не придумаешь: вопрос
    * задан, никто не ответил, вкладка закрыта. */
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(source, /const AI_TAKEOVER_MS = 5 \* 60 \* 1000;/);
+  /* Через сколько именно — настройка владельца: где-то дежурный сидит в теме
+   * постоянно, где-то появляется раз в день. Пять минут остались значением по
+   * умолчанию, ноль означает «не возвращать вовсе», а само число живёт в
+   * lib/chat.js — его спрашивают и возврат, и форма настроек. */
+  assert.equal(chatStore.TAKEOVER_DEFAULT_MIN, 5);
+  assert.equal(chatStore.takeoverMinutes({}), 5, 'поля нет — как было');
+  assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: '' }), 5, 'пустое поле — тоже');
+  assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 20 }), 20);
+  assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 0 }), 0, 'ноль — осознанный отказ');
+  assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 99999 }), chatStore.TAKEOVER_MAX_MIN);
+  assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 'ерунда' }), 5, 'мусор не отменяет возврат');
+  assert.match(source, /function takeoverMs\(s\) \{ return CHAT\.takeoverMinutes\(s\) \* 60 \* 1000; \}/);
+  assert.match(source, /if \(!wait\) return;/, 'ноль минут — таймер не заводим вовсе');
   const arm = source.slice(source.indexOf('function armTakeover('), source.indexOf('async function aiAnswer('));
   // Возвращаем, только если ответить и правда было некому: за пять минут
   // менеджер мог написать сам.
@@ -10723,7 +10735,9 @@ test('оператор замолчал — консультант возвра�
   assert.match(arm, /orders: chatOrders\(fresh, 5\)/);
 
   const send = source.slice(source.indexOf("app.post('/api/chat/send'"), source.indexOf("app.get('/api/chat/stream'"));
-  assert.match(send, /chat\.mode === 'operator' && AI\.configured\(s\)/);
+  // Спрашиваем `enabled`, а не `configured`: выключенный галочкой консультант
+  // молчит и с ключом — все вопросы уходят менеджеру.
+  assert.match(send, /chat\.mode === 'operator' && AI\.enabled\(s\)/);
   assert.match(send, /armTakeover\(chat\)/);
   // Ответил менеджер — таймер снимается: и из панели, и из темы Telegram.
   const reply = source.slice(source.indexOf("app.post('/admin/chat/:id/reply'"));
@@ -10941,4 +10955,49 @@ test('оформил заказ — в чате он по имени, а не п
   assert.match(source, /CHAT\.touch\(ownChat, \{ name: named \}\)/);
   chatStore.touch(chatStore.get(chat.id), { name: 'Сергей Петров' });
   assert.match(adminViews.chatList(SETTINGS, { ...db, visibleOrders: () => [] }, '', 1), /Сергей Петров/);
+});
+
+test('консультанта можно выключить галочкой, не трогая ключ', () => {
+  /* Владелец вправе увести все вопросы на живого менеджера — на время, на
+   * выходные, на разбор жалоб — и вернуть бота одним нажатием, а не искать ключ
+   * заново. Поэтому «ключ задан» и «отвечает» — разные вопросы. */
+  const ai = require('../lib/ai');
+  const withKey = { aiApiKey: 'sk-тест' };
+  assert.equal(ai.configured(withKey), true);
+  assert.equal(ai.enabled(withKey), true, 'поля нет — как было до появления галочки');
+  assert.equal(ai.enabled(Object.assign({}, withKey, { aiEnabled: false })), false);
+  assert.equal(ai.configured(Object.assign({}, withKey, { aiEnabled: false })), true,
+    'ключ остаётся на месте: панель обязана отличать выключенного от ненастроенного');
+  assert.equal(ai.enabled({ aiEnabled: true }), false, 'без ключа отвечать нечем');
+
+  /* Выключенный консультант в «есть кому отвечать» не считается: с ключом или
+   * без, он молчит, и остаётся только менеджер в Telegram. */
+  const off = { chatEnabled: true, aiApiKey: 'sk-тест', aiEnabled: false };
+  assert.equal(chatStore.visible(off), false, 'иначе витрина показала бы окно, в котором никто не отвечает');
+  assert.equal(chatStore.visible(Object.assign({}, off, { telegramBotToken: 't', telegramChatId: '-100500' })), true);
+  assert.equal(chatStore.visible({ chatEnabled: true, aiApiKey: 'sk-тест' }), true);
+
+  // Бот молчит на всех трёх путях: обычный ответ, ответ по очереди и возврат.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /async function aiReply\(chat, info\) \{[\s\S]{0,300}if \(!AI\.enabled\(s\)\) return;/);
+  assert.match(source, /chat\.mode === 'ai' && AI\.enabled\(s\)/);
+  assert.doesNotMatch(source, /AI\.configured\(s\)\) return;/);
+  // Галочка снимается отсутствием поля в теле формы, как и все прочие.
+  assert.match(source, /patch\.aiEnabled = req\.body\.aiEnabled !== undefined;/);
+  assert.match(source, /const willAi = patch\.aiEnabled &&/);
+
+  // Обе настройки стоят в разделе чата и подписаны по-человечески.
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0 };
+  // С Telegram чат жив и без бота — тогда панель и говорит, что консультант
+  // именно ВЫКЛЮЧЕН, а не «не настроен»: это разные беды и чинятся по-разному.
+  const offWithTg = Object.assign({}, off, { telegramBotToken: 't', telegramChatId: '-100500' });
+  const html = adminViews.settingsPage(Object.assign({}, SETTINGS, offWithTg), db, null);
+  assert.match(html, /name="aiEnabled"/);
+  assert.match(html, /Консультант отвечает сам/);
+  assert.match(html, /name="aiTakeoverMinutes"/);
+  assert.match(html, /Возврат консультанта, минут/);
+  assert.match(html, /placeholder="5 — 0 не возвращать"/);
+  // Панель говорит именно «выключен», а не «не настроен»: это разные беды и
+  // чинятся они по-разному.
+  assert.match(html, /Консультант выключен —/);
 });

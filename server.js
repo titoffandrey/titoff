@@ -1603,8 +1603,12 @@ const aiBusy = new Set();
  * ждать возврата бота дольше пяти минут после рестарта незачем, а хранить ради
  * этого ещё одно поле на диске и чинить его при каждой записи — дороже задачи.
  */
-const AI_TAKEOVER_MS = 5 * 60 * 1000;
 const aiTakeover = new Map();
+/* Через сколько консультант возвращается — настройка владельца (минуты живут в
+ * lib/chat.js, там же их предел и значение по умолчанию). Пять минут были
+ * зашиты числом, а магазину магазин рознь: где-то дежурный сидит в теме
+ * постоянно, где-то появляется раз в день. */
+function takeoverMs(s) { return CHAT.takeoverMinutes(s) * 60 * 1000; }
 
 function cancelTakeover(id) {
   const timer = aiTakeover.get(id);
@@ -1613,11 +1617,13 @@ function cancelTakeover(id) {
 
 function armTakeover(chat) {
   cancelTakeover(chat.id);
+  const wait = takeoverMs(settings());
+  if (!wait) return;                       // ноль — консультант не возвращается
   const timer = setTimeout(() => {
     aiTakeover.delete(chat.id);
     const s = settings();
     const fresh = CHAT.get(chat.id);
-    if (!fresh || fresh.mode !== 'operator' || !AI.configured(s)) return;
+    if (!fresh || fresh.mode !== 'operator' || !AI.enabled(s)) return;
     // За эти пять минут менеджер мог ответить — тогда возвращать некого.
     const last = fresh.messages[fresh.messages.length - 1];
     if (!last || last.role !== 'user') return;
@@ -1625,14 +1631,16 @@ function armTakeover(chat) {
     TGCHAT.relaySystem(fresh, 'Менеджер не ответил пять минут — отвечает консультант');
     aiReply(fresh, { page: fresh.page, cart: [], orders: chatOrders(fresh, 5) })
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
-  }, AI_TAKEOVER_MS);
+  }, wait);
   if (timer.unref) timer.unref();
   aiTakeover.set(chat.id, timer);
 }
 
 async function aiReply(chat, info) {
   const s = settings();
-  if (!AI.configured(s)) return;
+  // Выключенный галочкой консультант молчит, даже когда ключ на месте: все
+  // вопросы уходят менеджеру, и это осознанный режим владельца.
+  if (!AI.enabled(s)) return;
   if (aiBusy.has(chat.id)) return;
   aiBusy.add(chat.id);
   try {
@@ -1778,14 +1786,14 @@ app.post('/api/chat/send', (req, res) => {
   // Ответ ИИ идёт своим ходом. Оператор в диалоге — бот молчит: он замолкает
   // до конца переписки, и вернуть его можно только кнопкой в Telegram.
   const cart = Array.isArray(req.body && req.body.cart) ? req.body.cart : [];
-  if (chat.mode === 'ai' && AI.configured(s)) {
+  if (chat.mode === 'ai' && AI.enabled(s)) {
     // Заказы этого покупателя уходят в промпт фактами: «где мой заказ» и
     // «оплатил, а статус прежний» — самые частые вопросы в чате, и без них
     // консультант мог только переспросить номер у того, кто и так на странице
     // оплаты. Подбирает их сервер по метке посетителя — чужие сюда не попадут.
     aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
-  } else if (chat.mode === 'operator' && AI.configured(s)) {
+  } else if (chat.mode === 'operator' && AI.enabled(s)) {
     // Менеджер в диалоге — ждём его. Не ответил за пять минут, значит отошёл:
     // консультант вернётся сам и ответит на эту же реплику (см. armTakeover).
     armTakeover(chat);
@@ -3591,6 +3599,21 @@ app.post('/admin/settings', async (req, res) => {
     }
     patch.aiBaseUrl = base;
   }
+  /* Галочка консультанта — как и все прочие: снятая в теле формы просто
+   * отсутствует. Ключ она не трогает, поэтому вернуть бота можно одним
+   * нажатием, а не искать ключ заново. */
+  patch.aiEnabled = req.body.aiEnabled !== undefined;
+  if (req.body.aiTakeoverMinutes !== undefined) {
+    const raw = String(req.body.aiTakeoverMinutes).trim();
+    if (!raw) patch.aiTakeoverMinutes = '';
+    else {
+      const n = Math.floor(Number(raw));
+      if (!Number.isFinite(n) || n < 0 || n > CHAT.TAKEOVER_MAX_MIN) {
+        return fail('Возврат консультанта — от 0 до ' + CHAT.TAKEOVER_MAX_MIN + ' минут (0 — не возвращать)');
+      }
+      patch.aiTakeoverMinutes = n;
+    }
+  }
   if (req.body.chatPrompt !== undefined) patch.chatPrompt = String(req.body.chatPrompt).slice(0, PROMPT.MAX_INSTRUCTION);
   if (req.body.chatGreeting !== undefined) patch.chatGreeting = String(req.body.chatGreeting).trim().slice(0, 400);
   if (req.body.chatChatId !== undefined) {
@@ -3603,7 +3626,9 @@ app.post('/admin/settings', async (req, res) => {
     patch.chatChatId = room;
   }
   const willChat = patch.chatEnabled;
-  const willAi = (patch.aiApiKey !== undefined ? patch.aiApiKey : current.aiApiKey);
+  // Выключенный галочкой консультант в «есть кому отвечать» не считается: он
+  // молчит с ключом или без него.
+  const willAi = patch.aiEnabled && (patch.aiApiKey !== undefined ? patch.aiApiKey : current.aiApiKey);
   const willTg = (patch.telegramBotToken !== undefined ? patch.telegramBotToken : current.telegramBotToken)
     && ((patch.chatChatId !== undefined ? patch.chatChatId : current.chatChatId)
       || (patch.telegramChatId !== undefined ? patch.telegramChatId : current.telegramChatId));
