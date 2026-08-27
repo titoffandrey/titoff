@@ -3117,20 +3117,24 @@ test('строка заказа: оплата собрана одним блок
     assert.match(html, /orders\/o1\/delete/, name);
     assert.match(html, /aria-label="Удалить заказ"/, name);
     assert.doesNotMatch(html, /Удаление запрещено|🔒/, name);
-    assert.match(html, /Удалённые <b>0<\/b>/, name);
+    // Вкладки «Удалённые» больше нет: удаление окончательное, возвращаться
+    // некуда. Подтверждение говорит об этом прямо.
+    assert.doesNotMatch(html, /Удалённые <b>/, name);
+    assert.match(html, /data-confirm="Удалить заказ [^"]*навсегда/, name);
   }
   const unpaid = Object.assign({}, long, { payment: null });
   const unpaidDb = Object.assign({}, db, { getOrders: () => [unpaid], visibleOrders: () => [unpaid] });
   assert.match(adminViews.ordersList(SETTINGS, unpaidDb, null, 1), /orders\/o1\/delete/,
     'заявку без платёжной истории тоже можно удалить');
+  /* Заявки, заархивированные прежней версией, в списке не показываются: для
+   * владельца они удалены, и «вернуть» их теперь неоткуда — корзины нет. */
   const archived = Object.assign({}, long, { archive: { active: true, at: Date.now(), by: 'admin' } });
   const archivedDb = Object.assign({}, db, {
     getOrders: () => [archived], visibleOrders: () => [], archivedOrders: () => [archived]
   });
   const archivedHtml = adminViews.ordersList(SETTINGS, archivedDb, null, 1, 'archive');
-  assert.match(archivedHtml, /orders\/o1\/restore/);
-  assert.match(archivedHtml, /aria-label="Восстановить заказ"/);
-  assert.doesNotMatch(archivedHtml, /orders\/o1\/delete/);
+  assert.doesNotMatch(archivedHtml, /orders\/o1\/restore|Восстановить заказ/);
+  assert.doesNotMatch(archivedHtml, /class="o-row/, 'архивные записи в список не попадают');
 
   // Раскрывать нечего — стрелки нет: у заявки без адреса и техники она открывала
   // бы пустоту.
@@ -4730,139 +4734,76 @@ test('оплата хранит отдельные попытки и закры�
   assert.equal(fresh.getOrder(other.id).payment.status, 'paid');
 });
 
-test('навсегда удаляется только архив без платёжной истории', t => {
+test('заказ удаляется сразу и насовсем, вместе с платёжной историей', t => {
+  /* Корзины больше нет. «Удалённые» держали запись ради поздней оплаты по уже
+   * выданному счёту кассы — а платят по своим реквизитам, ждать позднего
+   * callback не от кого. Цена решения названа в подтверждении панели: у заказа
+   * с выставленным счётом связать поздний платёж будет уже не с чем. */
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-purge-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
   fresh.ensureSeeded();
 
   const live = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
-  // Из рабочего списка стереть нельзя вовсе: архив и есть защита от нажатия не
-  // туда, а стёртый заказ теряет привязку к уже выданному счёту.
-  const refused = fresh.purgeOrder(live.id);
-  assert.equal(refused.ok, false);
-  assert.equal(refused.reason, 'not_archived');
-  assert.ok(fresh.getOrder(live.id), 'отказ не должен ничего трогать');
-
-  fresh.archiveOrder(live.id, 'admin');
   const gone = fresh.purgeOrder(live.id);
   assert.equal(gone.ok, true);
   assert.equal(gone.hadInvoice, false, 'счёта у этого заказа не было');
   assert.ok(!fresh.getOrder(live.id), 'заказ исчез из хранилища');
-  assert.equal(fresh.getOrders().some(o => o.id === live.id), false);
-  assert.equal(fresh.archivedOrders().some(o => o.id === live.id), false);
   // Именно из файла, а не только из кэша в памяти.
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).some(o => o.id === live.id), false);
   assert.equal(fresh.purgeOrder(live.id).reason, 'not_found', 'второй раз стирать нечего');
 
-  // Заказ с выставленным счётом остаётся финансовым журналом: деньги по нему
-  // ещё могут прийти, и callback обязан найти прежнюю привязку.
+  // Заказ с выставленным счётом тоже удаляется — но панель обязана предупредить.
   const paidish = fresh.createOrder({ items: [], total: 2000, contact: 'tg' });
   const attempt = '7'.repeat(24);
   fresh.startOrderPayment(paidish.id, { attemptId: attempt, token: '8'.repeat(32), amount: 2000, currency: 'RUB' });
   fresh.attachOrderInvoice(paidish.id, { attemptId: attempt, invoiceId: 'cccccccc-0000-0000-0000-000000000000' });
-  fresh.archiveOrder(paidish.id, 'admin');
-  const protectedResult = fresh.purgeOrder(paidish.id);
-  assert.equal(protectedResult.ok, false);
-  assert.equal(protectedResult.reason, 'financial_history');
-  assert.equal(protectedResult.hadInvoice, true);
-  assert.ok(fresh.getOrder(paidish.id));
+  const withInvoice = fresh.purgeOrder(paidish.id);
+  assert.equal(withInvoice.ok, true);
+  assert.equal(withInvoice.hadInvoice, true);
+  assert.ok(!fresh.getOrder(paidish.id));
+
+  const db = { getOrders: () => [], visibleOrders: () => [], archivedOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0 };
+  const one = fresh.createOrder({ items: [], total: 3000, contact: 'tg' });
+  const shown = { getOrders: () => [one], visibleOrders: () => [one], archivedOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0 };
+  const html = adminViews.ordersList(fresh.getSettings(), shown, null, 1);
+  assert.match(html, /data-confirm="Удалить заказ [^"]*навсегда\? Вернуть его будет неоткуда\./);
+  assert.doesNotMatch(html, /Удалённые <b>|Вернуть<\/button>|purge-all/, 'корзины в панели больше нет');
+  assert.doesNotMatch(adminViews.ordersList(fresh.getSettings(), db, null, 1), /view=archive/);
 
   assert.equal(fresh.purgeOrder('нет-такого').reason, 'not_found');
 });
 
-/* Очистка корзины целиком.
- *
- * Архив копится сам: брошенные черновики и тестовые заявки удаляют из рабочего
- * списка, и дальше они лежат там навсегда. По одной их чистить — подтверждение
- * на каждую, и на полусотне записей за этим перестают следить вовсе.
- */
-test('«Очистить корзину» стирает только архив без платёжной истории', t => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-purge-all-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const fresh = freshDb(dir);
-  fresh.ensureSeeded();
-
-  const working = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
-  const trash = [1000, 2000, 3000].map(total => fresh.createOrder({ items: [], total, contact: 'tg' }));
-  // У одного из удалённых был счёт: панель обязана сказать это ДО нажатия —
-  // деньги по нему ещё могут прийти, и привязать их будет не к чему. Счёт
-  // выставляется до архива: заархивированному заказу новый счёт запрещён.
-  const attempt = '9'.repeat(24);
-  fresh.startOrderPayment(trash[1].id, { attemptId: attempt, token: 'a'.repeat(32), amount: 2000, currency: 'RUB' });
-  fresh.attachOrderInvoice(trash[1].id, { attemptId: attempt, invoiceId: 'dddddddd-0000-0000-0000-000000000000' });
-  for (const o of trash) fresh.archiveOrder(o.id, 'admin');
-
-  const result = fresh.purgeArchivedOrders();
-  assert.equal(result.removed, 2);
-  assert.equal(result.protected, 1);
-  assert.equal(result.hadInvoice, 1);
-  // Рабочий список не трогается ни при каких условиях: это единственная защита
-  // от «одним нажатием снёс все заказы».
-  assert.ok(fresh.getOrder(working.id), 'заказ из рабочего списка на месте');
-  assert.equal(fresh.archivedOrders().length, 1, 'финансовый заказ остался для callback и сверки');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'orders.json'), 'utf8')).length, 2,
-    'из файла исчезли только чистые архивные записи');
-  // Повтор не трогает защищённую историю и честно сообщает о ней.
-  assert.deepEqual(fresh.purgeArchivedOrders(), { ok: true, removed: 0, protected: 1, hadInvoice: 1 });
-});
-
-/* Список заказов: режим правки переживает действие, а «Очистить корзину» живёт
- * внутри него.
- */
-test('режим правки не выключается после удаления, очистка есть только в «Удалённых»', t => {
+/* Список заказов: режим правки переживает действие. */
+test('режим правки не выключается после удаления', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orders-edit-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
   fresh.ensureSeeded();
   const kept = fresh.createOrder({ items: [], total: 1000, contact: 'tg' });
-  const dropped = fresh.createOrder({ items: [], total: 2000, contact: 'tg' });
-  fresh.archiveOrder(dropped.id, 'admin');
   const s = fresh.getSettings();
 
-  const plain = adminViews.ordersList(s, fresh, null, 1, 'active');
+  const plain = adminViews.ordersList(s, fresh, null, 1);
   assert.match(plain, /class="edit-switch sr-only">/, 'по умолчанию режим выключен');
-  const editing = adminViews.ordersList(s, fresh, null, 1, 'active', '1');
+  const editing = adminViews.ordersList(s, fresh, null, 1, '', '1');
   assert.match(editing, /class="edit-switch sr-only" checked>/, 'адрес вернул режим правки');
-  // Формы действий несут его обратно на сервер вместе со страницей и вкладкой:
-  // все эти кнопки показываются только в режиме правки, значит и возвращаться
-  // надо в него же.
+  // Формы действий несут его обратно на сервер вместе со страницей: все эти
+  // кнопки показываются только в режиме правки, значит и возвращаться надо в
+  // него же.
   assert.match(editing, new RegExp(`/admin/orders/${kept.id}/delete[\\s\\S]{0,400}name="edit" value="1"`));
   // Сервер кладёт его в адрес возврата — иначе режим гас бы после каждого
   // удаления, и чистка десятка заявок означала бы десять нажатий «Изменить».
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const back = server.slice(server.indexOf('const ordersBackUrl'), server.indexOf('// Тот же возврат для отзывов'));
   assert.match(back, /body\.edit[\s\S]{0,40}edit=1/);
-  assert.match(server, /A\.ordersList\(settings\(\), db, req\.query\.flash, req\.query\.page, req\.query\.view, req\.query\.edit, req\.query\)/);
-
-  // Режим держится в адресе, поэтому он переживает и переход по страницам, и
-  // смену вкладки: чистят список подряд, и возвращать человека в режим чтения
-  // на каждом шаге значит заставлять его нажимать «Изменить» снова и снова.
-  assert.match(editing, /href="\/admin\/orders\?view=archive&edit=1"/);
+  assert.doesNotMatch(back, /view=archive/, 'вкладки «Удалённые» больше нет');
+  // Режим держится в адресе, поэтому он переживает и переход по страницам:
+  // формы действий несут его скрытым полем (проверено выше).
   assert.doesNotMatch(plain, /edit=1/, 'без режима адреса им не обрастают');
-
-  // «Очистить корзину» — только на вкладке «Удалённые» и только когда там
-  // что-то есть. В рабочем списке ей делать нечего.
-  const archive = adminViews.ordersList(s, fresh, null, 1, 'archive');
-  assert.match(archive, /action="\/admin\/orders\/purge-all"/);
-  assert.match(archive, /Стереть черновики без платёжной истории \(1\)\?/);
-  assert.doesNotMatch(plain, /purge-all/, 'в рабочем списке очистки нет');
-  fresh.purgeArchivedOrders();
-  assert.doesNotMatch(adminViews.ordersList(s, fresh, null, 1, 'archive'), /purge-all/,
-    'пустой корзине очищаться нечем');
-  // Стоит она в шапке режима правки и показывается тем же правилом, что и
-  // крестики у строк: стереть архив из списка, открытого почитать, нельзя.
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(css, /\.o-purge-all\{display:none\}/);
-  assert.match(css, /\.edit-switch:checked ~ \.a-panel-edit \.o-purge-all\{display:block\}/);
+  // Корзины нет вовсе: ни очистки, ни возврата.
+  assert.doesNotMatch(editing, /purge-all|\/restore/);
 });
 
-/* Уведомление в панели гаснет само.
- *
- * Плашка отвечает на вопрос «получилось?», и ответ нужен ровно один раз: пока
- * она висела до следующего перехода, «Сохранено» от давней правки соседствовало
- * с уже другим содержимым формы.
- */
 test('плашка «Сохранено» гаснет сама и не оставляет пустой полосы', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /@keyframes a-flash-out\{/);
@@ -10920,4 +10861,40 @@ test('оплату можно отменить рукой — и вернуть 
   // И полоса «вернитесь к оплате» на витрине про него молчит.
   const remind = source.slice(source.indexOf('function payRemind('), source.indexOf('function rememberOwnOrder('));
   assert.match(remind, /order\.manualVoid/);
+});
+
+test('переписку можно удалить целиком — сразу и насовсем', () => {
+  /* Корзины у диалогов нет намеренно: за перепиской не стоит счёт, по которому
+   * могут прийти деньги, — то есть нет и причины держать удалённое «на всякий
+   * случай». Удаляют мусор: пустые заходы и разговоры, начатые по ошибке. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-drop-'));
+  chatStore.init(dir);
+  const mark = 'ab9f'.repeat(8);
+  const chat = chatStore.create({ name: 'Даллас', visitorId: mark });
+  chatStore.setTopic(chatStore.get(chat.id), 987654);
+  chatStore.addMessage(chatStore.get(chat.id), 'user', 'привет');
+  assert.ok(chatStore.get(chat.id));
+
+  assert.equal(chatStore.remove(chat.id), true);
+  assert.equal(chatStore.get(chat.id), null);
+  // Индексы обязаны обновиться вместе с самим диалогом: иначе ответ оператора
+  // из темы Telegram нашёл бы призрак.
+  assert.equal(chatStore.byTopicId(987654), null);
+  assert.equal(chatStore.byVisitorId(mark), null);
+  assert.equal(chatStore.remove(chat.id), false, 'второй раз удалять нечего');
+  assert.equal(chatStore.remove('не-идентификатор'), false);
+
+  // Кнопка стоит в шапке диалога рядом со значком консультанта и предупреждает.
+  const live = chatStore.create({ name: 'Второй' });
+  chatStore.addMessage(chatStore.get(live.id), 'user', 'есть 512?');
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0 };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(live.id), '', []);
+  assert.match(html, /action="\/admin\/chat\/[^"]+\/delete"/);
+  assert.match(html, /data-confirm="Удалить эту переписку целиком/);
+  assert.match(html, /class="chat-drop-btn"/);
+  assert.ok(html.indexOf('chat-drop-btn') < html.indexOf('chat-thread'), 'кнопка в шапке, а не под лентой');
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /app\.post\('\/admin\/chat\/:id\/delete'/);
+  assert.match(source, /CHAT\.remove\(chat\.id\)/);
 });

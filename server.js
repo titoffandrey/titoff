@@ -134,11 +134,10 @@ const asArray = (v) => v == null ? [] : (Array.isArray(v) ? v : [v]);
 // Вернуться на ту же страницу и тот же раздел списка после удаления/restore.
 // Значения приходят скрытыми полями, поэтому view закрыт двумя вариантами, а
 // номер страницы приводится к ограниченному целому.
-const ordersBackUrl = (body, flash, forcedView) => {
+const ordersBackUrl = (body, flash) => {
+  // Вкладки «Удалённые» больше нет — удаление окончательное, возвращаться
+  // некуда, и `view` из адреса ушёл вместе с ней.
   const params = [];
-  const view = forcedView === 'archive' || (!forcedView && String(body && body.view) === 'archive')
-    ? 'archive' : 'active';
-  if (view === 'archive') params.push('view=archive');
   const n = Math.floor(Number(body && body.page));
   if (Number.isFinite(n) && n > 1) params.push('page=' + Math.min(n, 1e6));
   // Режим правки возвращается вместе со страницей и вкладкой: все кнопки списка
@@ -3137,7 +3136,7 @@ app.post('/admin/orders/:id/reconcile', async (req, res) => {
       flash = 'Касса не ответила. Состояние заказа не изменено';
     }
   }
-  res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
+  res.redirect(ordersBackUrl(req.body, flash), 303);
 });
 /* Ручная отметка «оплачено» — для перевода на СВОИ реквизиты владельца.
  *
@@ -3157,7 +3156,7 @@ app.post('/admin/orders/:id/paid', (req, res) => {
     : (result.reason === 'settled_by_provider'
       ? 'Этот заказ ведёт касса — её подтверждение рукой не меняется'
       : 'Заказ не найден');
-  res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
+  res.redirect(ordersBackUrl(req.body, flash), 303);
 });
 /* Отмена оплаты рукой — пара к отметке «оплачено» выше.
  *
@@ -3175,52 +3174,23 @@ app.post('/admin/orders/:id/void', (req, res) => {
     : (result.reason === 'settled_by_provider'
       ? 'Касса подтвердила оплату — отменить её рукой нельзя'
       : 'Заказ не найден');
-  res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
+  res.redirect(ordersBackUrl(req.body, flash), 303);
 });
+/* Удаление заказа — сразу и насовсем. Корзины больше нет: «удалённые» были
+ * нужны, пока деньги могли прийти по уже выданному счёту кассы, а платят по
+ * своим реквизитам — ждать поздний callback не от кого. Цену решения панель
+ * называет в подтверждении: у заказа с выставленным счётом связать поздний
+ * платёж будет уже не с чем. */
 app.post('/admin/orders/:id/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  const result = db.archiveOrder(req.params.id, 'admin');
-  res.redirect(ordersBackUrl(req.body, result.ok ? 'Заказ удалён из списка' : 'Заказ не найден', 'active'), 303);
-});
-app.post('/admin/orders/:id/restore', (req, res) => {
-  if (!guardAdmin(req, res)) return;
-  const result = db.restoreOrder(req.params.id, 'admin');
-  res.redirect(ordersBackUrl(req.body, result.ok ? 'Заказ восстановлен' : 'Заказ не найден', 'archive'), 303);
-});
-// Безвозвратное удаление — только из «Удалённых». Заказ, лежащий в рабочем
-// списке, сюда не попадает вовсе: `db.purgeOrder()` отвечает отказом, если он
-// не заархивирован. Два шага здесь и есть защита от нажатия не туда — стереть
-// заявку из orders.json значит потерять привязку к уже выданному счёту.
-/* Очистить корзину целиком — то же безвозвратное удаление, только разом.
- *
- * Регистрируется РАНЬШЕ `/admin/orders/:id/purge` для порядка чтения, хотя
- * перехватить он его и не мог бы: у адресов разное число сегментов.
- *
- * Рабочий список не трогается ни при каких условиях — `db.purgeArchivedOrders()`
- * берёт только заархивированное, и это единственная защита от «одним нажатием
- * снёс все заказы».
- */
-app.post('/admin/orders/purge-all', (req, res) => {
-  if (!guardAdmin(req, res)) return;
-  const result = db.purgeArchivedOrders();
-  const parts = [];
-  if (result.removed) parts.push(`Удалено навсегда: ${result.removed}`);
-  if (result.protected) parts.push(`Сохранено с платёжной историей: ${result.protected}`);
-  const flash = parts.join('. ') || 'Черновиков без платёжной истории нет';
-  res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
-});
-app.post('/admin/orders/:id/purge', (req, res) => {
-  if (!guardAdmin(req, res)) return;
   const result = db.purgeOrder(req.params.id);
-  const flash = result.ok
-    ? 'Заказ удалён навсегда'
-    : (result.reason === 'not_archived'
-      ? 'Сначала удалите заказ из списка'
-      : result.reason === 'financial_history'
-        ? 'Заказ с платёжной историей хранится для сверки и не удаляется навсегда'
-        : 'Заказ не найден');
-  res.redirect(ordersBackUrl(req.body, flash, 'archive'), 303);
+  res.redirect(ordersBackUrl(req.body, result.ok ? 'Заказ удалён' : 'Заказ не найден'), 303);
 });
+/* Восстановления и «корзины» здесь больше нет: удаление окончательное (см.
+ * маршрут выше). Заявки, заархивированные прежней версией, остаются в файле
+ * невидимыми — стирать их молча мы не вправе, а показывать в списке уже
+ * удалённое было бы неправдой.
+ */
 
 /* ---------- Чат ---------- */
 
@@ -3383,6 +3353,19 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   // без ответа и написал бы второй раз то же самое.
   TGCHAT.relaySystem(chat, 'Ответ из панели: ' + text);
   return back('Отправлено');
+});
+
+/* Удалить переписку целиком. Сразу и насовсем — корзины у диалогов нет: денег,
+ * которые могли бы прийти позже, за ними не стоит, а держать мусор «на всякий
+ * случай» незачем. Удаляют именно мусор: пустые заходы и разговоры, начатые по
+ * ошибке.
+ */
+app.post('/admin/chat/:id/delete', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const chat = CHAT.get(req.params.id);
+  if (!chat) return sendNotFound(req, res);
+  CHAT.remove(chat.id);
+  res.redirect('/admin/chat?flash=' + encodeURIComponent('Диалог удалён'), 303);
 });
 
 /* Правка и удаление одной реплики — и своей, и покупателя.

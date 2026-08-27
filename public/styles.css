@@ -4369,12 +4369,16 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .o-void{color:#b42318}
 .o-void:hover{border-color:#e2a19b;background:#fff1ef}
 .chat-ai-back{display:flex;flex:none}
-.chat-ai-btn{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
+.chat-ai-btn,.chat-drop-btn{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
   border:1px solid var(--border);background:#fff;color:var(--accent);cursor:pointer;
   transition:background .12s,border-color .12s,transform .12s}
 .chat-ai-btn:hover{background:var(--bg2);border-color:var(--accent)}
-.chat-ai-btn:active{transform:scale(.94)}
-.chat-ai-btn svg{width:21px;height:21px}
+.chat-ai-btn:active,.chat-drop-btn:active{transform:scale(.94)}
+.chat-ai-btn svg,.chat-drop-btn svg{width:21px;height:21px}
+/* Удаление переписки — то же место и тот же размер, но красным: действие
+   необратимое, и спутать его со сменой собеседника нельзя. */
+.chat-drop-btn{color:#b42318}
+.chat-drop-btn:hover{background:#fff1ef;border-color:#e2a19b}
 .chat-head-meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 16px;
   background:var(--bg2);border:1px solid var(--border);border-bottom:0;font-size:12px}
 .chat-head-meta .cmarks{gap:12px;font-size:12px}
