@@ -10747,3 +10747,100 @@ test('свои реквизиты: третий режим витрины, со 
   store.settleOrderPayment(byCashbox.id, { attemptId: 'a'.repeat(24), status: 'paid', paidTotal: 1000 });
   assert.equal(store.setOrderPaidManually(byCashbox.id, false, 'admin').reason, 'settled_by_provider');
 });
+
+test('оператор замолчал — консультант возвращается сам через пять минут', () => {
+  /* Первая реплика человека выключает бота, и это правильно: перебивать живого
+   * менеджера нельзя. Но дежурный отвечает и уходит, а покупатель пишет снова —
+   * и упирается в молчание. Хуже случая в чате магазина не придумаешь: вопрос
+   * задан, никто не ответил, вкладка закрыта. */
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /const AI_TAKEOVER_MS = 5 \* 60 \* 1000;/);
+  const arm = source.slice(source.indexOf('function armTakeover('), source.indexOf('async function aiAnswer('));
+  // Возвращаем, только если ответить и правда было некому: за пять минут
+  // менеджер мог написать сам.
+  assert.match(arm, /fresh\.mode !== 'operator'/);
+  assert.match(arm, /last\.role !== 'user'/);
+  assert.match(arm, /CHAT\.setMode\(fresh, 'ai'\)/);
+  assert.match(arm, /aiReply\(fresh/, 'на реплику надо ОТВЕТИТЬ, а не просто включить бота');
+  // Переписка уезжает в модель целиком, поэтому консультант знает и то, о чём
+  // покупатель уже договорился с менеджером: prompt строится из chat.messages.
+  assert.match(arm, /orders: chatOrders\(fresh, 5\)/);
+
+  const send = source.slice(source.indexOf("app.post('/api/chat/send'"), source.indexOf("app.get('/api/chat/stream'"));
+  assert.match(send, /chat\.mode === 'operator' && AI\.configured\(s\)/);
+  assert.match(send, /armTakeover\(chat\)/);
+  // Ответил менеджер — таймер снимается: и из панели, и из темы Telegram.
+  const reply = source.slice(source.indexOf("app.post('/admin/chat/:id/reply'"));
+  assert.match(reply.slice(0, 2600), /cancelTakeover\(chat\.id\)/);
+  assert.match(source, /onOperator: \(chat, text\) => \{[\s\S]{0,400}cancelTakeover\(chat\.id\)/);
+});
+
+test('диалог не завершается: ни кнопкой в панели, ни командой в Telegram', () => {
+  /* Переписка с покупателем не кончается никогда — он вправе написать через
+   * неделю, и «завершённый» разговор означал бы, что кто-то за него решил, что
+   * говорить больше не о чем. */
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  /* Смотрим на КОД без комментариев — той же чисткой, что идёт на отдаче: в
+   * шапке моста снятая команда названа в объяснении, и по сырому тексту тест
+   * ловил бы собственную документацию. Тот же приём, что у проверок
+   * admin-live.js и public/chat.js. */
+  const tg = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'lib', 'chat-tg.js'), 'utf8'));
+  // Читать старые записи со `closed` мы обязаны — их писали раньше; запрещено
+  // именно СТАВИТЬ это состояние.
+  assert.doesNotMatch(source, /setMode\([^)]*'closed'\)|value="closed"/);
+  assert.match(source, /chat\.mode === 'closed'/, 'старый диалог продолжается как обычный');
+  assert.doesNotMatch(tg, /\/close|callback_data: 'close/);
+  assert.doesNotMatch(tg, /Завершить/);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-ui-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ name: 'Даллас', ip: '185.220.100.240' });
+  chatStore.addMessage(chat, 'user', 'а номер устройства дадите проверить?');
+  chatStore.addMessage(chat, 'operator', 'Здравствуйте! Сейчас уточню.');
+  chatStore.setMode(chatStore.get(chat.id), 'operator');
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0 };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []);
+  assert.doesNotMatch(html, /Завершить/);
+  assert.doesNotMatch(html, /Вернуть ИИ/, 'кнопка стала значком в шапке');
+
+  /* Значок консультанта — в шапке, рядом с тем, о ком он: кто ведёт разговор.
+   * Внизу, среди кнопок отправки, он отвечал на другой вопрос и занимал место
+   * у самого поля ввода. */
+  assert.match(html, /class="chat-ai-btn"[^>]*name="mode" value="ai"/);
+  assert.ok(html.indexOf('chat-ai-btn') < html.indexOf('chat-thread'), 'значок стоит выше ленты');
+  // У диалога, который и так ведёт консультант, кнопки нет вовсе.
+  chatStore.setMode(chatStore.get(chat.id), 'ai');
+  assert.doesNotMatch(adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []), /chat-ai-btn/);
+});
+
+test('действия над репликой открываются нажатием на неё саму', () => {
+  /* Карандаш у каждой реплики читался как содержание, а пальцем в него ещё надо
+   * было попасть. Теперь пузырь и есть кнопка — как в мессенджерах. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-tools-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ name: 'Даллас' });
+  chatStore.addMessage(chat, 'user', 'А чего так дешево?)');
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0 };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []);
+
+  assert.match(html, /<details class="chat-bubble"><summary class="chat-line/);
+  for (const word of ['Скопировать', 'Изменить', 'Удалить']) assert.ok(html.includes(word), 'в меню есть «' + word + '»');
+  assert.match(html, /data-chat-copy="А чего так дешево\?\)"/);
+  assert.match(html, /data-confirm="Удалить эту реплику/);
+  assert.doesNotMatch(html, /chat-edit-open/, 'прежнего карандаша быть не должно');
+
+  /* Меню на `<details>` — ни строчки скрипта: работает и там, где скрипты
+   * панели не загрузились. Скрипту достаётся только копирование: буфер обмена
+   * из разметки не открыть. */
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /data-chat-copy/);
+  assert.match(ui, /execCommand\('copy'\)/, 'без https clipboard-API не работает — нужен запасной путь');
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.chat-line\{cursor:pointer;list-style:none\}/);
+  assert.match(css, /\.chat-tools\{flex-basis:100%/, 'меню уезжает под пузырь, а не встаёт рядом');
+  // Поле ответа во всю ширину экрана: у .a-content свои поля по бокам, и
+  // прилипшая форма стояла в них — по краям оставались промежутки.
+  const mobile = css.slice(css.indexOf('@media (max-width:640px){'));
+  assert.match(mobile, /\.chat-answer-dock\{margin:0 -16px/);
+});

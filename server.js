@@ -1575,6 +1575,49 @@ function chatView(chat) {
  */
 const aiBusy = new Set();
 
+/* ОПЕРАТОР ЗАМОЛЧАЛ — КОНСУЛЬТАНТ ВОЗВРАЩАЕТСЯ САМ.
+ *
+ * Первая реплика человека выключает бота до конца переписки, и это правильно:
+ * перебивать живого менеджера нельзя. Но дежурный отвечает и уходит, а
+ * покупатель пишет снова — и упирается в молчание, потому что бот выключен, а
+ * человека рядом нет. Хуже случая в чате магазина не придумаешь: вопрос задан,
+ * никто не ответил, вкладка закрыта.
+ *
+ * Поэтому после реплики покупателя, оставшейся без ответа `AI_TAKEOVER_MS`,
+ * консультант включается обратно и отвечает — с полной перепиской в контексте,
+ * то есть зная и то, о чём покупатель уже договорился с менеджером.
+ *
+ * Таймер живёт в памяти процесса и перезапуск не переживает — и это осознанно:
+ * ждать возврата бота дольше пяти минут после рестарта незачем, а хранить ради
+ * этого ещё одно поле на диске и чинить его при каждой записи — дороже задачи.
+ */
+const AI_TAKEOVER_MS = 5 * 60 * 1000;
+const aiTakeover = new Map();
+
+function cancelTakeover(id) {
+  const timer = aiTakeover.get(id);
+  if (timer) { clearTimeout(timer); aiTakeover.delete(id); }
+}
+
+function armTakeover(chat) {
+  cancelTakeover(chat.id);
+  const timer = setTimeout(() => {
+    aiTakeover.delete(chat.id);
+    const s = settings();
+    const fresh = CHAT.get(chat.id);
+    if (!fresh || fresh.mode !== 'operator' || !AI.configured(s)) return;
+    // За эти пять минут менеджер мог ответить — тогда возвращать некого.
+    const last = fresh.messages[fresh.messages.length - 1];
+    if (!last || last.role !== 'user') return;
+    CHAT.setMode(fresh, 'ai');
+    TGCHAT.relaySystem(fresh, 'Менеджер не ответил пять минут — отвечает консультант');
+    aiReply(fresh, { page: fresh.page, cart: [], orders: chatOrders(fresh, 5) })
+      .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
+  }, AI_TAKEOVER_MS);
+  if (timer.unref) timer.unref();
+  aiTakeover.set(chat.id, timer);
+}
+
 async function aiReply(chat, info) {
   const s = settings();
   if (!AI.configured(s)) return;
@@ -1730,6 +1773,10 @@ app.post('/api/chat/send', (req, res) => {
     // оплаты. Подбирает их сервер по метке посетителя — чужие сюда не попадут.
     aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
+  } else if (chat.mode === 'operator' && AI.configured(s)) {
+    // Менеджер в диалоге — ждём его. Не ответил за пять минут, значит отошёл:
+    // консультант вернётся сам и ответит на эту же реплику (см. armTakeover).
+    armTakeover(chat);
   }
   /* Время сохранённой реплики уезжает обратно в браузер: своя реплика нарисована
    * там ещё до ответа сервера, и без серверного `at` галочке не за что
@@ -1797,7 +1844,9 @@ TGCHAT.start({
   settings,
   chat: CHAT,
   onOperator: (chat, text) => {
-    // Первая же реплика человека выключает бота до конца переписки.
+    // Первая же реплика человека выключает бота — но не навсегда: он вернётся
+    // сам, если следующая реплика покупателя останется без ответа.
+    cancelTakeover(chat.id);
     if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
     // Отвечает — значит прочитал: у покупателя галочки синеют раньше, чем
     // придёт сам ответ (менеджер печатает его не мгновенно).
@@ -1814,13 +1863,9 @@ TGCHAT.start({
      * `setMode`. Отметка уходит только в тему Telegram, и там она называет,
      * КТО это сделал: менеджеру в общей группе это важно, покупателю — нет. */
     if (command === 'ai') {
+      cancelTakeover(chat.id);
       CHAT.setMode(chat, 'ai');
       TGCHAT.relaySystem(chat, 'ИИ снова отвечает (' + by + ')');
-      return;
-    }
-    if (command === 'close') {
-      CHAT.setMode(chat, 'closed');
-      TGCHAT.relaySystem(chat, 'Диалог завершён (' + by + ')');
       return;
     }
     if (command === 'info') {
@@ -3291,25 +3336,26 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   if (!chat) return sendNotFound(req, res);
   const back = (flash) => res.redirect('/admin/chat/' + encodeURIComponent(chat.id) + (flash ? '?flash=' + encodeURIComponent(flash) : ''), 303);
 
-  // Кнопки «Вернуть ИИ» и «Завершить» — это отправка той же формы с другим
-  // значением: вложенных форм в HTML не бывает, а браузер шлёт имя только
-  // нажатой кнопки (тот же приём, что у удаления ответа на отзыв).
+  /* Значок консультанта в шапке — отправка той же формы с `mode=ai`: вложенных
+   * форм в HTML не бывает, а браузер шлёт имя только нажатой кнопки (тот же
+   * приём, что у удаления ответа на отзыв).
+   *
+   * Завершения диалога здесь нет вовсе: переписка с покупателем не кончается
+   * никогда — он вправе написать через неделю, и «завершённый» разговор
+   * означал бы, что кто-то из нас решил за него, что говорить больше не о чем.
+   * Прежнее состояние `closed` осталось только у старых записей и читается как
+   * обычный диалог. */
   const mode = String(req.body.mode || '');
-  // Строку в ленту покупателя пишет `setMode`: одна и та же, откуда бы
-  // собеседника ни сменили — из темы, командой или отсюда.
   if (mode === 'ai') {
+    cancelTakeover(chat.id);
     CHAT.setMode(chat, 'ai');
     TGCHAT.relaySystem(chat, 'ИИ снова отвечает (из панели)');
-    return back('ИИ снова отвечает');
-  }
-  if (mode === 'closed') {
-    CHAT.setMode(chat, 'closed');
-    TGCHAT.relaySystem(chat, 'Диалог завершён (из панели)');
-    return back('Диалог завершён');
+    return back('Отвечает консультант');
   }
 
   const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
   if (!text) return back('Пустой ответ не отправлен');
+  cancelTakeover(chat.id);
   if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
   CHAT.markStore(chat, 'read');
   // Имя подставляет само хранилище (`SPEAKERS` в lib/chat.js): покупатель видит

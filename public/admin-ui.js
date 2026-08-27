@@ -116,6 +116,37 @@
     }
   }
 
+  /* Скопировать реплику. Единственное действие меню, которое из разметки не
+   * сделать: буфер обмена открывается только скриптом. Запасной путь через
+   * execCommand обязателен — clipboard-API нет в старых браузерах и он не
+   * работает без https, а панель открывают и с телефона по локальной сети. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-chat-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    var text = btn.getAttribute('data-chat-copy') || '';
+    var was = btn.querySelector('span');
+    var done = function () {
+      if (!was || was.dataset.was) return;
+      was.dataset.was = was.textContent;
+      was.textContent = 'Скопировано';
+      setTimeout(function () { was.textContent = was.dataset.was; delete was.dataset.was; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallback(text, done); });
+    } else fallback(text, done);
+  });
+  function fallback(text, done) {
+    var box = document.createElement('textarea');
+    box.value = text;
+    box.setAttribute('readonly', '');
+    box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(box);
+    box.select();
+    try { document.execCommand('copy'); done(); } catch (err) { /* нечем — молчим */ }
+    box.remove();
+  }
+
   /* Поле растёт под текст, как в мессенджере: одна строка под короткий ответ,
    * до четырёх под длинный. Своя высота у него потому, что `rows` задаёт только
    * начальную, а `resize` на телефоне не потянешь пальцем. */
