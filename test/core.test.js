@@ -6505,8 +6505,23 @@ test('обновление точек OZON не задерживает офор�
   assert.doesNotMatch(route, /await/, 'ответ не должен ждать чужой сервис');
   assert.match(route, /OSM\.ensureTile\(/);
   assert.match(route, /refreshing/);
-  // Витрина переспрашивает один раз, а не опрашивает по кругу.
-  assert.match(js, /d\.refreshing && pickup\.retriedKey !== key/);
+  /* Витрина переспрашивает НЕСКОЛЬКО раз с нарастающей паузой, но не по кругу.
+   *
+   * Одного повтора через шесть секунд не хватало почти никогда: Overpass
+   * отвечает до двадцати секунд, а у самого обновления есть пауза в двадцать
+   * (COOLDOWN) — и покупатель видел «рядом пунктов не нашлось», то есть
+   * неправду, из-за которой уходил на курьера. Пока список правда грузится,
+   * витрина обязана говорить, что ищет. */
+  assert.match(js, /if \(d\.refreshing\) askAgain\(key\)/);
+  assert.match(js, /var PICKUP_RETRIES = \[[\d, ]+\]/);
+  assert.match(js, /pickup\.tries >= PICKUP_RETRIES\.length/, 'опрос конечен: пустой список бывает и настоящим');
+  assert.match(js, /Ищем пункты рядом с вашим адресом/);
+  // Смена перевозчика стирает прежний список: иначе после переключения на
+  // экране висят чужие адреса, и по ним даже можно нажать.
+  const drop = js.slice(js.indexOf('function dropPickup()'), js.indexOf('function pointsBox()'));
+  assert.match(drop, /pickup\.items = \[\]/);
+  assert.match(drop, /pickup\.key = ''/);
+  assert.match(drop, /stopPickupRetry\(\)/);
 
   // Авторство OpenStreetMap — требование лицензии, и оно в подвале сайта:
   // на оформлении сноскам не место, а подвал закрывает требование так же.
@@ -10843,4 +10858,66 @@ test('действия над репликой открываются нажат
   // прилипшая форма стояла в них — по краям оставались промежутки.
   const mobile = css.slice(css.indexOf('@media (max-width:640px){'));
   assert.match(mobile, /\.chat-answer-dock\{margin:0 -16px/);
+});
+
+test('оплату можно отменить рукой — и вернуть обратно', () => {
+  /* Покупатель нажал «Оплатить», заказ ушёл в ожидание перевода — и передумал,
+   * ошибся суммой или оформил второй раз. Ждать сутки, пока заявка провисит в
+   * списке, незачем. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'void-pay-'));
+  const store = freshDb(dir);
+  const order = store.createOrder({ items: [], total: 50000, payMode: 'own' });
+
+  assert.equal(store.setOrderVoided(order.id, true, 'admin').changed, true);
+  const off = store.getOrder(order.id);
+  assert.ok(off.manualVoid.at > 0);
+  assert.deepEqual(render.payView(off), {
+    tone: 'off', label: 'оплата отменена',
+    when: render.payView(off).when, whenLabel: 'отменил менеджер'
+  });
+  // Покупателю страница оплаты говорит, что заказ закрыт: реквизиты ему больше
+  // не нужны, а «ждём перевод» было бы неправдой.
+  const ss = Object.assign({}, SETTINGS, {
+    ownPayEnabled: true, ownPayCard: '5599002143815845', ownPayOwner: 'Сергеев Александр Викторович'
+  });
+  const PAYMENTS = require('../lib/payments');
+  const page = render.payPage(ss, off, { origin: '', own: PAYMENTS.ownRequisites(ss) });
+  assert.match(page, /Заказ закрыт/);
+  assert.doesNotMatch(page, /5599 0021 4381 5845/, 'реквизиты отменённому заказу не показываем');
+
+  // Передумали обратно — тем же нажатием.
+  assert.equal(store.setOrderVoided(order.id, false, 'admin').changed, true);
+  assert.equal(store.getOrder(order.id).manualVoid, null);
+
+  // Отменённое и оплаченное разом не бывает: одна отметка снимает другую.
+  store.setOrderVoided(order.id, true, 'admin');
+  store.setOrderPaidManually(order.id, true, 'admin');
+  assert.equal(store.getOrder(order.id).manualVoid, null);
+  assert.ok(store.getOrder(order.id).manualPaid);
+
+  /* Подтверждённую кассой оплату рукой не отменяем: деньги уже пришли, и
+   * решать это надо возвратом, а не пометкой в списке. */
+  const paid = store.createOrder({ items: [], total: 1000 });
+  store.startOrderPayment(paid.id, {
+    provider: 'crocopay', attemptId: 'b'.repeat(24), requestId: 'r'.repeat(32),
+    token: 't'.repeat(32), method: 'SBP', amount: 1000, currency: 'RUB'
+  });
+  store.settleOrderPayment(paid.id, { attemptId: 'b'.repeat(24), status: 'paid', paidTotal: 1000 });
+  assert.equal(store.setOrderVoided(paid.id, true, 'admin').reason, 'settled_by_provider');
+
+  // Кнопка стоит в строке заказа, рядом с отметкой оплаты, и предупреждает.
+  const db = {
+    pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0,
+    getOrders: () => [off], visibleOrders: () => [off], archivedOrders: () => []
+  };
+  const list = adminViews.ordersList(SETTINGS, db, {});
+  assert.match(list, /action="\/admin\/orders\/[^"]+\/void"/);
+  assert.match(list, /data-confirm="Отменить оплату этого заказа/);
+
+  // Новый счёт отменённому заказу не выставляется — как и удалённому.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /db\.isOrderArchived\(currentOrder\) \|\| currentOrder\.manualVoid/);
+  // И полоса «вернитесь к оплате» на витрине про него молчит.
+  const remind = source.slice(source.indexOf('function payRemind('), source.indexOf('function rememberOwnOrder('));
+  assert.match(remind, /order\.manualVoid/);
 });

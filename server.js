@@ -632,7 +632,7 @@ function payRemind(req) {
      * ссылки на свою страницу оплаты у него больше нигде нет. Срока у таких
      * реквизитов не бывает, поэтому полоса идёт без отсчёта. */
     if (!pay && order.payMode === 'own') {
-      if (order.manualPaid || db.isOrderArchived(order)) continue;
+      if (order.manualPaid || order.manualVoid || db.isOrderArchived(order)) continue;
       if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
       return card(order, 0);
     }
@@ -642,7 +642,7 @@ function payRemind(req) {
     // остаётся у покупателя и сверяется как прежде. После срока архивный заказ
     // больше не напоминаем и новый invoice ему не выпускаем.
     if (R.payLive(shown, now)) return card(order, R.payUntil(shown));
-    if (db.isOrderArchived(order)) continue;
+    if (db.isOrderArchived(order) || order.manualVoid) continue;
     if (pay.status === 'paid' || pay.status === 'mismatch') continue;
     if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
     return card(order, 0);
@@ -2334,7 +2334,7 @@ async function startPaymentRoute(req, res) {
   // Удалённый администратором заказ остаётся в файле только ради уже выданных
   // счетов и позднего webhook. Новый invoice ему не создаём. Проверка стоит
   // после payContext/его await, чтобы закрыть гонку со свежим удалением.
-  if (db.isOrderArchived(currentOrder)) {
+  if (db.isOrderArchived(currentOrder) || currentOrder.manualVoid) {
     return res.json({
       ok: false, placed: true, errorCode: 'order_archived',
       error: 'Заказ закрыт. Оформите новый заказ.'
@@ -3156,6 +3156,24 @@ app.post('/admin/orders/:id/paid', (req, res) => {
     ? (paid ? 'Заказ отмечен оплаченным' : 'Отметка оплаты снята')
     : (result.reason === 'settled_by_provider'
       ? 'Этот заказ ведёт касса — её подтверждение рукой не меняется'
+      : 'Заказ не найден');
+  res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
+});
+/* Отмена оплаты рукой — пара к отметке «оплачено» выше.
+ *
+ * Счёт кассы это не трогает и тронуть не может: у CrocoPAY отмены нет вовсе, а
+ * живой счёт продолжает сверяться — деньги по нему бывают в пути. Здесь только
+ * отметка менеджера: заказ перестаёт числиться ждущим денег, полоса
+ * напоминания у покупателя гаснет, а страница оплаты говорит, что заказ закрыт.
+ */
+app.post('/admin/orders/:id/void', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const voided = String(req.body && req.body.voided || '') === '1';
+  const result = db.setOrderVoided(req.params.id, voided, 'admin');
+  const flash = result.ok
+    ? (voided ? 'Оплата отменена' : 'Заказ снова ждёт оплату')
+    : (result.reason === 'settled_by_provider'
+      ? 'Касса подтвердила оплату — отменить её рукой нельзя'
       : 'Заказ не найден');
   res.redirect(ordersBackUrl(req.body, flash, req.body && req.body.view), 303);
 });

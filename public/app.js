@@ -721,9 +721,27 @@
    * смены адреса/перевозчика. Непроверенный код пункта в заказ не пропускаем.
    */
   var pickup = {
-    key: '', wanted: '', retriedKey: '', items: [], ready: false, done: false, pending: false,
-    requestSeq: 0, code: '', restoredCode: '', open: true, geo: null
+    key: '', wanted: '', items: [], ready: false, done: false, pending: false, refreshing: false,
+    requestSeq: 0, code: '', restoredCode: '', open: true, geo: null,
+    // Сколько раз уже переспросили про ЭТУ пару «перевозчик + адрес» и таймер
+    // следующего вопроса (см. askAgain ниже).
+    tryKey: '', tries: 0, timer: null
   };
+  /* Точки OZON приходят из OpenStreetMap плитками и появляются в базе не сразу
+   * (см. lib/pickup-osm.js): сервер отдаёт то, что есть, и помечает ответ
+   * `refreshing` — «спроси ещё раз». Раньше витрина переспрашивала РОВНО ОДИН
+   * РАЗ через шесть секунд, и этого почти никогда не хватало: у чужого сервиса
+   * ответ идёт до двадцати секунд, а у самого обновления есть пауза в двадцать
+   * (COOLDOWN). Покупатель при этом видел «рядом пунктов не нашлось» — то есть
+   * неправду, из-за которой уходил на курьера или к другому перевозчику.
+   *
+   * Теперь спрашиваем несколько раз с нарастающей паузой — суммарно около
+   * сорока секунд, — а пока ждём, честно пишем, что ищем. Ограничение есть:
+   * пустой список бывает и настоящим, и опрашивать по кругу незачем. */
+  var PICKUP_RETRIES = [2500, 4000, 7000, 11000, 15000];
+  function stopPickupRetry() {
+    if (pickup.timer) { clearTimeout(pickup.timer); pickup.timer = null; }
+  }
 
   // Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
   // нет и не нужно. Правка поля руками их обесценивает: адрес уже другой.
@@ -735,6 +753,12 @@
   function dropPickup() {
     pickup.code = '';
     pickup.restoredCode = '';
+    /* Список прежнего перевозчика стираем сразу. Иначе после переключения на
+     * экране ещё несколько секунд висят ЧУЖИЕ адреса — те самые «не те», и по
+     * ним даже можно нажать: ответ нового запроса приходит не мгновенно. */
+    pickup.items = []; pickup.done = false; pickup.key = ''; pickup.refreshing = false;
+    pickup.tryKey = ''; pickup.tries = 0;
+    stopPickupRetry();
     // Выбирать снова — значит снова показать из чего: свёрнутый пустой список
     // выглядел бы как уже сделанный выбор.
     pickup.open = true;
@@ -753,7 +777,11 @@
       + '|' + (pickup.geo ? pickup.geo.lat + ',' + pickup.geo.lon : '');
     if (key === pickup.key) { renderPoints(); return; }
     if (pickup.pending && pickup.wanted === key) return;
+    stopPickupRetry();
     pickup.wanted = key; pickup.pending = true;
+    // Пока ответа нет, показываем «ищем», а не прежний список: перевозчик мог
+    // смениться, и старые адреса читаются как найденные для нового.
+    renderPoints();
     var requestSeq = ++pickup.requestSeq;
     var body = { method: deliveryChoice(), address: addressValue() };
     if (pickup.geo) { body.lat = pickup.geo.lat; body.lon = pickup.geo.lon; }
@@ -772,6 +800,7 @@
           return;
         }
         pickup.key = key; pickup.items = d.items || []; pickup.ready = !!d.ready; pickup.done = true;
+        pickup.refreshing = !!d.refreshing;
         // Восстановленный код считается выбранным только после подтверждения
         // актуальным списком. Удалённый ПВЗ очищаем и из памяти формы.
         if (pickup.restoredCode) {
@@ -792,10 +821,8 @@
          * обычно уже на месте. Один раз — потому что пустой список бывает и
          * честным, и опрашивать по кругу незачем.
          */
-        if (d.refreshing && pickup.retriedKey !== key) {
-          pickup.retriedKey = key;
-          setTimeout(function () { pickup.key = ''; loadPoints(); }, 6000);
-        }
+        if (d.refreshing) askAgain(key);
+        else { pickup.tryKey = ''; pickup.tries = 0; }
       })
       .catch(function () {
         // Сеть подвела — непроверенный ПВЗ выбранным не считаем. Покупатель
@@ -804,6 +831,24 @@
         pickup.pending = false; pickup.done = true; pickup.items = [];
         renderPoints();
       });
+  }
+
+  /* Переспросить про ту же пару «перевозчик + адрес». Пауза растёт, число
+   * попыток ограничено: сервер обновляет плитку не мгновенно, но и вечно
+   * опрашивать его нельзя — пустой список бывает и настоящим. */
+  function askAgain(key) {
+    if (pickup.tryKey !== key) { pickup.tryKey = key; pickup.tries = 0; }
+    if (pickup.tries >= PICKUP_RETRIES.length) { pickup.refreshing = false; renderPoints(); return; }
+    var wait = PICKUP_RETRIES[pickup.tries++];
+    stopPickupRetry();
+    pickup.timer = setTimeout(function () {
+      pickup.timer = null;
+      // За паузу покупатель мог сменить перевозчика или уйти на курьера —
+      // тогда спрашивать про этот список уже незачем.
+      if (!pointsWanted() || pickup.key !== key) return;
+      pickup.key = '';
+      loadPoints();
+    }, wait);
   }
 
   // Расстояние словами. Метры до километра — «420 м» понятнее, чем «0,42 км».
@@ -851,11 +896,22 @@
     if (!box) return;
     if (!pointsWanted()) { box.hidden = true; return; }
     box.hidden = false;
-    if (!pickup.done) { box.innerHTML = ''; return; }
+    /* «Ищем» и «не нашлось» — разные ответы, и путать их нельзя: первый просит
+     * подождать, второй отправляет к курьеру. Пока список правда грузится
+     * (запрос в пути или сервер сказал `refreshing`), обещать пустоту рано. */
+    var looking = !pickup.done || pickup.pending || (pickup.refreshing && !pickup.items.length);
+    if (looking) {
+      box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
+        + '<p class="co-points-note co-points-wait">Ищем пункты рядом с вашим адресом…</p>';
+      syncSubmit();
+      return;
+    }
     if (!pickup.items.length) {
       box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
-        + '<p class="co-points-note">Рядом с вашим адресом пунктов не нашлось —'
-        + ' выберите доставку курьером.</p>';
+        + '<p class="co-points-note">' + (pickup.ready
+          ? 'Рядом с вашим адресом пунктов не нашлось — выберите доставку курьером.'
+          : 'Списка пунктов этого перевозчика у нас сейчас нет — выберите доставку курьером или другого перевозчика.')
+        + '</p>';
       syncSubmit();
       return;
     }
