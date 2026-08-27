@@ -10610,7 +10610,7 @@ test('время в чате одно и то же у покупателя и у
   assert.doesNotMatch(chatBlock, /new Date\(/, 'все даты в чате панели идут через московские помощники');
 });
 
-test('свои реквизиты: третий режим витрины, без кассы и без таймера', () => {
+test('свои реквизиты: третий режим витрины, со своим окном и без кассы', () => {
   /* P2P-кассы живут чужим пулом трейдеров, и он кончается: 27 августа 2026 обе
    * отказывали сутки подряд, то есть магазин не мог принять ни одного платежа.
    * Свои реквизиты этой зависимости не имеют вовсе — но и сверки у них нет, а
@@ -10650,11 +10650,25 @@ test('свои реквизиты: третий режим витрины, бе�
   assert.match(html, /Сергеев Александр Викторович/);
   assert.match(html, /Переведите по СБП на номер телефона или на карту/);
   assert.match(html, /ЮMoney/, 'банк получателя покупатель сверяет глазами');
-  // Ни таймера, ни выбора способа: срок реквизитам назначает касса, а своим
-  // назначать некому — и выбирать не из чего, реквизиты одни.
-  assert.doesNotMatch(html, /id="pay-timer"/);
+  // Выбирать не из чего — реквизиты одни, и проверять кассой нечего.
   assert.doesNotMatch(html, /name="method"/);
   assert.doesNotMatch(html, /Проверить перевод/);
+
+  /* Окно реквизитов — тридцать минут, и оно КАТИТСЯ: по его окончании страница
+   * перечитывает настройки, и покупатель видит реквизиты владельца, а не
+   * снятые полчаса назад. Считается от заказа, поэтому обновление страницы не
+   * выдаёт новые тридцать минут. */
+  const windowOf = (minutesAgo) => {
+    const page = render.payPage(ss, Object.assign({}, order, { createdAt: Date.now() - minutesAgo * 60000 }),
+      { origin: '', own: PAYMENTS.ownRequisites(ss) });
+    return Math.round((Number(/data-expires="(\d+)"/.exec(page)[1]) - Date.now()) / 60000);
+  };
+  assert.equal(windowOf(0), 30);
+  assert.equal(windowOf(12), 18, 'обновление страницы не выдаёт новые тридцать минут');
+  assert.equal(windowOf(31), 29, 'окно кончилось — пошло следующее');
+  assert.match(html, /id="pay-timer"/);
+  assert.match(html, /Время на оплату/, 'покупателю это просто время, а не рассказ про перечитывание настроек');
+  assert.doesNotMatch(html, /перечит|настро/i, 'зачем окно нужно нам — покупателя не касается');
   // Просьбы «переведите точную сумму» здесь нет: у кассы по сумме сходился
   // платёж автоматически, а свои переводы владелец сверяет сам.
   assert.doesNotMatch(html, /pay-exact/);
@@ -10665,6 +10679,22 @@ test('свои реквизиты: третий режим витрины, бе�
    * в самом неподходящем для этого месте. */
   assert.match(html, /class="pay-own-mark pay-own-sbp"/);
   assert.match(html, /class="pay-own-mark pay-own-mastercard"/, '5599… — это Mastercard, а не Мир');
+  /* Знаки на этой странице ЦВЕТНЫЕ: по цвету их и узнают. Контуры при этом те
+   * же, что в подвале, — цвета кладутся поверх, вторым набором путей логотип не
+   * дублируется. Цвета официальные: восемь фирменных у СБП, красный с оранжевым
+   * у Mastercard, зелёный с градиентным крылом у «Мира». */
+  for (const c of ['#5B57A2', '#D90751', '#FAB718', '#ED6F26', '#63B22F', '#1487C9', '#017F36', '#984995']) {
+    assert.ok(html.includes(c), 'фирменный цвет СБП ' + c);
+  }
+  assert.ok(html.includes('#EB001B') && html.includes('#F79E1B') && html.includes('#FF5A00'), 'цвета Mastercard');
+  const mirHtml = render.payPage(ss, order, { origin: '', own: PAYMENTS.ownRequisites(Object.assign({}, ss, { ownPayCard: '2200123412341236' })) });
+  assert.match(mirHtml, /pay-own-mir/);
+  assert.ok(mirHtml.includes('#0f754e') && mirHtml.includes('url(#mir-wing)'), 'зелёный вордмарк и градиентное крыло «Мира»');
+  // Подвал остаётся одноцветным: там ряд знаков идёт тихой строкой над
+  // копирайтом, и четыре брендовых пятна в ней спорили бы друг с другом.
+  assert.doesNotMatch(render.layout(ss, { body: '' }), /#5B57A2|#EB001B/);
+  // Кнопка копирования стоит в строке с номером, а не под ним.
+  assert.match(html, /<div class="pay-own-line"><p class="pay-own-value">[^<]+<\/p>\s*<button/);
   assert.equal(payMethodsMod.cardBrand('2200123412341234'), 'mir');
   assert.equal(payMethodsMod.cardBrand('4276123456789014'), 'visa');
   assert.equal(payMethodsMod.cardBrand('1234'), '', 'незнакомый BIN не угадываем — знака просто не будет');
@@ -10675,7 +10705,8 @@ test('свои реквизиты: третий режим витрины, бе�
   /* Колонки складывает сам auto-fit, а не медиазапрос: ширина этого блока
    * зависит не от экрана, а от колонки оформления — на 860 px правило
    * «одна колонка» уже складывало карточки там, где две помещались. */
-  assert.match(css, /\.pay-own-grid\{display:grid;grid-template-columns:repeat\(auto-fit,minmax\(228px,1fr\)\)/);
+  assert.match(css, /\.pay-own-grid\{display:grid;grid-template-columns:repeat\(auto-fit,minmax\(320px,1fr\)\)/,
+    'порог колонки — под строку «номер + Копировать», иначе номер ломается пополам на широком экране');
   assert.doesNotMatch(css, /\.pay-own-grid\{grid-template-columns:minmax\(0,1fr\)/,
     'принудительной одной колонки быть не должно');
 

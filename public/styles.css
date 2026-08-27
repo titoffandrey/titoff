@@ -3781,12 +3781,33 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    поэтому каждый получает свою карточку со знаком, а не строку в общей рамке.
    Знак отвечает на вопрос «откуда платить» быстрее любой подписи. */
 .pay-own-note{margin:0 0 12px;font-size:14px;color:var(--muted)}
-/* Колонки складывает сам `auto-fit`: пока в ряд помещаются две карточки по
-   228 px — их две, у`же — одна. Медиазапросом это делать не нужно и вредно:
-   ширина ЭТОГО блока зависит не от ширины экрана, а от колонки оформления. */
-.pay-own-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:12px}
-.pay-own-card{display:flex;flex-direction:column;align-items:flex-start;gap:9px;
-  padding:14px 16px 15px;border:1px solid var(--border-soft,var(--border));border-radius:14px;background:#fff}
+.pay-own .pay-timer{margin-top:12px}
+/* Подпись у своего окна короткая («Время на оплату» против «Реквизиты
+   действительны ещё»), поэтому на телефоне она остаётся В СТРОКЕ с отсчётом, а
+   в столбик уходит только там, где строка правда не влезает. */
+.pay-own .pay-timer-copy{flex-direction:row;align-items:center;flex-wrap:wrap}
+/* Колонки складывает сам `auto-fit`, и порог у него не случайный: в карточке
+   номер и «Копировать» стоят ОДНОЙ строкой, а шестнадцать цифр с кнопкой рядом
+   требуют примерно 300 px. При пороге 228 px две колонки появлялись раньше, чем
+   в них помещалась строка, — и номер ломался пополам ровно на широком экране,
+   где места как раз вдоволь. Медиазапрос тут не годится вовсе: ширина ЭТОГО
+   блока зависит не от экрана, а от колонки оформления. */
+.pay-own-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.pay-own-card{display:flex;flex-direction:column;gap:7px;
+  padding:12px 14px 13px;border:1px solid var(--border-soft,var(--border));border-radius:14px;background:#fff}
+/* Номер и «Копировать» — одной строкой: кнопка относится к номеру, а снизу она
+   растягивала карточку на треть высоты ни за чем. */
+.pay-own-line{display:flex;align-items:center;gap:10px}
+/* Номер обязан жить в ОДНУ строку: перенос посреди группы цифр («…4381 / 5845»)
+   читается как другой номер, а его сверяют глазами. Кегль поэтому подобран под
+   самое узкое место — карта из шестнадцати цифр рядом с кнопкой на экране
+   390 px: при 19 px ей нужно 213 px, а есть 195. */
+.pay-own-value{font-size:17px}
+.pay-own-card .pay-copy{padding:5px 9px;font-size:12px}
+@media(min-width:520px){
+  .pay-own-value{font-size:19px}
+  .pay-own-card .pay-copy{padding:6px 11px;font-size:12.5px}
+}
 /* Знак и подпись способа — одной строкой мелким: они называют способ, а
    содержание карточки — сам номер под ними. */
 .pay-own-head{display:flex;align-items:center;gap:9px;min-height:22px;color:var(--muted);font-size:12.5px}
@@ -3795,25 +3816,29 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Высоты знаков подобраны по их viewBox: у каждого он обрезан по фигуре, и
    общая высота дала бы «Мир» вдвое крупнее СБП. Обводка цветом карточки
    возвращает зазоры между сегментами — как в подвале. */
-.pay-own-sbp svg:first-child{height:19px;stroke:#fff;stroke-width:1.6}
+.pay-own-sbp svg:first-child{height:19px}
 .pay-own-sbp svg+svg{height:12px}
-.pay-own-mir svg{height:14px}
+.pay-own-mir svg{height:15px}
 .pay-own-visa svg{height:14px}
-.pay-own-mastercard svg{height:17px;stroke:#fff;stroke-width:44}
+.pay-own-mastercard svg{height:19px}
 .pay-own-plain{font-size:12.5px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
 /* Номер — главное в карточке: крупно, табличными цифрами и с трекингом, иначе
    шестнадцать цифр читаются сплошной лентой, а их сверяют глазами. */
-.pay-own-value{margin:0;font-size:19px;font-weight:600;letter-spacing:.02em;
+.pay-own-value{flex:1;min-width:0;margin:0;font-weight:600;letter-spacing:.02em;
   font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.pay-own-card .pay-copy{margin-top:auto}
 /* Получатель и банк — не реквизиты для копирования, а то, чем покупатель их
    сверяет. Поэтому отбиты линией и набраны тише. */
-.pay-own-who{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 24px;
-  margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft,var(--border))}
-.pay-own-who span{display:block;color:var(--muted);font-size:12.5px;margin-bottom:2px}
-.pay-own-who b{font-size:14.5px;font-weight:600}
-.pay-own-bank{display:inline-flex;align-items:center;min-height:22px}
-.pay-own-bank svg{display:block;width:auto;height:20px}
+/* Получатель — не примечание, а то, чем покупатель сверяет, туда ли уходят
+   деньги. Поэтому он не строчка под линией, а своя плашка на подложке, как
+   сумма перевода наверху: два самых важных факта страницы выглядят одинаково
+   весомо. */
+.pay-own-who{display:flex;flex-wrap:wrap;align-items:center;gap:10px 24px;
+  margin-top:12px;padding:12px 16px;border-radius:14px;background:var(--bg2)}
+.pay-own-who-name{flex:1;min-width:180px}
+.pay-own-who span{display:block;color:var(--muted);font-size:12.5px;margin-bottom:3px}
+.pay-own-who b{font-size:16px;font-weight:650;letter-spacing:-.01em}
+.pay-own-bank{display:inline-flex;align-items:center;min-height:24px}
+.pay-own-bank svg{display:block;width:auto;height:22px}
 .pay-state{margin:10px 0 0;min-height:20px;font-size:13.5px;color:var(--muted)}
 .pay-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
 .pay-actions .btn{flex:1;min-width:150px}
