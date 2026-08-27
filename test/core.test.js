@@ -3071,7 +3071,7 @@ test('подпись корпуса на фото ремешка читаетс�
   assert.match(html, /<div class="img-chip-media" data-case="Чёрный титан">/);
 });
 
-test('строка заказа: свой столбец у каждого вопроса, длинное — под раскрытием', () => {
+test('строка заказа: оплата собрана одним блоком, длинное — под раскрытием', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const long = {
     id: 'o1', number: '482913', createdAt: Date.now(), status: 'new',
@@ -3090,15 +3090,13 @@ test('строка заказа: свой столбец у каждого во�
   };
   const panels = { 'панель': adminViews.ordersList(SETTINGS, db, null, 1) };
   for (const [name, html] of Object.entries(panels)) {
-    // Выполнение, состояние оплаты, способ и сумма — четыре разных вопроса и
-    // четыре столбца. Оплата не подменяет работу магазина с заказом.
-    // В одной ячейке они читались как одно целое.
-    assert.match(html, /<th>Выполнение<\/th>/, name);
-    assert.match(html, /<th>Статус оплаты<\/th>/, name);
-    assert.match(html, /<th>Способ<\/th>/, name);
-    assert.match(html, /<td class="o-flow">/, name);
-    assert.match(html, /<td class="o-state">/, name);
-    assert.match(html, /<td class="o-pay">/, name);
+    // Менеджер не ведёт «выполнение» вручную. Состояние и способ оплаты — один
+    // понятный блок, сумма остаётся отдельно.
+    assert.doesNotMatch(html, /Выполнение|orderStatus|o-flow/, name);
+    assert.match(html, /<th>Оплата<\/th>/, name);
+    assert.match(html, /<td class="o-payment">/, name);
+    assert.match(html, /class="o-payment-state"/, name);
+    assert.match(html, /class="o-payment-method"/, name);
     assert.match(html, /<td class="o-sum"><b>/, name);
     // Сумма в своей ячейке одна: значок состояния к ней больше не приписан.
     const sumCell = html.slice(html.indexOf('<td class="o-sum">'), html.indexOf('</td>', html.indexOf('<td class="o-sum">')));
@@ -3462,19 +3460,16 @@ test('карточки посетителей метрики ищутся по �
   }
 });
 
-test('выполнение заказа журналируется, а список ищет и фильтрует независимо от оплаты', t => {
+test('заказ не ведёт выполнение, а список ищет и фильтрует по оплате', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-workflow-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
   fresh.ensureSeeded();
   const order = fresh.createOrder({ items: [], total: 1000, customerName: 'Иван Петров', phone: '+79990000000' });
-  fresh.setOrderStatus(order.id, 'confirmed', 'admin');
-  fresh.setOrderStatus(order.id, 'processing', 'admin');
   const saved = fresh.getOrder(order.id);
-  assert.equal(saved.status, 'processing');
-  assert.deepEqual(saved.statusHistory.map(x => x.status), ['new', 'confirmed', 'processing']);
-  assert.equal(fresh.setOrderStatus(order.id, 'paid', 'admin'), null,
-    'состояние кассы не является выполнением заказа');
+  assert.equal(saved.status, undefined);
+  assert.equal(saved.statusHistory, undefined);
+  assert.equal(fresh.setOrderStatus, undefined);
 
   const other = {
     id: 'other', number: '700002', status: 'new', createdAt: Date.now() - 1000,
@@ -3486,15 +3481,15 @@ test('выполнение заказа журналируется, а спис�
     items: [{ name: 'iPhone', qty: 1, price: 1000 }]
   });
   const db = Object.assign({}, fresh, {
-    ORDER_STATUSES: fresh.ORDER_STATUSES,
     visibleOrders: () => [paid, other], getOrders: () => [paid, other], archivedOrders: () => []
   });
   const html = adminViews.ordersList(SETTINGS, db, null, 1, 'active', null,
-    { q: 'Иван', pay: 'ok', status: 'processing' });
+    { q: 'Иван', pay: 'ok' });
   assert.match(html, new RegExp(`id="order-${order.id}"`));
   assert.doesNotMatch(html, /id="order-other"/);
   assert.match(html, /name="q" value="Иван"/);
   assert.match(html, /name="filterPay" value="ok"/);
+  assert.doesNotMatch(html, /name="status"|filterStatus|orderStatus/);
 });
 
 test('архивирование оплаченного заказа не уменьшает выручку', () => {
@@ -4233,9 +4228,10 @@ test('клиент удаляет только чистый черновик д�
   assert.equal(fresh.discardDraftOrder(started.id).reason, 'locked');
   assert.equal(fresh.getOrder(started.id).id, started.id, 'платёжная история не удалена');
 
-  const processing = fresh.createOrder({ draft: true, items: [], total: 500, contact: 'tg' });
-  fresh.setOrderStatus(processing.id, 'processing');
-  assert.equal(fresh.discardDraftOrder(processing.id).reason, 'locked', 'взятый в работу черновик не удаляется');
+  const legacy = fresh.createOrder({ draft: true, items: [], total: 500, contact: 'tg' });
+  legacy.status = 'processing';
+  assert.equal(fresh.canDiscardDraftOrder(legacy), true, 'старое поле выполнения больше не влияет на заказ');
+  assert.equal(fresh.discardDraftOrder(legacy.id).ok, true);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -4439,8 +4435,7 @@ test('повтор оформления возвращает тот же сво�
   assert.equal(reusableOrder(req, base), null, 'оплаченный заказ не оживает');
   order.payment.status = 'pending';
   order.status = 'done';
-  assert.equal(reusableOrder(req, base), null, 'выполненный заказ не оживает');
-  order.status = 'new';
+  assert.equal(reusableOrder(req, base), order, 'старое поле выполнения больше не влияет на заказ');
   order.archive = { active: true, at: Date.now() };
   assert.equal(reusableOrder(req, base), null, 'удалённый администратором заказ не оживает');
   order.archive.active = false;
@@ -4569,7 +4564,7 @@ test('оплата хранит отдельные попытки и закры�
   const fresh = freshDb(dir);
   const order = fresh.createOrder({ items: [{ id: 'p1', name: 'Товар', price: 100, qty: 1 }], total: 100, contact: 'tg' });
   assert.equal(order.payment, null, 'заказ без оплаты читается как «не запускалась»');
-  assert.equal(order.status, 'new');
+  assert.equal(order.status, undefined);
 
   const firstId = '1'.repeat(24);
   const firstRequest = 'a'.repeat(32);
@@ -4584,7 +4579,7 @@ test('оплата хранит отдельные попытки и закры�
   assert.equal(started.payment.amount, 10000);
   assert.equal(started.payment.method, 'SBP');
   assert.equal(started.payment.attempts.length, 1);
-  assert.equal(started.status, 'new', 'статус заказа оплата не подменяет');
+  assert.equal(started.status, undefined, 'отдельного выполнения у заказа нет');
 
   // Реквизиты приезжают отдельным шагом: token нужен ДО создания счёта (он
   // уходит в callback_url), а id счёта появляется только в ответе кассы.
@@ -6857,9 +6852,10 @@ test('состояние оплаты видно в обеих панелях и
   // «дошло ли» — разные вопросы, и в одной ячейке они читались как одно целое.
   assert.match(render.orderPayMethod({ payment: { status: 'paid', method: 'SBP' } }), /СБП/);
   assert.doesNotMatch(render.orderStatus({ payment: { status: 'paid', method: 'SBP' } }), /СБП/);
-  // Заказ без оплаты (и любой прежний) даёт прочерк, а не пустую ячейку.
+  // Заказ без оплаты (и любой прежний) получает явную подпись, а не загадочный
+  // прочерк в основном списке.
   for (const empty of [{ payment: null }, {}, { payment: { status: 'выдумка' } }]) {
-    assert.match(render.orderStatus(empty), /—/);
+    assert.match(render.orderStatus(empty), /без онлайн-оплаты/);
     assert.match(render.orderPayMethod(empty), /—/);
   }
 
@@ -6879,11 +6875,9 @@ test('состояние оплаты видно в обеих панелях и
   for (const html of [adminViews.ordersList(SETTINGS, db, null, 1)]) {
     assert.match(html, /pay-ok/);
     assert.match(html, /pay-warn/);
-    // Выполнение снова ведётся отдельно от кассы: один и тот же заказ может
-    // быть одновременно оплачен и собираться.
-    assert.match(html, /name="orderStatus"/);
-    assert.match(html, /option value="processing">Собирается<\/option>/);
-    assert.match(html, /<th>Выполнение<\/th>[\s\S]*<th>Статус оплаты<\/th>/);
+    assert.doesNotMatch(html, /Выполнение|name="orderStatus"|Собирается/);
+    assert.match(html, /<th>Оплата<\/th>/);
+    assert.match(html, /class="o-payment-state"[\s\S]*class="o-payment-method"/);
   }
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.pay-tag\.pay-ok/);
@@ -7008,6 +7002,13 @@ test('счётчики и выручка одинаковы на «Обзоре�
   const dash = adminViews.dashboard(SETTINGS, db);
   const list = adminViews.ordersList(SETTINGS, db, null, 1);
 
+  // В рабочем списке первым делом видны поиск и заказы. Та же сводка доступна
+  // ниже одним нажатием, но не заставляет менеджера каждый раз прокручивать
+  // экран прежде, чем он доберётся до нужного заказа.
+  assert.match(list, /<details class="o-provider-details o-summary-details"><summary>Сводка по оплатам<\/summary><div class="o-stats">/);
+  assert.ok(list.indexOf('class="o-filters"') < list.indexOf('class="a-panel o-list-panel"'));
+  assert.ok(list.indexOf('class="a-panel o-list-panel"') < list.indexOf('o-summary-details'));
+
   // Разметка сводки одна на обе страницы: разъехавшиеся счётчики читались бы
   // как разные числа об одном и том же.
   const bar = html => {
@@ -7089,11 +7090,10 @@ test('состояние оплаты красит панель одним на�
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-orders tr\{[^}]*background:var\(--tone-row,#fff\);box-shadow:inset 3px 0 0 var\(--tone,transparent\)/);
   assert.match(mobile, /\.a-orders tr\.o-row td:first-child\{box-shadow:none\}/);
-  // Ряды карточки заданы явно: порядок ячеек в таблице задан столбцами, и
-  // автоматической раскладке взяться за «состояние справа от номера» неоткуда.
-  assert.match(mobile, /\.a-orders \.o-state\{grid-column:2;grid-row:1/);
-  assert.match(mobile, /\.a-orders \.o-flow\{grid-column:1\/-1;grid-row:4/);
-  assert.match(mobile, /\.a-orders \.o-sum\{grid-column:2;grid-row:5/);
+  // Ряды карточки заданы явно: номер и итог сверху, единый блок оплаты снизу.
+  assert.match(mobile, /\.a-orders \.o-sum\{grid-column:2;grid-row:1/);
+  assert.match(mobile, /\.a-orders \.o-payment\{grid-column:1\/-1;grid-row:4/);
+  assert.doesNotMatch(mobile, /\.a-orders \.o-flow|\.a-orders \.o-state\{/);
   // Сводка на телефоне — карточками друг под другом, список состояний в одну
   // колонку: в две подпись вроде «Способ не выбран» переносится посреди слова.
   assert.match(mobile, /\.o-stats\{grid-template-columns:minmax\(0,1fr\)/);

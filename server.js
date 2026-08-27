@@ -151,10 +151,6 @@ const ordersBackUrl = (body, flash, forcedView) => {
   if (['ok', 'wait', 'warn', 'off', 'none', 'draft'].includes(pay)) {
     params.push('pay=' + encodeURIComponent(pay));
   }
-  const status = String(body && body.filterStatus || '');
-  if (Array.isArray(db.ORDER_STATUSES) && db.ORDER_STATUSES.includes(status)) {
-    params.push('status=' + encodeURIComponent(status));
-  }
   if (flash) params.push('flash=' + encodeURIComponent(flash));
   return '/admin/orders' + (params.length ? '?' + params.join('&') : '');
 };
@@ -1104,8 +1100,7 @@ function reusableOrder(req, data) {
     const age = order ? now - Number(order.createdAt || 0) : NaN;
     if (!order || !Number.isFinite(age) || age < 0 || age >= ORDER_REUSE_TTL) continue;
     if (db.isOrderArchived(order)) continue;
-    if (!['new', 'confirmed', 'processing'].includes(order.status)
-      || (pay && (pay.status === 'paid' || pay.status === 'mismatch'))) continue;
+    if (pay && (pay.status === 'paid' || pay.status === 'mismatch')) continue;
     if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
     if (scalars.some(key => String(order[key] == null ? '' : order[key]) !== String(data[key] == null ? '' : data[key]))) continue;
     if (itemKey(order.items) !== itemKey(data.items)) continue;
@@ -2220,7 +2215,6 @@ async function startPaymentRoute(req, res) {
       error: 'Заказ закрыт. Оформите новый заказ.'
     }, 410);
   }
-  if (!['new', 'confirmed', 'processing'].includes(order.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Пределы касс проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму они всё равно не выставят.
   if (!PAYMENTS.payable(order.total, s)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
@@ -2264,7 +2258,6 @@ async function startPaymentRoute(req, res) {
       error: 'Заказ закрыт. Оформите новый заказ.'
     }, 410);
   }
-  if (!['new', 'confirmed', 'processing'].includes(currentOrder.status)) return res.json({ ok: false, error: 'Заказ уже закрыт' }, 400);
   // Сначала живая работа: после startOrderPayment попытка уже есть в файле, и
   // поиск known иначе возвращал 409 вместо ожидания того же Promise.
   const running = paymentStartJobs.get(id);
@@ -3020,15 +3013,6 @@ app.get('/admin/orders', (req, res) => {
    */
   db.markOrdersSeen();
   res.send(html);
-});
-app.post('/admin/orders/:id/status', (req, res) => {
-  if (!guardAdmin(req, res)) return;
-  const current = db.getOrder(req.params.id);
-  const wanted = String(req.body && req.body.orderStatus || '');
-  const order = current && !db.isOrderArchived(current)
-    ? db.setOrderStatus(req.params.id, wanted, 'admin') : null;
-  const flash = order ? `Выполнение: ${R.orderWorkflowLabel(order.status)}` : 'Не удалось изменить выполнение заказа';
-  res.redirect(ordersBackUrl(req.body, flash, 'active'), 303);
 });
 app.post('/admin/orders/:id/reconcile', async (req, res) => {
   if (!guardAdmin(req, res)) return;

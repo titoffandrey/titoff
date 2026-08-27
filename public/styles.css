@@ -497,7 +497,7 @@ body.admin{background:var(--bg2)}
 .o-stat-idle,.o-row-idle,.pay-tag.pay-idle{--tone:#5b6f9c;--tone-ink:#4a5c85;--tone-soft:#eef1f8;--tone-row:#f9fafd}
 /* Черновик — та же семья цвета, но бледнее: заявка есть, а заказа ещё нет. */
 .o-stat-draft,.o-row-draft,.pay-tag.pay-draft{--tone:#94a1bb;--tone-ink:#5f6d8a;--tone-soft:#f3f5fa;--tone-row:#fcfcfe}
-.o-stat-none{--tone:#d2d2d7;--tone-ink:#8e8e93;--tone-soft:#f4f4f6}
+.o-stat-none,.pay-tag.pay-none{--tone:#d2d2d7;--tone-ink:#6e6e73;--tone-soft:#f4f4f6}
 /* Плашка — точка и подпись цветом тона на бледной заливке. Прежде заливка была
    сплошной, а слева стоял глиф (⏳ ✓ ⚠): эмодзи приезжали цветными из
    системного шрифта, спорили с цветом самой плашки и в каждой системе
@@ -2113,39 +2113,29 @@ body.admin{background:#f4f4f6;color:#242426}
 .pay-method-tag-off{background:#f2f2f5;color:#6e6e73}
 
 /* ===== Список заказов =====
-   Каждая заявка несёт много мелочей: имя, контакт, доставку, адрес, состав,
-   город, устройство. Развёрнутые целиком, они растягивали строку на треть
-   экрана — десяток заказов уже не помещался.
-   Поэтому: у каждого вопроса свой столбец (состояние оплаты, способ и сумма
-   больше не лежат в одной ячейке), длинное — под раскрытием, и всё в строке
-   выровнено по центру, а не прижато к её верхней границе. */
-.a-orders td{padding:12px 11px;vertical-align:middle;line-height:1.4}
+   В строке пять вопросов: какой заказ, кто покупатель, что заказал, что с
+   оплатой и сколько всего. Состояние и способ оплаты живут одним блоком — это
+   один процесс, а отдельные столбцы заставляли собирать его глазами. */
+.o-list-panel{padding:18px 20px}
+.a-orders td{padding:14px 12px;vertical-align:middle;line-height:1.4}
 .a-orders th{vertical-align:middle}
-.a-orders .o-num{white-space:nowrap}
-.a-orders .o-num b{display:block;font-size:14.5px}
+.a-orders .o-num{width:1%;min-width:118px;white-space:nowrap}
+.a-orders .o-num b{display:block;font-size:15px;letter-spacing:-.015em}
 .a-orders .o-num .small{display:block;font-size:11.5px;line-height:1.5}
-.a-orders .o-client{min-width:190px;max-width:265px}
-.a-orders .o-items{min-width:210px;max-width:330px}
+.a-orders .o-client{min-width:210px;max-width:310px}
+.a-orders .o-items{min-width:220px;max-width:380px}
 .a-orders .o-items-list{font-size:12.5px;color:#48484a}
 .a-orders .o-items-list div+div{margin-top:4px}
-.a-orders .o-flow{width:1%;min-width:150px}
-.o-flow-form{display:grid;gap:5px}
-.o-flow-form select{width:100%;min-width:145px;background:#fff}
-.o-flow-form .btn{justify-self:start;padding:4px 8px;font-size:11.5px}
-.order-flow{display:inline-flex;padding:4px 8px;border-radius:8px;background:#f2f2f5;color:#48484a;
-  font-size:11.5px;font-weight:620;white-space:nowrap}
-.order-flow-confirmed,.order-flow-processing{background:#edf5ff;color:#1769aa}
-.order-flow-shipped{background:#f3efff;color:#6941a5}
-.order-flow-done{background:#eaf8ef;color:#207a45}
-.order-flow-cancelled{background:#f2f2f5;color:#8e8e93;text-decoration:line-through}
-.a-orders .o-state{width:1%;white-space:nowrap}
-.o-reconcile{margin-top:5px}
-.o-reconcile .link-btn{padding:0;border:0;background:none;color:var(--accent);cursor:pointer;
-  font-size:11.5px;text-decoration:underline;text-underline-offset:2px}
-.o-reconcile .link-btn:hover{color:var(--text)}
-.a-orders .o-pay{width:1%;white-space:nowrap;font-size:12.5px;color:#48484a}
+.a-orders .o-payment{width:1%;min-width:190px}
+.o-payment-main{display:grid;gap:7px}
+.o-payment-state{white-space:nowrap}
+.o-payment-method{font-size:12.5px;color:#48484a}
+.o-payment-method>.muted{display:none}
+.o-reconcile{margin-top:9px}
+.o-reconcile .btn{padding:5px 9px;border-color:#d6d6dc;background:#fff;color:#48484a;font-size:11.5px}
+.o-reconcile .btn:hover{border-color:var(--accent);color:var(--text)}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
-.a-orders .o-sum b{font-size:14.5px;font-variant-numeric:tabular-nums}
+.a-orders .o-sum b{font-size:15.5px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
 /* Время под плашкой: обратный отсчёт живого счёта и момент, когда всё
    случилось. Цифры табличные — иначе отсчёт дёргает соседние столбцы на каждой
@@ -2248,7 +2238,7 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-list-switch b{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;
   background:#f1f1f4;color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
 .o-list-switch a[aria-current="page"] b{background:rgba(255,255,255,.2);color:#fff}
-.o-filters{display:grid;grid-template-columns:minmax(230px,1fr) auto auto auto auto;gap:8px;
+.o-filters{display:grid;grid-template-columns:minmax(280px,1fr) minmax(170px,auto) auto auto;gap:8px;
   align-items:center;margin:0 0 14px;padding:10px;border:1px solid var(--border-soft);border-radius:14px;background:#fff}
 .o-filters label{min-width:0}
 .o-filters input,.o-filters select{width:100%;height:35px;padding:0 10px;border:1px solid var(--border);
@@ -2259,7 +2249,11 @@ body.admin{background:#f4f4f6;color:#242426}
    строки — это удаление заказа в один промах мыши, а список открывают, чтобы
    читать, а не чистить. Переключатель — скрытый чекбокс, поэтому ни строчки
    скрипта: правило `:checked ~ table` показывает столбец. */
-.a-panel-edit{justify-content:flex-end;gap:8px}
+.a-panel-edit{justify-content:space-between;align-items:center;gap:14px;margin-bottom:10px}
+.o-list-title{display:flex;align-items:baseline;gap:9px;min-width:0}
+.o-list-title h2{margin:0;font-size:18px}
+.o-list-title span{color:var(--muted);font-size:12px;white-space:nowrap}
+.a-panel-edit-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto}
 /* «Очистить корзину» показывается тем же правилом, что и крестики у строк:
    стереть весь архив из списка, открытого почитать, нельзя — сперва «Изменить».
    Кнопка стоит в шапке режима, а не над списком, именно поэтому. */
@@ -2281,6 +2275,19 @@ body.admin{background:#f4f4f6;color:#242426}
    навсегда» уезжало бы под «Вернуть» и читалось как подпись к ней. */
 .a-orders .o-acts{display:flex;flex-wrap:nowrap;justify-content:flex-end;gap:7px}
 .a-orders .o-acts .btn{white-space:nowrap}
+
+/* Диагностика касс нужна при разборе проблемы, а не при каждом открытии
+   заказов. Свёртка оставляет страницу короткой, но отчёт остаётся в одном
+   нажатии от списка. */
+.o-provider-details{margin:2px 0 22px;border:1px solid var(--border-soft);border-radius:14px;background:#fff}
+.o-provider-details>summary{padding:12px 15px;cursor:pointer;list-style:none;color:var(--muted);
+  font-size:13px;font-weight:600}
+.o-provider-details>summary::-webkit-details-marker{display:none}
+.o-provider-details>summary::before{content:'›';display:inline-block;margin-right:8px;transition:transform .15s}
+.o-provider-details[open]>summary::before{transform:rotate(90deg)}
+.o-provider-details>.a-panel{margin:0;border:0;border-top:1px solid var(--border-soft);border-radius:0;box-shadow:none}
+.o-summary-details{margin-bottom:10px}
+.o-summary-details>.o-stats{margin:0;padding:14px;border-top:1px solid var(--border-soft);background:#fafafa}
 
 /* ===== Отзывы в панели =====
    Раздел в два уровня: очередь модерации на входе и лента каждого товара
@@ -2957,11 +2964,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .o-leg>b{font-size:17px}
   .o-share{margin-bottom:11px}
 
-  /* Заказы на телефоне — карточками, а не таблицей в семь столбцов: в узкую
+  /* Заказы на телефоне — карточками, а не таблицей: в узкую
      ленту такая таблица не влезает никак, и её приходилось листать вбок,
      теряя из виду и номер, и сумму.
-     Порядок строк карточки: «номер и дата — состояние», «клиент», «состав»,
-     «чем платили — сколько». Сверху то, по чему заявку узнают, снизу деньги;
+     Порядок строк карточки: «номер и дата — итог», «покупатель», «товары»,
+     «оплата». Сверху то, по чему заявку узнают, ниже подробности;
      ряды заданы явно, потому что порядок ячеек в таблице задан столбцами и
      автоматической раскладке взяться за него неоткуда. */
   /* Спецификация выше, чем у общего `.a-table{min-width:620px}` ниже в этом же
@@ -3003,14 +3010,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-name{font-size:14px}
   .a-orders .o-contact{font-size:12px}
   .a-orders .o-who summary{padding:2px 4px;margin:-2px -4px}
-  /* width:1% с десктопа в сетке сжимает ячейку в ниточку — на карточке ширину
-     задаёт содержимое. */
-  .a-orders .o-state{grid-column:2;grid-row:1;justify-self:end;width:auto;text-align:right}
+  .a-orders .o-sum{grid-column:2;grid-row:1;align-self:start;text-align:right}
+  .a-orders .o-sum b{font-size:17px;letter-spacing:-.025em}
   .a-orders .o-client{grid-column:1/-1;grid-row:2;max-width:none;min-width:0}
   .a-orders .o-items{grid-column:1/-1;grid-row:3;max-width:none;min-width:0}
-  .a-orders .o-flow{grid-column:1/-1;grid-row:4;width:auto;min-width:0;margin-top:2px}
-  .o-flow-form{display:flex;align-items:center;gap:7px}
-  .o-flow-form select{min-width:0;flex:1}
   /* Ряд денег отбит волосяной линией: выше в карточке «что за заявка», ниже —
      «чем и сколько», и без границы это читалось одним списком строк.
      Линия висит на СОСТАВЕ, а не на ячейках ряда денег: состав идёт во всю
@@ -3018,9 +3021,11 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      кусков с дырой посередине выглядела бы обрывом. */
   .a-orders .o-items{padding-bottom:9px;border-bottom:1px solid var(--border-soft)}
   .a-orders .o-items-list{font-size:12.5px}
-  .a-orders .o-pay{grid-column:1;grid-row:5;width:auto;text-align:left;font-size:12px}
-  .a-orders .o-sum{grid-column:2;grid-row:5;text-align:right}
-  .a-orders .o-sum b{font-size:16px;letter-spacing:-.02em}
+  .a-orders .o-payment{grid-column:1/-1;grid-row:4;width:auto;min-width:0;padding-top:9px;
+    border-top:1px solid var(--border-soft)}
+  .a-orders .o-payment-main{grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px 12px}
+  .a-orders .o-payment-method{text-align:right;font-size:12px}
+  .a-orders .o-reconcile{margin-top:8px}
   .a-orders .o-via{font-size:11px}
   .a-orders .o-note{max-width:none}
   /* Реквизиты на карточке живут в половине её ширины: подпись и значение в
@@ -3034,14 +3039,20 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-orders .o-req-list div{display:block}
   .a-orders .o-req-list b{display:block;text-align:left}
   /* Строка удаления идёт во всю ширину, кнопка прижата вправо. */
-  .a-orders .o-act{grid-column:1/-1;grid-row:6;width:auto;margin-top:2px;padding-top:9px;
+  .a-orders .o-act{grid-column:1/-1;grid-row:5;width:auto;margin-top:2px;padding-top:9px;
     border-top:1px solid var(--border-soft);text-align:right}
   .a-orders .o-act form{display:flex;justify-content:flex-end}
   .edit-switch:checked ~ .a-orders .o-act{display:block}
   .a-orders td:empty{display:none}
 
-  .o-filters{grid-template-columns:1fr 1fr}
+  .o-filters{grid-template-columns:1fr auto}
   .o-filters label:first-of-type{grid-column:1/-1}
+  .o-filters label:nth-of-type(2){min-width:0}
+  .o-list-panel{padding:13px}
+  .a-panel-edit{align-items:flex-start}
+  .o-list-title{display:block}
+  .o-list-title span{display:block;margin-top:2px}
+  .a-panel-edit-actions{flex-wrap:wrap}
 
   /* Строка кассы: на телефоне состояние всё равно переносится под название, и
      без этого правила оно вставало по левому краю, а приписка про сделки — с
