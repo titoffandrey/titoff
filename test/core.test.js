@@ -10616,6 +10616,7 @@ test('свои реквизиты: третий режим витрины, бе�
    * Свои реквизиты этой зависимости не имеют вовсе — но и сверки у них нет, а
    * значит нет ни срока у реквизитов, ни автоматического «оплачено». */
   const PAYMENTS = require('../lib/payments');
+  const payMethodsMod = require('../lib/pay-methods');
   const own = {
     ownPayEnabled: true, ownPayCard: '5599 0021 4381 5845',
     ownPayPhone: '89229191365', ownPayOwner: 'Сергеев Александр Викторович'
@@ -10640,21 +10641,43 @@ test('свои реквизиты: третий режим витрины, бе�
   assert.deepEqual(PAYMENTS.limits(ss), { min: 0, max: 0 });
 
   const order = { id: 'a1', number: '482913', total: 67990, createdAt: Date.now(), items: [], payment: null, payMode: 'own' };
-  const html = render.payPage(ss, order, { origin: '', own: PAYMENTS.ownRequisites(ss) });
-  assert.match(html, /Телефон для СБП/);
+  const html = render.payPage(ss, Object.assign({}, order), { origin: '', own: PAYMENTS.ownRequisites(Object.assign({}, ss, { ownPayBank: 'ЮMoney' })) });
+  assert.match(html, /По номеру телефона/);
   assert.match(html, /\+7 922 919-13-65/, 'номер набран для чтения, как реквизит кассы');
   assert.match(html, /data-copy="79229191365"/, 'а копируется голыми цифрами');
   assert.match(html, /5599 0021 4381 5845/);
   assert.match(html, /data-copy="5599002143815845"/);
   assert.match(html, /Сергеев Александр Викторович/);
   assert.match(html, /Переведите по СБП на номер телефона или на карту/);
+  assert.match(html, /ЮMoney/, 'банк получателя покупатель сверяет глазами');
   // Ни таймера, ни выбора способа: срок реквизитам назначает касса, а своим
   // назначать некому — и выбирать не из чего, реквизиты одни.
   assert.doesNotMatch(html, /id="pay-timer"/);
   assert.doesNotMatch(html, /name="method"/);
   assert.doesNotMatch(html, /Проверить перевод/);
-  // Точную сумму просим по-прежнему: по ней менеджер найдёт перевод.
-  assert.match(html, /<b class="pay-exact">Переведите точную сумму<\/b>/);
+  // Просьбы «переведите точную сумму» здесь нет: у кассы по сумме сходился
+  // платёж автоматически, а свои переводы владелец сверяет сам.
+  assert.doesNotMatch(html, /pay-exact/);
+
+  /* Знак способа — часть реквизита, а не украшение: по нему покупатель решает,
+   * откуда переводить. У телефона это СБП, у карты — её ПЛАТЁЖНАЯ СИСТЕМА,
+   * подобранная по самому номеру: «Мир» над номером Mastercard был бы неправдой
+   * в самом неподходящем для этого месте. */
+  assert.match(html, /class="pay-own-mark pay-own-sbp"/);
+  assert.match(html, /class="pay-own-mark pay-own-mastercard"/, '5599… — это Mastercard, а не Мир');
+  assert.equal(payMethodsMod.cardBrand('2200123412341234'), 'mir');
+  assert.equal(payMethodsMod.cardBrand('4276123456789014'), 'visa');
+  assert.equal(payMethodsMod.cardBrand('1234'), '', 'незнакомый BIN не угадываем — знака просто не будет');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  for (const rule of ['.pay-own-grid{', '.pay-own-card{', '.pay-own-sbp svg', '.pay-own-mastercard svg', '.pay-own-who{']) {
+    assert.ok(css.includes(rule), 'в стилях есть ' + rule);
+  }
+  /* Колонки складывает сам auto-fit, а не медиазапрос: ширина этого блока
+   * зависит не от экрана, а от колонки оформления — на 860 px правило
+   * «одна колонка» уже складывало карточки там, где две помещались. */
+  assert.match(css, /\.pay-own-grid\{display:grid;grid-template-columns:repeat\(auto-fit,minmax\(228px,1fr\)\)/);
+  assert.doesNotMatch(css, /\.pay-own-grid\{grid-template-columns:minmax\(0,1fr\)/,
+    'принудительной одной колонки быть не должно');
 
   // В панели такой заказ ждёт перевода, а после отметки — оплачен.
   assert.deepEqual(render.payView(order), { tone: 'wait', label: 'ждём перевод' });
