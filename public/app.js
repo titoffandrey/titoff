@@ -370,6 +370,14 @@
     FORM_RADIOS.forEach(function (name) { data[name] = checkedValue(name); });
     data['co-pickup-code'] = typeof pickup !== 'undefined' && pickup
       ? cleanText(pickup.code || pickup.restoredCode, 32) : '';
+    /* Координаты выбранной подсказки — вместе с адресом, которому они выданы.
+     * Без них восстановленная форма оставалась без расстояний до пунктов: адрес
+     * на месте, а «420 м от вас» пропало, и вернуть его можно было только
+     * выбрав подсказку заново. Это и есть то самое «надо снова написать адрес».
+     */
+    data['co-address-geo'] = typeof pickup !== 'undefined' && pickup && pickup.geo
+      ? { lat: pickup.geo.lat, lon: pickup.geo.lon, address: pickup.geo.address }
+      : null;
     // После успешного оформления разметка формы уже снята. Не затираем в этот
     // момент сохранённые поля одной пустой отметкой времени.
     if (!found) return;
@@ -399,6 +407,30 @@
       try { localStorage.removeItem(FORM_KEY); } catch (e) {}
     }
     if (fresh) {
+      /* Координаты — ПЕРЕД полями: восстановление адреса даёт `change`, тот
+       * запускает расчёт доставки, а его ответ уже запрашивает пункты. Поставь
+       * координаты после — и первый список уйдёт без них, то есть без
+       * расстояний.
+       *
+       * Верим им ровно настолько, насколько верим коду пункта: пара чисел в
+       * границах глобуса и адрес, с которого начинается восстановленная строка.
+       * Не сошлось — просто нет координат, как у адреса, набранного руками.
+       */
+      var savedGeo = saved['co-address-geo'];
+      if (savedGeo && typeof savedGeo === 'object' && !Array.isArray(savedGeo)
+        && typeof pickup !== 'undefined' && pickup) {
+        var gLat = Number(savedGeo.lat), gLon = Number(savedGeo.lon);
+        var gAddr = typeof savedGeo.address === 'string' ? cleanText(savedGeo.address, 400) : '';
+        if (isFinite(gLat) && isFinite(gLon) && gAddr
+          && gLat >= -90 && gLat <= 90 && gLon >= -180 && gLon <= 180) {
+          // Сверяем с тем адресом, который в поле и ОСТАНЕТСЯ: уже набранное
+          // покупателем важнее запомненного, и восстановление его не трогает.
+          var addrEl = document.getElementById('co-address');
+          var willBe = addrEl && addrEl.value ? addrEl.value : cleanText(saved['co-address'], 400);
+          setGeo(gLat, gLon, gAddr);
+          if (!geoFits(willBe)) setGeo(null, null);
+        }
+      }
       FORM_FIELDS.forEach(function (id) {
         var el = document.getElementById(id);
         // JSON с объектом/массивом вместо строки — битая запись, а не имя
@@ -444,9 +476,16 @@
   function initAddressQuote() {
     var input = document.getElementById('co-address');
     if (!input) return;
-    // Правка руками отменяет и выбранный пункт, и координаты подсказки: адрес
-    // стал другим, и относиться к прежнему дому они больше не могут.
-    input.addEventListener('input', function () { dropPickup(); setGeo(null, null); quoteDelivery(); });
+    /* Правка руками отменяет выбранный пункт: адрес стал другим, и пункт в
+     * прежнем городе — уже не выбор покупателя. А вот координаты снимаются
+     * только тогда, когда правка задела САМ адрес (см. geoFits): дописанная
+     * квартира дом не меняет, и терять из-за неё расстояния до пунктов незачем.
+     */
+    input.addEventListener('input', function () {
+      dropPickup();
+      if (!geoFits(input.value)) setGeo(null, null);
+      quoteDelivery();
+    });
     input.addEventListener('change', function () { quoteDelivery(0); });
     input.addEventListener('blur', function () { quoteDelivery(0); });
   }
@@ -743,10 +782,34 @@
     if (pickup.timer) { clearTimeout(pickup.timer); pickup.timer = null; }
   }
 
-  // Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
-  // нет и не нужно. Правка поля руками их обесценивает: адрес уже другой.
-  function setGeo(lat, lon) {
-    pickup.geo = (typeof lat === 'number' && typeof lon === 'number') ? { lat: lat, lon: lon } : null;
+  /* Координаты дома приходят от подсказки dadata.ru — своего геокодера у витрины
+   * нет и не нужно. ИМЕННО ОТ НИХ зависит расстояние до пункта: без координат
+   * сервер ищет по названию города и честно отдаёт список БЕЗ «420 м от вас»
+   * (расстояние от центра города — не расстояние до покупателя).
+   *
+   * Поэтому вместе с парой чисел запоминается АДРЕС, которому они принадлежат.
+   * Раньше его не было, и правка поля руками сбрасывала координаты подчистую —
+   * а дописать в адрес квартиру или подъезд покупатель хочет почти всегда.
+   * Расстояния после этого пропадали, и вернуть их можно было только выбрав
+   * подсказку заново.
+   */
+  function setGeo(lat, lon, address) {
+    pickup.geo = (typeof lat === 'number' && typeof lon === 'number')
+      ? { lat: lat, lon: lon, address: geoKey(address) } : null;
+  }
+  // Сравниваем адреса без регистра и лишних пробелов: «д 1» и «Д  1» — один дом.
+  function geoKey(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase(); }
+  /* Относятся ли координаты к тому, что сейчас в поле. Дом — конец адреса, и
+   * всё, что покупатель дописывает дальше (квартира, подъезд, домофон), к
+   * координатам отношения не меняет. А вот правка САМОГО адреса их обесценивает:
+   * это уже другой дом. Отсюда правило одной строки — значение поля обязано
+   * начинаться с адреса, которому координаты выданы. Стёр дописанное обратно —
+   * строки снова совпали, координаты остались.
+   */
+  function geoFits(value) {
+    if (!pickup.geo) return false;
+    var head = pickup.geo.address;
+    return !!head && geoKey(value).indexOf(head) === 0;
   }
   // Выбранный пункт снимается вместе со сменой адреса или перевозчика: пункт в
   // прежнем городе или чужой сети — это не выбор покупателя, а мусор.
@@ -1164,10 +1227,26 @@
       // пункты выдачи. У неточной подсказки (город целиком) их нет вовсе, и
       // поиск уйдёт по названию города.
       dropPickup();
-      setGeo(s.lat, s.lon);
+      setGeo(s.lat, s.lon, s.value);
       // Выбор из списка не даёт события ввода, а адрес изменился — цену
       // доставки пересчитываем сразу, без задержки.
       quoteDelivery(0);
+      /* И СПИСОК ПУНКТОВ — ОТДЕЛЬНО, а не «его перезапросит quoteDelivery».
+       *
+       * Он перезапросит только когда адрес правда изменился: при совпадении
+       * строки `quoteDelivery` выходит первой же проверкой и `syncDelivery` не
+       * зовёт вовсе. А совпадение — обычное дело: покупатель выбирает подсказку,
+       * которая уже стоит в поле (дописал и стёр символ, вернулся в поле,
+       * выбрал тот же дом). `dropPickup()` выше список к этому моменту уже
+       * стёр — и он оставался пустым насовсем, с вечным «ищем пункты».
+       * Помогала только смена перевозчика: она зовёт `syncDelivery` сама.
+       *
+       * Повторным запросом это не грозит: `loadPoints` ключуется адресом,
+       * перевозчиком и координатами, а уже идущий запрос по тому же ключу
+       * второй раз не уходит.
+       */
+      loadPoints();
+      rememberCheckout();
     }
     function ask(q) {
       var my = ++seq;
@@ -1249,7 +1328,11 @@
     return '<a class="cart-remind" href="' + escapeHtml(box.dataset.href || '#') + '">'
       + '<span class="cart-remind-top">Заказ ' + escapeHtml(box.dataset.no || '') + ' ждёт оплаты</span>'
       + '<span class="cart-remind-sum">' + escapeHtml(box.dataset.sum || '') + '</span>'
-      + (left ? '<span class="cart-remind-left">реквизиты действительны ещё ' + escapeHtml(left) + '</span>' : '')
+      // Слова про срок приезжают из разметки (`data-left-label`): у счёта кассы
+      // кончаются реквизиты, у заказа без счёта — время на оплату, и своей
+      // копии этих подписей у скрипта быть не должно.
+      + (left ? '<span class="cart-remind-left">' + escapeHtml(box.dataset.leftLabel || 'оплатить можно')
+        + ' ещё ' + escapeHtml(left) + '</span>' : '')
       + '<span class="cart-remind-go">Продолжить оплату →</span></a>';
   }
   function syncPayRemind() {

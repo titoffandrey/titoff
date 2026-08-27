@@ -32,6 +32,7 @@ const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/discount');
+const PF = require('./lib/price-float');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
 const { Analytics, clientDetails, VISITORS_PER_PAGE } = require('./lib/analytics');
@@ -605,46 +606,62 @@ if (sweep.unref) sweep.unref();
  *
  * Напоминаем в двух случаях, и они разные:
  *
- *   - счёт ДЕЙСТВУЮЩИЙ — со сроком: реквизиты сгорают, и это надо видеть.
- *     Условие общее с панелью и страницей оплаты (`R.payLive`);
+ *   - счёт ДЕЙСТВУЮЩИЙ — со сроком самих реквизитов: они сгорают, и это надо
+ *     видеть. Условие общее с панелью и страницей оплаты (`R.payLive`);
  *   - счёт не выставился (касса не ответила), сгорел или отменён, а заказ так и
- *     не оплачен — без срока: отсчитывать нечего, но вернуться на страницу
- *     оплаты и выставить новый счёт покупатель должен уметь. Раньше такой заказ
- *     не напоминал о себе ничем: полоса требовала живого счёта.
+ *     не оплачен — со сроком САМОГО ЗАКАЗА: вернуться на страницу оплаты и
+ *     выставить новый счёт покупатель должен уметь, но не бесконечно. Раньше
+ *     такой заказ не напоминал о себе ничем: полоса требовала живого счёта.
  *
  * Оплаченный и ушедший на разбор (`mismatch`) не напоминают ничего — там платить
  * уже нечего. Черновик тоже: способ не выбран, товары остались в корзине, и
  * оформляют его оттуда.
  */
-const REMIND_TTL = 24 * 60 * 60 * 1000;   // сутки — дальше напоминание превращается в навязчивость
+/* Прежнего суточного предела у напоминания больше нет, и не потому что забыли:
+ * заказ теперь живёт полчаса (`R.payExpired` ниже), а сутки были нужны ровно
+ * затем, чтобы бесконечная полоса хоть когда-нибудь погасла. Проверка на
+ * тридцать минут стоит первой и закрывает этот случай целиком.
+ */
 function payRemind(req) {
   const ids = Array.isArray(req.session && req.session.myOrders) ? req.session.myOrders : [];
   if (!ids.length) return null;
   const now = Date.now();
-  const card = (order, expiresAt) => ({ id: order.id, number: order.number, total: order.total, expiresAt });
+  /* `expiresAt` — момент, когда полоса обязана исчезнуть сама, а `requisites`
+   * говорит, ЧТО именно кончается: срок выданных реквизитов или срок самого
+   * заказа. Слова у этих двух случаев разные, и живут они в одном месте —
+   * в `payRemindBar` (lib/render.js), рядом с остальными подписями об оплате.
+   */
+  const card = (order, expiresAt, requisites) => ({
+    id: order.id, number: order.number, total: order.total, expiresAt, requisites: !!requisites
+  });
   for (const id of ids) {
     const order = db.getOrder(String(id || ''));
     if (!order || order.draft) continue;                       // черновик заказом ещё не стал
+    /* Срок оплаты вышел — напоминать не о чем: платить по такому заказу
+     * покупатель уже не может (`R.payExpired`, полчаса от оформления). Раньше
+     * полоса висела ещё сутки и звала на страницу, где ему предлагали выставить
+     * новый счёт, — то есть заказ не заканчивался никогда. */
+    if (R.payExpired(order, now)) continue;
     const pay = order.payment;
     /* Заказ по своим реквизитам: кассы нет, а напомнить надо тем же способом —
      * покупатель точно так же уходит из вкладки за банковским приложением, а
-     * ссылки на свою страницу оплаты у него больше нигде нет. Срока у таких
-     * реквизитов не бывает, поэтому полоса идёт без отсчёта. */
+     * ссылки на свою страницу оплаты у него больше нигде нет. Свои реквизиты не
+     * сгорают, поэтому отсчитывается срок самого заказа. */
     if (!pay && order.payMode === 'own') {
       if (order.manualPaid || order.manualVoid || db.isOrderArchived(order)) continue;
-      if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
-      return card(order, 0);
+      return card(order, R.orderPayUntil(order), false);
     }
     if (!pay) continue;
     const shown = R.payDisplay(pay, now);
     // Уже выданный счёт нельзя отменить удалением в панели: до конца срока он
     // остаётся у покупателя и сверяется как прежде. После срока архивный заказ
     // больше не напоминаем и новый invoice ему не выпускаем.
-    if (R.payLive(shown, now)) return card(order, R.payUntil(shown));
+    if (R.payLive(shown, now)) return card(order, R.payUntil(shown), true);
     if (db.isOrderArchived(order) || order.manualVoid) continue;
     if (pay.status === 'paid' || pay.status === 'mismatch') continue;
-    if (now - Number(order.createdAt || 0) > REMIND_TTL) continue;
-    return card(order, 0);
+    // Счёт сгорел, а полчаса заказа ещё идут: новый счёт покупатель выставить
+    // может, и отсчитывается то, сколько у него на это осталось.
+    return card(order, R.orderPayUntil(order), false);
   }
   return null;
 }
@@ -869,6 +886,8 @@ app.post('/api/reviews', async (req, res) => {
 // Здесь сервер отдаёт по каждой позиции нынешние название, цену, фото и наличие.
 app.post('/api/cart', (req, res) => {
   if (rateLimited(req, 'cart', 180, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
+  // Настройки нужны ради плавающих цен: период и разброс задаёт владелец.
+  const s = settings();
   const raw = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = raw.map(it => {
     if (!it || typeof it !== 'object') return null;
@@ -896,7 +915,9 @@ app.post('/api/cart', (req, res) => {
     const adds = (st ? Number(st.add) || 0 : 0)
       + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0)
       + optionsAdd(chosen);
-    const price = D.effectivePrice(view) + adds;
+    // Цена текущего периода (lib/price-float.js), а не число из каталога: в
+    // корзине покупатель обязан видеть ровно то, что стояло на карточке.
+    const price = PF.priceOf(view, s) + adds;
     /* Цена для сравнения — та же, что зачёркнута на карточке и на странице
       * товара, и считается ТЕМ ЖЕ способом: процент скидки товара от ПОЛНОЙ
       * цены сборки. Поэтому выгода в процентах у любой сборки одна и та же, а
@@ -1125,6 +1146,9 @@ function reusableOrder(req, data) {
 }
 
 app.post('/api/order', async (req, res) => {
+  // Настройки читаем один раз на весь маршрут: от них зависят и цены товаров
+  // (плавающие, см. lib/price-float.js), и пределы касс, и режим витрины.
+  const s = settings();
   const checkoutRequestId = String(req.body && req.body.requestId || '');
   if (!/^[a-f0-9]{32}$/.test(checkoutRequestId)) {
     return res.json({ ok: false, errorCode: 'bad_request_id', error: 'Обновите страницу оформления и попробуйте ещё раз' }, 400);
@@ -1172,7 +1196,10 @@ app.post('/api/order', async (req, res) => {
       changed(it, 'quantity_changed', view.name); continue;
     }
     const qty = rawQty;
-    let price = D.effectivePrice(view);
+    // База текущего периода — и она же запоминается отдельно: ниже по ней
+    // пересчитывается цена прошлого периода, если покупатель видел её.
+    const base = PF.priceOf(view, s);
+    let price = base;
     let name = view.name;
     // Наличие варианта проверяем на сервере: корзина живёт в localStorage и могла
     // сохраниться до того, как цвет или конфигурацию распродали.
@@ -1217,9 +1244,19 @@ app.post('/api/order', async (req, res) => {
     // итог. Старые открытые вкладки без поля price остаются совместимыми.
     if (it.price !== undefined && it.price !== null && it.price !== '') {
       const seenPrice = Number(it.price);
-      if (!Number.isFinite(seenPrice) || Math.round(seenPrice * 100) !== Math.round(price * 100)) {
-        changed(it, 'price_changed', name, price); continue;
-      }
+      const same = sum => Number.isFinite(seenPrice) && Math.round(seenPrice * 100) === Math.round(sum * 100);
+      /* Цена ПРОШЛОГО периода тоже принимается, и это не послабление проверки.
+       * Плавающие цены (lib/price-float.js) меняются по часам, а оформление
+       * занимает минуты: покупатель, собравший корзину в 14:59 и нажавший
+       * «Оформить» в 15:00, иначе получал бы «корзина изменилась» на ровном
+       * месте — то есть подмену цены под руками там, где он ничего не менял.
+       * Цену, которую он видел, за ним и держим — но ровно один период назад,
+       * иначе старая вкладка покупала бы по вчерашней цене.
+       */
+      const prevBase = PF.previousOf(view, s);
+      const prevPrice = price - base + prevBase;
+      if (!same(price) && prevBase !== base && same(prevPrice)) price = prevPrice;
+      else if (!same(price)) { changed(it, 'price_changed', name, price); continue; }
     }
     items.push({ id: view.id, name, price, qty });
     total += price * qty;
@@ -1307,10 +1344,9 @@ app.post('/api/order', async (req, res) => {
   //
   // Пределы принадлежат КАССАМ: пока оплата на витрине выключена (обе кассы),
   // заказ уходит заявкой, и ограничивать её суммой платёжки незачем.
-  const limit = PAYMENTS.limitFor(settings(), grandTotal);
+  const limit = PAYMENTS.limitFor(s, grandTotal);
   if (limit) return res.json({ ok: false, error: limit }, 400);
 
-  const s = settings();
   // Без фиксированного публичного origin касса не может получить безопасный
   // callback. В таком развёртывании оформляем обычную заявку, а не оставляем
   // покупателя с невидимым черновиком на неработающей странице оплаты.
@@ -2317,6 +2353,15 @@ async function startPaymentRoute(req, res) {
       error: 'Заказ закрыт. Оформите новый заказ.'
     }, 410);
   }
+  /* Срок оплаты заказа вышел — новый счёт ему не выставляем (`R.payExpired`).
+   * Уже выданный живой счёт этой проверке не мешает: пока по нему можно
+   * заплатить, заказ просроченным не считается, и выше он вернётся как `reused`. */
+  if (R.payExpired(order)) {
+    return res.json({
+      ok: false, placed: true, errorCode: 'order_expired',
+      error: 'Время на оплату этого заказа вышло. Оформите заказ заново.'
+    }, 410);
+  }
   // Пределы касс проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму они всё равно не выставят.
   if (!PAYMENTS.payable(order.total, s)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
@@ -2358,6 +2403,14 @@ async function startPaymentRoute(req, res) {
     return res.json({
       ok: false, placed: true, errorCode: 'order_archived',
       error: 'Заказ закрыт. Оформите новый заказ.'
+    }, 410);
+  }
+  // Тот же срок оплаты, перепроверенный после ожидания кассы: `payContext` ходит
+  // в сеть, и полчаса могли выйти ровно за это время.
+  if (R.payExpired(currentOrder)) {
+    return res.json({
+      ok: false, placed: true, errorCode: 'order_expired',
+      error: 'Время на оплату этого заказа вышло. Оформите заказ заново.'
     }, 410);
   }
   // Сначала живая работа: после startOrderPayment попытка уже есть в файле, и
@@ -2835,6 +2888,8 @@ function productFields(req) {
     // выводится (lib/discount.js), и второго источника у неё быть не должно.
     discountPercent: String(req.body.discountPercent == null ? '' : req.body.discountPercent).trim().replace(',', '.'),
     inStock: req.body.inStock !== undefined, visible: req.body.visible !== undefined, stockLevel: req.body.stockLevel,
+    // Снятая галочка приходит отсутствием поля — как у inStock и visible.
+    noPriceFloat: req.body.noPriceFloat !== undefined,
     shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
     bands: parseBands(req.body.bands), options: parseOptions(req.body.options)
@@ -3517,6 +3572,47 @@ app.post('/admin/settings', async (req, res) => {
   const highest = high.value !== null ? high.value : Number(current.payMaxTotal);
   if (Number.isFinite(lowest) && Number.isFinite(highest) && highest < lowest) {
     return fail('Максимальная сумма заказа не может быть меньше минимальной');
+  }
+  /* Плавающие цены (lib/price-float.js). Проверяем ДО записи, как и всё в этой
+   * форме: от этих трёх чисел зависит ценник каждого товара на витрине, и
+   * молча принятая опечатка («50» вместо «5») означала бы каталог, подорожавший
+   * в полтора раза. Пустое поле — возврат к значению по умолчанию, а не «без
+   * границ»: разброс без потолка — это не колебание, а другая цена.
+   */
+  patch.priceFloat = req.body.priceFloat !== undefined;
+  const floatPct = (field, fallback, label) => {
+    if (req.body[field] === undefined) return { ok: true, value: null };
+    const raw = String(req.body[field]).replace(/\s+/g, '').replace(',', '.');
+    if (!raw) return { ok: true, value: fallback };
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) return { ok: false, error: `${label} — число от 0 до ${PF.MAX_PCT} или пусто` };
+    if (value > PF.MAX_PCT) return { ok: false, error: `${label} — не больше ${PF.MAX_PCT}%: это уже не колебание, а другая цена` };
+    return { ok: true, value: Math.round(value * 10) / 10 };
+  };
+  const pfMin = floatPct('priceFloatMin', PF.DEFAULTS.min, 'Разброс цен «от»');
+  if (!pfMin.ok) return fail(pfMin.error);
+  const pfMax = floatPct('priceFloatMax', PF.DEFAULTS.max, 'Разброс цен «до»');
+  if (!pfMax.ok) return fail(pfMax.error);
+  if (pfMin.value !== null) patch.priceFloatMin = pfMin.value;
+  if (pfMax.value !== null) patch.priceFloatMax = pfMax.value;
+  // Перевёрнутый диапазон не сохраняем: `conf()` его развернёт и витрина
+  // продолжит работать, но владелец увидел бы «Сохранено» и не понял, почему
+  // границы поменялись местами. То же правило, что у пределов суммы заказа.
+  const pfLow = pfMin.value !== null ? pfMin.value : Number(current.priceFloatMin);
+  const pfHigh = pfMax.value !== null ? pfMax.value : Number(current.priceFloatMax);
+  if (Number.isFinite(pfLow) && Number.isFinite(pfHigh) && pfHigh < pfLow) {
+    return fail('Разброс цен «до» не может быть меньше, чем «от»');
+  }
+  if (req.body.priceFloatMinutes !== undefined) {
+    const raw = String(req.body.priceFloatMinutes).replace(/\s+/g, '');
+    if (!raw) patch.priceFloatMinutes = PF.DEFAULTS.minutes;
+    else {
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < PF.MIN_MINUTES || value > PF.MAX_MINUTES) {
+        return fail(`Период смены цен — целое число минут от ${PF.MIN_MINUTES} до ${PF.MAX_MINUTES}`);
+      }
+      patch.priceFloatMinutes = value;
+    }
   }
   /* Свои реквизиты — оплата вообще без кассы (см. lib/payments.js).
    *

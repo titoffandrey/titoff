@@ -242,6 +242,138 @@ test('поиск разбирает запрос на слова и знает �
   assert.equal(search.haystack(one), search.haystack(one));
 });
 
+test('плавающие цены держатся в заданном проценте и остаются круглыми', () => {
+  const float = require('../lib/price-float');
+  const on = { priceFloat: true, priceFloatMin: 1, priceFloatMax: 5, priceFloatMinutes: 60 };
+  // Начало отсчёта выравнено по границе периода: иначе «в пределах часа цена
+  // одна» проверялось бы на паре моментов из разных часов.
+  const hour = 3600000, t0 = Math.floor(1787000000000 / hour) * hour;
+
+  // Выключено по умолчанию: магазин, который об этом не просил, обязан
+  // показывать ровно те цены, которые владелец задал в каталоге.
+  assert.equal(float.conf({}).on, false);
+  assert.equal(float.priceOf({ id: 'p', price: 67990 }, {}), 67990);
+  assert.equal(dbCore.getSettings().priceFloat, false);
+
+  /* Главное правило: НИКОГДА НИЖЕ ЦЕНЫ ИЗ КАТАЛОГА и никогда выше заданного
+   * процента. Цена владельца закупочная, уйти под неё — продавать в убыток. */
+  for (const base of [11990, 23250, 27990, 67990, 99990, 349990]) {
+    const p = { id: 'x' + base, price: base };
+    for (let i = 0; i < 24; i++) {
+      const v = float.priceOf(p, on, t0 + i * hour);
+      assert.ok(v >= base, `${base}: ушла ниже базовой — ${v}`);
+      assert.ok(v <= base * 1.05 + 0.001, `${base}: вышла за 5% — ${v}`);
+      // Цена остаётся круглой: 15 990, 16 490. Ценник вида «16 337 ₽» сразу
+      // выдаёт, что число посчитала машина, а не поставил продавец.
+      assert.ok(v % 500 === 490 || v === base, `${base}: некрасивое число ${v}`);
+    }
+  }
+
+  // В пределах периода цена одна и та же — у всех покупателей и на всех
+  // страницах, — а в следующем периоде другая. Ничего для этого не храним.
+  const p = { id: 'iphone', price: 67990 };
+  assert.equal(float.priceOf(p, on, t0), float.priceOf(p, on, t0 + 59 * 60000));
+  const row = [];
+  for (let i = 0; i < 12; i++) row.push(float.priceOf(p, on, t0 + i * hour));
+  assert.ok(new Set(row).size > 2, 'цена обязана шевелиться от периода к периоду');
+  // Перезапуск процесса ничего не меняет: цена — чистая функция от id и часа.
+  assert.equal(float.priceOf(p, on, t0), float.priceOf({ id: 'iphone', price: 67990 }, on, t0));
+  // Период правится настройкой, и от неё зависит номер отрезка.
+  assert.notEqual(float.periodOf(t0, 60), float.periodOf(t0 + hour, 60));
+  assert.equal(float.periodOf(t0, 60), float.periodOf(t0 + 30 * 60000, 60));
+
+  /* У дешёвого товара цена не плавает вовсе, и это не сбой: между 7 490 и 7 990
+   * разрыв в 6,7%, а разрешено 5%. Соврать о заявленном проценте хуже, чем
+   * оставить цену на месте. */
+  assert.equal(float.priceOf({ id: 'cheap', price: 3490 }, on, t0), 3490);
+
+  /* КОЛЕБАНИЕ НЕ ВПРАВЕ УБРАТЬ ТОВАР С ВИТРИНЫ. Дороже потолка одной покупки
+   * карточка становится «Нет в наличии», и Mac Studio за 239 990 ₽ при потолке
+   * в 250 000 ₽ то продавался бы, то нет — в зависимости от часа. Ценник менять
+   * можно, ассортимент — нет. */
+  const withCashbox = Object.assign({}, on, {
+    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret',
+    payMinTotal: 1000, payMaxTotal: 250000
+  });
+  const heavy = { id: 'mac-studio-m5-max', price: 239990, inStock: true, colors: [], storages: [], options: [], bands: [] };
+  for (let i = 0; i < 48; i++) {
+    const v = float.priceOf(heavy, withCashbox, t0 + i * hour);
+    assert.ok(v <= 250000, `колебание вывело товар за потолок кассы: ${v}`);
+    assert.equal(render.sellable(heavy, withCashbox), true, 'товар обязан продаваться в любой час');
+  }
+  // Кассы выключены — потолка нет вовсе, и коридор возвращается к процентам.
+  assert.ok(float.priceOf(heavy, on, t0) <= 239990 * 1.05);
+
+  // Товар можно исключить: у позиции с прайсом поставщика цена выторгована.
+  assert.equal(float.floats({ noPriceFloat: true }), false);
+  assert.equal(float.floats({}), true, 'поля нет — товар участвует, как в catalog.js');
+  assert.equal(float.priceOf({ id: 'iphone', price: 67990, noPriceFloat: true }, on, t0), 67990);
+
+  // Испорченные настройки не должны ни остановить витрину, ни устроить на ней
+  // распродажу наоборот: мусор сводится к значениям по умолчанию, а
+  // перевёрнутый диапазон разворачивается.
+  assert.deepEqual(float.conf({ priceFloat: true, priceFloatMin: 'абв', priceFloatMax: null, priceFloatMinutes: 0 }),
+    { on: true, min: float.DEFAULTS.min, max: float.DEFAULTS.max, minutes: float.MIN_MINUTES });
+  const flipped = float.conf({ priceFloat: true, priceFloatMin: 9, priceFloatMax: 2 });
+  assert.equal(flipped.min, 2);
+  assert.equal(flipped.max, 9);
+  assert.equal(float.conf({ priceFloat: true, priceFloatMax: 999 }).max, float.MAX_PCT);
+});
+
+test('плавающая цена одна на каталог, карточку, корзину и заказ', () => {
+  const float = require('../lib/price-float');
+  const on = Object.assign({}, SETTINGS, { priceFloat: true, priceFloatMin: 1, priceFloatMax: 5, priceFloatMinutes: 60 });
+  const product = {
+    id: 'p1', name: 'iPhone', category: 'iPhone', price: 67990, inStock: true, visible: true,
+    images: [], colors: [], storages: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 10000 }], options: [], bands: []
+  };
+  const db = {
+    getProducts: () => [product], visibleProducts: () => [product], visibleProduct: () => product,
+    categories: () => ['iPhone'], visibleCategories: () => ['iPhone'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const shown = float.priceOf(product, on);
+  assert.notEqual(shown, product.price, 'на этом товаре колебание обязано сработать');
+
+  // Карточка каталога и страница товара показывают ОДНО И ТО ЖЕ число, и это
+  // число текущего периода, а не цена из каталога.
+  const home = render.homePage(on, db, { category: '', q: '', origin: '' }, null);
+  const money = render.money(shown, on);
+  assert.ok(home.includes(money), 'карточка каталога показывает цену периода');
+  const page = render.productPage(on, db, product, { origin: '' });
+  assert.ok(page.includes(money), 'страница товара показывает её же');
+  // В `data-base-price` тоже она: скрипт считает сумму как «база + доплаты», и
+  // с ценой из каталога он показал бы при выборе памяти другие деньги.
+  assert.match(page, new RegExp('data-base-price="' + shown + '"'));
+  // Зачёркнутая цена выводится из показанной, поэтому процент скидки не плывёт.
+  assert.equal(render.startPrice(product, on), shown);
+  assert.equal(render.startPrice(product), product.price, 'без настроек — цена каталога');
+
+  /* Спрашивают её ВСЕ одним и тем же способом: своей формулы ни у корзины, ни у
+   * заказа быть не должно — иначе покупатель увидит одну цену в каталоге и
+   * другую в корзине. */
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.doesNotMatch(server, /D\.effectivePrice/, 'цену на витрине спрашивают у lib/price-float.js');
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8'), /D\.effectivePrice/);
+  const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/address-suggest'"));
+  assert.match(cart, /PF\.priceOf\(view, s\)/);
+  const order = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf("app.post('/api/analytics'"));
+  assert.match(order, /const base = PF\.priceOf\(view, s\)/);
+
+  /* Цену, которую покупатель ВИДЕЛ, за ним держим до конца оформления: период
+   * мог смениться, пока он заполнял форму, и «корзина изменилась» на ровном
+   * месте читалось бы как подмена цены под руками. */
+  assert.match(order, /PF\.previousOf\(view, s\)/);
+  assert.equal(float.previousOf(product, on, 1787000000000),
+    float.priceOf(product, on, 1787000000000 - 3600000));
+
+  // А в ПАНЕЛИ по-прежнему цена из каталога: владелец правит её, а не колебание.
+  const adminDb = Object.assign({}, db, { pendingReviewCount: () => 0, isVisible: () => true });
+  const list = adminViews.productsList(on, adminDb, '');
+  assert.ok(list.includes(render.money(product.price, on)), 'в каталоге панели стоит базовая цена');
+  assert.ok(!list.includes(money), 'цена периода в панель не уезжает');
+});
+
 test('скидка — один процент на все сборки, а старая цена из него выводится', () => {
   // Скидка задаётся процентом, и зачёркнутая цена считается от ЛЮБОЙ суммы
   // сборки. Поэтому «−13%» одинаковы и у базовой сборки, и у старшей — раньше
@@ -3739,12 +3871,14 @@ test('неоплаченный счёт напоминает о себе на в
   assert.match(fn, /R\.payLive\(shown, now\)/, 'своей копии условия у напоминания быть не должно');
 
   /* Заказ, счёт по которому не выставился (касса не ответила) или уже сгорел,
-   * тоже напоминает о себе — но без срока: отсчитывать нечего, а вернуться на
-   * страницу оплаты и выставить новый счёт покупатель должен уметь. Иначе
-   * ссылки на свой заказ у него нет нигде. */
+   * тоже напоминает о себе — но отсчитывается уже срок САМОГО ЗАКАЗА: вернуться
+   * на страницу оплаты и выставить новый счёт покупатель должен уметь, иначе
+   * ссылки на свой заказ у него нет нигде. Не бесконечно: полчаса вышли — и
+   * напоминать не о чем, платить по такому заказу уже нельзя. */
   assert.match(fn, /pay\.status === 'paid' \|\| pay\.status === 'mismatch'/, 'оплаченному напоминать нечего');
-  assert.match(fn, /REMIND_TTL/, 'без срока давности напоминание превращается в навязчивость');
-  assert.match(fn, /card\(order, 0\)/);
+  assert.match(fn, /R\.payExpired\(order, now\)/, 'просроченный заказ о себе не напоминает');
+  assert.doesNotMatch(fn, /REMIND_TTL/, 'суточный предел заменён сроком оплаты заказа');
+  assert.match(fn, /card\(order, R\.orderPayUntil\(order\), false\)/);
   const noTimer = render.homePage(ss, db, { category: '', q: '', origin: '', payRemind: { id: 'a1b2', number: '482913', total: 68200, expiresAt: 0 } }, null);
   assert.match(noTimer, /id="pay-remind" data-until="0"/);
   assert.match(noTimer, /ждёт оплаты/);
@@ -5174,7 +5308,7 @@ test('заказ вне пределов одной покупки не офор
   assert.match(js, /var limitError = totalLimitError\(orderTotal\(\)\)/);
   // Сервер проверяет сумму заново — клиентским данным не верим.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const limit = PAYMENTS\.limitFor\(settings\(\), grandTotal\);[\s\S]{0,200}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
+  assert.match(server, /const limit = PAYMENTS\.limitFor\(s, grandTotal\);[\s\S]{0,200}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
   assert.match(server, /const grandTotal = total \+ ship\.price;/);
 });
 
@@ -6235,8 +6369,28 @@ test('список пунктов витрина берёт у сервера и
 
   // Выбранный пункт снимается со сменой адреса или перевозчика: пункт в прежнем
   // городе или чужой сети — не выбор покупателя.
-  assert.match(js, /input\.addEventListener\('input', function \(\) \{ dropPickup\(\); setGeo\(null, null\); quoteDelivery\(\); \}\)/);
+  assert.match(js, /input\.addEventListener\('input', function \(\) \{\s*dropPickup\(\);\s*if \(!geoFits\(input\.value\)\) setGeo\(null, null\);/);
   assert.match(js, /box\.addEventListener\('change', function \(\) \{ dropPickup\(\); syncDelivery\(\); rememberCheckout\(\); \}\)/);
+
+  /* А ВОТ КООРДИНАТЫ ПРАВКА ПОЛЯ СНИМАЕТ НЕ ВСЕГДА — от них зависит расстояние
+   * до пункта, и терять его из-за дописанной квартиры нельзя: дом-то прежний.
+   * Правило одной строки: значение поля обязано начинаться с адреса, которому
+   * координаты выданы. */
+  assert.match(js, /function geoFits\(value\)[\s\S]{0,240}indexOf\(head\) === 0/);
+  assert.match(js, /function setGeo\(lat, lon, address\)/);
+
+  /* Выбор подсказки обязан ПЕРЕЗАПРОСИТЬ список пунктов сам, а не надеяться на
+   * `quoteDelivery`: тот выходит первой же проверкой, когда адрес не изменился
+   * (покупатель выбрал подсказку, уже стоявшую в поле), — а `dropPickup()` к
+   * этому моменту список уже стёр. Список оставался пустым насовсем, с вечным
+   * «ищем пункты», и помогала только смена перевозчика. */
+  const chooseFn = js.slice(js.indexOf('function choose(i)'), js.indexOf('function ask(q)'));
+  assert.match(chooseFn, /setGeo\(s\.lat, s\.lon, s\.value\)/);
+  assert.match(chooseFn, /loadPoints\(\)/, 'выбор подсказки обязан перезапросить пункты сам');
+
+  // Координаты живут в памяти формы рядом с адресом: без этого восстановленная
+  // форма оставалась без расстояний, и адрес приходилось вводить заново.
+  assert.match(js, /data\['co-address-geo'\]/);
 
   // «Рядом ничего нет» и «списка этого перевозчика у нас нет» — разные ответы.
   assert.match(server, /ready: PICKUP\.has\(method\)/);
@@ -6898,8 +7052,11 @@ test('состояние оплаты видно в обеих панелях и
 // «не завершены», и это разные плитки — покупатель либо переводит деньги прямо
 // сейчас, либо не начинал вовсе.
 function statsOrders() {
+  // `createdAt` — СВЕЖИЙ: у заказа есть свой срок оплаты (полчаса, `payExpired`),
+  // и заявка из 1970 года попала бы в «вышло время» целиком, какой бы ответ ни
+  // дала касса. Здесь же проверяются состояния самой кассы, а не срок.
   const make = (id, total, status, extra) => ({
-    id, number: String(480000 + Number(id.slice(1))), createdAt: 1000 - Number(id.slice(1)),
+    id, number: String(480000 + Number(id.slice(1))), createdAt: Date.now() - Number(id.slice(1)),
     customerName: 'Клиент ' + id, contact: '@u' + id, total, items: [{ name: 'Товар', price: total, qty: 1 }],
     payment: status ? Object.assign({ status, method: 'SBP' }, extra || {}) : null
   });
@@ -6971,9 +7128,10 @@ test('сводка по заказам считает выручку по опл
   // черновики и сгоревшие счета денег не принесли и среднее только занижают.
   assert.equal(stats.avg, 75000);
   assert.equal(render.orderStats([]).avg, 0, 'делить на ноль оплаченных нечего');
-  // «Сегодня» — только заявки текущих суток. У тестовых заказов дата 1970 года,
-  // поэтому сегодняшних среди них нет ни одной.
-  assert.equal(stats.today.n, 0);
+  // «Сегодня» — только заявки текущих суток. Все десять тестовых заказов
+  // оформлены только что (иначе они уходят в «вышло время»), поэтому здесь их
+  // ровно столько же; отдельный набор ниже проверяет саму отсечку по дате.
+  assert.equal(stats.today.n, 10);
   const now = Date.now();
   const fresh = render.orderStats([
     { total: 5000, createdAt: now, payment: { status: 'paid' } },
@@ -7028,7 +7186,7 @@ test('счётчики и выручка одинаковы на «Обзоре�
     assert.match(html, /o-leg o-stat-off"><i><\/i><span class="o-leg-k">Не оплачены<\/span><b>3<\/b>/);
     // Сумма стоит у КАЖДОГО состояния: «не оплачены 3 · 140 000 ₽» — ровно те
     // деньги, которых магазин не получил, и знать их так же полезно, как выручку.
-    assert.match(html, /Не оплачены<\/span><b>3<\/b><small><span>счёт истёк или отменён<\/span><em>140\s?000\s?₽<\/em>/);
+    assert.match(html, /Не оплачены<\/span><b>3<\/b><small><span>вышло время, счёт истёк или отменён<\/span><em>140\s?000\s?₽<\/em>/);
     // Составная полоса: доли задаёт flex-grow, чтобы сумма сходилась без
     // округлений, дающих щель в конце.
     assert.match(html, /<div class="o-share"><i class="o-stat-ok" style="flex-grow:2"/);
@@ -9573,12 +9731,15 @@ test('в диалоге видно, что покупатель заказал �
   chatStore.addMessage(chat, 'user', 'оплатил, а заказ не подтверждён');
 
   const now = Date.now();
+  // Заказ СВЕЖИЙ, а счёт по нему уже сгорел: полчаса на оплату ещё идут
+  // (`payExpired`), поэтому в плашке стоит именно ответ кассы. Час назад тот же
+  // заказ читался бы как «не оплачен · вышло время» — это проверяется ниже.
   const order = {
-    id: 'o1', number: 258676, total: 103100, createdAt: now - 3600000, visitorId,
+    id: 'o1', number: 258676, total: 103100, createdAt: now - 600000, visitorId,
     items: [{ name: 'iPhone 17 Pro Max 1 ТБ', price: 102700, qty: 1 }],
     payment: {
       status: 'failed', method: 'SBP', invoiceId: 'inv', requisite: '+79915748505',
-      startedAt: now - 3600000, expiresAt: now - 1800000, closedAt: now - 1800400
+      startedAt: now - 600000, expiresAt: now - 60000, closedAt: now - 60400
     }
   };
   const db = {
@@ -9593,6 +9754,11 @@ test('в диалоге видно, что покупатель заказал �
   // заявке обязаны означать одно и то же, а своя копия слов разъехалась бы.
   assert.match(html, /pay-tag pay-off/);
   assert.match(html, /счёт истёк/);
+  /* А у того же заказа часом позже кончился его собственный срок оплаты, и
+   * подпись обязана стать другой: «счёт истёк» звало бы менеджера выставить
+   * новый, а выставить его покупателю уже нельзя. */
+  const stale = Object.assign({}, order, { createdAt: now - 3600000 });
+  assert.match(adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', [stale]), /вышло время/);
   // Заказов нет — нет и блока: пустая карточка «заказов не найдено» занимала бы
   // место до первой реплики ради сообщения о том, чего нет.
   assert.doesNotMatch(adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []), /chat-orders/);
@@ -10569,6 +10735,58 @@ test('время в чате одно и то же у покупателя и у
   assert.doesNotMatch(chatBlock, /new Date\(/, 'все даты в чате панели идут через московские помощники');
 });
 
+test('на оплату полчаса, и по их истечении заказ для покупателя закрыт', () => {
+  /* Раньше конца у заказа не было вовсе: у своих реквизитов окно КАТИЛОСЬ
+   * (таймер доходил до нуля, страница перезагружалась — и отсчёт начинался
+   * заново), а сгоревший счёт кассы предлагал выставить новый, и так до
+   * бесконечности. Теперь срок один на все режимы оплаты: тридцать минут от
+   * оформления. */
+  const ss = Object.assign({}, SETTINGS);
+  const now = Date.now();
+  assert.equal(render.PAY_WINDOW, 30 * 60000);
+  const fresh = { id: 'a1', number: '482913', total: 67990, createdAt: now, items: [], payment: null, payMode: 'own' };
+  const stale = Object.assign({}, fresh, { createdAt: now - 31 * 60000 });
+  assert.equal(render.orderPayUntil(fresh), now + render.PAY_WINDOW);
+  assert.equal(render.payExpired(fresh), false);
+  assert.equal(render.payExpired(stale), true);
+
+  /* ЖИВОЙ СЧЁТ КАССЫ СРОК ЗАКАЗА ПЕРЕЖИВАЕТ. Реквизиты уже у покупателя, деньги
+   * бывают в пути, и закрыть такой заказ значит потерять платёж: связать его
+   * будет уже не с чем. */
+  const live = { status: 'pending', invoiceId: 'inv', requisite: '79104693811', expiresAt: now + 5 * 60000 };
+  assert.equal(render.payExpired(Object.assign({}, stale, { payment: live })), false);
+  assert.equal(render.payExpired(Object.assign({}, stale, { payment: { status: 'paid', paidAt: now } })), false);
+  assert.equal(render.payExpired(Object.assign({}, stale, { manualPaid: { at: now } })), false,
+    'решение человека важнее часов');
+
+  // Покупателю просроченный заказ показывается закрытым: ни реквизитов, ни
+  // выбора способа, ни предложения выставить новый счёт.
+  const page = render.payPage(ss, stale, { origin: '', methods: [{ id: 'SBP', name: 'СБП' }] });
+  assert.match(page, /Время на оплату вышло/);
+  assert.doesNotMatch(page, /Выставим новый счёт|Получить реквизиты/);
+  assert.match(page, /data-expires="0"/, 'отсчитывать нечего');
+
+  // В панели он честно висит неоплаченным: менеджеру заявка нужна — там имя,
+  // телефон и состав. Тон тот же, что у сгоревшего счёта: денег не будет.
+  const view = render.payView(stale);
+  assert.equal(view.tone, 'off');
+  assert.equal(view.label, 'не оплачен');
+  assert.equal(view.whenLabel, 'вышло время');
+
+  // Новый счёт просроченному заказу не выставляется — и проверка стоит дважды:
+  // до похода в кассу и после, потому что `payContext` ждёт сеть.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = server.slice(server.indexOf('async function startPaymentRoute'), server.indexOf('/* Вебхук об оплате'));
+  assert.equal((start.match(/R\.payExpired\(/g) || []).length, 2, 'срок проверяется до кассы и после');
+  assert.match(start, /errorCode: 'order_expired'/);
+
+  /* Отсчёт на странице останавливается и перезагружает её ОДИН раз: часы
+   * браузера и сервера расходятся на секунды, и спешащий браузер иначе крутил
+   * бы перезагрузку по кругу — то самое «висит с обновлением счётчика». */
+  const payJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  assert.match(payJs, /reloading = true;[\s\S]{0,160}setTimeout\(function \(\) \{ location\.reload\(\); \}, \d+\)/);
+});
+
 test('свои реквизиты: третий режим витрины, со своим окном и без кассы', () => {
   /* P2P-кассы живут чужим пулом трейдеров, и он кончается: 27 августа 2026 обе
    * отказывали сутки подряд, то есть магазин не мог принять ни одного платежа.
@@ -10613,18 +10831,27 @@ test('свои реквизиты: третий режим витрины, со 
   assert.doesNotMatch(html, /name="method"/);
   assert.doesNotMatch(html, /Проверить перевод/);
 
-  /* Окно реквизитов — тридцать минут, и оно КАТИТСЯ: по его окончании страница
-   * перечитывает настройки, и покупатель видит реквизиты владельца, а не
-   * снятые полчаса назад. Считается от заказа, поэтому обновление страницы не
-   * выдаёт новые тридцать минут. */
-  const windowOf = (minutesAgo) => {
-    const page = render.payPage(ss, Object.assign({}, order, { createdAt: Date.now() - minutesAgo * 60000 }),
-      { origin: '', own: PAYMENTS.ownRequisites(ss) });
-    return Math.round((Number(/data-expires="(\d+)"/.exec(page)[1]) - Date.now()) / 60000);
-  };
+  /* Окно реквизитов — тридцать минут от заказа, и это ТОТ ЖЕ срок оплаты, что у
+   * заказа с кассой (`orderPayUntil`): двух разных ответов на вопрос «сколько у
+   * меня времени» на одной витрине быть не должно. Обновление страницы новых
+   * тридцати минут не выдаёт.
+   *
+   * Раньше окно КАТИЛОСЬ: таймер доходил до нуля, страница перезагружалась и
+   * приходила с новым получасом — заказ висел так вечно, обновляя счётчик по
+   * кругу. Ровно это и просили убрать. */
+  const pageAt = (minutesAgo) => render.payPage(ss,
+    Object.assign({}, order, { createdAt: Date.now() - minutesAgo * 60000 }),
+    { origin: '', own: PAYMENTS.ownRequisites(ss) });
+  const windowOf = (minutesAgo) =>
+    Math.round((Number(/data-expires="(\d+)"/.exec(pageAt(minutesAgo))[1]) - Date.now()) / 60000);
   assert.equal(windowOf(0), 30);
   assert.equal(windowOf(12), 18, 'обновление страницы не выдаёт новые тридцать минут');
-  assert.equal(windowOf(31), 29, 'окно кончилось — пошло следующее');
+  const over = pageAt(31);
+  // Ноль в `data-expires` — «отсчитывать нечего», а не «новые полчаса».
+  assert.match(over, /data-expires="0"/, 'окно не катится: время вышло — и всё');
+  assert.match(over, /Время на оплату вышло/);
+  assert.doesNotMatch(over, /5599 0021 4381 5845/, 'реквизиты закрытому заказу не показываем');
+  assert.doesNotMatch(over, /id="pay-timer"/, 'отсчитывать больше нечего');
   assert.match(html, /id="pay-timer"/);
   assert.match(html, /Время на оплату/, 'покупателю это просто время, а не рассказ про перечитывание настроек');
   assert.doesNotMatch(html, /перечит|настро/i, 'зачем окно нужно нам — покупателя не касается');
@@ -10669,8 +10896,16 @@ test('свои реквизиты: третий режим витрины, со 
   assert.doesNotMatch(css, /\.pay-own-grid\{grid-template-columns:minmax\(0,1fr\)/,
     'принудительной одной колонки быть не должно');
 
-  // В панели такой заказ ждёт перевода, а после отметки — оплачен.
-  assert.deepEqual(render.payView(order), { tone: 'wait', label: 'ждём перевод' });
+  /* В панели такой заказ ждёт перевода — и с отсчётом: раньше у него не было ни
+   * таймера, ни конца, и «ждём перевод» стояло вечно. Досчитав до нуля, скрипт
+   * панели сам перепишет плашку подписью из `over`. */
+  assert.deepEqual(render.payView(order),
+    { tone: 'wait', label: 'ждём перевод', until: render.orderPayUntil(order), over: 'не оплачен' });
+  // А через полчаса это уже «не оплачен · вышло время» — и в панели, и у покупателя.
+  const late = Object.assign({}, order, { createdAt: Date.now() - 31 * 60000 });
+  assert.equal(render.payView(late).label, 'не оплачен');
+  assert.equal(render.payView(late).whenLabel, 'вышло время');
+  assert.equal(render.payView(late).tone, 'off');
   const paid = Object.assign({}, order, { manualPaid: { at: Date.now(), by: 'admin' } });
   const view = render.payView(paid);
   assert.equal(view.tone, 'ok');
