@@ -1867,8 +1867,11 @@ test('шапка сворачивается при прокрутке, а Telegr
 test('в подвале Telegram — одна кнопка с действием, без ника строкой', () => {
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple' }, fakeDb, {});
-  // Голый ник не говорит, что по нему пишут, и нажимать его никто не догадывался.
-  assert.match(html, /<a class="tg-cta" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Написать в Telegram<\/span><\/a>/);
+  // Голый ник не говорит, куда ведёт, и нажимать его никто не догадывался.
+  assert.match(html, /<a class="tg-cta" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Канал в Telegram<\/span><\/a>/);
+  // У ссылки в шапке имя то же: адрес у них один, и обещать по нему разное
+  // («канал» глазами, «написать» голосом) нельзя.
+  assert.match(html, /class="tg-header"[^>]*aria-label="Канал в Telegram"/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
   // как второй, недействующий контакт.
   assert.doesNotMatch(html, /foot-tg-user/);
