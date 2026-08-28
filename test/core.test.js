@@ -12312,6 +12312,19 @@ test('город по IP берётся из своей базы, а дыры в
   const info = geoip.info(dir);
   assert.equal(info.ranges, 4);
   assert.equal(info.stamp, 202608);
+
+  /* Названия в базе пишутся не по одному образцу, и на этом уже наступили:
+   * DB-IP ставит типографский апостроф («Kazan’»), а в таблице стоит «kazan» —
+   * и Казань, седьмой город страны, оставалась латиницей. Тем же приводятся
+   * диакритика, скобочный округ внутри города и точки в «St.-Petersburg». */
+  assert.equal(geoip.cityRu('Kazan\u2019'), 'Казань');
+  assert.equal(geoip.cityRu("Gus'-Khrustal'nyy"), 'Гусь-Хрустальный');
+  assert.equal(geoip.cityRu('Moscow (Tsentralnyy administrativnyy okrug)'), 'Москва');
+  assert.equal(geoip.cityRu('St.-Petersburg'), 'Санкт-Петербург');
+  assert.equal(geoip.regionRu('Mariy-El Republic', 'RU'), 'Марий Эл');
+  assert.equal(geoip.regionRu('Vologda Oblast', 'RU'), 'Вологодская область');
+  // Незнакомое название остаётся как есть: выдумать перевод нельзя.
+  assert.equal(geoip.cityRu('Vyshkov'), 'Vyshkov');
 });
 
 test('метрика берёт город из своей базы и не ходит в сеть', async t => {
