@@ -3530,6 +3530,17 @@ function shipmentForm(req, order) {
   };
 }
 
+/* Список отправлений — свой раздел меню.
+ *
+ * Регистрируется РАНЬШЕ `/admin/orders/:id/shipment`: пути разные, но правило в
+ * панели одно — маршрут списка стоит выше маршрута со свободным `:id`, иначе
+ * однажды заказ с подходящим идентификатором перехватит раздел.
+ */
+app.get('/admin/shipments', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  res.send(A.shipmentsPage(settings(), db, { tab: req.query.tab, page: req.query.page, flash: req.query.flash }));
+});
+
 app.get('/admin/orders/:id/shipment', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const order = db.getOrder(req.params.id);

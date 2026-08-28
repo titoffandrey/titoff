@@ -906,6 +906,23 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
 });
 
+test('гладкая линия графика не вылезает за значения точек', () => {
+  /* Ряд «ноль весь день и всплеск к вечеру» — ровно то, как выглядят сегодняшние
+   * сутки. Обычное сглаживание на нём ныряет ниже нуля перед подъёмом и вылетает
+   * за потолок оси после: на графике посещаемости это нарисованное число,
+   * которого не было. Монотонная кубика такого не допускает по построению. */
+  const y = [100, 100, 100, 100, 100, 100, 0, 100];   // 100 — низ поля, 0 — потолок
+  const pts = y.map((v, i) => ({ x: (i / (y.length - 1)) * 100, y: v }));
+  const d = analyticsView.smoothPath(pts);
+  assert.match(d, /^M[\d.]+,[\d.]+ C/, 'линия строится кривыми, а не отрезками');
+  const ys = (d.match(/-?[\d.]+,(-?[\d.]+)/g) || []).map(pair => Number(pair.split(',')[1]));
+  assert.ok(ys.every(v => v >= 0 && v <= 100), 'ни одна опорная точка не выходит за поле графика');
+
+  // Две точки — обычная кривая, одна — просто M, пустой ряд — пустая строка.
+  assert.equal(analyticsView.smoothPath([]), '');
+  assert.match(analyticsView.smoothPath([{ x: 50, y: 10 }]), /^M50\.00,10\.00$/);
+});
+
 test('город в списке — без региона и с одним именем страны', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-place-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -12134,6 +12151,63 @@ test('отправлением управляют из строки заказа
   // подсказку: «Отправлен в г. Петропавловск-Камчатский» занимал три строки.
   const withShip = adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {});
   assert.match(withShip, /class="o-ship"[^>]*title="[^"]+">(в пути|ожидает отправки|готово к выдаче)</);
+});
+
+test('раздел «Отправления» — свой пункт меню со вкладками по состоянию', () => {
+  const make = (id, num, startedAt, patch) => {
+    const ship = tracking.normalize(tracking.build({
+      carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: id, startedAt, days: 4
+    }));
+    return { id, number: num, createdAt: startedAt, total: 50000, items: [], shipment: Object.assign(ship, patch || {}) };
+  };
+  // Отправлена вчера при сроке в четыре дня — значит ещё едет.
+  const inWay = make('s1', '100001', Date.now() - 86400000);
+  // Посылка встала на втором шаге и стоит вторые сутки — это и есть задержка.
+  const late = make('s2', '100002', Date.now() - 5 * 86400000);
+  late.shipment.steps[1].hold = true;
+  late.shipment.holdDays = 1;
+  // Скрытое от покупателя стоит своей вкладкой: маршрут есть, а человек его не
+  // видит, и «в пути» рядом означало бы, что он это тоже читает.
+  const hidden = make('s3', '100003', Date.now() - 86400000, { visible: false });
+  const noShip = { id: 's4', number: '100004', createdAt: Date.now(), total: 1000, items: [] };
+  const orders = [inWay, late, hidden, noShip];
+  const db = {
+    pendingReviewCount: () => 0, newOrderCount: () => 0,
+    getOrders: () => orders, visibleOrders: () => orders, archivedOrders: () => []
+  };
+
+  const page = adminViews.shipmentsPage(SETTINGS, db, {});
+  assert.match(page, /<h1>Отправления<\/h1>/);
+  // Пункт меню свой, а не подпись внутри заказов.
+  assert.match(page, /href="\/admin\/shipments" class="a-nav-item active"/);
+  // Заказ без маршрута в раздел не попадает вовсе.
+  assert.doesNotMatch(page, /100004/);
+  assert.match(page, /Задерживаются <b>1<\/b>/);
+  assert.match(page, /Скрытые <b>1<\/b>/);
+  // По умолчанию открыта вкладка «В пути»: задержавшаяся и скрытая в неё не идут.
+  assert.match(page, /100001/);
+  assert.doesNotMatch(page, /100002/);
+  assert.doesNotMatch(page, /100003/);
+
+  const lateTab = adminViews.shipmentsPage(SETTINGS, db, { tab: 'late' });
+  assert.match(lateTab, /100002/);
+  assert.match(lateTab, /class="o-ship is-late">задерживается</);
+  const hiddenTab = adminViews.shipmentsPage(SETTINGS, db, { tab: 'hidden' });
+  assert.match(hiddenTab, /100003/);
+  assert.match(hiddenTab, /class="o-ship is-off">скрыто</);
+  // Мусор в адресе приводится к вкладке по умолчанию — список допустимых закрыт.
+  assert.equal(adminViews.shipmentsPage(SETTINGS, db, { tab: 'нет-такой' }), page);
+
+  // Отправлений нет вовсе — раздел зовёт туда, где их создают.
+  const emptyDb = Object.assign({}, db, { visibleOrders: () => [noShip] });
+  assert.match(adminViews.shipmentsPage(SETTINGS, emptyDb, {}), /Маршрут создаётся из строки заказа/);
+
+  // На телефоне список — карточки: шесть столбцов в 390 px не встают никак, и за
+  // краем экрана остались бы состояние и срок.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const mobile = css.slice(css.indexOf('@media (max-width:800px){'));
+  assert.match(mobile, /\.a-table\.ship-list\{min-width:0;display:block\}/);
+  assert.match(mobile, /\.ship-list tr\{display:grid/);
 });
 
 test('задержка считается в днях, а прежние часы читаются как раньше', () => {
