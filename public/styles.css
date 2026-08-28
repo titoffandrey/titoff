@@ -1563,8 +1563,14 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .footer-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:30px 56px}
 .foot-brand{font-size:20px}
 .foot-note{max-width:480px;margin-top:9px;line-height:1.55}
-.footer-contacts{display:flex;align-items:flex-start;gap:20px}
+.footer-contacts{display:flex;align-items:center;gap:20px}
 .foot-tg,.foot-contact{margin:0}
+/* «Отследить заказ» — ссылка, а не кнопка: рядом стоит кнопка Telegram, и вторая
+   такая же спорила бы с ней за внимание. Место в подвале ей нужно потому, что
+   страницу оплаты покупатель закрывает, а ссылку из письма находит не всегда. */
+.foot-track{font-size:14px;color:var(--muted);text-decoration:underline;text-underline-offset:3px;
+  text-decoration-color:color-mix(in srgb,currentColor 40%,transparent)}
+.foot-track:hover{color:var(--text)}
 /* Связь с магазином — не голый ник строчкой, а кнопка с понятным действием:
    «@adc_apple» само по себе не говорит, что по нему пишут, и нажимать его
    тоже никто не догадывался. Ника под кнопкой тоже нет: она ведёт в тот же
@@ -2137,6 +2143,16 @@ body.admin{background:#f4f4f6;color:#242426}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
 .a-orders .o-sum b{font-size:15.5px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
+/* Отправление — третья строка в столбце заказа, под номером и датой. Подпись
+   говорящая («в пути», «задерживается»), поэтому цвет несёт смысл: тёплый у
+   задержки — её разбирают руками, зелёный у вручённой, серый у остальных.
+   У заказа без отправления это приглашение её создать, набранное тише. */
+.o-ship{display:inline-block;margin-top:5px;font-size:11.5px;line-height:1.4;color:#48484a;
+  border-bottom:1px dashed #c7c7cf;white-space:normal}
+.o-ship:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.o-ship.is-none{color:#8a8a90}
+.o-ship.is-late{color:#bf4800;border-bottom-color:#e5b98d}
+.o-ship.is-done{color:#0b7a37;border-bottom-color:#a9d8bd}
 /* Время под плашкой: обратный отсчёт живого счёта и момент, когда всё
    случилось. Цифры табличные — иначе отсчёт дёргает соседние столбцы на каждой
    секунде. */
@@ -2195,6 +2211,45 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-rest[open] summary::before{content:"▾ "}
 .o-rest summary:hover{color:var(--text)}
 .o-rest div{margin-top:4px}
+
+/* ===== Отправление: маршрут посылки в панели =====
+   Таблица шагов — это форма: в каждой ячейке поле, и правят их по одному.
+   Поэтому поля растянуты по ширине столбца, а не заданы числом: «Принят на
+   склад доставки» и «Встречен в г. Петропавловск-Камчатский» живут в одном
+   столбце, и место им нужно разное. */
+.ship-form{margin:0}
+.ship-hint{margin:-4px 0 12px}
+.ship-steps{width:100%}
+.ship-steps td{padding:6px 8px;vertical-align:middle}
+.ship-steps th{white-space:nowrap}
+.ship-steps input[type=text],.ship-steps input:not([type]){width:100%}
+.ship-steps input{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:9px;
+  background:#fff;font:inherit;font-size:13px}
+.ship-steps input[type=datetime-local]{min-width:186px;font-variant-numeric:tabular-nums}
+.ship-steps input[type=radio]{width:auto;padding:0}
+.ship-steps .ship-hold{width:1%;text-align:center;white-space:nowrap}
+/* «Нигде не задерживать» — тот же переключатель, что и в строках, поэтому стоит
+   рядом с таблицей, а не отдельной настройкой: это одно решение из списка. */
+.ship-nohold{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px}
+.ship-actions{display:flex;flex-wrap:wrap;gap:10px}
+.ship-drop{margin-top:18px}
+/* Предпросмотр — карточка витрины целиком, поэтому внутренние поля панели ей
+   не нужны: она приносит свои. */
+.ship-preview .trk{margin-top:4px}
+@media(max-width:800px){
+  /* Пять столбцов полей в 390 px не встают никак — строка становится карточкой,
+     подписи приезжают из `data-l` в разметке (тот же приём, что у списка
+     заказов и таблицы касс). */
+  .ship-steps,.ship-steps thead,.ship-steps tbody,.ship-steps tr,.ship-steps td{display:block;min-width:0}
+  .ship-steps{min-width:0}
+  .ship-steps thead{display:none}
+  .ship-steps tr{margin-bottom:12px;padding:12px;border:1px solid var(--border-soft,var(--border));border-radius:14px}
+  .ship-steps td{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:5px 0}
+  .ship-steps td::before{content:attr(data-l);font-size:11.5px;color:var(--muted)}
+  .ship-steps .ship-hold{display:flex;align-items:center;gap:9px;text-align:left}
+  .ship-steps .ship-hold::before{order:2}
+  .ship-steps input[type=datetime-local]{min-width:0}
+}
 
 /* ===== Последние заказы на «Обзоре» =====
    Список ссылок, а не таблица: столбцов здесь четыре, и на телефоне такую
@@ -4045,6 +4100,116 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 @media(max-width:480px){
   .pay-timer-copy{align-items:flex-start;flex-direction:column;gap:7px}
   .pay-timer b{font-size:21px}
+}
+
+/* ===== Отслеживание посылки (/track) =====
+   Страница выглядит как отслеживание ТОГО перевозчика, который везёт: покупатель,
+   отправлявший посылки, узнаёт зелёную ленту СДЭК и синие этапы OZON быстрее,
+   чем читает подписи. Отличаются не только цвета — у СДЭК строгая складская
+   лента с тонкими линиями и небольшими скруглениями, у OZON крупные радиусы,
+   полоса пройденного пути и крупная дата прибытия.
+
+   Всё различие темы держится на четырёх переменных: разъехаться цветам точки,
+   линии и полосы порознь нельзя — они описывают один и тот же путь. */
+.trk-page{max-width:760px;padding-top:26px;padding-bottom:44px}
+.trk-page-head h1{font-size:clamp(24px,4.6vw,31px);letter-spacing:-.02em;margin:14px 0 6px}
+.trk-page-sub{margin:0 0 20px;color:var(--muted);font-size:14.5px}
+/* Форма поиска — одна строка: подпись, поле, кнопка. Номер набирают с телефона,
+   поэтому кегль поля 16 px и цифровая клавиатура (`inputmode` в разметке). */
+.trk-lookup{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;
+  padding:16px;border:1px solid var(--border);border-radius:16px;background:var(--bg2);margin-bottom:22px}
+.trk-lookup label{grid-column:1/-1;font-size:13px;color:var(--muted)}
+.trk-lookup input{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:12px;
+  background:#fff;font:inherit;font-size:16px;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.trk-lookup input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.trk-lookup .btn{padding:12px 22px}
+/* «Не нашли» — не ошибка формы, а объяснение: чаще всего отправление просто
+   ещё не собрано, и покупателя надо в этом успокоить, а не отчитать. */
+.trk-miss{padding:16px 18px;border:1px solid var(--border);border-radius:16px;background:#fff;margin-bottom:22px}
+.trk-miss b{display:block;margin-bottom:5px;font-size:16px}
+.trk-miss p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+
+.trk{--trk:#00b33c;--trk-ink:#0a7c31;--trk-soft:#eefaf1;--trk-rad:14px;
+  border:1px solid var(--border);border-radius:var(--trk-rad);background:#fff;overflow:hidden}
+.trk-ozon{--trk:#005bff;--trk-ink:#0047c7;--trk-soft:#eef3ff;--trk-rad:22px}
+.trk-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding:16px 20px;border-bottom:1px solid var(--border-soft,var(--border))}
+.trk-head-brand{display:flex;align-items:center;gap:12px;min-width:0}
+/* Высота логотипа фиксирована, ширина — по viewBox: вордмарки перевозчиков
+   разной длины, и подгонять их под общую ширину значило бы их искажать (то же
+   правило, что у логотипов на оформлении). */
+.trk-logo{height:22px;width:auto;flex:none}
+.trk-logo-name{font-weight:700;font-size:17px;color:var(--trk-ink)}
+.trk-head-title{font-size:13.5px;color:var(--muted)}
+.trk-head-num{display:flex;align-items:baseline;gap:7px;font-size:13px;color:var(--muted)}
+.trk-head-num b{font-size:15.5px;color:var(--text);font-variant-numeric:tabular-nums}
+/* Шапка и «герой» — два разных вопроса: чей это перевозчик и где посылка.
+   Второй крупнее, потому что ради него страницу и открыли. */
+.trk-hero{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;
+  padding:20px;background:var(--trk-soft)}
+.trk-hero-label{display:block;margin-bottom:5px;font-size:12px;letter-spacing:.02em;color:var(--muted)}
+.trk-hero-title{display:block;font-size:clamp(19px,3.4vw,24px);line-height:1.2;letter-spacing:-.015em}
+.trk-route{display:block;margin-top:7px;font-size:14px;color:var(--muted)}
+.trk-hero-eta{text-align:right}
+.trk-eta-value{display:block;font-size:clamp(17px,3vw,21px);line-height:1.25;color:var(--trk-ink)}
+.trk-hero-mode{display:block;margin-top:7px;font-size:12.5px;color:var(--muted)}
+/* Полоса пройденного пути — часть фирменного вида OZON; у СДЭК её нет вовсе,
+   там путь читают по самой ленте (разметку рисует сервер только для OZON). */
+.trk-bar{height:6px;background:#e6e8ec}
+.trk-bar span{display:block;height:100%;background:var(--trk);border-radius:0 3px 3px 0;transition:width .3s}
+/* Задержка. Тон тёплый, а не алый: посылка не потеряна, и пугать покупателя
+   здесь нечем — те же цвета, что у отсчёта срока счёта на странице оплаты. */
+.trk-delay{display:flex;gap:12px;margin:16px 20px 0;padding:13px 15px;
+  border:1px solid #edc384;border-radius:14px;background:#fff7e9;color:#7a4610}
+.trk-delay-ico{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#fff;color:#a75a08}
+.trk-delay-ico svg{width:19px;height:19px}
+.trk-delay b{display:block;margin-bottom:3px;font-size:14.5px}
+.trk-delay p{margin:0;font-size:13.5px;line-height:1.5}
+.trk-pickup{display:flex;flex-direction:column;gap:3px;margin:16px 20px 0;padding:11px 14px;
+  border:1px dashed var(--border);border-radius:12px;font-size:14px}
+.trk-pickup span{font-size:12px;color:var(--muted)}
+/* Лента событий. Колонки: точка — текст — время. Линия между точками рисуется
+   псевдоэлементом самой строки, поэтому у последней её просто нет — отдельного
+   класса «последний шаг» разметке заводить не пришлось. */
+.trk-steps{list-style:none;margin:0;padding:18px 20px 6px}
+.trk-step{position:relative;display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:0 14px;
+  padding-bottom:18px}
+.trk-step:last-child{padding-bottom:14px}
+.trk-step::before{content:"";position:absolute;left:10px;top:22px;bottom:0;width:2px;background:#e6e8ec}
+.trk-step:last-child::before{display:none}
+.trk-step.is-done::before{background:var(--trk)}
+/* Линия ПОСЛЕ текущего шага уже серая: она показывает пройденное, а не план. */
+.trk-step.is-current::before{background:#e6e8ec}
+.trk-dot{grid-row:1/3;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
+  border:2px solid #d5d9df;background:#fff;color:#fff}
+.trk-dot svg{width:14px;height:14px}
+.trk-dot.is-done{border-color:var(--trk);background:var(--trk)}
+.trk-step.is-current .trk-dot{box-shadow:0 0 0 4px color-mix(in srgb,var(--trk) 18%,transparent)}
+.trk-dot.is-hold{border-color:#e0a244;background:#e0a244;box-shadow:0 0 0 4px rgba(224,162,68,.2)}
+.trk-step-body{min-width:0;padding-top:1px}
+.trk-step-title{display:block;font-size:15px;font-weight:600;line-height:1.35;color:#8a9099}
+.trk-step.is-done .trk-step-title{color:var(--text)}
+.trk-step.is-current .trk-step-title{color:var(--trk-ink)}
+.trk-step-place,.trk-step-note{display:block;margin-top:2px;font-size:13px;color:var(--muted)}
+.trk-step-when{padding-top:2px;font-size:13px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.trk-step-when.is-plan{color:#a2a8b0}
+.trk-foot{margin:0;padding:14px 20px 18px;border-top:1px solid var(--border-soft,var(--border));
+  font-size:12.5px;color:var(--muted);line-height:1.5}
+/* Вручённая посылка: лента дочитана, и «герой» больше не зовёт ждать. */
+.trk.is-delivered .trk-hero{background:var(--trk-soft)}
+@media(max-width:640px){
+  .trk-lookup{grid-template-columns:minmax(0,1fr);padding:14px}
+  .trk-lookup .btn{width:100%}
+  .trk-hero{grid-template-columns:minmax(0,1fr);gap:14px;padding:16px}
+  /* На телефоне ожидаемая дата встаёт под статусом и равняется по левому краю:
+     прижатая вправо, она читалась как подпись к пустому месту. */
+  .trk-hero-eta{text-align:left;padding-top:14px;border-top:1px solid rgba(0,0,0,.08)}
+  .trk-head,.trk-steps,.trk-foot{padding-left:15px;padding-right:15px}
+  .trk-delay,.trk-pickup{margin-left:15px;margin-right:15px}
+  /* Время события уезжает под заголовок: в три колонки на 360 px не встают ни
+     «Принят на склад доставки», ни «29 августа, 10:12». */
+  .trk-step{grid-template-columns:22px minmax(0,1fr)}
+  .trk-step-when{grid-column:2;padding-top:3px}
 }
 
 /* ===== Выбор ремешка часов (страница товара) ===== */

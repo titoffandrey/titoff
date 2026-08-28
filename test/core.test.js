@@ -5378,7 +5378,7 @@ test('настройки идут разделами, и свёрнутая ст
   // Разделы — обычные <details>, поэтому раскрываются и без скрипта.
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
-  assert.deepEqual(ids, ['store', 'brand', 'pay', 'price', 'chat', 'telegram', 'dadata', 'legal', 'access']);
+  assert.deepEqual(ids, ['store', 'brand', 'ship', 'pay', 'price', 'chat', 'telegram', 'dadata', 'legal', 'access']);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
    * описывает, что внутри: описание читают один раз, а видят каждый день. */
@@ -11741,4 +11741,271 @@ test('консультанта можно выключить галочкой, �
   // Панель говорит именно «выключен», а не «не настроен»: это разные беды и
   // чинятся они по-разному.
   assert.match(html, /Консультант выключен —/);
+});
+
+/* ===================== Отслеживание посылки ===================== */
+
+const tracking = require('../lib/tracking');
+
+test('маршрут посылки детальный, идёт по возрастанию и по московским часам', () => {
+  const started = Date.parse('2026-08-26T10:12:00+03:00');
+  const far = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Владивосток', zone: 'dfo', seed: 'order-1', startedAt: started });
+
+  // «Максимально подробно» — это не десяток одинаковых строк: у дальней зоны в
+  // маршруте обязаны быть транзитные хабы, иначе посылка едет из Москвы во
+  // Владивосток одним прыжком.
+  assert.ok(far.steps.length >= 12, 'дальний маршрут вышел слишком коротким: ' + far.steps.length);
+  const places = far.steps.map(s => s.place);
+  assert.ok(places.includes('Новосибирск') && places.includes('Хабаровск'), 'нет транзитных хабов: ' + places.join(', '));
+  assert.equal(far.steps[0].at, started, 'первый шаг — момент отправки, его не двигаем');
+
+  // Лента читается сверху вниз по времени, поэтому порядок строгий: сдвиг часа
+  // не имеет права поставить событие раньше предыдущего.
+  for (let i = 1; i < far.steps.length; i++) {
+    assert.ok(far.steps[i].at > far.steps[i - 1].at, 'время шага не выросло на позиции ' + i);
+  }
+  // Весь путь укладывается в заявленный срок: последний шаг — вручение.
+  const days = Math.round((far.steps[far.steps.length - 1].at - started) / 86400000);
+  assert.ok(Math.abs(days - far.days) <= 1, 'маршрут не укладывается в заявленные дни: ' + days + ' против ' + far.days);
+
+  /* Часы событий — МОСКОВСКИЕ и дневные. Сервер живёт в UTC, и «утро» по его
+   * часам — это ночь у покупателя; посылка, принятая на склад в 03:40, сразу
+   * выдаёт, что событий никто не записывал. */
+  for (const step of far.steps.slice(1)) {
+    const hour = Number(render.mskDateTime(step.at).slice(-5, -3));
+    assert.ok(hour >= 7 && hour <= 21, 'событие в ночной час: ' + render.mskDateTime(step.at));
+  }
+
+  // Ближняя зона обходится без транзита: хаб, совпавший с концом маршрута, из
+  // пути выпадает — «Отправлен в г. Екатеринбург» у посылки, которая туда и
+  // едет, читается как сбой.
+  const near = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Екатеринбург', zone: 'ural', seed: 'order-2', startedAt: started });
+  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Екатеринбург'), []);
+  assert.ok(near.steps.every(s => s.place === 'Москва' || s.place === 'Екатеринбург'), 'в ближнем маршруте появился чужой город');
+});
+
+test('пересборка того же маршрута даёт те же времена', () => {
+  const opts = { carrier: 'ozon', mode: 'courier', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'order-3', startedAt: Date.parse('2026-08-20T09:00:00+03:00'), days: 5 };
+  const first = tracking.build(opts);
+  const second = tracking.build(opts);
+  // Иначе «Собрать заново», нажатое дважды, каждый раз тасовало бы часы у уже
+  // случившихся событий — покупатель увидел бы другую историю той же посылки.
+  assert.deepEqual(second.steps.map(s => s.at), first.steps.map(s => s.at));
+  assert.deepEqual(second.steps.map(s => s.title), first.steps.map(s => s.title));
+});
+
+test('застревание держит посылку, а просьба подождать ждёт своих часов', () => {
+  const started = Date.parse('2026-08-20T09:00:00+03:00');
+  const ship = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'order-4', startedAt: started, days: 5 });
+  ship.holdHours = 12;
+  const holdAt = 3;
+  ship.steps[holdAt].hold = true;
+
+  // Час спустя после остановки посылка уже стоит, но задержкой это ещё не
+  // считается: ночная пересортировка — обычное дело, и плашка над ней была бы
+  // ложной тревогой.
+  const soon = tracking.view(ship, ship.steps[holdAt].at + 60 * 60 * 1000);
+  assert.equal(soon.stuck, true);
+  assert.equal(soon.delayed, false, 'просьба подождать выскочила раньше срока');
+  assert.equal(soon.current.title, ship.steps[holdAt].title);
+
+  // Через двое суток — задержка. Дальше шага с отметкой посылка не уехала,
+  // сколько бы времени ни прошло: в этом и смысл отметки.
+  const late = tracking.view(ship, ship.steps[holdAt].at + 48 * 60 * 60 * 1000);
+  assert.equal(late.delayed, true);
+  assert.equal(late.steps.filter(s => s.done).length, holdAt + 1, 'посылка проехала мимо отметки');
+  assert.equal(late.delivered, false);
+
+  /* У признанной задержки нет ни обещанной даты, ни плановых дат у будущих
+   * шагов: обещать «прибудет 25 августа» рядом с «посылка задерживается» —
+   * это два разных ответа на один вопрос в пределах одного экрана. */
+  assert.equal(late.eta, 0);
+  assert.ok(late.steps.every(s => !s.planned), 'у задержавшейся посылки остались плановые даты');
+
+  // Без отметки та же посылка спокойно доезжает.
+  ship.steps[holdAt].hold = false;
+  const done = tracking.view(ship, ship.steps[ship.steps.length - 1].at + 1000);
+  assert.equal(done.delivered, true);
+  assert.equal(done.stuck, false);
+  assert.equal(tracking.shortState(ship, done.deliveredAt + 1000), 'вручено');
+});
+
+test('страница отслеживания не раскрывает покупателя и одинаково молчит о чужом номере', () => {
+  const started = Date.now() - 2 * 86400000;
+  const order = {
+    id: 'a1', number: '482913', customerName: 'Иван Петров', firstName: 'Иван', lastName: 'Петров',
+    phone: '+79995551234', contact: 'ivan@example.com', address: 'г Казань, ул Баумана, д 7',
+    pickupAddress: 'Республика Татарстан, Казань, ул Баумана, 10', total: 103100,
+    items: [{ name: 'iPhone 17 Pro Max', qty: 1 }],
+    shipment: tracking.normalize(tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'a1', startedAt: started, days: 5 }))
+  };
+  const html = render.trackingPage(SETTINGS, { number: '482913', order });
+
+  /* Номер заказа короткий, а страница открыта всем, у кого он есть. Поэтому на
+   * ней нет ничего, чего не знает всякий, кто держит посылку в руках: ни имени,
+   * ни телефона, ни состава, ни адреса покупателя. */
+  for (const secret of ['Иван', 'Петров', '+7999', '999 555', 'ivan@example.com', 'iPhone 17 Pro Max', 'ул Баумана, д 7', '103 100']) {
+    assert.equal(html.includes(secret), false, 'на странице отслеживания видно лишнее: ' + secret);
+  }
+  // Адрес пункта выдачи — уже своему покупателю, узнанному по подписанной сессии.
+  assert.equal(html.includes('ул Баумана, 10'), false, 'адрес пункта показан чужому');
+  assert.match(render.trackingPage(SETTINGS, { number: '482913', order, own: true }), /ул Баумана, 10/);
+
+  // Страницу не индексируем: это страница заказа, а не витрина.
+  assert.match(html, /<meta name="robots" content="noindex/);
+
+  /* «Такого заказа нет» и «отправление ещё не собрано» отвечают ОДИНАКОВО:
+   * разные ответы превратили бы страницу в проверялку существования заказов —
+   * перебором номеров можно было бы считать, сколько их у магазина. */
+  const missing = render.trackingPage(SETTINGS, { number: '482913', order: null });
+  const noShip = render.trackingPage(SETTINGS, { number: '482913', order: { id: 'b', number: '482913' } });
+  assert.match(missing, /Отправление не найдено/);
+  assert.equal(missing, noShip, 'ответы про чужой номер и про несобранную посылку разошлись');
+});
+
+test('у каждого перевозчика свой язык статусов и своя тема', () => {
+  const started = Date.now() - 86400000;
+  const make = carrier => ({
+    id: carrier, number: '100200',
+    shipment: tracking.normalize(tracking.build({ carrier, mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: carrier, startedAt: started, days: 4 }))
+  });
+  const cdek = render.trackingBoard(make('cdek'), {});
+  const ozon = render.trackingBoard(make('ozon'), {});
+
+  // Тема — класс карточки и логотип перевозчика из общего спрайта.
+  assert.match(cdek, /class="trk trk-cdek/);
+  assert.match(cdek, /href="#dl-cdek"/);
+  assert.match(ozon, /class="trk trk-ozon/);
+  assert.match(ozon, /href="#dl-ozon"/);
+
+  /* Формулировки взяты у самих перевозчиков и не пересекаются: покупатель,
+   * отправлявший посылки, узнаёт складской язык СДЭК и человеческие фразы OZON
+   * быстрее, чем читает подписи. */
+  assert.match(cdek, /Принят на склад/);
+  assert.match(cdek, /Вручен/);
+  assert.match(ozon, /Заказ собран на складе/);
+  assert.match(ozon, /Можно забирать/);
+  assert.equal(/Принят на склад/.test(ozon), false, 'язык СДЭК уехал в ленту OZON');
+  assert.equal(/Можно забирать/.test(cdek), false, 'язык OZON уехал в ленту СДЭК');
+
+  // Полоса пройденного пути — часть фирменного вида OZON; у СДЭК её нет вовсе.
+  assert.match(ozon, /class="trk-bar"/);
+  assert.equal(/class="trk-bar"/.test(cdek), false);
+
+  /* Сами слова живут в маршруте (`lib/tracking.js`), а не в рендере: две копии
+   * статусов разъехались бы на первой правке, а увидеть это можно только
+   * глазами. */
+  const renderSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  assert.equal(/Принят на склад доставки|Заказ собран на складе/.test(renderSrc), false,
+    'статусы перевозчика скопированы в рендер');
+
+  // Цвета тем заданы переменными и разные: разъехаться точке, линии и полосе
+  // порознь нельзя — они описывают один и тот же путь.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.trk\{--trk:#00b33c/);
+  assert.match(css, /\.trk-ozon\{--trk:#005bff/);
+});
+
+test('хранилище отправления чистит маршрут и находит заказ по номеру', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-shipment-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const db = freshDb(dir);
+  db.ensureSeeded();
+  const order = db.createOrder({ items: [], total: 1000, delivery: 'cdek', deliveryMode: 'pvz', deliveryZone: 'pfo', address: 'г Казань, ул Баумана, д 7' });
+
+  const at = Date.parse('2026-08-20T09:00:00+03:00');
+  const saved = db.setOrderShipment(order.id, {
+    carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', days: 4, holdHours: 6,
+    steps: [
+      // Пустая строка — способ удалить шаг: отдельной кнопки для этого нет.
+      { at: 0, title: 'Без времени' },
+      { at: at + 3600000, title: '' },
+      { at: at + 7200000, title: 'Принят на склад', place: 'г Москва', hold: true },
+      { at, title: 'Заказ создан', place: 'Москва' },
+      // Застрять может только ОДИН шаг: два таких флага означали бы, что второй
+      // не сработает никогда.
+      { at: at + 10800000, title: 'Вручен', place: 'Казань', hold: true }
+    ]
+  });
+  assert.equal(saved.ok, true);
+  const steps = saved.shipment.steps;
+  assert.deepEqual(steps.map(s => s.title), ['Заказ создан', 'Принят на склад', 'Вручен'], 'мусорные строки не отброшены или порядок не по времени');
+  assert.equal(steps.filter(s => s.hold).length, 1);
+  assert.equal(steps[1].hold, true, 'отметка досталась не тому шагу');
+  assert.equal(steps[1].place, 'Москва', 'сокращение «г» не снято с названия города');
+  assert.equal(saved.shipment.startedAt, at, 'начало маршрута — первое событие');
+
+  // Правка не переписывает дату создания отправления: «отправлено 20 августа» —
+  // факт, а не производная от последнего сохранения формы.
+  const createdAt = saved.shipment.createdAt;
+  const again = db.setOrderShipment(order.id, Object.assign({}, saved.shipment, { days: 6 }));
+  assert.equal(again.shipment.createdAt, createdAt);
+  assert.equal(again.shipment.days, 6);
+
+  // Маршрут без единого события не сохраняется вовсе — иначе страница
+  // отслеживания открывалась бы пустой карточкой.
+  assert.equal(db.setOrderShipment(order.id, { carrier: 'cdek', steps: [] }).ok, false);
+
+  /* Покупатель вводит номер заказа, а не его внутренний id. У заявок, оформленных
+   * до перехода на случайные номера, номер записан с префиксом «ORD-», и найтись
+   * они обязаны так же. */
+  assert.equal(db.getOrderByNumber(order.number).id, order.id);
+  assert.equal(db.getOrderByNumber(' ' + order.number + ' ').id, order.id);
+  assert.equal(db.getOrderByNumber('ORD-' + order.number).id, order.id);
+  assert.equal(db.getOrderByNumber(''), null);
+  assert.equal(db.getOrderByNumber('000000'), null);
+
+  // Удаление снимает маршрут, а заказ остаётся: посылка не поехала — заявка всё
+  // равно нужна менеджеру.
+  assert.equal(db.clearOrderShipment(order.id).ok, true);
+  assert.equal(db.getOrder(order.id).shipment, undefined);
+  assert.equal(db.clearOrderShipment(order.id).ok, false);
+});
+
+test('отправлением управляют из строки заказа, а форма правит весь путь', () => {
+  const started = Date.now() - 86400000;
+  const order = {
+    id: 'z9', number: '771122', createdAt: started, total: 50000, items: [],
+    delivery: 'cdek', deliveryMode: 'pvz', deliveryZone: 'pfo',
+    address: 'г Казань, ул Баумана, д 7', pickupAddress: 'Республика Татарстан, Казань, ул Баумана, 10'
+  };
+  const db = {
+    pendingReviewCount: () => 0, newOrderCount: () => 0, getOrders: () => [order],
+    visibleOrders: () => [order], archivedOrders: () => []
+  };
+  // Пока отправления нет, строка заказа зовёт его создать: это такая же часть
+  // «что с этим заказом», как состояние оплаты.
+  const list = adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {});
+  assert.match(list, /href="\/admin\/orders\/z9\/shipment"/);
+  assert.match(list, /Создать отправление/);
+
+  // Форма предлагает город получения из адреса заказа и срок из нашей же сетки.
+  const form = adminViews.shipmentPage(SETTINGS, db, order, {});
+  assert.match(form, /name="from"[^>]*value="Москва"/);
+  assert.match(form, /name="to"[^>]*value="Казань"/);
+  assert.match(form, /name="days"[^>]*value="4"/);
+  assert.match(form, /name="holdHours"/);
+  /* Таблицы шагов у несозданного отправления нет вовсе: маршрут собирается по
+   * трём полям выше, а править его строками — уже после. Пустая таблица на
+   * пятнадцать строк требовала бы набить весь путь руками. */
+  assert.equal(/name="stepTitle"/.test(form), false);
+  assert.match(form, /Создать отправление<\/button>/);
+
+  /* Маршрут правится ЦЕЛИКОМ: время каждого события, название, город, приписка
+   * и место остановки. Заказ живёт неделю, и за неделю меняется всё. */
+  order.shipment = tracking.normalize(tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'z9', startedAt: started, days: 4 }));
+  const filled = adminViews.shipmentPage(SETTINGS, db, order, {});
+  const rows = (filled.match(/name="stepTitle"/g) || []).length;
+  assert.equal(rows, order.shipment.steps.length + 3, 'нет пустых строк для новых событий');
+  assert.match(filled, /Собрать маршрут заново/);
+  assert.match(filled, /Удалить отправление/);
+  // Предпросмотр — та же карточка, что видит покупатель: второй, «панельной»
+  // версии быть не должно.
+  assert.match(filled, /Что видит покупатель/);
+  assert.match(filled, /class="trk trk-cdek/);
+
+  // В строке заказа состояние сжато до двух слов, а полное событие уезжает в
+  // подсказку: «Отправлен в г. Петропавловск-Камчатский» занимал три строки.
+  const withShip = adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {});
+  assert.match(withShip, /class="o-ship"[^>]*title="[^"]+">(в пути|ожидает отправки|готово к выдаче)</);
 });

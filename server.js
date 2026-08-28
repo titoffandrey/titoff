@@ -19,6 +19,9 @@ const CROCO = require('./lib/crocopay');
 const PAYMENTS = require('./lib/payments');
 const MERIDIAN = require('./lib/meridianpay');
 const DELIVERY = require('./lib/delivery');
+// Маршрут посылки: собирает и проверяет его этот модуль, хранит сам заказ, а
+// показывает `/track/:number` и раздел отправления в панели.
+const TRACK = require('./lib/tracking');
 const SHIP = require('./lib/delivery-price');
 const SHIPDAYS = require('./lib/delivery-days');
 const ADDRESS = require('./lib/address');
@@ -747,6 +750,55 @@ app.get('/checkout', (req, res) => {
     // на нашей же странице — значит «Перейти к оплате» тоже.
     payOnline: (PAYMENTS.enabled(settings()) && !!paymentOrigin(req)) || PAYMENTS.ownEnabled(settings()),
     notice
+  })));
+});
+
+/* Отслеживание посылки.
+ *
+ * Трек-номера нет: посылку ведёт менеджер, и единственный идентификатор у
+ * покупателя — номер его заказа. Поэтому страница ОТКРЫТА: её открывают с
+ * телефона, с чужого компьютера, по ссылке из переписки, где никакой cookie
+ * магазина нет и быть не может.
+ *
+ * Что это безопасно, обеспечивают три вещи сразу, и убирать их нельзя:
+ *   - номер заказа случайный шестизначный, а не порядковый (`nextOrderNumber`);
+ *   - на странице нет ни имени, ни телефона, ни состава заказа, ни адреса
+ *     покупателя — только перевозчик, города и путь (см. `trackingBoard`).
+ *     Адрес пункта выдачи добавляется, только когда заказ узнан по
+ *     подписанной cookie-сессии, то есть своему покупателю;
+ *   - перебор ограничен по частоте, а «нет такого заказа» и «отправление ещё не
+ *     сформировано» отвечают ОДИНАКОВО: иначе страница стала бы проверялкой
+ *     существования заказов.
+ *
+ * В метрике она не считается — как и страница оплаты: это служебная страница
+ * заказа, а не витрина.
+ */
+const TRACK_NUMBER_MAX = 12;
+function trackNumber(value) { return String(value == null ? '' : value).replace(/\D+/g, '').slice(0, TRACK_NUMBER_MAX); }
+
+app.get('/track', (req, res) => {
+  // Форма отправляется обычным GET, поэтому номер приезжает запросом. Уводим на
+  // красивый адрес: такой ссылкой удобно поделиться с покупателем.
+  const digits = trackNumber(req.query && req.query.order);
+  if (digits) return res.redirect('/track/' + digits);
+  res.send(R.trackingPage(settings(), pageOpts(req, {})));
+});
+
+app.get('/track/:number', (req, res) => {
+  const number = trackNumber(req.params.number);
+  if (!number) return res.redirect('/track');
+  // Перебор по номеру ограничиваем частотой. Отдаём при этом ту же страницу с
+  // тем же сообщением, а не 429-ошибку: обычный покупатель, обновивший
+  // страницу десяток раз, не должен упереться в стену.
+  const flood = rateLimited(req, 'track', 40, 5 * 60 * 1000);
+  const order = flood ? null : db.getOrderByNumber(number);
+  const mine = Array.isArray(req.session && req.session.myOrders) ? req.session.myOrders : [];
+  res.send(R.trackingPage(settings(), pageOpts(req, {
+    number,
+    // Удалённый заказ отслеживать нечего: для покупателя он закрыт так же, как
+    // на странице оплаты.
+    order: order && !db.isOrderArchived(order) ? order : null,
+    own: !!order && mine.includes(order.id)
   })));
 });
 
@@ -3415,6 +3467,88 @@ app.post('/admin/orders/:id/delete', (req, res) => {
  * удалённое было бы неправдой.
  */
 
+/* ---------- Отправление: маршрут посылки ---------- *
+ *
+ * Трек-номера у нас нет — посылку ведёт менеджер, и путь по стране рисует он же
+ * здесь. Собирает маршрут `lib/tracking.js`, хранит его сам заказ, показывает
+ * покупателю `/track/:number`.
+ */
+function shipmentSteps(body) {
+  // Повторяющиеся поля формы приходят массивом (`addField` в server-lib), и
+  // порядок в них — порядок строк таблицы. По нему же считается отметка «стоит
+  // здесь»: отдельного идентификатора у шага нет и не нужно.
+  const at = asArray(body.stepAt);
+  const title = asArray(body.stepTitle);
+  const place = asArray(body.stepPlace);
+  const note = asArray(body.stepNote);
+  const hold = Number(body.holdStep);
+  const out = [];
+  for (let i = 0; i < Math.max(at.length, title.length); i++) {
+    const when = parseDt(at[i]);
+    const name = String(title[i] || '').trim();
+    // Пустая строка — не ошибка, а способ удалить шаг: заполненные три строки
+    // внизу таблицы существуют ровно затем, чтобы дописать событие руками.
+    if (!name || !when) continue;
+    out.push({ at: when, title: name, place: place[i] || '', note: note[i] || '', hold: i === hold });
+  }
+  return out;
+}
+
+function shipmentForm(req, order) {
+  const body = req.body || {};
+  const s = settings();
+  return {
+    carrier: body.carrier,
+    mode: body.mode,
+    from: String(body.from || '').trim() || String(s.shipFromCity || '').trim() || TRACK.DEFAULT_FROM,
+    to: String(body.to || '').trim(),
+    zone: order.deliveryZone || '',
+    days: body.days,
+    holdHours: body.holdHours,
+    startedAt: parseDt(body.startedAt) || Date.now()
+  };
+}
+
+app.get('/admin/orders/:id/shipment', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const order = db.getOrder(req.params.id);
+  if (!order) return sendNotFound(req, res);
+  res.send(A.shipmentPage(settings(), db, order, { flash: req.query.flash }));
+});
+
+app.post('/admin/orders/:id/shipment', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const order = db.getOrder(req.params.id);
+  if (!order) return sendNotFound(req, res);
+  const form = shipmentForm(req, order);
+  // Проверка идёт ДО записи и возвращает введённое — то же правило, что у формы
+  // товара и настроек: иначе правка теряется целиком.
+  const fail = (error) => res.send(A.shipmentPage(settings(), db, order,
+    { flash: error, flashType: 'err', draft: req.body }), 400);
+  if (!form.to) return fail('Укажите город получения — без него маршрут не собрать');
+
+  const rebuild = req.body.intent === 'rebuild' || !order.shipment;
+  const steps = rebuild ? null : shipmentSteps(req.body);
+  if (!rebuild && (!steps || !steps.length)) return fail('Оставьте хотя бы одно событие в пути');
+
+  const shipment = rebuild
+    // `seed` — id заказа: пересборка того же маршрута обязана давать те же
+    // времена, иначе нажатие «Собрать заново» дважды тасовало бы часы у уже
+    // случившихся событий.
+    ? Object.assign(TRACK.build(Object.assign({}, form, { seed: order.id })), { holdHours: form.holdHours })
+    : Object.assign({}, form, { steps });
+  const saved = db.setOrderShipment(order.id, shipment);
+  if (!saved.ok) return fail('Маршрут не сохранён: в нём нет ни одного события');
+  res.redirect('/admin/orders/' + encodeURIComponent(order.id) + '/shipment?flash='
+    + encodeURIComponent(rebuild ? 'Маршрут собран' : 'Маршрут сохранён'), 303);
+});
+
+app.post('/admin/orders/:id/shipment/delete', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const done = db.clearOrderShipment(req.params.id);
+  res.redirect(ordersBackUrl(req.body, done.ok ? 'Отправление удалено' : 'Отправление не найдено'), 303);
+});
+
 /* ---------- Чат ---------- */
 
 app.get('/admin/chat', (req, res) => {
@@ -3681,6 +3815,26 @@ app.post('/admin/settings', async (req, res) => {
   }
   // Ключ «Подсказок» dadata.ru. Пустое поле стирает ключ.
   if (req.body.dadataToken !== undefined) patch.dadataToken = String(req.body.dadataToken).trim().slice(0, 200);
+  /* Отслеживание: город отправки и через сколько часов стояния покупатель
+   * увидит просьбу подождать. Оба поля — значения ПО УМОЛЧАНИЮ для новой
+   * отправки: у каждой посылки они свои и правятся в её маршруте.
+   *
+   * Пустое поле часов — это «как у нас принято» (сутки), а не ноль: ноль
+   * означал бы «жаловаться сразу», и плашка висела бы у нормально идущей
+   * посылки. Мусор в поле не сохраняем вовсе — проверка до записи, как и всё в
+   * этой форме. */
+  if (req.body.shipFromCity !== undefined) patch.shipFromCity = TRACK.cleanCity(req.body.shipFromCity);
+  if (req.body.shipHoldHours !== undefined) {
+    const raw = String(req.body.shipHoldHours).replace(/\s+/g, '').replace(',', '.');
+    if (!raw) patch.shipHoldHours = '';
+    else {
+      const hours = Number(raw);
+      if (!Number.isFinite(hours) || hours < 0 || hours > TRACK.HOLD_NOTICE_MAX) {
+        return fail(`Сообщать о задержке — число от 0 до ${TRACK.HOLD_NOTICE_MAX} часов или пусто`);
+      }
+      patch.shipHoldHours = Math.round(hours);
+    }
+  }
   // Галочка кассы снимается отсутствием поля в теле формы, как notifyReviews.
   patch.crocopayEnabled = req.body.crocopayEnabled !== undefined;
   if (req.body.crocopayClientId !== undefined) patch.crocopayClientId = String(req.body.crocopayClientId).trim().slice(0, 200);
