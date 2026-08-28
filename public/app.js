@@ -123,14 +123,15 @@
     return { compare: cmp, saved: cmp - price, pct: Math.round((1 - price / cmp) * 100) };
   }
   // ===== Страница оформления (/checkout) =====
-  // Три блока, а не «список слева, форма справа»: товары и форма идут одной
-  // колонкой сверху вниз (шаг за шагом), а справа липнет только сводка. Прежняя
-  // раскладка отдавала форме узкую полосу, пока широкая колонка с одним товаром
-  // стояла почти пустой.
+  // Четыре шага, а не «список слева, форма справа»: товары и форма идут одной
+  // колонкой сверху вниз, а на десктопе справа липнет итог с главным действием.
+  // На телефоне этот же блок становится последним: сначала человек заполняет
+  // данные и доставку, затем видит окончательную сумму и подтверждает заказ.
   function renderCheckoutPage() {
     var items = document.getElementById('checkout-items');
     var form = document.getElementById('checkout-form');
     var side = document.getElementById('checkout-side');
+    var action = document.getElementById('checkout-action');
     if (!items || !side) return;
 
     var page = document.getElementById('checkout-page');
@@ -146,6 +147,7 @@
       // исчезнуть вместе с элементом, не успев дать `change`.
       rememberCheckout();
       if (form) { form.innerHTML = ''; delete form.dataset.ready; }
+      if (action) { action.innerHTML = ''; delete action.dataset.ready; }
       side.innerHTML = '';
       return;
     }
@@ -176,7 +178,7 @@
           + (out ? '<div class="co-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
           // Цена за штуку — тем же набором классов, что и в карточке каталога:
           // розовая цена, зачёркнутая старая с наклонной чертой, розовый процент.
-          + '<div class="co-item-unit">'
+          + '<div class="co-item-unit' + (i.qty > 1 ? ' is-relevant' : '') + '">'
           + '<span class="card-price' + (sale ? ' price-sale' : '') + '">'
           + '<span class="price-now">' + money(i.price) + '</span>'
           + (sale ? '<span class="price-was"><span class="old-price">' + money(sale.compare) + '</span>'
@@ -272,14 +274,6 @@
         + '<div class="co-points" id="co-points" hidden></div>'
         + '<p class="co-ways-note" id="co-ways-note">Укажите адрес — от него зависят сроки и стоимость доставки.</p>'
         + '</div>'
-        + '</div>'
-        + '<div class="co-submit">'
-        + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
-        + '<span class="btn-checkout-label">Оформить заказ</span>'
-        + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
-        + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note">' + payNote()
-        + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
       initPhoneInput();
       initAddressSuggest();
@@ -287,6 +281,20 @@
       initAddressQuote();
       // Последней: она подставляет сохранённое и будит обработчики выше.
       initCheckoutMemory();
+    }
+    // Главное действие живёт рядом с окончательной суммой. На десктопе оно
+    // остаётся в липкой правой панели, а на телефоне приезжает вместе с итогом
+    // после формы — цену видно непосредственно перед подтверждением заказа.
+    if (action && !action.dataset.ready) {
+      action.dataset.ready = '1';
+      action.innerHTML = '<div class="co-submit">'
+        + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
+        + '<span class="btn-checkout-label">Оформить заказ</span>'
+        + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
+        + '<p class="form-msg" id="order-msg" hidden></p>'
+        + '<p class="form-legal-note">' + payNote()
+        + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
+        + '</div>';
     }
     renderRail();
     syncSubmit();

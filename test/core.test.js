@@ -1126,13 +1126,18 @@ test('город по IP запрашивается один раз и зате�
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-geo-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   let calls = 0;
-  const analytics = new Analytics({
-    dataDir: dir, flushMs: 600000,
-    fetcher: async () => {
-      calls++;
-      return { ok: true, json: async () => ({ success: true, city: 'Москва', region: 'Москва', country: 'Россия', connection: { isp: 'Тест' } }) };
-    }
-  });
+  const fetcher = async () => {
+    calls++;
+    return { ok: true, json: async () => ({ success: true, city: 'Москва', region: 'Москва', country: 'Россия', connection: { isp: 'Тест' } }) };
+  };
+  /* Внешний сервис — ЗАПАСНОЙ путь и по умолчанию выключен: у него тысяча
+   * запросов в сутки (при нынешнем трафике город переставал определяться с
+   * середины дня), и каждый адрес посетителя уезжал третьей стороне. */
+  const off = new Analytics({ dataDir: dir, flushMs: 600000, fetcher });
+  assert.equal(await off.geoForIp('8.8.8.8'), null);
+  assert.equal(calls, 0, 'без явного разрешения наружу ходить нельзя');
+
+  const analytics = new Analytics({ dataDir: dir, flushMs: 600000, remoteGeo: true, fetcher });
   const first = await analytics.geoForIp('8.8.8.8');
   const second = await analytics.geoForIp('8.8.8.8');
   assert.equal(first.city, 'Москва');
@@ -8341,17 +8346,16 @@ test('в настройках есть касса, а ключи не утека
   assert.match(route, /PAYMENTS\.forgetMethods\(\)/);
 });
 
-test('оформление разложено на три блока, а сумма липнет отдельно от формы', () => {
+test('оформление ведёт к итогу: справа на десктопе и последним шагом на телефоне', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const html = render.checkoutPage(ss, { origin: '', payOnline: true });
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
-  // Три контейнера, а не «список слева, форма справа»: форме нужна широкая
-  // колонка, иначе она снова окажется в узкой полосе рядом с пустым местом.
+  // Форма остаётся в широкой колонке, а итог и действие собраны вместе.
   assert.match(html, /id="checkout-items"/);
   assert.match(html, /id="checkout-form"/);
-  assert.match(html, /class="checkout-rail"[\s\S]*id="checkout-side"/);
+  assert.match(html, /class="checkout-rail"[\s\S]*id="checkout-side"[\s\S]*id="checkout-action"/);
   // Доводы в правой панели — из общего TRUST_BLOCK, в своём варианте: три
   // колонки, глиф над текстом. Столбиком они забирали 110 px высоты панели.
   assert.match(html, /class="trust trust-col"/);
@@ -8361,10 +8365,10 @@ test('оформление разложено на три блока, а сум�
   // панели строка остаётся строкой, и вертикальную линию нужно вернуть явно.
   assert.match(css, /\.trust-col \.trust-item\+\.trust-item\{border-left:1px solid/);
 
-  // Раскладка через именованные области: только так сумма встаёт МЕЖДУ товарами
-  // и формой на телефоне, оставаясь справа на десктопе.
+  // Раскладка через именованные области: итог остаётся справа на десктопе, а на
+  // телефоне становится последним шагом после товаров, получателя и доставки.
   assert.match(css, /grid-template-areas:"items rail" "form rail"/);
-  assert.match(css, /grid-template-areas:"items" "rail" "form"/);
+  assert.match(css, /grid-template-columns:minmax\(0,1fr\);grid-template-areas:"items" "form" "rail"/);
   assert.match(css, /\.checkout-rail\{grid-area:rail;position:sticky/);
   // Пустая корзина: ни формы, ни суммы, ни обещания шагов.
   assert.match(css, /\.checkout-page\.is-empty #checkout-form,\.checkout-page\.is-empty \.checkout-rail\{display:none\}/);
@@ -8372,10 +8376,13 @@ test('оформление разложено на три блока, а сум�
   // Форма собирается один раз — иначе смена количества стирала бы введённое.
   assert.match(js, /if \(form && !form\.dataset\.ready\)/);
   assert.match(js, /form\.dataset\.ready = '1'/);
-  // В правой панели только деньги: полей формы там быть не должно.
+  // Полей формы в итоговой панели быть не должно; главное действие, наоборот,
+  // относится к окончательной сумме и живёт рядом с ней.
   const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 2400);
   assert.doesNotMatch(rail, /co-first-name|co-last-name|co-contact|co-address|checkout-submit/);
   assert.match(rail, /Cart\.availableCount\(\)/, 'число товаров обязано совпадать с суммой рядом');
+  assert.match(js, /var action = document\.getElementById\('checkout-action'\)/);
+  assert.match(js, /action\.innerHTML = '<div class="co-submit">'/);
   // Смена перевозчика обновляет варианты доставки (у них своя цена), сумму
   // справа, кнопку с итогом и подсказку под адресом.
   const sync = js.slice(js.indexOf('function syncDelivery'), js.indexOf('function syncDelivery') + 260);
@@ -12226,4 +12233,111 @@ test('отправлениям без ключа ссылка выдаётся �
   // проход при каждом старте переписывал бы orders.json на ровном месте.
   assert.equal(db.ensureShipmentTokens(), 0);
   assert.equal(db.getOrder(order.id).shipment.token, token, 'ключ сменился сам собой');
+});
+
+/* ===================== Город по IP: своя база ===================== */
+
+const geoip = require('../lib/geoip');
+
+// Собрать крошечную базу того же формата, что пишет scripts/sync-geoip.js.
+// Проверять поиск на настоящей (40 МБ, качается с db-ip.com) нельзя: тесты не
+// ходят в сеть и не зависят от чужого сервиса — ровно поэтому база и своя.
+function tinyGeoBase(dir, rows) {
+  const places = [];
+  const index = new Map();
+  const ranges = Buffer.alloc(rows.length * geoip.REC);
+  rows.forEach((row, i) => {
+    const key = row.code + '\t' + (row.region || '') + '\t' + (row.city || '');
+    if (!index.has(key)) { index.set(key, places.length); places.push(key); }
+    ranges.writeUInt32BE(geoip.ipToInt(row.from), i * geoip.REC);
+    ranges.writeUInt32BE(geoip.ipToInt(row.to), i * geoip.REC + 4);
+    ranges.writeUInt32BE(index.get(key), i * geoip.REC + 8);
+  });
+  const chunks = [];
+  for (const key of places) {
+    const body = Buffer.from(key, 'utf8');
+    const head = Buffer.alloc(2);
+    head.writeUInt16BE(body.length);
+    chunks.push(head, body);
+  }
+  const header = Buffer.alloc(geoip.HEADER);
+  header.write(geoip.MAGIC, 0, 'latin1');
+  header.writeUInt32BE(rows.length, 8);
+  header.writeUInt32BE(places.length, 12);
+  header.writeUInt32BE(geoip.HEADER + ranges.length, 16);
+  header.writeUInt32BE(202608, 20);
+  fs.writeFileSync(path.join(dir, geoip.FILE), Buffer.concat([header, ranges, Buffer.concat(chunks)]));
+  geoip.close();
+}
+
+test('город по IP берётся из своей базы, а дыры в ней не отдают соседний город', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-geoip-'));
+  t.after(() => { geoip.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+  // Базы ещё нет — молчим, а не падаем: метрика обязана работать и без неё.
+  assert.equal(geoip.lookup(dir, '5.44.0.1'), null);
+  assert.equal(geoip.info(dir), null);
+
+  tinyGeoBase(dir, [
+    { from: '2.16.53.0', to: '2.16.53.255', code: 'RU', region: 'Moscow', city: 'Moscow' },
+    { from: '5.44.0.0', to: '5.44.7.255', code: 'RU', region: 'Sverdlovsk Oblast', city: 'Yekaterinburg' },
+    { from: '8.8.8.0', to: '8.8.8.255', code: 'US', region: 'California', city: 'Mountain View' },
+    { from: '178.176.80.0', to: '178.176.95.255', code: 'RU', region: 'St.-Petersburg', city: 'St Petersburg' }
+  ]);
+
+  /* Названия в базе английские, а панель русская: «Yekaterinburg» рядом с
+   * «Москва» читался бы как сбой. Незнакомое имя остаётся латиницей — это
+   * честнее выдуманного перевода. */
+  assert.deepEqual(geoip.lookup(dir, '5.44.3.7'), {
+    city: 'Екатеринбург', region: 'Свердловская область', country: 'Россия', countryCode: 'RU', isp: ''
+  });
+  assert.equal(geoip.lookup(dir, '2.16.53.9').city, 'Москва');
+  assert.equal(geoip.lookup(dir, '178.176.87.169').city, 'Санкт-Петербург');
+  const us = geoip.lookup(dir, '8.8.8.8');
+  assert.equal(us.country, 'США', 'страна берётся из общей таблицы кодов, а не второй такой же');
+  assert.equal(us.city, 'Mountain View');
+
+  /* Найденный диапазон обязан НАКРЫВАТЬ адрес: в базе есть дыры, и без этой
+   * проверки посетитель из незаполненного куска получил бы город соседнего
+   * диапазона — то есть панель врала бы уверенно и незаметно. */
+  assert.equal(geoip.lookup(dir, '5.44.8.1'), null, 'адрес за концом диапазона получил чужой город');
+  assert.equal(geoip.lookup(dir, '1.1.1.1'), null, 'адрес до первого диапазона получил чужой город');
+  assert.equal(geoip.lookup(dir, '2.16.52.255'), null);
+
+  // Мусор и IPv6 (его в базе нет вовсе: у наших посетителей он не встречается).
+  assert.equal(geoip.lookup(dir, ''), null);
+  assert.equal(geoip.lookup(dir, '2a00:1450::1'), null);
+  assert.equal(geoip.lookup(dir, '999.1.1.1'), null);
+
+  const info = geoip.info(dir);
+  assert.equal(info.ranges, 4);
+  assert.equal(info.stamp, 202608);
+});
+
+test('метрика берёт город из своей базы и не ходит в сеть', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-geoip-metrics-'));
+  t.after(() => { geoip.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  tinyGeoBase(dir, [{ from: '5.44.0.0', to: '5.44.7.255', code: 'RU', region: 'Sverdlovsk Oblast', city: 'Yekaterinburg' }]);
+
+  let calls = 0;
+  const analytics = new Analytics({
+    dataDir: dir, flushMs: 600000, remoteGeo: true,
+    fetcher: async () => { calls++; return { ok: true, json: async () => ({ success: true, city: 'Из сети' }) }; }
+  });
+  const geo = await analytics.geoForIp('5.44.1.2');
+  assert.equal(geo.city, 'Екатеринбург');
+  assert.equal(calls, 0, 'при своей базе внешний сервис спрашивать незачем');
+
+  /* Дневной лимит внешнего сервиса на свою базу не действует вовсе — а это и
+   * была причина «Города не определён»: предохранитель на 900 запросов
+   * срабатывал к середине дня, и дальше все визиты оставались без города. */
+  analytics.data.geoUsage = { date: new Date().toISOString().slice(0, 10), count: 900 };
+  assert.equal((await analytics.geoForIp('5.44.2.3')).city, 'Екатеринбург');
+
+  /* Адреса, которых нет в базе, уходят к запасному пути — если он разрешён и
+   * его дневной лимит ещё не выбран (счётчик выше мы для того и подняли). */
+  analytics.data.geoUsage = { date: '', count: 0 };
+  const other = await analytics.geoForIp('8.8.4.4');
+  assert.equal(other && other.city, 'Из сети');
+  assert.equal(calls, 1);
 });

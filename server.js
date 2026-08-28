@@ -30,6 +30,9 @@ const ADDRESS = require('./lib/address');
 // браузер (см. шапку самого файла).
 const PHONE = require('./public/phone.js');
 const PICKUP = require('./lib/pickup');
+// Город по IP — своей базой: у внешнего сервиса тысяча запросов в сутки, и при
+// нынешнем трафике город переставал определяться с середины дня.
+const GEOIP = require('./lib/geoip');
 const OSM = require('./lib/pickup-osm');
 const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
@@ -64,7 +67,17 @@ LIVE.watch(db.DATA_DIR);
 
 // Возвращает отчёт, если рядом лежала установка прежней мультидоменной версии.
 const migration = db.ensureSeeded();
-const metrics = new Analytics({ dataDir: db.DATA_DIR, geoEnabled: process.env.GEOIP_ENABLED !== '0' });
+/* Город посетителя определяется СВОЕЙ базой (`lib/geoip.js`, собирается
+ * `scripts/sync-geoip.js`). Внешний сервис остаётся запасным и по умолчанию
+ * выключен: у него тысяча запросов в сутки — при нынешнем трафике город
+ * переставал определяться с середины дня, — и каждый адрес посетителя уезжал
+ * третьей стороне. `GEOIP_REMOTE=1` возвращает его, `GEOIP_ENABLED=0` выключает
+ * геолокацию целиком. */
+const metrics = new Analytics({
+  dataDir: db.DATA_DIR,
+  geoEnabled: process.env.GEOIP_ENABLED !== '0',
+  remoteGeo: process.env.GEOIP_REMOTE === '1'
+});
 
 const PORT = process.env.PORT || 3000;
 // Публичный origin задаётся развёртыванием и не зависит от Host конкретного
@@ -4126,6 +4139,16 @@ const httpServer = app.listen(PORT, HOST, () => {
   else {
     const ps = PICKUP.stats();
     console.log(`  Пункты выдачи: ${Object.entries(ps.byCarrier).map(([k, n]) => `${k} ${n}`).join(', ')}`);
+  }
+  /* База «IP → город» — из той же породы: её отсутствие ничем себя не проявляет,
+   * метрика просто перестаёт называть города. Ровно так эта беда и всплыла — по
+   * жалобе на «Город не определён», а не по логам. */
+  const geo = GEOIP.info(db.DATA_DIR);
+  if (!geo) {
+    console.warn('\n  ВНИМАНИЕ: базы городов нет — метрика не определит город посетителя.');
+    console.warn('  Соберите её: STORE_DATA_DIR=… node scripts/sync-geoip.js --apply');
+  } else {
+    console.log(`  База городов: ${geo.ranges.toLocaleString('ru-RU')} диапазонов, выпуск ${geo.stamp}`);
   }
   /* Список способов у касс спрашиваем СРАЗУ, не дожидаясь первого покупателя.
    *

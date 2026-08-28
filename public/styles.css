@@ -3595,8 +3595,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .checkout-title{font-size:38px;letter-spacing:-.03em;line-height:1.08;margin:0 0 10px}
 .checkout-sub{color:var(--muted);font-size:15.5px;line-height:1.5;margin:0}
 /* Товары и форма идут одной колонкой сверху вниз, справа липнет сводка. Именованные
-   области нужны ради телефона: там порядок обязан быть «товары → сумма → форма»,
-   а из вложенной обёртки сводку между ними не поставить. */
+   области нужны ради телефона: там итог становится четвёртым, последним шагом,
+   не меняя понятную двухколоночную раскладку на широком экране. */
 /* Панель сжимается на узком десктопе: фиксированные 360 px на 1024 px забирали у
    формы почти половину, и ряды выбора вставали в две тесные колонки. */
 .checkout-grid{display:grid;grid-template-columns:minmax(0,1fr) clamp(300px,26vw,360px);
@@ -3678,6 +3678,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    форму. Раньше сюда была втиснута вся форма, и панель превращалась в длинную
    узкую полосу. */
 .co-summary{background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:20px;padding:22px 24px}
+.co-summary-title{margin-bottom:16px}
 .co-line{display:flex;justify-content:space-between;gap:12px;font-size:14.5px;margin-bottom:9px}
 .co-line span:last-child{font-variant-numeric:tabular-nums}
 .co-line-muted span:last-child{color:var(--muted);font-size:13px}
@@ -3717,7 +3718,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Кнопка не на всю колонку: растянутая синяя полоса выглядит тяжелее, чем
    читается, а сумма на её краю терялась совсем — теперь подпись и сумма стоят
    вместе по центру и читаются как одно обещание. */
-.co-submit{margin-top:2px;max-width:360px;margin-inline:auto;width:100%}
+.co-submit{margin:18px auto 0;max-width:360px;width:100%}
 /* Ссылка на политику — своей строкой под короткой подписью про оплату. */
 .co-submit .form-legal-note{margin:12px 0 0;font-size:12px;color:var(--muted);line-height:1.6;text-align:center}
 .co-submit .form-legal-note a{display:block;margin-top:2px}
@@ -4116,9 +4117,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 
 @media(max-width:900px){
   .checkout-page{padding-block:22px 40px}
-  /* Сумма встаёт МЕЖДУ товарами и формой: внизу, после кнопки, её бы уже никто
-     не увидел, а знать её надо до заполнения. */
-  .checkout-grid{grid-template-columns:1fr;grid-template-areas:"items" "rail" "form";gap:14px}
+  /* На телефоне сумма и кнопка — один последний шаг после формы. Так человек
+     сначала задаёт всё, от чего зависит доставка, а затем видит окончательное
+     число непосредственно перед подтверждением заказа. */
+  .checkout-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"items" "form" "rail";gap:14px}
   .checkout-rail{position:static}
   .checkout-title{font-size:27px}
   .checkout-sub{font-size:14.5px}
@@ -4163,6 +4165,89 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .pay-actions{flex-direction:column}
   .pay-actions .btn{width:100%}
   .pay-draft-actions{grid-template-columns:1fr}
+}
+
+/* Компактный checkout на телефоне. Поля и зоны нажатия остаются не меньше
+   44 px, а высота сокращается за счёт пустых отступов, повторов цены и лишних
+   строк вокруг карточек — не за счёт читаемости или удобства касания. */
+@media(max-width:600px){
+  .checkout-page{padding-block:14px 28px}
+  .checkout-head{max-width:none;margin:0 0 16px;text-align:left}
+  .checkout-title{font-size:25px;margin-bottom:6px}
+  .checkout-sub{font-size:13.5px;line-height:1.4}
+  .checkout-grid,#checkout-form{gap:10px}
+  .co-block,.co-summary{padding:14px;border-radius:16px}
+  .co-block-title{gap:8px;margin-bottom:12px;font-size:16.5px}
+  .co-block-head .co-block-title{margin-bottom:10px}
+  .co-step{width:21px;height:21px;font-size:11.5px}
+  .co-block-count{font-size:12px}
+  .co-back{font-size:13px}
+
+  /* Фото занимает обе строки карточки; цена, количество и удаление стоят в
+     одной компактной строке под названием. */
+  .co-item{grid-template-columns:56px minmax(0,1fr);gap:8px 11px;align-items:start;padding:10px 0}
+  .co-item:first-child{padding-top:0}
+  .co-item:last-child{padding-bottom:0}
+  .co-item-media{grid-column:1;grid-row:1/3;width:56px;height:56px;border-radius:11px}
+  .co-item-body{grid-column:2;grid-row:1;min-width:0}
+  .co-item-name{font-size:14.5px;line-height:1.25}
+  .co-item-variant{margin-top:2px;font-size:12px;line-height:1.35}
+  .co-item-warn{margin-top:4px;padding:2px 6px;font-size:11.5px}
+  /* При одной штуке строка «цена за штуку» повторяет сумму ниже. Для нескольких
+     она остаётся — без неё невозможно быстро проверить расчёт позиции. */
+  .co-item-unit{display:none}
+  .co-item-unit.is-relevant{display:block;margin-top:4px}
+  .co-item-unit .card-price{font-size:13px;line-height:18px}
+  .co-item-unit .card-price .old-price,.co-item-unit .card-price .save,.co-item-per{font-size:11.5px;line-height:16px}
+  .co-item-side{grid-column:2;grid-row:2;display:grid;grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;gap:4px 8px;width:100%}
+  .co-item-sum{grid-column:1;grid-row:1;font-size:15px}
+  .co-item-controls{grid-column:2;grid-row:1;margin-left:0;gap:5px}
+  .co-item-save{grid-column:1/-1;grid-row:2;margin:0;font-size:11.5px}
+  .co-item .cart-qty button{width:27px;height:28px}
+  .co-item .cart-qty span{min-width:19px;font-size:12.5px}
+  .co-remove{width:30px;height:30px;border-radius:9px}
+  .co-remove svg{width:17px;height:17px}
+
+  .co-block .field{margin-bottom:11px}
+  .co-block .field label{margin-bottom:5px;font-size:12.5px}
+  .co-block .field input[type=text],.co-block .field input[type=tel]{min-height:44px;padding:9px 12px;font-size:15px;border-radius:11px}
+  .field .phone-box input[type=tel]{padding-left:45px}
+  .phone-flag{left:10px}
+  .field-note{margin-top:4px;font-size:11.5px;line-height:1.35}
+  .co-names{gap:0 8px}
+  .co-choice{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:12px}
+  .co-choice-opt{gap:7px;min-width:0;padding:9px 10px;border-radius:11px}
+  .co-choice-text b{font-size:13.5px}
+  .co-choice-text i{font-size:11.5px}
+  .co-choice-logo{max-width:100%;height:17px}
+  .co-modes{margin-bottom:12px}
+  .co-modes-row{grid-template-columns:minmax(0,1fr);gap:7px}
+  .co-mode{padding:9px 10px;border-radius:11px}
+  .co-mode-text b,.co-mode-price{font-size:13.5px}
+  .co-mode-text i,.co-mode-days{font-size:11.5px}
+  .co-points{margin-bottom:12px}
+  .co-pvz-head{padding:9px 10px}
+  .co-ways-note,.co-points-note{font-size:11.5px}
+
+  .co-summary-title{margin-bottom:12px}
+  .co-line{margin-bottom:7px;font-size:13.5px}
+  .co-total{margin-top:11px;padding-top:11px}
+  .co-total b{font-size:23px}
+  .co-submit{margin-top:14px;max-width:none}
+  .co-submit .btn-lg{min-height:48px}
+  .co-submit .form-legal-note{margin-top:9px;font-size:11px;line-height:1.45}
+  .trust-col{margin-top:11px;padding-top:10px}
+  .trust-col .trust-item{gap:5px;padding-inline:2px;font-size:10.5px}
+  .trust-col .trust-ico{width:18px;height:18px}
+  .trust-col .trust-text b{font-size:11.5px}
+}
+
+@media(max-width:420px){
+  /* Имя и фамилия короткие и помещаются рядом даже на 320 px. Отдельные строки
+     тратили ещё одно поле высоты, не добавляя форме ясности. */
+  .co-names{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .co-names .field:last-child{margin-bottom:11px}
 }
 
 @media(max-width:480px){
