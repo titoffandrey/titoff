@@ -4182,24 +4182,36 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .trk-page{max-width:760px;padding-top:26px;padding-bottom:44px}
 .trk-page-head h1{font-size:clamp(24px,4.6vw,31px);letter-spacing:-.02em;margin:14px 0 6px}
 .trk-page-sub{margin:0 0 20px;color:var(--muted);font-size:14.5px}
-/* Форма поиска — одна строка: подпись, поле, кнопка. Номер набирают с телефона,
-   поэтому кегль поля 16 px и цифровая клавиатура (`inputmode` в разметке). */
-.trk-lookup{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;
-  padding:16px;border:1px solid var(--border);border-radius:16px;background:var(--bg2);margin-bottom:22px}
-.trk-lookup label{grid-column:1/-1;font-size:13px;color:var(--muted)}
-.trk-lookup input{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:12px;
-  background:#fff;font:inherit;font-size:16px;font-variant-numeric:tabular-nums;letter-spacing:.04em}
-.trk-lookup input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
-.trk-lookup .btn{padding:12px 22px}
+/* Формы поиска по номеру заказа здесь больше НЕТ: номер шестизначный, то есть
+   перебирается целиком, и такая форма отдавала бы чужие посылки вместе с числом
+   отправок магазина. Страница открывается по секретной ссылке, а свой покупатель
+   узнаётся по подписанной сессии. */
 /* «Не нашли» — не ошибка формы, а объяснение: чаще всего отправление просто
    ещё не собрано, и покупателя надо в этом успокоить, а не отчитать. */
 .trk-miss{padding:16px 18px;border:1px solid var(--border);border-radius:16px;background:#fff;margin-bottom:22px}
 .trk-miss b{display:block;margin-bottom:5px;font-size:16px}
 .trk-miss p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.trk-miss .btn{margin-top:14px}
+/* Свои посылки: строки-ссылки, а не ленты подряд. Три полных ленты заставили бы
+   листать чужие ради нужной, а здесь вопрос один — какую посылку открыть. */
+.trk-mine{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:10px}
+.trk-mine-item{display:flex;align-items:center;gap:14px;padding:15px 17px;
+  border:1px solid var(--border);border-left:3px solid var(--trk,var(--accent));border-radius:14px;
+  background:#fff;color:var(--text)}
+.trk-mine-item:hover{border-color:var(--trk,var(--accent))}
+.trk-mine-cap{flex:1;min-width:0}
+.trk-mine-cap b{display:block;font-size:15.5px}
+.trk-mine-cap span{display:block;margin-top:2px;font-size:13px;color:var(--muted)}
+.trk-mine-state{flex:none;font-size:13.5px;color:var(--trk-ink,var(--accent));text-align:right}
+.trk-mine-go{flex:none;font-size:20px;line-height:1;color:var(--muted)}
 
-.trk{--trk:#00b33c;--trk-ink:#0a7c31;--trk-soft:#eefaf1;--trk-rad:14px;
-  border:1px solid var(--border);border-radius:var(--trk-rad);background:#fff;overflow:hidden}
+/* Тема перевозчика — переменные ОТДЕЛЬНО от вида карточки: их берёт и лента, и
+   строка в списке «моих посылок», а вид у этих двух разный. Значения по
+   умолчанию — СДЭК; `.trk-ozon` перебивает их и там, и там, потому что селектор
+   самостоятельный, а не `.trk.trk-ozon`. */
+.trk,.trk-mine-item{--trk:#00b33c;--trk-ink:#0a7c31;--trk-soft:#eefaf1;--trk-rad:14px}
 .trk-ozon{--trk:#005bff;--trk-ink:#0047c7;--trk-soft:#eef3ff;--trk-rad:22px}
+.trk{border:1px solid var(--border);border-radius:var(--trk-rad);background:#fff;overflow:hidden}
 .trk-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
   padding:16px 20px;border-bottom:1px solid var(--border-soft,var(--border))}
 .trk-head-brand{display:flex;align-items:center;gap:12px;min-width:0}
@@ -4266,8 +4278,8 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 /* Вручённая посылка: лента дочитана, и «герой» больше не зовёт ждать. */
 .trk.is-delivered .trk-hero{background:var(--trk-soft)}
 @media(max-width:640px){
-  .trk-lookup{grid-template-columns:minmax(0,1fr);padding:14px}
-  .trk-lookup .btn{width:100%}
+  .trk-mine-item{padding:13px 14px;gap:10px}
+  .trk-mine-state{font-size:12.5px}
   .trk-hero{grid-template-columns:minmax(0,1fr);gap:14px;padding:16px}
   /* На телефоне ожидаемая дата встаёт под статусом и равняется по левому краю:
      прижатая вправо, она читалась как подпись к пустому месту. */

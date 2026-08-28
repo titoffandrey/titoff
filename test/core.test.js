@@ -11831,7 +11831,7 @@ test('застревание держит посылку, а просьба по
   assert.equal(tracking.shortState(ship, done.deliveredAt + 1000), 'вручено');
 });
 
-test('страница отслеживания не раскрывает покупателя и одинаково молчит о чужом номере', () => {
+test('страница отслеживания не раскрывает покупателя и одинаково молчит о чужой ссылке', () => {
   const started = Date.now() - 2 * 86400000;
   const order = {
     id: 'a1', number: '482913', customerName: 'Иван Петров', firstName: 'Иван', lastName: 'Петров',
@@ -11840,9 +11840,10 @@ test('страница отслеживания не раскрывает пок
     items: [{ name: 'iPhone 17 Pro Max', qty: 1 }],
     shipment: tracking.normalize(tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'a1', startedAt: started, days: 5 }))
   };
-  const html = render.trackingPage(SETTINGS, { number: '482913', order });
+  const token = order.shipment.token;
+  const html = render.trackingPage(SETTINGS, { token, order });
 
-  /* Номер заказа короткий, а страница открыта всем, у кого он есть. Поэтому на
+  /* Страница открыта всем, у кого есть ссылка, а ссылку пересылают. Поэтому на
    * ней нет ничего, чего не знает всякий, кто держит посылку в руках: ни имени,
    * ни телефона, ни состава, ни адреса покупателя. */
   for (const secret of ['Иван', 'Петров', '+7999', '999 555', 'ivan@example.com', 'iPhone 17 Pro Max', 'ул Баумана, д 7', '103 100']) {
@@ -11850,18 +11851,71 @@ test('страница отслеживания не раскрывает пок
   }
   // Адрес пункта выдачи — уже своему покупателю, узнанному по подписанной сессии.
   assert.equal(html.includes('ул Баумана, 10'), false, 'адрес пункта показан чужому');
-  assert.match(render.trackingPage(SETTINGS, { number: '482913', order, own: true }), /ул Баумана, 10/);
+  assert.match(render.trackingPage(SETTINGS, { token, order, own: true }), /ул Баумана, 10/);
 
   // Страницу не индексируем: это страница заказа, а не витрина.
   assert.match(html, /<meta name="robots" content="noindex/);
 
-  /* «Такого заказа нет» и «отправление ещё не собрано» отвечают ОДИНАКОВО:
-   * разные ответы превратили бы страницу в проверялку существования заказов —
-   * перебором номеров можно было бы считать, сколько их у магазина. */
-  const missing = render.trackingPage(SETTINGS, { number: '482913', order: null });
-  const noShip = render.trackingPage(SETTINGS, { number: '482913', order: { id: 'b', number: '482913' } });
+  /* Формы с номером заказа на витрине больше НЕТ, и это главное в устройстве
+   * страницы: номер шестизначный, то есть перебирается целиком, и такая форма
+   * отдавала бы чужие посылки вместе с числом отправок магазина. Защищать ссылку
+   * ключом и оставить рядом форму по номеру значило бы не защитить ничего. */
+  for (const page of [html, render.trackingPage(SETTINGS, {}), render.trackingPage(SETTINGS, { token, order: null })]) {
+    assert.equal(/name="order"/.test(page), false, 'на странице снова есть поле ввода номера заказа');
+    assert.equal(/Введите номер заказа/.test(page), false, 'на странице снова просят номер заказа');
+  }
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.equal(/getOrderByNumber/.test(server), false, 'поиск заказа по номеру вернулся на витрину');
+  assert.match(server, /app\.get\('\/track\/:token'/);
+
+  /* «Ссылка не та» и «отправление ещё не собрано» отвечают ОДИНАКОВО: чужому не
+   * рассказываем, существует ли заказ вообще. */
+  const missing = render.trackingPage(SETTINGS, { token, order: null });
+  const noShip = render.trackingPage(SETTINGS, { token, order: { id: 'b', number: '482913' } });
   assert.match(missing, /Отправление не найдено/);
-  assert.equal(missing, noShip, 'ответы про чужой номер и про несобранную посылку разошлись');
+  assert.equal(missing, noShip, 'ответы про чужую ссылку и про несобранную посылку разошлись');
+});
+
+test('ключ ссылки случайный, переживает правку и меняется по требованию', t => {
+  /* 128 бит: перебирать бессмысленно, а именно перебором и узнавали бы, сколько
+   * у магазина отправок. Прежний ключ — номер заказа — перебирается целиком. */
+  assert.match(tracking.newToken(), /^[a-f0-9]{32}$/);
+  assert.notEqual(tracking.newToken(), tracking.newToken());
+  assert.equal(tracking.validToken('482913'), false, 'номер заказа ключом больше не считается');
+  assert.equal(tracking.validToken('ZZ' + 'a'.repeat(30)), false);
+  assert.equal(tracking.trackPath({ token: 'a'.repeat(32) }), '/track/' + 'a'.repeat(32));
+  assert.equal(tracking.trackPath({}), '', 'без ключа ссылки нет вовсе — номер вместо неё не подставляем');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-track-token-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const db = freshDb(dir);
+  db.ensureSeeded();
+  const order = db.createOrder({ items: [], total: 1000, delivery: 'cdek', deliveryMode: 'pvz', deliveryZone: 'pfo', address: 'г Казань, ул Баумана, д 7' });
+  const built = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: order.id, startedAt: Date.now(), days: 4 });
+  const first = db.setOrderShipment(order.id, built).shipment.token;
+  assert.match(first, /^[a-f0-9]{32}$/);
+
+  /* Ключ переживает правку и пересборку: ссылку уже отправили покупателю, и
+   * менять её на каждое сохранение формы значило бы ломать её у него в
+   * переписке. Форма ключ не присылает вовсе — он не её дело. */
+  const edited = db.setOrderShipment(order.id, { carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', days: 6, steps: built.steps });
+  assert.equal(edited.shipment.token, first);
+
+  // Найти заказ можно только по ключу — и только целиком.
+  assert.equal(db.getOrderByTrackToken(first).id, order.id);
+  assert.equal(db.getOrderByTrackToken(first.slice(0, 31)), null);
+  assert.equal(db.getOrderByTrackToken(order.number), null);
+  assert.equal(typeof db.getOrderByNumber, 'undefined', 'поиск по номеру заказа обязан быть снят целиком');
+
+  // Смена ключа — на случай, когда ссылку отправили не туда: прежняя перестаёт
+  // открываться вовсе.
+  const rotated = db.rotateShipmentToken(order.id);
+  assert.match(rotated.shipment.token, /^[a-f0-9]{32}$/);
+  assert.notEqual(rotated.shipment.token, first);
+  assert.equal(db.getOrderByTrackToken(first), null);
+  assert.equal(db.getOrderByTrackToken(rotated.shipment.token).id, order.id);
+  // Маршрут при этом не тронут: сменили ссылку, а не собрали посылку заново.
+  assert.deepEqual(rotated.shipment.steps.map(s => s.at), edited.shipment.steps.map(s => s.at));
 });
 
 test('у каждого перевозчика свой язык статусов и своя тема', () => {
@@ -11903,11 +11957,13 @@ test('у каждого перевозчика свой язык статусо�
   // Цвета тем заданы переменными и разные: разъехаться точке, линии и полосе
   // порознь нельзя — они описывают один и тот же путь.
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(css, /\.trk\{--trk:#00b33c/);
+  /* Переменные темы объявлены ОТДЕЛЬНО от вида карточки: их берёт и лента, и
+   * строка в списке «моих посылок», а вид у этих двух разный. */
+  assert.match(css, /\.trk,\.trk-mine-item\{--trk:#00b33c/);
   assert.match(css, /\.trk-ozon\{--trk:#005bff/);
 });
 
-test('хранилище отправления чистит маршрут и находит заказ по номеру', t => {
+test('хранилище отправления чистит маршрут и находит заказ по ключу ссылки', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-shipment-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const db = freshDb(dir);
@@ -11947,14 +12003,11 @@ test('хранилище отправления чистит маршрут и �
   // отслеживания открывалась бы пустой карточкой.
   assert.equal(db.setOrderShipment(order.id, { carrier: 'cdek', steps: [] }).ok, false);
 
-  /* Покупатель вводит номер заказа, а не его внутренний id. У заявок, оформленных
-   * до перехода на случайные номера, номер записан с префиксом «ORD-», и найтись
-   * они обязаны так же. */
-  assert.equal(db.getOrderByNumber(order.number).id, order.id);
-  assert.equal(db.getOrderByNumber(' ' + order.number + ' ').id, order.id);
-  assert.equal(db.getOrderByNumber('ORD-' + order.number).id, order.id);
-  assert.equal(db.getOrderByNumber(''), null);
-  assert.equal(db.getOrderByNumber('000000'), null);
+  /* Заказ находится по КЛЮЧУ ссылки, а не по номеру: номер шестизначный и
+   * перебирается целиком (см. отдельный тест про ключ). */
+  assert.equal(db.getOrderByTrackToken(saved.shipment.token).id, order.id);
+  assert.equal(db.getOrderByTrackToken(''), null);
+  assert.equal(db.getOrderByTrackToken(order.number), null);
 
   // Удаление снимает маршрут, а заказ остаётся: посылка не поехала — заявка всё
   // равно нужна менеджеру.
@@ -12051,7 +12104,8 @@ test('отслеживание показывается покупателю т�
   // галочки, и молча спрятать их от покупателей нельзя.
   assert.equal(order.shipment.visible, true);
   assert.equal(tracking.shownToBuyer(order.shipment), true);
-  assert.match(render.trackingPage(SETTINGS, { number: '556677', order }), /class="trk trk-cdek/);
+  const token = () => order.shipment.token;
+  assert.match(render.trackingPage(SETTINGS, { token: token(), order }), /class="trk trk-cdek/);
 
   /* Снятая галочка прячет отслеживание ЦЕЛИКОМ, и ответ у него тот же, что у
    * чужого номера: маршрут собирают заранее, до того как посылку правда отдали
@@ -12059,18 +12113,23 @@ test('отслеживание показывается покупателю т�
    * обещание, которого никто не давал. */
   order.shipment = tracking.normalize(Object.assign(route(), { visible: false }));
   assert.equal(tracking.shownToBuyer(order.shipment), false);
-  const hidden = render.trackingPage(SETTINGS, { number: '556677', order });
+  const hidden = render.trackingPage(SETTINGS, { token: token(), order });
   assert.match(hidden, /Отправление не найдено/);
   assert.equal(/class="trk trk-cdek/.test(hidden), false);
-  assert.equal(hidden, render.trackingPage(SETTINGS, { number: '556677', order: null }),
-    'скрытое отправление обязано отвечать ровно тем же, что и чужой номер');
+  assert.equal(hidden, render.trackingPage(SETTINGS, { token: token(), order: null }),
+    'скрытое отправление обязано отвечать ровно тем же, что и чужая ссылка');
+  // Своих посылок скрытое тоже не показывает: страница без ключа берёт те же
+  // отправления и тот же признак.
+  assert.match(render.trackingPage(SETTINGS, { orders: [order] }), /Здесь появятся ваши посылки/);
 
   // Кнопки «Отследить заказ» в карточке оплаченного заказа тоже нет: кнопка,
   // ведущая на «отправление не найдено», хуже её отсутствия.
   const paid = Object.assign({}, order, { payment: { status: 'paid', method: 'SBP', amount: 1000, currency: 'RUB' } });
-  assert.equal(/\/track\/556677/.test(render.payPage(SETTINGS, paid, {})), false);
+  assert.equal(/\/track\//.test(render.payPage(SETTINGS, paid, {})), false);
   paid.shipment = route();
-  assert.match(render.payPage(SETTINGS, paid, {}), /href="\/track\/556677"/);
+  assert.match(render.payPage(SETTINGS, paid, {}), new RegExp('href="/track/' + paid.shipment.token + '"'));
+  // Номер заказа в адресе не участвует вовсе: он перебирается.
+  assert.equal(/\/track\/556677/.test(render.payPage(SETTINGS, paid, {})), false);
 
   const db = {
     pendingReviewCount: () => 0, newOrderCount: () => 0, getOrders: () => [order],
@@ -12085,8 +12144,13 @@ test('отслеживание показывается покупателю т�
    * не должно. Адрес абсолютный — из «/track/556677» покупатель ссылку не
    * сделает. */
   const page = adminViews.shipmentPage(SETTINGS, db, order, { origin: 'https://shop.example' });
-  assert.match(page, /value="https:\/\/shop\.example\/track\/556677"/);
-  assert.match(page, /data-copy="https:\/\/shop\.example\/track\/556677"/);
+  const url = 'https://shop.example/track/' + order.shipment.token;
+  assert.match(page, new RegExp('value="' + url + '"'));
+  assert.match(page, new RegExp('data-copy="' + url + '"'));
+  // Сменить ссылку можно отдельной кнопкой — на случай, когда её отправили не
+  // туда: прежняя после этого не открывается ничем.
+  assert.match(page, /\/shipment\/relink"/);
+  assert.match(page, /Сменить ссылку/);
   assert.match(page, /name="visible"/);
   assert.match(page, /Показывать отслеживание покупателю/);
   // У скрытого блок сам говорит, что ссылка сейчас ведёт в никуда.
