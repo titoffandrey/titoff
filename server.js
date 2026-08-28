@@ -4148,7 +4148,12 @@ const httpServer = app.listen(PORT, HOST, () => {
     console.warn('\n  ВНИМАНИЕ: базы городов нет — метрика не определит город посетителя.');
     console.warn('  Соберите её: STORE_DATA_DIR=… node scripts/sync-geoip.js --apply');
   } else {
-    console.log(`  База городов: ${geo.ranges.toLocaleString('ru-RU')} диапазонов, выпуск ${geo.stamp}`);
+    // Сколько карточек осталось без города — единственный способ увидеть, что
+    // база у нас есть, а отвечать она перестала (устарела, обрезана, чужой формат).
+    const cards = metrics.data.visitors;
+    const blank = cards.filter(v => !v.city && !v.country).length;
+    console.log(`  База городов: ${geo.ranges.toLocaleString('ru-RU')} диапазонов, выпуск ${geo.stamp}`
+      + `; карточек без города ${blank.toLocaleString('ru-RU')} из ${cards.length.toLocaleString('ru-RU')}`);
   }
   /* Список способов у касс спрашиваем СРАЗУ, не дожидаясь первого покупателя.
    *

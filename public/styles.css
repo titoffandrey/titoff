@@ -2611,7 +2611,12 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .metric-more-link{display:inline-flex;align-items:center;gap:7px;margin-left:auto;padding:8px 13px;border:1px solid var(--border-soft);border-radius:11px;background:#fff;color:var(--text);font-size:12px;font-weight:650}
 .metric-more-link:hover{border-color:#c7c7cc;background:#fafafc}
 .metric-more-link .cico{width:15px;height:15px;color:#8e8e93}
-.metric-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:14px}
+/* Плиток четыре, и делятся они поровну и на десктопе, и на телефоне: пока их
+   было пять, последняя переносилась на второй ряд и оставляла рядом полосу
+   пустоты во всю ширину — сетке `auto-fit` заполнить неполный ряд нечем. У
+   карточки посетителя своя сетка на шесть плиток (`.visitor-summary`). */
+.metric-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:14px}
+.metric-summary.visitor-summary{grid-template-columns:repeat(3,minmax(0,1fr))}
 .metric-card{min-width:0;padding:18px;border:1px solid var(--border-soft);border-radius:18px;background:#fff;box-shadow:0 1px 2px rgba(17,17,26,.025)}
 .metric-card>span{display:flex;align-items:center;gap:8px;color:#77777c;font-size:12px;font-weight:620}
 /* Значок в бледном кружке — подпись плитки читается с одного взгляда, а не
@@ -2730,13 +2735,17 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .metric-order{display:inline-flex;padding:6px 9px;border-radius:9px;background:#eaf7ef;color:#18794e;font-size:11px;font-weight:700;white-space:nowrap}
 .metric-no-order,.metric-empty{color:#8e8e93;font-size:12px}
 .metric-campaigns{margin-bottom:14px}
-.metric-bots{margin-bottom:14px;border-color:#e8dfce;background:#fffdf8}
-.metric-bot-summary{display:flex;gap:10px;margin-bottom:20px}
-.metric-bot-summary>div{display:flex;align-items:baseline;gap:7px;padding:10px 13px;border:1px solid #eee4d2;border-radius:12px;background:#fff}
-.metric-bot-summary strong{font-size:20px}
-.metric-bot-summary span{color:#8e8e93;font-size:11px}
+/* Боты живут в такой же свёртке, как разделы настроек (`.set`), поэтому здесь
+   только тёплый тон: блок про то, что метрику НЕ считает, и от белых панелей
+   отчёта он должен отличаться с одного взгляда.
+
+   Селектор с именем тега намеренно: правила `.set` стоят НИЖЕ по файлу, и при
+   равной специфичности победили бы они — свёртка осталась бы белой. */
+details.metric-bots{margin-bottom:14px;border-color:#e8dfce;background:#fffdf8}
+details.metric-bots>summary:hover{background:#fffaf0}
+.metric-bots .set-ico{border-color:#f0e3c8;background:#fffaf2;color:#bf4800}
 .metric-bot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
-.metric-bot-grid h3{margin:0 0 13px;font-size:13px}
+.metric-bot-grid h4{margin:0 0 13px;font-size:13px}
 .metric-open{display:block;color:inherit}
 .metric-open:hover b,.metric-open:hover{color:var(--text)}
 .metric-ip{color:#0b6bcb;text-decoration:underline;text-decoration-color:rgba(11,107,203,.35);text-underline-offset:2px}
@@ -3455,27 +3464,19 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
      соседних — ряд читался как поломка, а не как выбор. */
   .metric-range{flex:1;padding:8px 5px;font-size:11.5px;text-align:center;white-space:nowrap}
   .metric-updated{order:3;width:100%;margin-left:0}
-  /* Плиток пять, колонок две — последняя оставалась половинкой рядом с полосой
-     пустоты во всю ширину экрана. Это ровно та беда, из-за которой сводка
-     заказов перестала быть рядом одинаковых плиток: сетке нечем заполнить
-     неполный последний ряд. Здесь пятая («Заявки») раздаётся на обе колонки и
-     ложится строкой — подпись с числом слева, пояснение справа. Число заявок
-     тут и есть итог страницы, так что широкая строка ему по чину. */
-  .metric-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  /* Колонок две, а плиток четыре у сводки и шесть у карточки посетителя — оба
+     ряда делятся ровно. Пока плиток было пять, последняя оставалась половинкой
+     рядом с полосой пустоты во всю ширину экрана и её приходилось растягивать
+     отдельным правилом; со снятыми «Просмотрами» оно стало не нужно. */
+  .metric-summary,.metric-summary.visitor-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
   .metric-card{min-width:0;padding:12px 13px;border-radius:14px}
   .metric-card>span{font-size:11.5px}
   .metric-card strong{margin:5px 0 2px;font-size:24px}
   /* Подписи под числом почти всегда в две строки: на 165 px колонки строка
-     держит около 26 знаков, а «530 просмотров · 3,4 стр./визит» их тридцать.
+     держит около 26 знаков, а «возвращаются 34% · вчера: 210» их тридцать.
      Поэтому не кегль правим, а межстрочный — текст остаётся читаемым, а плитка
      не растёт на десяток пикселей. */
   .metric-card small{font-size:10.5px;line-height:1.35}
-  /* Только у сводки метрики: у карточки посетителя плиток шесть, две колонки
-     делятся ровно, и растягивать там последнюю было бы враньём о её важности. */
-  .metric-summary:not(.visitor-summary) .metric-card:last-child{grid-column:1/-1;display:flex;align-items:baseline;gap:9px}
-  .metric-summary:not(.visitor-summary) .metric-card:last-child>span{flex:none}
-  .metric-summary:not(.visitor-summary) .metric-card:last-child strong{margin:0;font-size:22px}
-  .metric-summary:not(.visitor-summary) .metric-card:last-child small{margin-left:auto;text-align:right}
   .metric-grid-main,.metric-grid-secondary,.metric-grid-tertiary{grid-template-columns:1fr;gap:10px;margin-bottom:10px}
   .metric-panel{padding:16px;margin-bottom:0}
   /* График не листается вбок и не ужимается в кашу: линия по определению

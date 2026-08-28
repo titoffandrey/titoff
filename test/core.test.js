@@ -922,7 +922,13 @@ test('отчёт метрики по умолчанию — сегодняшни
   const today = analytics.snapshot({});
   assert.equal(today.hourly.length, 24, 'у отчёта «Сегодня» ряд по часам');
   assert.equal(today.hasHours, true);
-  assert.equal(today.hourly.reduce((s, h) => s + h.pageViews, 0), 1);
+  /* По часам считаются ПОСЕТИТЕЛИ, а не просмотры: посетитель попадает в час
+   * своего первого за сутки просмотра, поэтому сумма по часам обязана сходиться
+   * с числом уникальных за день — сколько бы страниц он потом ни открыл. */
+  analytics.recordPageView({ id: 'a'.repeat(32), path: '/product/p1', context: {} });
+  const again = analytics.snapshot({});
+  assert.equal(again.hourly.reduce((s, h) => s + h.visitors, 0), again.unique);
+  assert.equal(again.hourly.reduce((s, h) => s + h.visitors, 0), 1);
 
   const fakeDb = { getProducts: () => [], pendingReviewCount: () => 0 };
   const html = adminViews.analyticsPage(SETTINGS, fakeDb, today);
@@ -1010,7 +1016,10 @@ test('«Обзор» показывает, сколько человек на в
   const html = adminViews.dashboard(SETTINGS, fakeDb, { online: 3, visitors: 26, pageViews: 200, visits: 30, orders: 1 });
   assert.match(html, /class="a-stat a-stat-live"/);
   assert.match(html, /Сейчас на сайте/);
-  assert.match(html, /сегодня 26 посетителей · 200 просмотров/);
+  // Просмотры сняты со всей панели: рядом с посетителями они читались как ещё
+  // одно число о том же самом, только больше.
+  assert.match(html, /сегодня 26 посетителей · 30 заходов/);
+  assert.doesNotMatch(html, /просмотр/);
   // Счётчик товаров с «Обзора» снят: он менялся раз в месяц и виден в самом
   // каталоге, а место здесь дороже отдать тому, что меняется каждую минуту.
   assert.doesNotMatch(html, /Товаров на витрине/);
@@ -1068,8 +1077,23 @@ test('раздел метрики защищён панелью и показы�
   assert.doesNotMatch(html, /Обновлено \d/, 'время последнего обновления всегда «только что»');
   assert.match(html, /data-live="analytics/, 'раздел метрики обязан обновляться сам');
   assert.match(html, /admin-live\.js/);
+  /* Боты — под раскрытием, как разделы настроек: вопрос «нас вообще сканируют?»
+   * задают раз в месяц, а блок занимал полтора экрана посреди отчёта. Свёрнутая
+   * строка при этом сама называет числа — раскрывать её ради ответа не нужно. */
+  assert.match(html, /<details class="set metric-bots">/);
   assert.match(html, /Боты и технические запросы/);
-  assert.match(html, /не влияют на основную метрику/);
+  assert.match(html, /70 запросов · 68 ошибок 404/);
+
+  /* Просмотров в отчёте нет вовсе: три числа об одном и том же (просмотры,
+   * визиты, посетители) и были той путаницей, ради которой блок снят. */
+  assert.doesNotMatch(html, /просмотр/i, 'просмотры сняты из отчёта');
+  assert.match(html, /Посетители/);
+
+  /* «Кто заходил» стоит ВЫШЕ источников и популярных страниц: список живых людей
+   * с городом и заказом важнее сводных полос, а раньше до него надо было
+   * доскроллить весь отчёт. */
+  assert.ok(html.indexOf('Кто заходил</h2>') < html.indexOf('Популярные страницы'), 'список посетителей идёт до популярных страниц');
+  assert.ok(html.indexOf('Кто заходил</h2>') < html.indexOf('Откуда приходят'), 'список посетителей идёт до источников');
 
   /* Плашка состояния канала. Подпись «online» вместо «живого»: рядом с зелёной
      пульсирующей точкой это привычная отметка «на связи».
@@ -1103,10 +1127,14 @@ test('раздел метрики защищён панелью и показы�
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-table\.metric-table\{min-width:0;display:block\}/);
   assert.match(mobile, /\.metric-table tr\{display:grid/);
-  /* Пятая плитка сводки раздаётся на обе колонки: пяти плиток в две колонки
-     последняя оставалась половинкой рядом с полосой пустоты. Правило обязано
-     обойти карточку посетителя — там плиток шесть и ряды делятся ровно. */
-  assert.match(mobile, /\.metric-summary:not\(\.visitor-summary\) \.metric-card:last-child\{grid-column:1\/-1/);
+  /* Плитки делятся поровну на обеих ширинах: четыре у сводки (со снятыми
+     «Просмотрами») и шесть у карточки посетителя. Пока их было пять, последняя
+     оставалась половинкой рядом с полосой пустоты, и её приходилось растягивать
+     отдельным правилом — теперь такого правила быть не должно. */
+  assert.match(mobile, /\.metric-summary,\.metric-summary\.visitor-summary\{grid-template-columns:repeat\(2/);
+  assert.doesNotMatch(mobile, /\.metric-card:last-child\{grid-column:1\/-1/);
+  assert.match(css, /\.metric-summary\{display:grid;grid-template-columns:repeat\(4/);
+  assert.match(css, /\.metric-summary\.visitor-summary\{grid-template-columns:repeat\(3/);
   /* Пустая строка растягивается КЛАССОМ самой ячейки, а не `tr:has(...)`:
      `:has()` поддерживают не все версии Safari, доходящие до панели, — то же
      правило, что у выбора способа оплаты на витрине. */
@@ -1308,7 +1336,13 @@ test('карточка посетителя показывает визиты, �
     visitorBase: '/admin/analytics/visitor/', now,
     orders: [{ id: 'o1', number: '482913', total: 121990, createdAt: now }]
   });
-  assert.match(html, /Визит №3/, 'нумерация идёт от общего счётчика визитов');
+  /* Слово одно на всю панель — «заход»: «визит», «просмотр» и «посетитель»
+   * рядом читались как три разные мерки одного и того же. Нумерация при этом
+   * по-прежнему идёт от общего счётчика: в хронологии последние 50 просмотров,
+   * а заходов у человека могло быть больше. */
+  assert.match(html, /Заход №3/, 'нумерация идёт от общего счётчика заходов');
+  assert.match(html, /Открыл страниц/, 'у одного посетителя число открытых страниц осталось — спутать его не с чем');
+  assert.doesNotMatch(html, /Просмотров|Визит №/);
   assert.match(html, /iPhone 17 Pro Max/, 'страница названа по товару, а не голым путём');
   assert.match(html, /4 мин 5 сек/, 'время на странице');
   assert.match(html, /85\.140\.7\.212/);
