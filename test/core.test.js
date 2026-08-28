@@ -12198,3 +12198,32 @@ test('карточка шага на телефоне не уезжает за �
    * половине строки он обрезал время («22.08.2026,» без часов). */
   assert.match(mobile, /\.ship-steps \.s-when\{grid-column:1\/-1/);
 });
+
+test('отправлениям без ключа ссылка выдаётся при старте, и один раз', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-track-migrate-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const db = freshDb(dir);
+  db.ensureSeeded();
+  const order = db.createOrder({ items: [], total: 1000, delivery: 'cdek', deliveryMode: 'pvz', deliveryZone: 'pfo' });
+  const built = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: order.id, startedAt: Date.now(), days: 4 });
+  db.setOrderShipment(order.id, built);
+
+  /* Отправления, собранные до перехода со страницы по номеру заказа на секретную
+   * ссылку, ключа не имеют вовсе — а без ключа страница не открывается ничем, и
+   * покупатель остался бы без своей посылки. Подделываем такую запись руками:
+   * ровно так она и лежит в боевом файле. */
+  const file = path.join(dir, 'orders.json');
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete raw[0].shipment.token;
+  fs.writeFileSync(file, JSON.stringify(raw));
+
+  assert.equal(db.ensureShipmentTokens(), 1);
+  const token = db.getOrder(order.id).shipment.token;
+  assert.match(token, /^[a-f0-9]{32}$/);
+  assert.equal(db.getOrderByTrackToken(token).id, order.id);
+
+  // Идемпотентна: файл трогаем, только если правда чего-то не хватает, — иначе
+  // проход при каждом старте переписывал бы orders.json на ровном месте.
+  assert.equal(db.ensureShipmentTokens(), 0);
+  assert.equal(db.getOrder(order.id).shipment.token, token, 'ключ сменился сам собой');
+});
