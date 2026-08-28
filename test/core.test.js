@@ -4208,9 +4208,13 @@ test('способы и валюты в настройках приходят о
   // Пояснительных абзацев в разделе нет вовсе — их убрали все. Состояние
   // читается самой строкой способа, а не подписью под списком.
   assert.doesNotMatch(html, /Список пришёл от касс/);
-  // Ровно в блоке оплаты, а не по всей странице: подсказки других панелей
-  // (доступ, ключ dadata) не трогали.
-  const payPanel = html.slice(html.indexOf('<h2>Оплата на витрине</h2>'), html.indexOf('<div class="a-form-actions">'));
+  // Ровно в разделе оплаты, а не по всей странице: подсказки других разделов
+  // (доступ, ключ dadata) не трогали. Границу берём по id раздела — настройки
+  // теперь идут свёрнутыми карточками, и следующий `id="set-…"` и есть конец
+  // этой.
+  const payStart = html.indexOf('id="set-pay"');
+  assert.ok(payStart > 0, 'раздел оплаты найден');
+  const payPanel = html.slice(payStart, html.indexOf('id="set-', payStart + 12));
   assert.ok(payPanel.length > 500, 'блок оплаты найден');
   assert.doesNotMatch(payPanel, /class="muted small"/, 'подсказок в блоке оплаты не осталось');
   // У способа подписано, какие кассы его умеют: одна — значит подстраховки нет.
@@ -5361,6 +5365,77 @@ test('оплату можно выключить: витрина принима�
   // способа оплаты, а выбирать в этом режиме нечего.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(server, /const draft = PAYMENTS\.enabled\(s\) && !!paymentOrigin\(req\);/);
+});
+
+test('настройки идут разделами, и свёрнутая строка называет состояние', () => {
+  const db = { pendingReviewCount: () => 0, getOrders: () => [] };
+  const base = Object.assign(dbCore.defaultSettings(), {
+    storeName: 'iStore', currency: '₽', contactTelegram: '@manager',
+    legalOperator: 'ИП Иванов', adminUsername: 'root'
+  });
+  const html = adminViews.settingsPage(base, db, null);
+
+  // Разделы — обычные <details>, поэтому раскрываются и без скрипта.
+  const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
+    .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
+  assert.deepEqual(ids, ['store', 'brand', 'pay', 'price', 'chat', 'telegram', 'dadata', 'legal', 'access']);
+
+  /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
+   * описывает, что внутри: описание читают один раз, а видят каждый день. */
+  assert.match(html, /iStore · ₽ · @manager/);
+  assert.match(html, /логин: root/);
+  assert.match(html, /ИП Иванов/);
+  assert.match(html, /нет ключа — поле адреса остаётся обычным вводом/);
+  assert.match(html, /выключены — цены ровно из каталога/);
+
+  /* Раскрыт РОВНО тот раздел, с которым что-то не так: включённая касса без
+   * ключей — это витрина, молча оставшаяся без оплаты. Всё в порядке — страница
+   * остаётся коротким списком, и это её нормальный вид. */
+  assert.doesNotMatch(html, /<details class="set[^"]*" id="set-[a-z]+" open>/, 'без поломок разделы свёрнуты');
+  const broken = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true, crocopayClientSecret: '' }), db, null);
+  assert.match(broken, /<details class="set is-err" id="set-pay" open>/);
+  assert.match(broken, /касса включена, но ключи не заданы/);
+
+  /* Что было открыто, остаётся открытым после сохранения: страница приходит
+   * заново, и раздел, который только что правили, иначе захлопывался бы под
+   * руками. Список уезжает скрытым полем и возвращается параметром адреса. */
+  const back = adminViews.settingsPage(base, db, null, 'ok', { open: 'brand,legal' });
+  assert.match(back, /<details class="set" id="set-brand" open>/);
+  assert.match(back, /<details class="set" id="set-legal" open>/);
+  assert.match(back, /<input type="hidden" name="openSections" value="brand,legal">/);
+  // В адресе бывает что угодно, а строка уезжает в id и в разметку.
+  const junk = adminViews.settingsPage(base, db, null, 'ok', { open: 'brand,"><script>,нет' });
+  assert.match(junk, /name="openSections" value="brand"/);
+  assert.doesNotMatch(junk, /openSections" value="[^"]*script/);
+  assert.doesNotMatch(junk, /id="set-[^"a-z]/);
+
+  /* Ни одного `required` на поле внутри свёрнутого раздела: браузер не может
+   * поставить фокус в скрытое поле и молча отказывается отправлять форму,
+   * написав об этом только в консоль, — кнопка «Сохранить» переставала бы
+   * работать без единого слова на экране. Пустое название ловит сервер. */
+  const form = html.slice(html.indexOf('<form class="a-form a-settings"'), html.indexOf('</form>'));
+  assert.doesNotMatch(form, /\srequired[\s>]/, 'required внутри свёрнутого раздела ломает отправку формы');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /storeName \|\| ''\)\.trim\(\)\) return fail\('Укажите название магазина'\)/);
+  // Список раскрытого сервер кладёт в адрес возврата, а не теряет по дороге.
+  assert.match(source, /openSections\(req\.body\.openSections\)/);
+  assert.match(source, /'&open=' \+ encodeURIComponent\(open\)/);
+
+  /* Скрипту остаётся то, чего <details> не умеет: пережить перезагрузку и
+   * раскрыть раздел, в котором браузер нашёл негодное поле. Разметку он не
+   * строит вовсе — её рисует сервер. */
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /details\.set\[open\]/);
+  assert.match(ui, /input\[name="openSections"\]/);
+  assert.match(ui, /addEventListener\('invalid'/);
+
+  // Форма настроек — не карточка: карточки теперь разделы, и общая рамка вокруг
+  // них давала бы рамку в рамке.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.a-settings\{[^}]*background:none/);
+  assert.match(css, /\.set>summary::-webkit-details-marker\{display:none\}/);
+  // Кнопка сохранения не уезжает с экрана: разделов девять.
+  assert.match(css, /\.a-settings>\.a-form-actions\{[^}]*position:sticky|\.a-form-actions\{position:sticky/);
 });
 
 test('в настройках видно режим витрины, а касса переживает выключение целиком', () => {

@@ -3647,16 +3647,28 @@ app.get('/admin/payments', (req, res) => {
 
 /* ---------- Настройки магазина ---------- */
 
+/* `open` — какие разделы настроек показать раскрытыми.
+ *
+ * Страница после сохранения перезагружается, и без этого раздел, который только
+ * что правили, захлопывался бы прямо под руками. Список приезжает скрытым полем
+ * формы и уезжает обратно параметром адреса; проверяет его сама страница —
+ * незнакомые имена она просто выбрасывает.
+ */
+function openSections(value) {
+  return String(value || '').slice(0, 200);
+}
 app.get('/admin/settings', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const s = settings();
-  res.send(A.settingsPage(s, db, req.query.flash, 'ok', { live: await livePayMethods(s) }));
+  res.send(A.settingsPage(s, db, req.query.flash, 'ok',
+    { live: await livePayMethods(s), open: openSections(req.query.open) }));
 });
 app.post('/admin/settings', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const current = settings();
   const live = await livePayMethods(current);
-  const fail = (error) => res.send(A.settingsPage(current, db, error, 'err', { draft: req.body, live }), 400);
+  const open = openSections(req.body.openSections);
+  const fail = (error) => res.send(A.settingsPage(current, db, error, 'err', { draft: req.body, live, open }), 400);
   if (!String(req.body.storeName || '').trim()) return fail('Укажите название магазина');
   const passwordProblem = passwordError(req.body.adminPassword, false);
   if (passwordProblem) return fail(passwordProblem);
@@ -3900,7 +3912,8 @@ app.post('/admin/settings', async (req, res) => {
   // Мост в Telegram держит длинный опрос со СТАРЫМ токеном: без этого вызова
   // он продолжил бы работать с ним до перезапуска процесса, а новый чат молчал.
   TGCHAT.sync(settings());
-  res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено'));
+  res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено')
+    + (open ? '&open=' + encodeURIComponent(open) : ''));
 });
 
 /* =========================== 404 =========================== */

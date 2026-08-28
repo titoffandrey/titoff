@@ -190,3 +190,44 @@
       .observe(thread, { childList: true, subtree: true });
   }
 })();
+
+/* ============== Настройки: раскрытый раздел переживает сохранение ==============
+ *
+ * Разделы настроек — обычные <details>, поэтому раскрываются и без скрипта.
+ * Скрипту остаётся то, чего <details> не умеет сам: пережить перезагрузку.
+ *
+ * Страница после «Сохранить» приходит заново, и раздел, который только что
+ * правили, закрывался бы прямо под руками — а на странице их девять, и искать
+ * свой пришлось бы каждый раз. Список раскрытого уезжает СКРЫТЫМ ПОЛЕМ ФОРМЫ и
+ * возвращается от сервера параметром `?open=`: ни localStorage, ни скрипта в
+ * <head>, ни моргания на загрузке (тем же путём когда-то ушло меню разделов).
+ *
+ * Сервер уже положил в поле то, что раскрыл сам, поэтому без скрипта настройки
+ * работают как работали.
+ */
+(function () {
+  'use strict';
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form || !form.classList || !form.classList.contains('a-settings')) return;
+    var field = form.querySelector('input[name="openSections"]');
+    if (!field) return;
+    var open = [];
+    var list = form.querySelectorAll('details.set[open]');
+    for (var i = 0; i < list.length; i++) open.push(list[i].id.replace(/^set-/, ''));
+    field.value = open.join(',');
+  });
+
+  /* Поле не прошло проверку браузера — раскрываем раздел, в котором оно лежит.
+   *
+   * Иначе форма молча отказывается отправляться: в скрытое поле нельзя поставить
+   * фокус, и браузер пишет об этом только в консоль — со стороны это выглядит
+   * как переставшая работать кнопка «Сохранить». Своих `required` на странице
+   * нет намеренно (их ловит сервер), но проверки бывают и другие — `minlength` у
+   * пароля, — и одна забытая обошлась бы владельцу магазина слишком дорого.
+   */
+  document.addEventListener('invalid', function (e) {
+    var box = e.target && e.target.closest && e.target.closest('details');
+    while (box) { box.open = true; box = box.parentElement && box.parentElement.closest('details'); }
+  }, true);
+})();

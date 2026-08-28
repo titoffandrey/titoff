@@ -2665,6 +2665,70 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .a-form>.a-panel{padding:22px;background:#fbfbfc;box-shadow:none}
 .a-form-grid{gap:0 22px}
 .a-form-actions{position:sticky;bottom:0;z-index:8;display:flex;align-items:center;gap:10px;margin:26px -24px -24px;padding:14px 24px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border-soft);border-radius:0 0 18px 18px;background:rgba(255,255,255,.92);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+
+/* ===================== Настройки: страница разделами =====================
+
+   Настройки — единственная страница панели, где полей больше, чем помещается на
+   экран: одной лентой они занимали пять экранов, и ради ключа кассы приходилось
+   пролистать бренд, оформление, реквизиты оператора, Telegram и чат целиком.
+   Разделы свёрнуты, и страница читается как оглавление — свёрнутая строка
+   каждого говорит, что в нём настроено СЕЙЧАС (см. lib/admin-views.js).
+
+   Сама форма перестала быть карточкой: карточки теперь разделы, и общая рамка
+   вокруг них давала бы рамку в рамке. Ширина у страницы своя, у`же общих
+   1500 px: поля в две колонки на всю ширину монитора — это строка ввода в
+   полметра под слово «Валюта». */
+.a-settings{max-width:960px;padding:0;border:0;background:none;box-shadow:none;border-radius:0}
+.a-exit{max-width:960px}
+.set-group{margin:0 0 24px}
+/* Название группы — подпись над списком, а не заголовок раздела: оно набрано
+   мельче самих разделов намеренно, иначе оглавление читается двумя уровнями
+   одинаковой громкости. */
+.set-group>h2{margin:0 0 9px;padding:0 4px;font-size:12px;font-weight:650;letter-spacing:.03em;color:var(--muted)}
+.set{margin-bottom:9px;border:1px solid var(--border-soft);border-radius:16px;background:#fff;
+  box-shadow:0 1px 2px rgba(17,17,26,.03);transition:box-shadow .16s,border-color .16s}
+.set:last-child{margin-bottom:0}
+.set[open]{border-color:#dcdce2;box-shadow:0 6px 22px rgba(17,17,26,.07)}
+.set>summary{display:flex;align-items:center;gap:13px;padding:13px 15px;border-radius:16px;
+  cursor:pointer;list-style:none}
+.set>summary::-webkit-details-marker{display:none}
+.set>summary:hover{background:#fbfbfc}
+/* Обводка фокуса тёмная, а не акцентная: акцент у магазина свой, и светлый на
+   белой карточке не виден вовсе — то же правило, что у значка раздела. */
+.set>summary:focus-visible{outline:2px solid #242426;outline-offset:-2px}
+.set-ico{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
+  border:1px solid var(--border-soft);background:linear-gradient(180deg,#fbfbfd,#f2f2f5);color:#3a3a3c}
+.set-ico svg{width:20px;height:20px}
+.set-cap{flex:1;min-width:0}
+.set-cap h3{margin:0;font-size:15.5px;font-weight:600;line-height:1.25}
+.set-note{display:block;margin-top:2px;font-size:12.5px;line-height:1.35;color:var(--muted);overflow-wrap:anywhere}
+/* Зелёный ставим скупо — только там, где «работает» и есть ответ на вопрос
+   раздела. Девять зелёных строк подряд не значили бы ничего, поэтому спокойное
+   состояние остаётся серым, а цвет появляется, когда есть что сказать. */
+.set.is-ok .set-note{color:#0b7a37}
+.set.is-warn .set-note{color:#bf4800}
+.set.is-err .set-note{color:#b42318;font-weight:600}
+.set.is-warn .set-ico{border-color:#f0ddc0;background:#fffaf2;color:#bf4800}
+.set.is-err .set-ico{border-color:#f2cfcb;background:#fff5f4;color:#b42318}
+.set-chev{flex:none;width:17px;height:17px;color:#b9b9c0;transition:transform .18s}
+.set[open] .set-chev{transform:rotate(90deg)}
+/* Кружки цветов бренда: сказать «синий и голубой» словами нельзя — цвет
+   произвольный, — а показать его самим цветом можно. */
+.set-dots{flex:none;display:flex;gap:5px}
+.set-dots i{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(17,17,26,.14)}
+.set-body{padding:2px 15px 16px}
+.set-body>.a-subhead:first-child,.set-body>.chat-state:first-child{margin-top:0}
+.set-body>.pay-mode:first-child{margin-top:2px}
+/* Кнопка сохранения не уезжает с экрана: разделов девять, и открыв нижний, до
+   неё пришлось бы прокручивать всю страницу обратно. Карточки у формы больше
+   нет, поэтому и отрицательных полей общего правила тоже: полоса подложена
+   градиентом под цвет панели. */
+.a-settings>.a-form-actions{margin:6px 0 0;padding:14px 0 calc(14px + env(safe-area-inset-bottom,0px));
+  border:0;border-radius:0;background:linear-gradient(180deg,rgba(244,244,246,0),#f4f4f6 44%);
+  -webkit-backdrop-filter:none;backdrop-filter:none}
+.a-settings>.a-form-actions .btn-primary{min-width:190px;min-height:44px;font-size:15px;
+  box-shadow:0 6px 18px rgba(17,17,26,.15)}
+@media(prefers-reduced-motion:reduce){.set,.set-chev{transition:none}}
 .product-options{padding:20px!important;background:#fff!important}
 .product-options-grid{gap:0 28px}
 .product-form .specs-input{min-height:300px}
@@ -3245,6 +3309,17 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
   .a-form>.a-panel{margin-inline:0;padding:16px}
   .a-form-grid,.product-options-grid{grid-template-columns:1fr}
   .a-form-actions{margin:22px -16px -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-radius:0 0 16px 16px}
+  /* Разделы настроек на телефоне. Полей у формы нет вовсе (карточками стали
+     сами разделы), поэтому полосу сохранения растягиваем во всю ширину экрана
+     отрицательными полями — иначе по краям сквозь неё проезжало бы содержимое.
+     Тот же приём, что у прилипшего поля ответа в чате. */
+  .set>summary{gap:11px;padding:12px 13px}
+  .set-ico{width:32px;height:32px;border-radius:10px}
+  .set-ico svg{width:18px;height:18px}
+  .set-cap h3{font-size:15px}
+  .set-body{padding:0 13px 14px}
+  .a-settings>.a-form-actions{margin:6px -16px 0;padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+  .a-settings>.a-form-actions .btn-primary{flex:1}
   .a-table{min-width:620px}
   .a-panel{scrollbar-width:thin;overscroll-behavior-inline:contain}
   .product-form .specs-input{min-height:260px}
