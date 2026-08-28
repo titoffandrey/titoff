@@ -906,6 +906,37 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
 });
 
+test('город в списке — без региона и с одним именем страны', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-place-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const analytics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+  /* Кэш геолокации собирался двумя источниками: своя база пишет «Россия»,
+   * прежний внешний сервис писал «Российская Федерация», и регион у него был не
+   * всегда. В списке это давало три ряда «Москва» подряд с разными числами. */
+  const cards = [
+    ['a', { city: 'Москва', region: 'Москва', country: 'Российская Федерация', countryCode: 'RU' }],
+    ['b', { city: 'Москва', region: '', country: 'Россия', countryCode: 'RU' }],
+    ['c', { city: 'Москва', region: 'Московская область', country: 'Россия', countryCode: 'RU' }],
+    ['d', { city: 'Амстердам', region: 'Северная Голландия', country: 'Нидерланды', countryCode: 'NL' }]
+  ];
+  for (const [letter, geo] of cards) {
+    const id = letter.repeat(32);
+    analytics.recordPageView({ id, path: '/', context: {} });
+    Object.assign(analytics.findVisitor(id), geo);
+  }
+  const report = analytics.snapshot({ days: 1 });
+  assert.deepEqual(report.locations, [
+    { label: 'Москва, Россия', value: 3 },
+    { label: 'Амстердам, Нидерланды', value: 1 }
+  ], 'город и страна, без региона и одним именем страны');
+
+  // В строке самого посетителя регион остаётся — там он про одного человека и
+  // ничего не дробит, — а страна всё равно называется по коду.
+  const card = analyticsView.visitorPage(Object.assign({ id: 'a'.repeat(32), visits: 1 }, cards[0][1]), {});
+  assert.match(card, /Москва, Россия/);
+  assert.doesNotMatch(card, /Российская Федерация/);
+});
+
 test('отчёт метрики по умолчанию — сегодняшний, и рисуется он линией по часам', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-today-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
