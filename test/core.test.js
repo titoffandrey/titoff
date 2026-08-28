@@ -11797,13 +11797,14 @@ test('пересборка того же маршрута даёт те же в�
 test('застревание держит посылку, а просьба подождать ждёт своих часов', () => {
   const started = Date.parse('2026-08-20T09:00:00+03:00');
   const ship = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'order-4', startedAt: started, days: 5 });
-  ship.holdHours = 12;
+  ship.holdDays = 1;
   const holdAt = 3;
   ship.steps[holdAt].hold = true;
 
   // Час спустя после остановки посылка уже стоит, но задержкой это ещё не
   // считается: ночная пересортировка — обычное дело, и плашка над ней была бы
-  // ложной тревогой.
+  // ложной тревогой. Срок теперь в ДНЯХ: посылка идёт неделю, и «задержалась» —
+  // это «второй день не двигается», а не «стоит с обеда».
   const soon = tracking.view(ship, ship.steps[holdAt].at + 60 * 60 * 1000);
   assert.equal(soon.stuck, true);
   assert.equal(soon.delayed, false, 'просьба подождать выскочила раньше срока');
@@ -11915,7 +11916,7 @@ test('хранилище отправления чистит маршрут и �
 
   const at = Date.parse('2026-08-20T09:00:00+03:00');
   const saved = db.setOrderShipment(order.id, {
-    carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', days: 4, holdHours: 6,
+    carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', days: 4, holdDays: 2,
     steps: [
       // Пустая строка — способ удалить шаг: отдельной кнопки для этого нет.
       { at: 0, title: 'Без времени' },
@@ -11984,7 +11985,7 @@ test('отправлением управляют из строки заказа
   assert.match(form, /name="from"[^>]*value="Москва"/);
   assert.match(form, /name="to"[^>]*value="Казань"/);
   assert.match(form, /name="days"[^>]*value="4"/);
-  assert.match(form, /name="holdHours"/);
+  assert.match(form, /name="holdDays"/);
   /* Таблицы шагов у несозданного отправления нет вовсе: маршрут собирается по
    * трём полям выше, а править его строками — уже после. Пустая таблица на
    * пятнадцать строк требовала бы набить весь путь руками. */
@@ -12008,4 +12009,128 @@ test('отправлением управляют из строки заказа
   // подсказку: «Отправлен в г. Петропавловск-Камчатский» занимал три строки.
   const withShip = adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {});
   assert.match(withShip, /class="o-ship"[^>]*title="[^"]+">(в пути|ожидает отправки|готово к выдаче)</);
+});
+
+test('задержка считается в днях, а прежние часы читаются как раньше', () => {
+  const started = Date.parse('2026-08-20T09:00:00+03:00');
+  const ship = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'days', startedAt: started, days: 6 });
+  const holdAt = 2;
+  ship.steps[holdAt].hold = true;
+  ship.holdDays = 2;
+  const stoppedAt = ship.steps[holdAt].at;
+
+  // Сутки простоя — ещё не задержка, двое — уже.
+  assert.equal(tracking.view(ship, stoppedAt + 30 * 60 * 60 * 1000).delayed, false);
+  assert.equal(tracking.view(ship, stoppedAt + 50 * 60 * 60 * 1000).delayed, true);
+  assert.equal(tracking.view(ship, stoppedAt + 50 * 60 * 60 * 1000).holdDays, 2);
+
+  /* Отправления, записанные до перехода на дни, хранят `holdHours`. Читаются они
+   * как раньше — просто переводятся в дни, округляя вверх: «через 30 часов» —
+   * это второй день, а не первый. Переписывать историю ради смены единиц
+   * незачем. */
+  const legacy = Object.assign({}, ship, { holdDays: undefined, holdHours: 30 });
+  delete legacy.holdDays;
+  assert.equal(tracking.holdDaysValue(legacy), 2);
+  assert.equal(tracking.view(legacy, stoppedAt + 30 * 60 * 60 * 1000).delayed, false);
+  assert.equal(tracking.view(legacy, stoppedAt + 50 * 60 * 60 * 1000).delayed, true);
+
+  // Пустое поле — сутки по умолчанию, а не ноль: ноль означал бы «жалуйся
+  // сразу», и плашка висела бы у каждой нормально идущей посылки.
+  assert.equal(tracking.holdDaysValue({}), tracking.HOLD_NOTICE_DAYS);
+  assert.equal(tracking.holdDaysValue({ holdDays: '' }), tracking.HOLD_NOTICE_DAYS);
+  assert.equal(tracking.holdDaysValue({ holdDays: 0 }), 0, 'осознанный ноль — законное значение');
+  assert.equal(tracking.holdDaysValue({ holdDays: 999 }), tracking.HOLD_NOTICE_MAX_DAYS);
+});
+
+test('отслеживание показывается покупателю только с галочки, а ссылку дают скопировать', () => {
+  const started = Date.now() - 86400000;
+  const route = () => tracking.normalize(tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'vis', startedAt: started, days: 4 }));
+  const order = { id: 'v1', number: '556677', createdAt: started, total: 1000, items: [], deliveryZone: 'pfo', address: 'г Казань, ул Баумана, д 7', shipment: route() };
+
+  // Поля нет вовсе — считаем видимым: так вели себя все отправления до появления
+  // галочки, и молча спрятать их от покупателей нельзя.
+  assert.equal(order.shipment.visible, true);
+  assert.equal(tracking.shownToBuyer(order.shipment), true);
+  assert.match(render.trackingPage(SETTINGS, { number: '556677', order }), /class="trk trk-cdek/);
+
+  /* Снятая галочка прячет отслеживание ЦЕЛИКОМ, и ответ у него тот же, что у
+   * чужого номера: маршрут собирают заранее, до того как посылку правда отдали
+   * перевозчику, и «Принят на склад» у коробки, которая лежит на столе, —
+   * обещание, которого никто не давал. */
+  order.shipment = tracking.normalize(Object.assign(route(), { visible: false }));
+  assert.equal(tracking.shownToBuyer(order.shipment), false);
+  const hidden = render.trackingPage(SETTINGS, { number: '556677', order });
+  assert.match(hidden, /Отправление не найдено/);
+  assert.equal(/class="trk trk-cdek/.test(hidden), false);
+  assert.equal(hidden, render.trackingPage(SETTINGS, { number: '556677', order: null }),
+    'скрытое отправление обязано отвечать ровно тем же, что и чужой номер');
+
+  // Кнопки «Отследить заказ» в карточке оплаченного заказа тоже нет: кнопка,
+  // ведущая на «отправление не найдено», хуже её отсутствия.
+  const paid = Object.assign({}, order, { payment: { status: 'paid', method: 'SBP', amount: 1000, currency: 'RUB' } });
+  assert.equal(/\/track\/556677/.test(render.payPage(SETTINGS, paid, {})), false);
+  paid.shipment = route();
+  assert.match(render.payPage(SETTINGS, paid, {}), /href="\/track\/556677"/);
+
+  const db = {
+    pendingReviewCount: () => 0, newOrderCount: () => 0, getOrders: () => [order],
+    visibleOrders: () => [order], archivedOrders: () => []
+  };
+  // В списке заказов скрытое отправление подписано отдельно: менеджер иначе
+  // читал бы «в пути» и был уверен, что покупатель видит то же самое.
+  assert.match(adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {}), /class="o-ship is-off"[^>]*>скрыто</);
+
+  /* Ссылку отправляют покупателю руками, поэтому она стоит полным адресом и с
+   * кнопкой копирования: выделять адрес мышью по буквам — ровно то, чего быть
+   * не должно. Адрес абсолютный — из «/track/556677» покупатель ссылку не
+   * сделает. */
+  const page = adminViews.shipmentPage(SETTINGS, db, order, { origin: 'https://shop.example' });
+  assert.match(page, /value="https:\/\/shop\.example\/track\/556677"/);
+  assert.match(page, /data-copy="https:\/\/shop\.example\/track\/556677"/);
+  assert.match(page, /name="visible"/);
+  assert.match(page, /Показывать отслеживание покупателю/);
+  // У скрытого блок сам говорит, что ссылка сейчас ведёт в никуда.
+  assert.match(page, /ship-share is-hidden/);
+  assert.match(page, /покупатель увидит «отправление не найдено»/);
+
+  /* Копирует одна и та же кнопка панели: реплику в чате и ссылку копируют
+   * одинаково, и второй такой же обработчик разошёлся бы с этим на первой
+   * правке. Запасной путь через execCommand обязателен — без https
+   * clipboard-API молчит. */
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /closest\('\[data-chat-copy\],\[data-copy\]'\)/);
+  assert.match(ui, /if \(document\.execCommand\('copy'\)\) done\(\)/,
+    'результат execCommand обязателен: он не бросает, а возвращает false — иначе кнопка врёт «Скопировано»');
+
+  /* Обработчик живёт СВОИМ блоком, а не внутри кода страницы чата: тот выходит
+   * первой строкой, когда на странице нет ленты диалога, — и кнопка на странице
+   * отправления не работала бы вовсе, молча. На этом уже наступили. */
+  const chatBlock = ui.slice(ui.indexOf("var thread = document.querySelector('.chat-thread')"));
+  const chatEnd = chatBlock.indexOf('})();');
+  assert.equal(chatBlock.slice(0, chatEnd).includes('data-copy'), false,
+    'копирование снова заперто внутри блока чата');
+});
+
+test('карточка шага на телефоне не уезжает за край и читается сеткой', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){', css.indexOf('.ship-form{')));
+
+  /* Специфичность выше, чем у общего `.a-table{min-width:620px}`, и это не
+   * придирка: без второго класса карточки не сжимаются, поля вылезают за правый
+   * край панели и дата обрезается на «28 авг. 2026 г., 16:3». Ровно та же
+   * грабля, что была у списка заказов и таблицы касс. */
+  assert.match(mobile, /\.a-table\.ship-steps\{min-width:0/);
+  assert.match(mobile, /\.ship-steps input\[type=datetime-local\]\{min-width:0/);
+
+  // Ячейкам даны имена: безымянные `<td>` сетке не адресовать.
+  for (const cell of ['s-title', 's-when', 's-place', 's-note']) {
+    assert.match(mobile, new RegExp('\\.ship-steps \\.' + cell + '\\{grid-'), cell + ': ячейка не расставлена в сетке');
+    assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'),
+      new RegExp('class="' + cell + '"'), cell + ': имени нет в разметке');
+  }
+  // Событие — первым и во всю ширину: это главное, что читают в карточке.
+  assert.match(mobile, /\.ship-steps \.s-title\{grid-column:1\/-1;grid-row:1\}/);
+  /* Дате — тоже вся ширина: нативный контрол iOS шире своего значения, и в
+   * половине строки он обрезал время («22.08.2026,» без часов). */
+  assert.match(mobile, /\.ship-steps \.s-when\{grid-column:1\/-1/);
 });

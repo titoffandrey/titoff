@@ -2153,6 +2153,9 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-ship.is-none{color:#8a8a90}
 .o-ship.is-late{color:#bf4800;border-bottom-color:#e5b98d}
 .o-ship.is-done{color:#0b7a37;border-bottom-color:#a9d8bd}
+/* Скрытое от покупателя: маршрут есть, но человек его не видит — и это важнее
+   того, где сейчас посылка. Приглушено, чтобы не путать с «в пути». */
+.o-ship.is-off{color:#8a8a90;font-style:italic}
 /* Время под плашкой: обратный отсчёт живого счёта и момент, когда всё
    случилось. Цифры табличные — иначе отсчёт дёргает соседние столбцы на каждой
    секунде. */
@@ -2228,6 +2231,44 @@ body.admin{background:#f4f4f6;color:#242426}
 .ship-steps input[type=datetime-local]{min-width:186px;font-variant-numeric:tabular-nums}
 .ship-steps input[type=radio]{width:auto;padding:0}
 .ship-steps .ship-hold{width:1%;text-align:center;white-space:nowrap}
+/* Галочка «показывать покупателю» — свойство самой отправки, поэтому стоит
+   вместе с её параметрами, а не рядом с кнопкой сохранения. */
+/* `display:block` перебивает общий `.field-check{display:flex}`: пояснение
+   обязано идти ПОД галочкой, а не рядом — во flex-строке оно забирало половину
+   ширины и на телефоне складывалось в узкий столбик из двух слов. */
+.ship-visible{display:block;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft,var(--border))}
+.ship-visible label{display:flex;align-items:center;gap:9px;min-height:0;font-size:14.5px;font-weight:600}
+.ship-visible input{width:18px;height:18px;accent-color:var(--accent)}
+.ship-visible .muted{display:block;margin-top:5px;padding-left:27px;line-height:1.45}
+
+/* ---- Ссылка на отслеживание ----
+   Её отправляют покупателю руками, в чат или Telegram, поэтому она стоит
+   крупно, полным адресом и с кнопкой рядом: выделять адрес мышью по буквам —
+   ровно то, чего быть не должно. */
+.ship-share{border-color:color-mix(in srgb,var(--accent) 35%,var(--border));
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 5%,#fff),#fff)}
+.ship-share-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.ship-share-ico{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:12px;
+  background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent)}
+.ship-share-ico svg{width:21px;height:21px}
+.ship-share-cap b{display:block;font-size:15px}
+.ship-share-cap span{display:block;margin-top:2px;font-size:13px;color:var(--muted);line-height:1.45}
+.ship-share-row{display:flex;gap:10px}
+/* Поле только для чтения: по нажатию адрес выделяется целиком, а копирует его
+   кнопка. Моноширинных цифр здесь не нужно — это адрес, а не реквизит. */
+.ship-share-url{flex:1;min-width:0;padding:11px 13px;border:1px solid var(--border);border-radius:12px;
+  background:#fff;font:inherit;font-size:14.5px;color:var(--text);text-overflow:ellipsis}
+.ship-share-url:focus{outline:none;border-color:var(--accent)}
+.ship-copy{flex:none;display:inline-flex;align-items:center;gap:8px;padding:11px 18px;font-weight:650}
+.ship-copy svg{width:17px;height:17px}
+/* Получилось — кнопка зеленеет вместе с подписью «Скопировано». Класс ставит
+   скрипт и снимает через полторы секунды; не получилось (буфер закрыт
+   политикой браузера) — не меняется ничего, и это честнее. */
+.ship-copy.is-done{background:#0b7a37;border-color:#0b7a37;color:#fff}
+/* Скрытое отправление: ссылка живая, но ведёт на «не найдено», и блок об этом
+   говорит сам — приглушённым видом, а не одной строкой текста. */
+.ship-share.is-hidden{border-color:var(--border);background:var(--bg2)}
+.ship-share.is-hidden .ship-share-ico{background:#fff;color:var(--muted)}
 /* «Нигде не задерживать» — тот же переключатель, что и в строках, поэтому стоит
    рядом с таблицей, а не отдельной настройкой: это одно решение из списка. */
 .ship-nohold{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px}
@@ -2239,16 +2280,43 @@ body.admin{background:#f4f4f6;color:#242426}
 @media(max-width:800px){
   /* Пять столбцов полей в 390 px не встают никак — строка становится карточкой,
      подписи приезжают из `data-l` в разметке (тот же приём, что у списка
-     заказов и таблицы касс). */
-  .ship-steps,.ship-steps thead,.ship-steps tbody,.ship-steps tr,.ship-steps td{display:block;min-width:0}
-  .ship-steps{min-width:0}
+     заказов и таблицы касс).
+
+     СПЕЦИФИЧНОСТЬ ВЫШЕ, ЧЕМ У ОБЩЕГО `.a-table{min-width:620px}`, и это не
+     придирка: без второго класса карточки не сжимаются, поля вылезают за правый
+     край панели и дата обрезается на «28 авг. 2026 г., 16:3». Ровно та же
+     грабля, что была у списка заказов и таблицы касс. */
+  .a-table.ship-steps,.ship-steps thead,.ship-steps tbody,.ship-steps tr,.ship-steps td{display:block;min-width:0}
+  .a-table.ship-steps{min-width:0;width:100%}
   .ship-steps thead{display:none}
-  .ship-steps tr{margin-bottom:12px;padding:12px;border:1px solid var(--border-soft,var(--border));border-radius:14px}
-  .ship-steps td{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:5px 0}
+  /* Карточка шага — сетка в две колонки: «Событие» во всю ширину (это главное,
+     что читают), под ним время и город рядом, дальше приписка и отметка. В
+     столбик из пяти полей карточка занимала пол-экрана на каждый шаг, а шагов
+     полтора десятка. */
+  .ship-steps tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9px 10px;
+    margin-bottom:12px;padding:12px;border:1px solid var(--border-soft,var(--border));border-radius:14px}
+  .ship-steps td{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;padding:0;min-width:0}
   .ship-steps td::before{content:attr(data-l);font-size:11.5px;color:var(--muted)}
-  .ship-steps .ship-hold{display:flex;align-items:center;gap:9px;text-align:left}
+  .ship-steps .s-title{grid-column:1/-1;grid-row:1}
+  /* Дате — вся ширина: нативный контрол iOS шире своего значения, и в половине
+     строки он обрезал время («22.08.2026,» без часов). Город и приписка рядом:
+     оба текстовые и короткие, а лишний ряд на каждый из полутора десятков шагов
+     растягивал страницу вдвое. */
+  .ship-steps .s-when{grid-column:1/-1;grid-row:2}
+  .ship-steps .s-place{grid-column:1;grid-row:3}
+  .ship-steps .s-note{grid-column:2;grid-row:3}
+  .ship-steps .ship-hold{grid-column:1/-1;grid-row:4;display:flex;align-items:center;gap:9px;
+    padding-top:9px;border-top:1px solid var(--border-soft,var(--border));text-align:left}
   .ship-steps .ship-hold::before{order:2}
-  .ship-steps input[type=datetime-local]{min-width:0}
+  .ship-steps .ship-hold input{width:20px;height:20px;accent-color:var(--accent)}
+  /* Поле даты обязано ужиматься: нативный контрол iOS шире своего значения, и с
+     прежним `min-width:186px` он вылезал из колонки. */
+  .ship-steps input[type=datetime-local]{min-width:0;width:100%}
+  .ship-steps input{padding:9px 10px}
+  /* Ссылку и кнопку в одну строку на 390 px не поставить: адрес там длиннее
+     половины экрана, а кнопка ужималась бы до значка без подписи. */
+  .ship-share-row{flex-direction:column}
+  .ship-copy{width:100%;justify-content:center;padding:12px 18px}
 }
 
 /* ===== Последние заказы на «Обзоре» =====

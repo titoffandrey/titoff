@@ -3504,7 +3504,11 @@ function shipmentForm(req, order) {
     to: String(body.to || '').trim(),
     zone: order.deliveryZone || '',
     days: body.days,
-    holdHours: body.holdHours,
+    holdDays: body.holdDays,
+    // Снятая галочка приходит в теле формы отсутствием поля, как и все прочие в
+    // панели. Маршрут, который ещё не показывают покупателю, — обычное дело:
+    // его собирают до того, как посылку правда отдали перевозчику.
+    visible: body.visible !== undefined,
     startedAt: parseDt(body.startedAt) || Date.now()
   };
 }
@@ -3513,7 +3517,7 @@ app.get('/admin/orders/:id/shipment', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const order = db.getOrder(req.params.id);
   if (!order) return sendNotFound(req, res);
-  res.send(A.shipmentPage(settings(), db, order, { flash: req.query.flash }));
+  res.send(A.shipmentPage(settings(), db, order, { flash: req.query.flash, origin: originOf(req) }));
 });
 
 app.post('/admin/orders/:id/shipment', (req, res) => {
@@ -3524,7 +3528,7 @@ app.post('/admin/orders/:id/shipment', (req, res) => {
   // Проверка идёт ДО записи и возвращает введённое — то же правило, что у формы
   // товара и настроек: иначе правка теряется целиком.
   const fail = (error) => res.send(A.shipmentPage(settings(), db, order,
-    { flash: error, flashType: 'err', draft: req.body }), 400);
+    { flash: error, flashType: 'err', draft: req.body, origin: originOf(req) }), 400);
   if (!form.to) return fail('Укажите город получения — без него маршрут не собрать');
 
   const rebuild = req.body.intent === 'rebuild' || !order.shipment;
@@ -3535,7 +3539,8 @@ app.post('/admin/orders/:id/shipment', (req, res) => {
     // `seed` — id заказа: пересборка того же маршрута обязана давать те же
     // времена, иначе нажатие «Собрать заново» дважды тасовало бы часы у уже
     // случившихся событий.
-    ? Object.assign(TRACK.build(Object.assign({}, form, { seed: order.id })), { holdHours: form.holdHours })
+    ? Object.assign(TRACK.build(Object.assign({}, form, { seed: order.id })),
+      { holdDays: form.holdDays, visible: form.visible })
     : Object.assign({}, form, { steps });
   const saved = db.setOrderShipment(order.id, shipment);
   if (!saved.ok) return fail('Маршрут не сохранён: в нём нет ни одного события');
@@ -3824,15 +3829,15 @@ app.post('/admin/settings', async (req, res) => {
    * посылки. Мусор в поле не сохраняем вовсе — проверка до записи, как и всё в
    * этой форме. */
   if (req.body.shipFromCity !== undefined) patch.shipFromCity = TRACK.cleanCity(req.body.shipFromCity);
-  if (req.body.shipHoldHours !== undefined) {
-    const raw = String(req.body.shipHoldHours).replace(/\s+/g, '').replace(',', '.');
-    if (!raw) patch.shipHoldHours = '';
+  if (req.body.shipHoldDays !== undefined) {
+    const raw = String(req.body.shipHoldDays).replace(/\s+/g, '').replace(',', '.');
+    if (!raw) patch.shipHoldDays = '';
     else {
-      const hours = Number(raw);
-      if (!Number.isFinite(hours) || hours < 0 || hours > TRACK.HOLD_NOTICE_MAX) {
-        return fail(`Сообщать о задержке — число от 0 до ${TRACK.HOLD_NOTICE_MAX} часов или пусто`);
+      const days = Number(raw);
+      if (!Number.isFinite(days) || days < 0 || days > TRACK.HOLD_NOTICE_MAX_DAYS) {
+        return fail(`Сообщать о задержке — число от 0 до ${TRACK.HOLD_NOTICE_MAX_DAYS} дней или пусто`);
       }
-      patch.shipHoldHours = Math.round(hours);
+      patch.shipHoldDays = Math.round(days);
     }
   }
   // Галочка кассы снимается отсутствием поля в теле формы, как notifyReviews.

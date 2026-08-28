@@ -132,37 +132,6 @@
     }
   }
 
-  /* Скопировать реплику. Единственное действие меню, которое из разметки не
-   * сделать: буфер обмена открывается только скриптом. Запасной путь через
-   * execCommand обязателен — clipboard-API нет в старых браузерах и он не
-   * работает без https, а панель открывают и с телефона по локальной сети. */
-  document.addEventListener('click', function (e) {
-    var btn = e.target.closest && e.target.closest('[data-chat-copy]');
-    if (!btn) return;
-    e.preventDefault();
-    var text = btn.getAttribute('data-chat-copy') || '';
-    var was = btn.querySelector('span');
-    var done = function () {
-      if (!was || was.dataset.was) return;
-      was.dataset.was = was.textContent;
-      was.textContent = 'Скопировано';
-      setTimeout(function () { was.textContent = was.dataset.was; delete was.dataset.was; }, 1800);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, function () { fallback(text, done); });
-    } else fallback(text, done);
-  });
-  function fallback(text, done) {
-    var box = document.createElement('textarea');
-    box.value = text;
-    box.setAttribute('readonly', '');
-    box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
-    document.body.appendChild(box);
-    box.select();
-    try { document.execCommand('copy'); done(); } catch (err) { /* нечем — молчим */ }
-    box.remove();
-  }
-
   /* Поле растёт под текст, как в мессенджере: одна строка под короткий ответ,
    * до четырёх под длинный. Своя высота у него потому, что `rows` задаёт только
    * начальную, а `resize` на телефоне не потянешь пальцем. */
@@ -230,4 +199,57 @@
     var box = e.target && e.target.closest && e.target.closest('details');
     while (box) { box.open = true; box = box.parentElement && box.parentElement.closest('details'); }
   }, true);
+})();
+
+/* ===================== Копирование ===================== *
+ *
+ * Единственное действие панели, которое из разметки не сделать: буфер обмена
+ * открывается только скриптом. Копируют в двух местах — реплику в чате и ссылку
+ * на отслеживание, — и обработчик у них ОДИН: второй такой же код разошёлся бы
+ * с этим на первой правке.
+ *
+ * СВОЙ IIFE, а не кусок блока чата, и это не придирка: тот выходит первой
+ * строкой, когда на странице нет ленты диалога (`if (!thread) return`), — то
+ * есть кнопка «Копировать» на странице отправления не работала бы вовсе, молча.
+ *
+ * Запасной путь через execCommand обязателен: clipboard-API нет в старых
+ * браузерах и он не работает без https, а панель открывают и с телефона по
+ * локальной сети.
+ */
+(function () {
+  function say(btn) {
+    var was = btn.querySelector('span');
+    if (!was || was.dataset.was) return;
+    was.dataset.was = was.textContent;
+    was.textContent = 'Скопировано';
+    btn.classList.add('is-done');
+    setTimeout(function () {
+      was.textContent = was.dataset.was;
+      delete was.dataset.was;
+      btn.classList.remove('is-done');
+    }, 1800);
+  }
+  function fallback(text, done) {
+    var box = document.createElement('textarea');
+    box.value = text;
+    box.setAttribute('readonly', '');
+    box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(box);
+    box.select();
+    // Результат обязателен: execCommand не бросает исключение, а возвращает
+    // false, и без проверки кнопка говорила бы «Скопировано» там, где ничего не
+    // скопировалось.
+    try { if (document.execCommand('copy')) done(); } catch (err) { /* нечем — молчим */ }
+    box.remove();
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-chat-copy],[data-copy]');
+    if (!btn) return;
+    e.preventDefault();
+    var text = btn.getAttribute('data-chat-copy') || btn.getAttribute('data-copy') || '';
+    var done = function () { say(btn); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallback(text, done); });
+    } else fallback(text, done);
+  });
 })();
