@@ -56,6 +56,7 @@
     since: 0,            // время последней показанной реплики (для опроса)
     typing: null,        // узел «печатает…»
     live: null,          // узел ответа ИИ, который печатается прямо сейчас
+    liveText: '',        // и весь его текст: ссылки собираются из целой строки
     unread: 0,
     sending: false,
     echo: null,          // своя последняя реплика: по ней узнаётся эхо с сервера
@@ -91,35 +92,42 @@
 
   /* --------------------------------- Реплики --------------------------------- */
 
-  // Ссылки на карточки товаров ИИ пишет адресом (/product/id) — превращаем их в
-  // настоящие ссылки. Всё остальное остаётся текстом: узлы создаются вручную,
-  // поэтому чужая строка разметкой стать не может в принципе.
-  var LINK = /(https?:\/\/[^\s<>"]+|\/(?:product|checkout|warranty|returns|privacy)[^\s<>",;]*)/g;
-
-  function fillText(node, text) {
+  /* Ссылку консультант пишет как «[Айфон 17 Pro](/product/iphone-17-pro)», а
+   * покупатель видит «👉 Айфон 17 Pro». Разбирает строку общий с сервером
+   * `public/chat-links.js` — своя копия разбора здесь разъехалась бы с панелью
+   * и с тем, что уходит менеджеру в Telegram.
+   *
+   * Узлы создаются вручную, поэтому чужая строка разметкой стать не может в
+   * принципе — ни текст покупателя, ни текст, который сочинила модель.
+   *
+   * `growing` — про растущий ответ: пока ссылка не дописана, показываем одно
+   * название, иначе в ленте на пару секунд повисают скобки с адресом. */
+  function fillText(node, text, growing) {
     var rest = String(text == null ? '' : text);
-    var at = 0;
-    var m;
-    LINK.lastIndex = 0;
-    while ((m = LINK.exec(rest))) {
-      if (m.index > at) node.appendChild(document.createTextNode(rest.slice(at, m.index)));
-      /* Знаки препинания в конец ссылки не забираем. Модель пишет адрес внутри
-       * предложения («смотрите здесь: /product/iphone-17-pro-max.»), и точка,
-       * попавшая в href, превращает живую ссылку в 404 — то есть ровно в тот
-       * тупик, ради обхода которого ссылку и дают. */
-      var href = m[0].replace(/[.,;:!?)»"']+$/, '');
-      if (!href) { at = m.index; break; }
+    if (!window.ChatLinks) { node.appendChild(document.createTextNode(rest)); return; }
+    var list = window.ChatLinks.parts(rest, growing);
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (p.text != null) { node.appendChild(document.createTextNode(p.text)); continue; }
       var a = document.createElement('a');
-      a.href = href;
-      a.textContent = href;
+      a.href = p.href;
+      a.className = 'chat-link';
+      /* Палец показывает, куда нажимать, и держится за название неразрывным
+       * пробелом: иначе он остаётся один в конце строки, а название уезжает на
+       * следующую. Читать его скринридеру незачем — на что нажимать, тот и так
+       * скажет ссылкой. */
+      if (p.label !== p.href) {
+        var point = document.createElement('span');
+        point.setAttribute('aria-hidden', 'true');
+        point.textContent = '👉 ';
+        a.appendChild(point);
+      }
+      a.appendChild(document.createTextNode(p.label));
       // Внешние ссылки открываем в новой вкладке, свои — в этой же: увести
       // покупателя с витрины по своей же ссылке было бы странно.
-      if (href.charAt(0) !== '/') { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+      if (p.href.charAt(0) !== '/') { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
       node.appendChild(a);
-      // Отрезанная пунктуация остаётся обычным текстом сразу за ссылкой.
-      at = m.index + href.length;
     }
-    if (at < rest.length) node.appendChild(document.createTextNode(rest.slice(at)));
   }
 
   /* Снимки в реплике.
@@ -467,13 +475,22 @@
        * копия списка имён в скрипте. */
       dayDivider(Date.now());
       state.live = bubble('ai', '', root.getAttribute('data-ai-name') || '');
+      state.liveText = '';
       list.appendChild(state.live);
     }
     var body = state.live.querySelector('.chat-text');
     if (!body) return;
-    // Пока текст растёт, ссылки не собираем: они всё равно приезжают по частям.
-    // Готовую реплику перерисуем целиком в `endDelta()`.
-    body.textContent += piece;
+    /* Растущий текст храним ЦЕЛИКОМ и перерисовываем его на каждый кусок.
+     *
+     * Дописывать в узел было дешевле, но ссылка приезжает по частям, и в ленте
+     * на пару секунд повисало «[Айфон 17](/produ» — та самая разметка, которую
+     * покупатель видеть не должен. Теперь `fillText` в режиме растущего ответа
+     * показывает у незакрытой ссылки одно название, и текст не дёргается, когда
+     * она закроется. Перерисовка стоит ничего: кусок приходит раз в такт
+     * печати, а в пузыре несколько десятков слов. */
+    state.liveText += piece;
+    body.textContent = '';
+    fillText(body, state.liveText, true);
     scroll();
   }
   function endDelta(message) {
@@ -498,6 +515,7 @@
       meta.insertBefore(stampNode((message && message.at) || Date.now()), meta.firstChild);
     }
     state.live = null;
+    state.liveText = '';
     arrived();
     scroll();
   }

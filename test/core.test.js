@@ -10464,6 +10464,126 @@ test('чат звучит одинаково у покупателя и у ме�
   assert.match(ui, /chat-view\[data-chat-sent\][\s\S]{0,200}play\('out'\)/);
 });
 
+test('ссылка консультанта — название товара, а не адрес', () => {
+  const LINKS = require('../public/chat-links');
+
+  /* Голый «/product/iphone-17» посреди фразы — технический мусор, вылезший
+   * наружу: покупателю надо ещё догадаться, что на него жмут. Формат один на
+   * весь проект: название в квадратных скобках, адрес в круглых. */
+  const parts = LINKS.parts('Смотрите [Айфон 17 Pro](/product/iphone-17-pro) — от 66 990 ₽.');
+  assert.deepEqual(parts, [
+    { text: 'Смотрите ' },
+    { label: 'Айфон 17 Pro', href: '/product/iphone-17-pro' },
+    { text: ' — от 66 990 ₽.' }
+  ]);
+
+  // Скобки могут стоять и в обычном тексте — ссылкой это не делает ничего.
+  assert.deepEqual(LINKS.parts('цена [со скидкой] уже указана'), [{ text: 'цена [со скидкой] уже указана' }]);
+
+  /* Знаки препинания в конец ссылки не забираем: точка в href превращает живую
+   * ссылку в 404 — тот самый тупик, ради обхода которого её и дают. */
+  const bare = LINKS.parts('айфон 17: /product/iphone-17.');
+  assert.equal(bare[1].href, '/product/iphone-17');
+  assert.equal(bare[2].text, '.');
+
+  /* Забыла скобки — название дописывает сервер из ЖИВОГО каталога: переврать
+   * его модель уже не может. */
+  assert.equal(
+    LINKS.withNames('айфон 17 есть: /product/iphone-17', id => (id === 'iphone-17' ? 'iPhone 17' : '')),
+    'айфон 17 есть: [iPhone 17](/product/iphone-17)');
+  // Товара в каталоге нет — оставляем как было, выдумывать название нечем.
+  assert.equal(LINKS.withNames('вот /product/nope', () => ''), 'вот /product/nope');
+  // Название уже есть — оно от модели, и она зовёт товар так, как его зовут вслух.
+  assert.equal(LINKS.withNames('[Айфон 17](/product/iphone-17)', () => 'iPhone 17'), '[Айфон 17](/product/iphone-17)');
+
+  /* Растущий ответ: пока ссылка не дописана, в ленте стоит одно название.
+   * Иначе на пару секунд повисает та самая разметка, которую мы и прячем. */
+  assert.deepEqual(LINKS.parts('смотрите [Айфон 17](/produ', true), [{ text: 'смотрите Айфон 17' }]);
+  // Тем же способом закрывается реплика, оборванная вошедшим оператором.
+  assert.equal(LINKS.withNames('вот [Айфон 17](/produ', () => 'x', true), 'вот Айфон 17');
+
+  // Для Telegram ссылка разворачивается: там скобки читать некому.
+  assert.equal(LINKS.plain('вот [Айфон 17](/product/iphone-17) и всё'), 'вот Айфон 17 (/product/iphone-17) и всё');
+
+  /* ФАЙЛ ОДИН НА ВИТРИНУ, ПАНЕЛЬ И TELEGRAM — как phone.js и media-lightbox.js.
+   * Своя копия разбора в браузере означала бы, что покупатель видит в окне одно,
+   * а менеджер в панели другое. */
+  const shopLayout = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  assert.match(shopLayout, /chat-links\.js/, 'витрина грузит общий файл');
+  for (const f of ['admin-views.js', 'chat-tg.js']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8'),
+      /require\('\.\.\/public\/chat-links'\)/, f + ' разбирает ссылки тем же файлом');
+  }
+  const chatJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.match(chatJs, /window\.ChatLinks\.parts\(/);
+  assert.ok(!/product\|checkout\|warranty/.test(chatJs), 'своей копии разбора в скрипте витрины нет');
+  // Ответ в Telegram уходит развёрнутым, а не со скобками.
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'chat-tg.js'), 'utf8'),
+    /function relayAi[\s\S]{0,200}LINKS\.plain\(text\)/);
+
+  /* Панель показывает менеджеру ровно то, что видит покупатель: название
+   * ссылкой и палец, а не скобки с адресом. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-links-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ page: '/', ip: '1.2.3.4' });
+  chatStore.addMessage(chat, 'user', 'что есть из айфонов?');
+  chatStore.addMessage(chat, 'ai', 'Есть [Айфон 17 Pro](/product/iphone-17-pro) от 66 990 ₽.');
+  const page = adminViews.chatPage(SETTINGS, dbCore, chatStore.get(chat.id), '', []);
+  assert.match(page, /<a href="\/product\/iphone-17-pro"[^>]*>.{0,60}Айфон 17 Pro<\/a>/);
+  /* Скобок в САМОМ ПУЗЫРЕ нет. В форме правки и в кнопке «Скопировать» они
+   * остаются, и это правильно: правится и копируется исходный текст реплики, а
+   * рендер вместо него стёр бы ссылку первым же сохранением. */
+  const bubble = /<span class="chat-line-text">([\s\S]*?)<\/span><span class="chat-line-at">/g;
+  const bubbles = [];
+  let hit;
+  while ((hit = bubble.exec(page))) bubbles.push(hit[1]);
+  assert.ok(bubbles.some(b => /Айфон 17 Pro<\/a>/.test(b)));
+  assert.ok(!bubbles.some(b => b.includes('[Айфон 17 Pro]')), 'скобок менеджер не видит');
+  // Текст покупателя разметкой не становится ни при каких скобках.
+  chatStore.addMessage(chat, 'user', '<b>[а так]</b>(/product/x)');
+  assert.match(adminViews.chatPage(SETTINGS, dbCore, chatStore.get(chat.id), '', []), /&lt;b&gt;/);
+});
+
+test('консультант не повторяется и не отговаривается «передам менеджеру»', () => {
+  const rules = chatPrompt.RULES.join('\n');
+
+  /* Повтор собственного ответа — самая заметная примета робота. Боевой диалог
+   * 27 августа: «почему так дёшево?» и через минуту «Рома почему так дешево»
+   * получили одну и ту же фразу другими словами. Повторный вопрос означает
+   * ровно одно: прошлый ответ не убедил, значит нужен ДРУГОЙ довод. */
+  assert.match(rules, /Не повторяй собственные прошлые ответы/);
+  assert.match(rules, /\[Название товара\]\(\/product\/id\)/, 'формат ссылки задан примером');
+  assert.match(rules, /Голый адрес не пиши/);
+  // Ссылка на страницу вместо ответа — та же отговорка: на «на что
+  // распространяется гарантия» четыре раза подряд приходило «подробности на /warranty».
+  assert.match(rules, /Ссылка на страницу не заменяет ответ/);
+  // Приветствие — это приветствие, а не повод показать товар из корзины.
+  assert.match(rules, /На приветствие отвечай приветствием/);
+
+  /* Дверь к менеджеру сужена. Прежнее «не знаешь ответа — передам менеджеру»
+   * модель открывала на вопросы, ответ на которые у неё был («восстановленные?»,
+   * «запечатан ли?»), и покупатель получал уклончивое «не знаю» ровно там, где
+   * решается покупка. */
+  assert.doesNotMatch(rules, /Не знаешь ответа или вопрос требует человека/);
+  assert.match(rules, /Передавай менеджеру только то, чего нет/);
+  assert.match(rules, /«в карточке не указано»/, 'отговорка названа прямо');
+
+  /* Условия отвечают на то, на что консультант отвечать не мог. Всё снято с тех
+   * же страниц витрины, что читает покупатель, — разойтись с ней им нечем. */
+  const store = chatPrompt.storeText(Object.assign({}, SETTINGS, {
+    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret'
+  }));
+  assert.match(store, /самовывоза нет/, 'офлайн-точек нет — это спрашивают через один диалог');
+  assert.match(store, /Оплаты при получении и наложенного платежа нет/);
+  assert.match(store, /45 дней/, 'что покрывает гарантия и сколько идёт ремонт');
+  assert.match(store, /просадку аккумулятора/);
+  assert.match(store, /Заводской брак в первые 14 дней/);
+  // Ссылки в фактах стоят в том же формате, которого мы ждём от ответа: пример
+  // рядом с фактом надёжнее описания формата словами.
+  assert.match(store, /\[гарантия\]\(\/warranty\)/);
+  assert.match(store, /\[возврат\]\(\/returns\)/);
+});
+
 test('уведомление не приходит про диалог, который и так открыт', () => {
   /* Менеджер смотрит на эту переписку, реплика приезжает в ленту живым
    * обновлением у него на глазах — карточка поверх неё сообщала бы о том, что

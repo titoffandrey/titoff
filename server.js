@@ -50,6 +50,9 @@ const CHAT = require('./lib/chat');
 const AI = require('./lib/ai');
 const PROMPT = require('./lib/chat-prompt');
 const TGCHAT = require('./lib/chat-tg');
+// Ссылки в реплике консультанта — общий с витриной файл: покупатель видит
+// название товара, а не адрес (см. шапку public/chat-links.js).
+const LINKS = require('./public/chat-links');
 // Ответ консультанта печатается, а не падает целиком: пауза на прочтение
 // вопроса и ровный темп по длине ответа (см. шапку модуля).
 const TYPING = require('./lib/chat-typing');
@@ -1748,6 +1751,23 @@ function lastQuestion(chat) {
   return { text: '', at: 0 };
 }
 
+/* Ссылки в готовом ответе консультанта: голый адрес → название из каталога.
+ *
+ * Скобки пишет сама модель (так велят правила в lib/chat-prompt.js), а это
+ * страховка на случай, когда она их забыла: в окне покупателя должно стоять
+ * «👉 Айфон 17 Pro», а не строка со слэшами посреди фразы. Название берётся из
+ * живого каталога — переврать его модель уже не может.
+ *
+ * `growing` — про реплику, оборванную вошедшим оператором: недописанная ссылка
+ * сохраняется одним названием.
+ */
+function chatLinkNames(text, growing) {
+  return LINKS.withNames(text, id => {
+    const p = db.visibleProduct(id);
+    return p ? p.name : '';
+  }, growing);
+}
+
 async function aiAnswer(chat, info, s) {
   const question = lastQuestion(chat);
   CHAT.push(chat.id, 'typing', {});
@@ -1792,7 +1812,7 @@ async function aiAnswer(chat, info, s) {
      * разговоры, а в окне текст дописался бы сам при следующем открытии. */
     const typed = pace.sent();
     if (typed) {
-      const partial = CHAT.addMessage(fresh, 'ai', typed);
+      const partial = CHAT.addMessage(fresh, 'ai', chatLinkNames(typed, true));
       CHAT.push(fresh.id, 'done', partial);
     } else {
       CHAT.push(fresh.id, 'done', null);
@@ -1800,6 +1820,10 @@ async function aiAnswer(chat, info, s) {
     return;
   }
   if (result.ok && result.text) {
+    // Забыла скобки — дописываем название сами (см. `withNames` в
+    // public/chat-links.js): в переписке покупателя голому адресу не место, а
+    // название приходит из живого каталога, поэтому переврать его нельзя.
+    const text = chatLinkNames(result.text);
     /* Ответ готов — вот теперь вопрос прочитан: галочки у покупателя синеют
      * вместе с приходом ответа, а не отдельным событием до него.
      *
@@ -1808,9 +1832,9 @@ async function aiAnswer(chat, info, s) {
      * неправдой и для покупателя, и для счётчика диалогов в шапке панели,
      * который считает непрочитанное этой же отметкой. */
     CHAT.markStore(fresh, 'read', question.at);
-    const message = CHAT.addMessage(fresh, 'ai', result.text);
+    const message = CHAT.addMessage(fresh, 'ai', text);
     CHAT.push(fresh.id, 'done', message);
-    TGCHAT.relayAi(fresh, result.text);
+    TGCHAT.relayAi(fresh, text);
     return;
   }
   /* Модель не ответила. Покупателю говорим об этом ГОЛОСОМ КОНСУЛЬТАНТА и без
