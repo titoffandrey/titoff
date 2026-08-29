@@ -1007,34 +1007,17 @@
    */
   function narrow() { return matchMedia('(max-width:560px)').matches; }
 
+  /* Саму арифметику делает `window.fitPanel` из `public/mobile-shell.js` — одна
+     на витрину и панель: страница диалога у менеджера решает ту же задачу, и
+     копия здесь разъехалась бы с ней. Скрипт грузится раньше нашего, но если
+     его почему-то нет — окно просто останется как было, без подгонки. */
   function fitViewport() {
-    var vv = window.visualViewport;
-    if (!vv || !state.open || !narrow()) return resetViewport();
-    var keyboard = window.innerHeight - vv.height > 80;
-    /* Видимая область бывает сдвинута и без клавиатуры — щипком. Масштаб мы
-       гасим (мета-тег плюс `public/mobile-shell.js`), но щипок мог случиться до
-       загрузки скрипта или в браузере, который его не отдаёт, — и тогда окно
-       чата стоит шире экрана и по краям торчит витрина. Проверяем, а не верим:
-       у `position:fixed` координаты считаются от layout viewport, и никакой CSS
-       про эту разницу не знает. */
-    var shifted = Math.abs(vv.offsetLeft) > 1 || Math.abs(vv.offsetTop) > 1;
-    var zoomed = Math.abs((vv.scale || 1) - 1) > 0.01;
-    // Всё на своих местах — не трогаем ничего: лишний inline-стиль перебил бы
-    // анимацию открытия и обычную раскладку.
-    if (!keyboard && !shifted && !zoomed) return resetViewport();
-    panel.style.width = vv.width + 'px';
-    panel.style.height = vv.height + 'px';
-    // Сдвиг именно transform, а не top/left: он идёт в композиторе и не
-    // заставляет пересчитывать раскладку на каждый кадр выезжающей клавиатуры.
-    panel.style.transform = 'translate(' + vv.offsetLeft + 'px,' + vv.offsetTop + 'px)';
-    scroll(true);
+    if (!window.fitPanel) return;
+    if (window.fitPanel(panel, state.open && narrow())) scroll(true);
   }
 
   function resetViewport() {
-    if (!panel.style.height && !panel.style.transform && !panel.style.width) return;
-    panel.style.removeProperty('width');
-    panel.style.removeProperty('height');
-    panel.style.removeProperty('transform');
+    if (window.fitPanel) window.fitPanel(panel, false);
   }
 
   if (window.visualViewport) {

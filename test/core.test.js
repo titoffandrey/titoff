@@ -10997,10 +10997,53 @@ test('на телефоне сайт ведёт себя как приложен
   assert.match(body[0], /overscroll-behavior-x:none/, 'горизонтальной резинки нет');
 
   /* Окно чата садится в видимую область не только при клавиатуре: сдвиг бывает
-   * и от щипка, который случился до загрузки скрипта. */
+   * и от щипка, который случился до загрузки скрипта.
+   *
+   * Считает это ОДНА функция на витрину и панель — `window.fitPanel` здесь же:
+   * окно чата у покупателя и страница диалога у менеджера решают одну задачу,
+   * и копия арифметики во втором файле разъехалась бы с первой, а увидеть это
+   * можно только на живом телефоне. */
+  assert.match(shell, /window\.fitPanel = function/, 'подгонка живёт в общем файле');
+  assert.match(shell, /vv\.offsetLeft/, 'горизонтальный сдвиг видимой области учитывается');
+  assert.match(shell, /el\.style\.width = vv\.width/, 'ширина берётся у видимой области');
+
   const chat = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
-  assert.match(chat, /vv\.offsetLeft/, 'горизонтальный сдвиг видимой области учитывается');
-  assert.match(chat, /panel\.style\.width = vv\.width/, 'ширина берётся у видимой области');
+  const admin = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  for (const [name, code] of [['витрина', chat], ['панель', admin]]) {
+    assert.match(code, /window\.fitPanel\(/, name + ' зовёт общую подгонку');
+    assert.equal(/vv\.offsetLeft/.test(code), false, name + ': своей копии арифметики быть не должно');
+  }
+});
+
+test('диалог в панели на телефоне — экран мессенджера', () => {
+  const chat = {
+    id: 'c1', mode: 'ai', messages: [{ at: Date.now(), role: 'user', text: 'привет' }],
+    name: '', city: 'Москва', ip: '1.2.3.4', lastSeen: Date.now(), receipt: {}
+  };
+  const db = { pendingReviewCount: () => 0, newOrderCount: () => 0 };
+  const html = adminViews.chatPage(SETTINGS, db, chat, '', [], false);
+
+  /* Признак полноэкранного экрана ставит СЕРВЕР классом у <body>: `:has()` для
+   * этого не годится — его поддерживают не все версии Safari, доходящие до
+   * панели, — а без признака правило пришлось бы вешать на все страницы. */
+  assert.match(html, /<body class="admin a-app"/);
+  // Стрелка «назад» живёт в шапке разговора: шапки панели на телефоне нет вовсе.
+  assert.match(html, /class="chat-back" href="\/admin\/chat"/);
+  /* Подробности о собеседнике — скрытый чекбокс и подпись-кнопка, а не
+   * <details>: на десктопе они обязаны стоять открыто, а у <details>
+   * содержимое прячет браузер. Тот же приём, что у отбора в ленте отзывов. */
+  assert.match(html, /<input type="checkbox" id="chat-profile" class="chat-profile-switch sr-only">/);
+  assert.match(html, /<label class="chat-head-who" for="chat-profile"/);
+  assert.match(html, /<div class="chat-head-drop">[\s\S]*chat-head-meta/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const mobile = css.slice(css.indexOf('@media (max-width:640px){'));
+  // Экран целиком: шапка и поле не сжимаются, прокручивается только лента.
+  assert.match(mobile, /\.a-app \.chat-view\{position:fixed;inset:0/);
+  assert.match(mobile, /\.a-app \.chat-thread\{flex:1;min-height:0;overflow-y:auto/);
+  assert.match(mobile, /\.a-app \.a-topbar,\.a-app \.a-flash\{display:none\}/);
+  // На десктопе обёртка убирается из раскладки — блоки стоят как стояли.
+  assert.match(css, /\n\.chat-head-box\{display:contents\}/);
 });
 
 /* ============ ОТЧЁТ ПО КАССАМ: ЧТО ИМЕННО ОНА ПРИСЛАЛА ============ */

@@ -52,4 +52,47 @@
     vv.addEventListener('resize', function () { setTimeout(unshift, 0); });
     vv.addEventListener('scroll', unshift);
   }
+
+  /* ---------- Панель во весь экран садится в ВИДИМУЮ область ----------
+   *
+   * Открывая клавиатуру, Safari и Chrome НЕ уменьшают окно, а сдвигают видимую
+   * область вверх. Элемент с `position:fixed;inset:0` остаётся при этом на
+   * месте по документу: его шапка уезжает за верхний край, а поле ввода — под
+   * клавиатуру. Медиазапросами этого не сделать — они про размер ОКНА, а не про
+   * видимую его часть; `100dvh` знает про адресную строку, но не про клавиатуру.
+   *
+   * Функция ОДНА на витрину и панель: окно чата у покупателя и страница диалога
+   * у менеджера решают одну задачу, и копия этой арифметики во втором файле
+   * разъехалась бы с первой — а увидеть это можно только на живом телефоне.
+   * Живёт она здесь, потому что этот файл грузят оба макета и грузят первым.
+   *
+   * Возвращает true, если панель пришлось подвинуть: вызывающий по этому знаку
+   * доводит ленту до последней реплики.
+   */
+  function reset(el) {
+    if (!el.style.height && !el.style.width && !el.style.transform) return false;
+    el.style.removeProperty('width');
+    el.style.removeProperty('height');
+    el.style.removeProperty('transform');
+    return false;
+  }
+  window.fitPanel = function (el, on) {
+    if (!el) return false;
+    if (!vv || !on) return reset(el);
+    var keyboard = window.innerHeight - vv.height > 80;
+    /* Видимая область бывает сдвинута и без клавиатуры — щипком. Масштаб мы
+       гасим выше, но щипок мог случиться до загрузки скрипта или в браузере,
+       который событий не отдаёт. Проверяем, а не верим. */
+    var shifted = Math.abs(vv.offsetLeft) > 1 || Math.abs(vv.offsetTop) > 1;
+    var zoomed = Math.abs((vv.scale || 1) - 1) > 0.01;
+    // Всё на своих местах — не трогаем ничего: лишний inline-стиль перебил бы
+    // анимацию открытия и обычную раскладку.
+    if (!keyboard && !shifted && !zoomed) return reset(el);
+    el.style.width = vv.width + 'px';
+    el.style.height = vv.height + 'px';
+    // Сдвиг именно transform, а не top/left: он идёт в композиторе и не
+    // заставляет пересчитывать раскладку на каждый кадр выезжающей клавиатуры.
+    el.style.transform = 'translate(' + vv.offsetLeft + 'px,' + vv.offsetTop + 'px)';
+    return true;
+  };
 })();
