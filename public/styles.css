@@ -2176,6 +2176,12 @@ body.admin{background:#f4f4f6;color:#242426}
 .o-reconcile .btn:hover{border-color:var(--accent);color:var(--text)}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
 .a-orders .o-sum b{font-size:15.5px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+/* Промокод — подписью под суммой: он её и объясняет. Своей строки в шапке
+   таблицы у него нет, потому что есть он далеко не у каждой заявки. */
+.o-promo{margin-top:2px;font-size:11.5px;font-weight:500;color:var(--muted);white-space:nowrap}
+/* Селектор длиннее нужного намеренно: у `.a-orders .o-sum b` свой крупный кегль
+   и он перебил бы кегль этой подписи. */
+.a-orders .o-sum .o-promo b{font-size:11.5px;font-weight:650;letter-spacing:.02em}
 .a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
 /* Отправление — третья строка в столбце заказа, под номером и датой. Подпись
    говорящая («в пути», «задерживается»), поэтому цвет несёт смысл: тёплый у
@@ -2582,6 +2588,52 @@ a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-reply-note{margin-left:auto}
 /* Отвеченный отзыв видно по строке подписи, а не только развернув свёртку. */
 .rv-reply.is-answered .rv-reply-ico{opacity:1;color:#0b7a37}
+
+/* ===== Промокоды (/admin/promo) =====
+   Строки, а не таблица: у кода четыре коротких поля и заметка, и в столбцах они
+   расползались бы по экрану, а на телефоне таблицу пришлось бы листать вбок —
+   то же решение, что у ленты отзывов. */
+.promo-state{display:flex;align-items:baseline;gap:7px;margin-bottom:12px;font-size:14px;line-height:1.45}
+/* Точка стоит на ПЕРВОЙ строке, а не по центру блока: на телефоне строка
+   переносится втрое, и центрированная точка повисала бы сбоку от середины. */
+.promo-state i{flex:none;align-self:flex-start;margin-top:5px;width:8px;height:8px;border-radius:50%;background:var(--tone,#b0b0b6)}
+/* Тона те же, что у состояний оплаты: «всё работает», «стоит посмотреть» и
+   «витрина осталась без того, ради чего раздел включали». */
+.promo-state.is-ok{--tone:#0b7a37}
+.promo-state.is-warn{--tone:#e8940c}
+.promo-state.is-err{--tone:#bf4800}
+.promo-top .switch-row{margin-bottom:4px}
+/* Поля раздела короткие: код, процент и заметка. Растянутые во всю ширину
+   панели они выглядели бы строкой ввода в полметра под слово «Скидка». */
+.promo-fields{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px}
+.promo-fields .field{flex:1 1 170px;max-width:280px;margin:0}
+.promo-fields .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px}
+.promo-list{display:flex;flex-direction:column;gap:10px}
+.promo-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:12px 15px;
+  border:1px solid var(--border-soft);border-radius:15px;background:#fff}
+.promo-row.is-off{background:#fafafb;color:var(--muted)}
+.promo-main{flex:1 1 240px;min-width:0}
+.promo-head{display:flex;flex-wrap:wrap;align-items:center;gap:5px 9px;line-height:1.3}
+.promo-code{font-size:15px;font-weight:650;letter-spacing:.03em;overflow-wrap:anywhere}
+.promo-cut{font-size:13px;color:var(--muted)}
+/* Свой процент — акцентом: это единственное, чем код отличается от скидки
+   витрины, и увидеть это надо с одного взгляда. */
+.promo-cut.is-own{color:var(--sale);font-weight:600}
+.promo-tag{padding:2px 8px;border-radius:980px;background:#e7f6ed;color:#0b7a37;font-size:11px;font-weight:600}
+.promo-tag.is-off{background:#f0f0f2;color:#6e6e73}
+.promo-sub{margin-top:3px;font-size:12.5px;color:var(--muted)}
+.promo-edit{flex:none}
+.promo-edit>summary{display:inline-flex;align-items:center;cursor:pointer;list-style:none}
+.promo-edit>summary::-webkit-details-marker{display:none}
+.promo-edit[open]{flex:1 1 100%;order:1}
+.promo-edit[open]>summary{margin-bottom:8px}
+.promo-edit .promo-form{padding-top:10px;border-top:1px solid var(--border-soft)}
+.promo-form .switch-row{margin-top:12px}
+.promo-form-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+/* Форма удаления снаружи, чтобы не вкладывать её в форму правки: на экране её
+   быть не должно вовсе, но и из потока фокуса убирать нечего — кнопка стоит в
+   самой форме правки. */
+.promo-row+form.sr-only{display:none}
 
 /* Плитки товаров: у кого сколько отзывов и сколько из них ждёт решения. */
 .rv-products{display:grid;grid-template-columns:repeat(auto-fill,minmax(236px,1fr));gap:8px}
@@ -3760,6 +3812,56 @@ details.metric-bots>summary:hover{background:#fffaf0}
    «сколько не платить». Розовая, как цена со скидкой и процент на карточке;
    без скидки строки в заказе просто нет. */
 .co-line-save span{color:var(--sale);font-weight:600}
+/* ===== Промокод на оформлении =====
+   Стоит НАД строками сводки: сначала «чем платим меньше», потом сами числа.
+   Отбит снизу волосяной линией — это отдельный вопрос, а не строка расчёта. */
+.co-promo{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+/* Применённый код — плашка на бледной подложке акцента: строка про выгоду, и
+   выглядеть она обязана как выгода, а не как ещё одно поле формы. */
+.co-promo-chip{display:flex;align-items:center;gap:9px;padding:10px 10px 10px 12px;
+  border-radius:13px;background:color-mix(in srgb,var(--accent) 8%,#fff);
+  border:1px solid color-mix(in srgb,var(--accent) 22%,#fff)}
+@supports not (color:color-mix(in srgb,#000 5%,#fff)){
+  .co-promo-chip{background:#f5f8ff;border-color:#dfe7f8}
+}
+.co-promo-ico{display:flex;color:var(--accent);flex:none}
+.co-promo-ico svg{width:19px;height:19px}
+.co-promo-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;line-height:1.25}
+.co-promo-text b{font-size:14.5px;letter-spacing:.02em;word-break:break-all}
+.co-promo-text i{font-style:normal;font-size:12px;color:var(--muted)}
+/* «Удалить» — текстовая кнопка, а не вторая заметная: убрать скидку покупатель
+   вправе, но предлагать ему это наравне с самой скидкой незачем. */
+.co-promo-drop{flex:none;border:0;background:none;padding:4px 2px;cursor:pointer;
+  font:inherit;font-size:12.5px;color:var(--muted);text-decoration:underline;
+  text-underline-offset:3px;text-decoration-color:var(--border)}
+.co-promo-drop:hover{color:#d92d20;text-decoration-color:currentColor}
+/* «Ввести другой промокод» — тихая строка под плашкой: свой код есть у единиц. */
+.co-promo-open{display:block;margin:10px 0 0;padding:0;border:0;background:none;cursor:pointer;
+  font:inherit;font-size:13px;color:var(--accent)}
+.co-promo-open:hover{text-decoration:underline;text-underline-offset:3px}
+.co-promo-chip+.co-promo-form{margin-top:10px}
+.co-promo-form{display:flex;gap:8px}
+/* `hidden` не прячет то, у чего задан `display`: браузерная таблица даёт ему
+   всего лишь `display:none`, а правило выше её перебивает. На этом в проекте
+   уже наступали — так висела на виду кнопка чата, которую скрипт считал
+   скрытой. */
+.co-promo[hidden],.co-promo-chip[hidden],.co-promo-form[hidden],.co-promo-open[hidden]{display:none}
+.co-promo-form input{flex:1;min-width:0;height:42px;padding:0 12px;border:1px solid var(--border);
+  border-radius:12px;background:#fff;font:inherit;font-size:15px;letter-spacing:.04em;
+  text-transform:uppercase}
+.co-promo-form input::placeholder{letter-spacing:0;text-transform:none;color:var(--muted)}
+.co-promo-form input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,.12)}
+.co-promo-apply{flex:none;height:42px;padding:0 15px;border:1px solid var(--border);border-radius:12px;
+  background:#fff;font:inherit;font-size:14px;font-weight:560;cursor:pointer;white-space:nowrap}
+.co-promo-apply:hover{background:#f7f7f9}
+.co-promo-apply:disabled{opacity:.5;cursor:default}
+.co-promo-note{margin:9px 0 0;font-size:12.5px;line-height:1.45;color:var(--muted)}
+.co-promo-note.is-err{color:#d92d20}
+/* «Вернуть SALE» — рядом с объяснением, а не отдельной кнопкой: она отвечает на
+   то же самое, что и строка над ней. */
+.co-promo-back{margin-left:6px;padding:0;border:0;background:none;cursor:pointer;
+  font:inherit;font-size:12.5px;font-weight:560;color:var(--accent)}
+.co-promo-back:hover{text-decoration:underline;text-underline-offset:3px}
 .co-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   padding-top:14px;border-top:1px solid var(--border);margin-top:14px}
 .co-total span{font-size:15px}

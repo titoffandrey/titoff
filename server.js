@@ -38,6 +38,10 @@ const PAY = require('./lib/pay-methods');
 const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/discount');
+// Промокоды: скидка товара — она же скидка кода по умолчанию. Единственное
+// место, где код превращается в деньги, — `PROMO.priceFor()`; её спрашивают и
+// корзина, и заказ.
+const PROMO = require('./lib/promo');
 const PF = require('./lib/price-float');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
@@ -762,6 +766,11 @@ app.get('/checkout', (req, res) => {
     // `payOnline` решает подпись кнопки, и своими реквизитами покупатель платит
     // на нашей же странице — значит «Перейти к оплате» тоже.
     payOnline: (PAYMENTS.enabled(settings()) && !!paymentOrigin(req)) || PAYMENTS.ownEnabled(settings()),
+    // Работают ли промокоды — единственное, что витрина знает о них заранее.
+    // Какой именно применён, она спрашивает у `/api/cart` вместе с ценами:
+    // держать это в разметке значило бы завести второй источник правды о
+    // скидке, а он разошёлся бы с ценами на первой же правке в панели.
+    promoOn: PROMO.enabled(settings()),
     notice
   })));
 });
@@ -963,6 +972,13 @@ app.post('/api/cart', (req, res) => {
   if (rateLimited(req, 'cart', 180, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
   // Настройки нужны ради плавающих цен: период и разброс задаёт владелец.
   const s = settings();
+  /* Промокод покупателя. Он приходит с каждым запросом корзины, а не лежит в
+   * сессии: цены считает сервер, и решать, с каким кодом их считать, обязан тот
+   * же запрос, который их спрашивает. Полей нет вовсе (старая вкладка) — код по
+   * умолчанию, то есть ровно те цены, что стоят на карточках.
+   */
+  const promoChoice = PROMO.choiceFrom(req.body);
+  const promo = PROMO.stateOf(s, promoChoice);
   const raw = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
   const items = raw.map(it => {
     if (!it || typeof it !== 'object') return null;
@@ -992,15 +1008,20 @@ app.post('/api/cart', (req, res) => {
       + optionsAdd(chosen);
     // Цена текущего периода (lib/price-float.js), а не число из каталога: в
     // корзине покупатель обязан видеть ровно то, что стояло на карточке.
-    const price = PF.priceOf(view, s) + adds;
+    const sum = PF.priceOf(view, s) + adds;
     /* Цена для сравнения — та же, что зачёркнута на карточке и на странице
       * товара, и считается ТЕМ ЖЕ способом: процент скидки товара от ПОЛНОЙ
       * цены сборки. Поэтому выгода в процентах у любой сборки одна и та же, а
       * в рублях у дорогой она больше — так скидка и работает.
       *
       * Ноль означает «зачёркивать нечего»: у товара без скидки сравнивать не с чем.
+      *
+      * Промокод меняет обе цифры разом (lib/promo.js): снятый код поднимает цену
+      * до полной и зачёркивать становится нечего, а код со своим процентом
+      * считает скидку от той же полной цены.
       */
-    const compare = D.compareFor(price, D.discountPct(view));
+    const priced = PROMO.priceFor(sum, D.discountPct(view), promo);
+    const price = priced.price, compare = priced.compare;
     const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
       || (band && band.option.inStock === false)
       || (band && band.option.forColor && band.option.forColor !== color)
@@ -1016,7 +1037,45 @@ app.post('/api/cart', (req, res) => {
       available: !outOfStock
     };
   }).filter(Boolean);
-  res.json({ ok: true, items });
+  /* Состояние промокода едет рядом с ценами, а не отдельным запросом: витрина
+   * рисует строку на оформлении по ответу сервера, и цены с этой строкой
+   * обязаны приехать вместе. Иначе покупатель увидел бы «промокод SALE
+   * применён» рядом с ценами, посчитанными без него.
+   */
+  res.json({ ok: true, items, promo: PROMO.view(s, promoChoice) });
+});
+
+/* Применить промокод или снять его.
+ *
+ * Отдельный маршрут нужен ровно затем, чтобы сказать «такого кода нет»: цены
+ * витрина всё равно перезапросит у `/api/cart`, а вот отличить опечатку от
+ * сработавшего кода по одним ценам нельзя.
+ *
+ * Ответ — та же строка состояния, что и у корзины (`PROMO.view`): двух разных
+ * ответов об одном коде быть не должно.
+ */
+app.post('/api/promo', (req, res) => {
+  // Перебор кодов — единственный способ узнать чужой, поэтому лимит строже
+  // корзинного: сорок попыток за десять минут хватает человеку с опечатками и
+  // не хватает перебору по словарю.
+  if (rateLimited(req, 'promo', 40, 10 * 60 * 1000)) {
+    return res.json({ ok: false, error: 'Слишком много попыток. Попробуйте через несколько минут.' }, 429);
+  }
+  const s = settings();
+  if (!PROMO.enabled(s)) return res.json({ ok: false, error: 'Промокоды сейчас не работают' });
+  const choice = PROMO.choiceFrom(req.body);
+  // Снятие кода не проверяем вовсе: убрать скидку покупатель вправе всегда.
+  if (choice && choice.off) return res.json({ ok: true, promo: PROMO.view(s, choice) });
+  const typed = PROMO.normCode(req.body && req.body.promoCode);
+  if (!typed) return res.json({ ok: false, error: 'Введите промокод' });
+  // Про выключенный код и про несуществующий отвечаем одинаково: чужой код
+  // подбирают по разнице в ответах.
+  //
+  // Состояния при отказе не отдаём вовсе — витрина остаётся с тем, что у неё
+  // уже есть: иначе опечатка снявшего скидку покупателя молча возвращала бы ему
+  // код по умолчанию.
+  if (!PROMO.byCode(s, typed)) return res.json({ ok: false, error: 'Такого промокода нет' });
+  res.json({ ok: true, promo: PROMO.view(s, { code: typed }) });
 });
 
 // Подсказки адреса для поля на оформлении заказа. Ключ dadata.ru лежит в
@@ -1133,6 +1192,10 @@ function notifyNewOrder(order) {
     + `💻 Устройство: ${tgEsc([order.clientModel || order.clientDevice, order.clientOs, order.clientBrowser].filter(Boolean).join(' · ')) || 'не определено'}\n`
     + `🌐 IP: ${tgEsc(order.clientIp) || 'не определён'}\n`
     + (order.comment ? `💬 ${tgEsc(order.comment)}\n` : '')
+    // Промокод — рядом с деньгами, а не в шапке: он объясняет итог, а не
+    // покупателя. Без выгоды строка бессмысленна, поэтому её тогда и нет.
+    + (order.promoCode ? `🏷 Промокод: ${tgEsc(order.promoCode)}`
+      + `${order.promoDiscount ? ` — выгода ${R.money(order.promoDiscount, ss)}` : ''}\n` : '')
     + `\n${lines}\n\n<b>Итого: ${R.money(order.total, ss)}</b>`;
   sendTelegram(ss, msg).catch(() => {});
   // И карточкой в открытую панель. Та же дверь, что у Telegram: два разных места
@@ -1171,7 +1234,12 @@ function checkoutRequestHash(body) {
     firstName: String(b.firstName || '').trim(), lastName: String(b.lastName || '').trim(),
     phone: String(b.phone || '').trim(), contact: String(b.contact || '').trim(),
     address: String(b.address || '').trim(), delivery: String(b.delivery || '').trim(),
-    deliveryMode: String(b.deliveryMode || '').trim(), pickupCode: String(b.pickupCode || '').trim()
+    deliveryMode: String(b.deliveryMode || '').trim(), pickupCode: String(b.pickupCode || '').trim(),
+    // Промокод меняет цены, а значит и заказ: два запроса с одним ключом, но
+    // разными кодами — это разные заказы, а не потерянный ответ на один и тот
+    // же. У товара без скидки цены совпали бы, и без этих двух полей повтор
+    // вернул бы заказ с чужим кодом в карточке.
+    promoCode: PROMO.normCode(b.promoCode), promoOff: b.promoOff === true ? '1' : ''
   };
   return crypto.createHash('sha256').update(JSON.stringify(shape)).digest('hex');
 }
@@ -1199,7 +1267,10 @@ function reusableOrder(req, data) {
   const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
   const scalars = [
     'total', 'itemsTotal', 'firstName', 'lastName', 'phone', 'contact', 'address',
-    'delivery', 'deliveryMode', 'deliveryPrice', 'deliveryZone', 'pickupCode', 'pickupAddress', 'comment'
+    'delivery', 'deliveryMode', 'deliveryPrice', 'deliveryZone', 'pickupCode', 'pickupAddress', 'comment',
+    // Промокод — часть заказа: сменил его покупатель, и это уже другой заказ,
+    // даже если сумма случайно совпала.
+    'promoCode'
   ];
   const itemKey = items => JSON.stringify((items || []).map(item => ({
     id: item.id, name: item.name, price: item.price, qty: item.qty
@@ -1252,7 +1323,16 @@ app.post('/api/order', async (req, res) => {
     return res.json({ ok: false, errorCode: 'cart_changed', error: 'В корзине слишком много разных позиций. Обновите корзину.', changes: [{ reason: 'too_many' }] }, 409);
   }
   const rawItems = sourceItems.slice(0, 100);
+  /* Промокод покупателя — тот же разбор, что и в корзине. Считать по нему цены
+   * обязан сервер: витрина присылает цену, которую видела, но проверяет её тот
+   * же расчёт, что её и выдал (`PROMO.priceFor`).
+   */
+  const promo = PROMO.stateOf(s, PROMO.choiceFrom(req.body));
   const items = []; const changes = []; let total = 0;
+  // Сколько промокод дал выгоды в рублях — сумма по позициям. Уезжает в заказ:
+  // менеджеру видно, чем покупатель платил меньше, а витрине — что показать в
+  // строке «Промокод».
+  let promoSaved = 0;
   const changed = (it, reason, name, price) => {
     const row = { id: String(it && it.id || ''), reason, name: String(name || it && it.id || 'Товар').slice(0, 160) };
     if (Number.isFinite(Number(price)) && Number(price) >= 0) row.price = Number(price);
@@ -1274,7 +1354,10 @@ app.post('/api/order', async (req, res) => {
     // База текущего периода — и она же запоминается отдельно: ниже по ней
     // пересчитывается цена прошлого периода, если покупатель видел её.
     const base = PF.priceOf(view, s);
-    let price = base;
+    // Собираем ЦЕНУ СБОРКИ — базу с доплатами. Промокод применяется один раз в
+    // самом конце (`PROMO.priceFor`): он считает скидку от всей сборки, а не от
+    // каждой доплаты по отдельности.
+    let sum = base;
     let name = view.name;
     // Наличие варианта проверяем на сервере: корзина живёт в localStorage и могла
     // сохраниться до того, как цвет или конфигурацию распродали.
@@ -1282,7 +1365,7 @@ app.post('/api/order', async (req, res) => {
     if (storageLabel && Array.isArray(view.storages)) {
       const s = view.storages.find(x => x.label === storageLabel);
       if (s && s.inStock === false) { changed(it, 'out_of_stock', view.name + ' ' + s.label); continue; }
-      if (s) { price += Number(s.add) || 0; name += ' ' + s.label; }
+      if (s) { sum += Number(s.add) || 0; name += ' ' + s.label; }
     }
     const color = String(it.color || '').trim();
     if (color && Array.isArray(view.colors)) {
@@ -1296,10 +1379,10 @@ app.post('/api/order', async (req, res) => {
       if (band.option.inStock === false) { changed(it, 'out_of_stock', view.name + ', ' + band.option.name); continue; }
       // вариация «в цвет корпуса» продаётся только со своим корпусом
       if (band.option.forColor && band.option.forColor !== color) { changed(it, 'variant_changed', view.name); continue; }
-      price += Number(band.option.add) || 0;
+      sum += Number(band.option.add) || 0;
       name += ', ' + band.group.name + ' \u00b7 ' + band.option.name;
       const sz = (band.group.sizes || []).find(x => x.label === String(it.bandSize || '').trim());
-      if (sz) { price += Number(sz.add) || 0; name += ' ' + sz.label; }
+      if (sz) { sum += Number(sz.add) || 0; name += ' ' + sz.label; }
     }
     // Доп. характеристики: наличие и совместимость с конфигурацией перепроверяем
     // так же, как у ремешка, — корзина могла сохраниться до правки каталога.
@@ -1311,15 +1394,22 @@ app.post('/api/order', async (req, res) => {
     // Конфигурация, привязанная к чипу (8 ТБ только с M5 Max), проверяется здесь же.
     const stPick = (view.storages || []).find(x => x.label === storageLabel);
     if (stPick && !optionFits(stPick, storageLabel, picked)) { changed(it, 'variant_changed', view.name); continue; }
-    price += optionsAdd(chosen);
+    sum += optionsAdd(chosen);
     for (const c of chosen) name += ', ' + c.value.label;
-    if (!Number.isFinite(price) || price < 0) { changed(it, 'price_changed', view.name); continue; }
+    if (!Number.isFinite(sum) || sum < 0) { changed(it, 'price_changed', view.name); continue; }
+    /* Промокод — последним действием над собранной ценой, ровно как в
+     * `/api/cart`: тот же модуль, те же два числа. Своего расчёта здесь нет,
+     * иначе корзина и заказ разошлись бы на первом же коде со своим процентом.
+     */
+    const priced = PROMO.priceFor(sum, D.discountPct(view), promo);
+    let price = priced.price;
+    let saved = Math.max(0, (priced.compare || 0) - price);
     // Цена из браузера — не источник истины, а снимок того, что покупатель видел.
     // Разошлась с сервером — не оформляем заказ молча, а просим подтвердить новый
     // итог. Старые открытые вкладки без поля price остаются совместимыми.
     if (it.price !== undefined && it.price !== null && it.price !== '') {
       const seenPrice = Number(it.price);
-      const same = sum => Number.isFinite(seenPrice) && Math.round(seenPrice * 100) === Math.round(sum * 100);
+      const same = value => Number.isFinite(seenPrice) && Math.round(seenPrice * 100) === Math.round(value * 100);
       /* Цена ПРОШЛОГО периода тоже принимается, и это не послабление проверки.
        * Плавающие цены (lib/price-float.js) меняются по часам, а оформление
        * занимает минуты: покупатель, собравший корзину в 14:59 и нажавший
@@ -1329,12 +1419,18 @@ app.post('/api/order', async (req, res) => {
        * иначе старая вкладка покупала бы по вчерашней цене.
        */
       const prevBase = PF.previousOf(view, s);
-      const prevPrice = price - base + prevBase;
-      if (!same(price) && prevBase !== base && same(prevPrice)) price = prevPrice;
-      else if (!same(price)) { changed(it, 'price_changed', name, price); continue; }
+      // Прошлый период считается ЧЕРЕЗ ТУ ЖЕ функцию: промокод со своим
+      // процентом — не линейная надбавка, и «цена минус база плюс прошлая база»
+      // дала бы не ту цифру, которую покупатель видел.
+      const prev = PROMO.priceFor(sum - base + prevBase, D.discountPct(view), promo);
+      if (!same(price) && prevBase !== base && same(prev.price)) {
+        price = prev.price;
+        saved = Math.max(0, (prev.compare || 0) - price);
+      } else if (!same(price)) { changed(it, 'price_changed', name, price); continue; }
     }
     items.push({ id: view.id, name, price, qty });
     total += price * qty;
+    promoSaved += saved * qty;
   }
   if (changes.length) {
     return res.json({
@@ -1435,6 +1531,12 @@ app.post('/api/order', async (req, res) => {
     draft, payMode,
     host: db.normHost(req.headers.host),
     items, total: grandTotal, itemsTotal: total,
+    /* Промокод заказа. Пусто, когда кода нет вовсе: система выключена или
+     * покупатель снял скидку — тогда и выгоды никакой, и приписывать её
+     * несуществующему коду нельзя. Считается по тем же позициям, что и сумма,
+     * то есть без распроданных. */
+    promoCode: promo.promo ? promo.promo.code : '',
+    promoDiscount: promo.promo ? promoSaved : 0,
     firstName, lastName, phone, contact, address, delivery,
     comment: String(req.body.comment || '').slice(0, 1000),
     deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
@@ -3820,6 +3922,106 @@ app.post('/admin/chat/:id/message', (req, res) => {
 app.get('/admin/payments', (req, res) => {
   if (!guardAdmin(req, res)) return;
   res.send(A.paymentsPage(settings(), db, { tab: req.query.tab, page: req.query.page, flash: req.query.flash }));
+});
+
+/* ---------- Промокоды ----------
+ *
+ * Свой раздел, а не карточка в настройках: у кодов есть СПИСОК, а списку нужна
+ * страница. Проверяем всё ДО записи и возвращаем введённое — то же правило, что
+ * у формы товара и настроек: «Сохранено» на неправильном коде значило бы, что
+ * владелец узнает о нём от покупателя.
+ *
+ * Код приходит ПОЛЕМ ФОРМЫ, а не куском адреса: `/admin/promo/add` и код с
+ * именем «ADD» иначе спорили бы за один маршрут, а побеждает первый совпавший.
+ */
+function promoBack(message, isError) {
+  return '/admin/promo?flash=' + encodeURIComponent(String(message || '')) + (isError ? '&e=1' : '');
+}
+app.get('/admin/promo', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  res.send(A.promoPage(settings(), db, {
+    flash: req.query.flash, flashType: req.query.e ? 'err' : 'ok'
+  }));
+});
+// Общий выключатель и код, применённый по умолчанию.
+app.post('/admin/promo', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const s = settings();
+  const wanted = PROMO.normCode(req.body.promoDefault);
+  /* Кодом по умолчанию может быть только «скидка товара» — см. шапку
+   * lib/promo.js. Молча сохранить сюда код со своим процентом нельзя: витрина
+   * его не применит, а владелец увидит «Сохранено» и будет ждать скидки,
+   * которой нет.
+   */
+  if (wanted) {
+    const entry = PROMO.byCode(Object.assign({}, s, { promoOn: true }), wanted);
+    if (!entry) return res.redirect(promoBack('Такого кода нет или он выключен', true));
+    if (entry.percent) {
+      return res.redirect(promoBack('По умолчанию применяется только код со скидкой товара: свой процент переписал бы каждую цену в каталоге', true));
+    }
+  }
+  db.saveSettings({ promoOn: req.body.promoOn !== undefined, promoDefault: wanted });
+  res.redirect(promoBack('Сохранено'));
+});
+app.post('/admin/promo/add', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const s = settings();
+  const list = PROMO.codes(s);
+  const code = PROMO.normCode(req.body.code);
+  const back = (msg) => res.redirect(promoBack(msg, true));
+  if (!code) return back('Введите код');
+  if (!PROMO.validCode(code)) return back('Код — латиница, цифры, дефис и подчёркивание, от 2 до ' + PROMO.CODE_MAX + ' знаков');
+  if (list.some(c => c.code === code)) return back('Такой код уже есть');
+  if (list.length >= PROMO.MAX_CODES) return back('Больше ' + PROMO.MAX_CODES + ' кодов не храним');
+  // Пустая скидка — «скидка товара», и это законное значение. Мусор в поле
+  // законным не является: 0% и «двадцать» дали бы код, который ничего не даёт.
+  const raw = String(req.body.percent == null ? '' : req.body.percent).trim();
+  if (raw && !/^\d{1,2}$/.test(raw)) return back(`Скидка — целое число от 1 до ${PROMO.MAX_PCT} или пусто`);
+  const percent = PROMO.cleanPercent(raw);
+  if (raw && !percent) return back(`Скидка — целое число от 1 до ${PROMO.MAX_PCT} или пусто`);
+  db.saveSettings({
+    promoCodes: list.concat([{ code, percent, on: true, note: String(req.body.note || '').trim().slice(0, 120) }])
+  });
+  res.redirect(promoBack('Промокод ' + code + ' добавлен'));
+});
+app.post('/admin/promo/edit', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const s = settings();
+  const list = PROMO.codes(s);
+  const code = PROMO.normCode(req.body.code);
+  const entry = list.find(c => c.code === code);
+  if (!entry) return res.redirect(promoBack('Такого кода нет', true));
+  const raw = String(req.body.percent == null ? '' : req.body.percent).trim();
+  if (raw && !/^\d{1,2}$/.test(raw)) return res.redirect(promoBack(`Скидка — целое число от 1 до ${PROMO.MAX_PCT} или пусто`, true));
+  const percent = PROMO.cleanPercent(raw);
+  if (raw && !percent) return res.redirect(promoBack(`Скидка — целое число от 1 до ${PROMO.MAX_PCT} или пусто`, true));
+  const next = list.map(c => c.code === code
+    ? { code, percent, on: req.body.on !== undefined, note: String(req.body.note || '').trim().slice(0, 120) }
+    : c);
+  const patch = { promoCodes: next };
+  /* Код по умолчанию обязан остаться применимым. Выключили его или дали ему свой
+   * процент — он перестаёт быть скидкой витрины, и настройка обязана это
+   * признать: иначе `defaultCode()` молча вернёт null, и покупатель увидит в
+   * корзине цены без скидки при живой на вид настройке.
+   */
+  const def = next.find(c => c.code === PROMO.normCode(s.promoDefault));
+  if (def && def.code === code && (!def.on || def.percent)) patch.promoDefault = '';
+  db.saveSettings(patch);
+  res.redirect(promoBack('Промокод ' + code + ' сохранён'));
+});
+app.post('/admin/promo/delete', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const s = settings();
+  const code = PROMO.normCode(req.body.code);
+  const next = PROMO.codes(s).filter(c => c.code !== code);
+  // Заказы, оформленные по этому коду, остаются как есть: они помнят код сами
+  // (см. `promoCode` в lib/db.js), и переписывать историю ради удаления записи
+  // из справочника незачем.
+  db.saveSettings({
+    promoCodes: next,
+    promoDefault: PROMO.normCode(s.promoDefault) === code ? '' : s.promoDefault
+  });
+  res.redirect(promoBack('Промокод ' + code + ' удалён'));
 });
 
 /* ---------- Настройки магазина ---------- */

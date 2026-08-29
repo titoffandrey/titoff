@@ -76,10 +76,17 @@
     var snapshot = Cart.items.map(itemKey);
     return fetch('/api/cart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize, options: i.options }; }) })
+      // Промокод покупателя едет вместе с составом корзины: цены считает сервер,
+      // и с каким кодом их считать, обязан знать тот же запрос, который их
+      // спрашивает.
+      body: JSON.stringify(promoFields({ items: Cart.items.map(function (i) { return { id: i.id, storage: i.storage, color: i.color, band: i.band, bandSize: i.bandSize, options: i.options }; }) }))
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
+        // Состояние промокода относится ко всей корзине, а не к конкретным
+        // позициям, поэтому берём его до проверок состава: даже устаревший
+        // ответ говорит правду о том, какой код применён.
+        if (requestSeq === cartRefreshSeq) takePromo(d);
         if (requestSeq !== cartRefreshSeq || !d || !d.ok || !Array.isArray(d.items)
           || d.items.length !== snapshot.length || Cart.items.length !== snapshot.length
           || Cart.items.some(function (item, idx) { return itemKey(item) !== snapshot[idx]; })) return false;
@@ -121,6 +128,218 @@
     var cmp = Number(i.compare) || 0, price = Number(i.price) || 0;
     if (!(cmp > price) || price <= 0) return null;
     return { compare: cmp, saved: cmp - price, pct: Math.round((1 - price / cmp) * 100) };
+  }
+
+  /* ===== Промокод =====
+   *
+   * Скидка на витрине — это скидка промокода: код по умолчанию применён у
+   * каждого покупателя, и цены на карточках уже посчитаны с ним. На оформлении
+   * его видно строкой, и его можно снять — тогда сервер отдаёт полные цены.
+   *
+   * СВОИХ ПРАВИЛ У ВИТРИНЫ НЕТ НИ ОДНОГО. Какой код применён, что он даёт и есть
+   * ли к чему возвращаться — приезжает от сервера вместе с ценами (`/api/cart`,
+   * поле `promo`). Витрина хранит только ВЫБОР покупателя и шлёт его обратно:
+   * второй расчёт скидки в браузере разошёлся бы с ценами на первом же коде.
+   */
+  var PROMO_KEY = 'promo_v1';
+  // Что сейчас применено — со слов сервера. До первого ответа поле не рисуем.
+  var promoView = null;
+  // Выбор покупателя: введённый код, снятая скидка или ничего (по умолчанию).
+  var promoChoice = null;
+  // Последний отказ сервера («такого промокода нет») — показывается под полем.
+  var promoError = '';
+
+  function promoEnabled() {
+    var page = document.getElementById('checkout-page');
+    return !!(page && page.dataset && page.dataset.promo);
+  }
+  function cleanPromoCode(value) {
+    return String(value == null ? '' : value).replace(/[^A-Za-z0-9_-]/g, '').toUpperCase().slice(0, 24);
+  }
+  function loadPromoChoice() {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(PROMO_KEY) || 'null'); } catch (e) {}
+    if (!raw || typeof raw !== 'object') return;
+    if (raw.off === true) { promoChoice = { off: true }; return; }
+    var code = cleanPromoCode(raw.code);
+    if (code) promoChoice = { code: code };
+  }
+  function savePromoChoice() {
+    try {
+      if (!promoChoice) localStorage.removeItem(PROMO_KEY);
+      else localStorage.setItem(PROMO_KEY, JSON.stringify(promoChoice));
+    } catch (e) {}
+  }
+  /* Поля запроса. Ничего не выбрано — полей нет вовсе, и это не то же самое, что
+   * «снят»: сервер читает их отсутствие как «код по умолчанию», поэтому старые
+   * открытые вкладки продолжают видеть цены со скидкой. */
+  function promoFields(body) {
+    var out = body || {};
+    if (promoChoice && promoChoice.code) out.promoCode = promoChoice.code;
+    else if (promoChoice && promoChoice.off) out.promoOff = true;
+    return out;
+  }
+  // Ответ сервера о промокоде — единственное, что меняет `promoView`.
+  function takePromo(data) {
+    if (!data || typeof data.promo !== 'object' || !data.promo) return;
+    promoView = data.promo;
+    /* Кода, который покупатель ввёл, могло не оказаться (удалили в панели, пока
+     * корзина лежала). Сервер вернул то, что применил на самом деле, — и выбор
+     * в localStorage подгоняем под него, иначе витрина будет вечно просить
+     * несуществующую скидку. */
+    if (promoChoice && promoChoice.code && promoView.code !== promoChoice.code) {
+      promoChoice = promoView.code ? { code: promoView.code } : null;
+      savePromoChoice();
+    }
+    syncPromo();
+  }
+
+  // Ярлык у строки промокода. Тот же силуэт, что у значка раздела в панели, и
+  // тот же волосяной контур, что у остальных глифов витрины.
+  var PROMO_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M20.4 3.6h-7.65a2 2 0 0 0-1.41.59l-7.16 7.16a2 2 0 0 0 0 2.83l5.64 5.64a2 2 0 0 0 2.83 0l7.16-7.16a2 2 0 0 0 .59-1.41Z"/>'
+    + '<circle cx="16.9" cy="7.1" r="1.4"/></svg>';
+
+  /* Разметка блока собирается ОДИН РАЗ (`dataset.ready`), как форма получателя и
+   * кнопка оформления: пересчёт доставки и смена количества перерисовывают
+   * правую панель целиком, и набранный код стирало бы прямо под руками.
+   * Состояние потом меняет только `syncPromo()` — текстами и `hidden`.
+   */
+  function buildPromo() {
+    var box = document.getElementById('checkout-promo');
+    if (!box || box.dataset.ready) return;
+    if (!promoEnabled()) return;
+    box.dataset.ready = '1';
+    box.innerHTML = '<div class="co-promo" id="co-promo">'
+      + '<div class="co-promo-chip" id="co-promo-chip" hidden>'
+      + '<span class="co-promo-ico" aria-hidden="true">' + PROMO_ICO + '</span>'
+      + '<span class="co-promo-text"><b id="co-promo-code"></b><i id="co-promo-cut"></i></span>'
+      + '<button type="button" class="co-promo-drop" id="co-promo-drop">Удалить</button>'
+      + '</div>'
+      + '<button type="button" class="co-promo-open" id="co-promo-open" hidden>Ввести другой промокод</button>'
+      + '<form class="co-promo-form" id="co-promo-form">'
+      + '<label class="sr-only" for="co-promo-input">Промокод</label>'
+      + '<input type="text" id="co-promo-input" placeholder="Промокод" maxlength="24"'
+      + ' autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">'
+      + '<button type="submit" class="co-promo-apply">Применить</button>'
+      + '</form>'
+      + '<p class="co-promo-note" id="co-promo-note" hidden><span id="co-promo-note-text"></span>'
+      + '<button type="button" class="co-promo-back" id="co-promo-back" hidden></button></p>'
+      + '</div>';
+
+    var form = document.getElementById('co-promo-form');
+    if (form) form.addEventListener('submit', function (e) { e.preventDefault(); applyPromo(); });
+    var drop = document.getElementById('co-promo-drop');
+    if (drop) drop.addEventListener('click', dropPromo);
+    var back = document.getElementById('co-promo-back');
+    if (back) back.addEventListener('click', restorePromo);
+    // «Ввести другой промокод» — раскрытие поля у того, у кого код уже применён.
+    // Держать поле открытым всегда незачем: свой код есть у единиц, а строка с
+    // применённым кодом нужна каждому.
+    var open = document.getElementById('co-promo-open');
+    if (open) open.addEventListener('click', function () {
+      var wrap = document.getElementById('co-promo');
+      if (wrap) wrap.classList.add('is-open');
+      syncPromo();
+      var input = document.getElementById('co-promo-input');
+      if (input) input.focus();
+    });
+    syncPromo();
+  }
+
+  function syncPromo() {
+    var box = document.getElementById('checkout-promo');
+    var wrap = document.getElementById('co-promo');
+    if (!box || !wrap) return;
+    // Пока сервер не ответил, состояния нет — и показывать нечего: строка
+    // «промокод не применён» на секунду читалась бы как потерянная скидка.
+    var known = !!promoView && promoView.on;
+    wrap.hidden = !known || !Cart.items.length;
+    if (wrap.hidden) return;
+
+    var applied = !!promoView.code;
+    var chip = document.getElementById('co-promo-chip');
+    if (chip) chip.hidden = !applied;
+    if (applied) {
+      setText('co-promo-code', promoView.code);
+      // Что даёт код: свой процент — числом, скидка товара — словами. У неё
+      // процент у каждого товара свой, и одно число тут было бы неправдой.
+      setText('co-promo-cut', promoView.percent ? '−' + promoView.percent + '%' : 'скидка уже в ценах');
+    }
+    var open = document.getElementById('co-promo-open');
+    var showForm = !applied || wrap.classList.contains('is-open');
+    if (open) open.hidden = !applied || showForm;
+    var form = document.getElementById('co-promo-form');
+    if (form) form.hidden = !showForm;
+
+    var note = document.getElementById('co-promo-note');
+    var back = document.getElementById('co-promo-back');
+    var text = promoError
+      || (promoView.off ? 'Промокод снят — цены в заказе без скидки.' : '');
+    if (note) {
+      note.hidden = !text;
+      note.className = 'co-promo-note' + (promoError ? ' is-err' : '');
+      setText('co-promo-note-text', text);
+    }
+    // «Вернуть» показываем только когда есть куда возвращаться: код по умолчанию
+    // могли выключить в панели, пока покупатель ходил по витрине.
+    if (back) {
+      var canBack = !promoError && promoView.off && !!promoView.fallback;
+      back.hidden = !canBack;
+      if (canBack) back.textContent = 'Вернуть ' + promoView.fallback;
+    }
+  }
+
+  // Смена кода меняет цены, поэтому корзину перезапрашиваем целиком: свои цены
+  // витрина не считает вовсе — ни со скидкой, ни без.
+  function repriceCart() {
+    Cart.render();
+    return refreshCartFromServer();
+  }
+  function applyPromo() {
+    var input = document.getElementById('co-promo-input');
+    var code = cleanPromoCode(input ? input.value : '');
+    promoError = '';
+    if (!code) { promoError = 'Введите промокод'; syncPromo(); return; }
+    var btn = document.querySelector('.co-promo-apply');
+    if (btn) btn.disabled = true;
+    fetch('/api/promo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ promoCode: code })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (btn) btn.disabled = false;
+        if (!d || !d.ok) { promoError = (d && d.error) || 'Не удалось применить промокод'; syncPromo(); return; }
+        promoChoice = { code: code };
+        savePromoChoice();
+        if (input) input.value = '';
+        var wrap = document.getElementById('co-promo');
+        if (wrap) wrap.classList.remove('is-open');
+        takePromo(d);
+        repriceCart();
+      })
+      .catch(function () {
+        if (btn) btn.disabled = false;
+        promoError = 'Нет связи — попробуйте ещё раз';
+        syncPromo();
+      });
+  }
+  // Снятие кода сервер не проверяет вовсе: убрать скидку покупатель вправе
+  // всегда, а новые цены всё равно приедут ответом корзины.
+  function dropPromo() {
+    promoChoice = { off: true };
+    promoError = '';
+    savePromoChoice();
+    repriceCart();
+  }
+  // «Вернуть» — это возврат к состоянию по умолчанию, то есть отсутствие выбора:
+  // так покупатель получит код витрины, даже если владелец сменил его.
+  function restorePromo() {
+    promoChoice = null;
+    promoError = '';
+    savePromoChoice();
+    repriceCart();
   }
   // ===== Страница оформления (/checkout) =====
   // Четыре шага, а не «список слева, форма справа»: товары и форма идут одной
@@ -296,6 +515,9 @@
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
     }
+    // Промокод стоит над строками сводки и собирается один раз — см. `buildPromo()`.
+    buildPromo();
+    syncPromo();
     renderRail();
     syncSubmit();
     // Состав корзины меняет и подгонку итога под круглое число, поэтому цену
@@ -546,8 +768,13 @@
      */
     var saved = Cart.saved();
     var goods = saved > 0 ? money(Cart.total() + saved) : sum;
+    /* Строка выгоды называет КОД, когда он применён: «Промокод SALE» отвечает
+     * на вопрос, откуда взялась скидка, а «Скидка» его только задаёт. Название
+     * берём из ответа сервера — своего списка кодов витрина не держит. */
+    var saveLabel = promoView && promoView.on && promoView.code
+      ? 'Промокод ' + promoView.code : 'Скидка';
     side.innerHTML = '<div class="co-line"><span>Товары (' + count + ')</span><span>' + goods + '</span></div>'
-      + (saved > 0 ? '<div class="co-line co-line-save"><span>Скидка</span><span>−' + money(saved) + '</span></div>' : '')
+      + (saved > 0 ? '<div class="co-line co-line-save"><span>' + escapeHtml(saveLabel) + '</span><span>−' + money(saved) + '</span></div>' : '')
       + '<div class="co-line"><span>Доставка</span><span>'
       + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>'
       // Срок стоит СПРАВА, прямо под ценой доставки: правый столбец сводки — это
@@ -1823,6 +2050,9 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     Cart.load();
+    // Выбор промокода — ДО первого запроса корзины: иначе снявший скидку
+    // покупатель увидел бы цены со скидкой и через мгновение их же без неё.
+    loadPromoChoice();
     Cart.updateBadge();
     if (document.getElementById('checkout-page')) Cart.render();   // страница оформления рисуется сразу
     refreshCartFromServer();                                       // подтянуть свежие фото, цены и наличие
@@ -2700,6 +2930,10 @@
       // базы — присланной строке он не верит так же, как не верит цене.
       pickupCode: pickup.code
     };
+    // Промокод — теми же полями, что и в корзине: цены заказа сервер считает с
+    // ним же и сверяет с присланными. Иначе оформление отвечало бы «корзина
+    // изменилась» на ровном месте.
+    promoFields(payload);
     var requestId = orderRequestId(payload);
     payload.requestId = requestId;
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
