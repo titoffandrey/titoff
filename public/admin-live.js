@@ -158,7 +158,12 @@
     var wait = THROTTLE - (Date.now() - lastAt);
     if (wait > 0 || blocked()) return later(wait > 0 ? wait : 900);
     busy = true; lastAt = Date.now();
-    fetch(location.href, { credentials: 'same-origin', headers: { 'X-Live': '1' } })
+    fetch(location.href, { credentials: 'same-origin', headers: {
+      'X-Live': '1',
+      // Скрытая вкладка получает свежую разметку, но человек её не видел. Для
+      // чата это граница между «обновилось» и «прочитано менеджером».
+      'X-Live-Visible': document.visibilityState === 'hidden' ? '0' : '1'
+    } })
       .then(function (r) {
         // Сессия кончилась: сервер увёл на вход, и показывать дальше нечего.
         if (r.redirected && r.url.indexOf('/admin/login') > -1) { location.reload(); return null; }

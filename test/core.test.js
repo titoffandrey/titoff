@@ -9642,9 +9642,8 @@ test('в шапке панели видно, сколько ждёт: отзыв
   // незачем.
   assert.deepEqual(adminViews.navCounts(SETTINGS, db).chat, 0);
 
-  /* Диалоги считаются той же отметкой, по которой покупателю рисуются галочки:
-   * его реплика новее «магазин прочитал». Свой второй признак разъехался бы с
-   * тем, что он видит у себя в окне. */
+  /* Галочки покупателя и уведомление менеджера — разные вопросы. ИИ вправе
+   * показать покупателю «прочитано», но красный счётчик должен ждать человека. */
   const chats = require('../lib/chat');
   const cdir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-unread-'));
   t.after(() => fs.rmSync(cdir, { recursive: true, force: true }));
@@ -9654,17 +9653,28 @@ test('в шапке панели видно, сколько ждёт: отзыв
   chats.addMessage(chat, 'user', 'Есть 512 ГБ?');
   assert.equal(chats.unreadCount(), 1);
   chats.markStore(chat, 'read');
-  assert.equal(chats.unreadCount(), 0, 'прочитали — счётчик гаснет');
+  assert.equal(chats.unreadCount(), 1, 'ответ ИИ не выдаёт себя за просмотр менеджером');
+  assert.equal(chats.markManager(chat), true);
+  assert.equal(chats.unreadCount(), 0, 'менеджер увидел диалог — счётчик гаснет');
+  assert.equal(chats.markManager(chat), false, 'повторный просмотр ничего не записывает');
   chats.setMode(chat, 'closed');
   chats.addMessage(chat, 'user', 'спасибо');
   assert.equal(chats.unreadCount(), 0, 'завершённый разговор в счётчик не идёт');
 
-  /* А вот когда ИИ НЕ ответил, вопрос прочитанным не считается: он ушёл к
-   * менеджеру, и счётчик обязан его показать. Поэтому отметка «прочитано» стоит
-   * внутри ветки удачного ответа, а не на общем пути до неё. */
+  /* Удачный ответ ИИ по-прежнему ставит покупателю честную галочку, но своей
+   * рукой менеджерскую отметку не трогает. Неудачный — не ставит и галочку. */
   const ai = server.slice(server.indexOf('async function aiAnswer'), server.indexOf('const excuse'));
   assert.ok(ai.indexOf('result.ok && result.text') < ai.indexOf("CHAT.markStore(fresh, 'read', question.at)"),
     'вопрос без ответа прочитанным не считается');
+  assert.doesNotMatch(ai, /CHAT\.markManager/, 'ИИ не снимает уведомление менеджера');
+
+  const openChat = server.slice(server.indexOf("app.get('/admin/chat/:id'"),
+    server.indexOf("app.post('/admin/chat/:id/reply'"));
+  assert.match(openChat, /CHAT\.markManager\(chat\)/, 'обычное открытие диалога снимает уведомление');
+  assert.match(openChat, /!livePull \|\| liveVisible/,
+    'фоновое обновление скрытой вкладки не притворяется просмотром');
+  const liveUi = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  assert.match(liveUi, /'X-Live-Visible': document\.visibilityState === 'hidden' \? '0' : '1'/);
 });
 
 /* ============================ ОНЛАЙН-ЧАТ ВИТРИНЫ ============================ */
@@ -9894,6 +9904,8 @@ test('непрочитанное видно в списке диалогов, а
   const done = chatStore.create({ city: 'Казань, Россия' });
   chatStore.addMessage(done, 'user', 'спасибо');
   chatStore.markStore(done, 'read');
+  assert.equal(chatStore.storeUnread(done), 1, 'ответ консультанта оставляет строку новой');
+  chatStore.markManager(done);
   const empty = chatStore.create({ city: 'Тула, Россия' });
 
   assert.equal(chatStore.storeUnread(cold), 2, 'считаются реплики, а не диалоги');
@@ -9906,6 +9918,17 @@ test('непрочитанное видно в списке диалогов, а
   assert.equal(marked, chatStore.unreadCount(), 'помеченных строк ровно столько, сколько обещает шапка');
   assert.match(html, /class="chat-row-unread"[^>]*>2</, 'у строки стоит то же число, что и у storeUnread');
   assert.ok(!html.includes(empty.id), 'одно открытие виджета не засоряет список пустым диалогом');
+
+  /* Старые записи отдельной отметки не имеют. Берём прежний `storeRead`, иначе
+   * после деплоя вся 90-дневная история разом загорелась бы непрочитанной. */
+  const legacyAt = Date.now() - 1000;
+  const legacy = chatStore.create({
+    at: legacyAt, lastAt: legacyAt,
+    receipt: { storeRead: legacyAt },
+    messages: [{ role: 'user', text: 'старый вопрос', at: legacyAt }]
+  });
+  assert.equal(legacy.managerRead, legacyAt);
+  assert.equal(chatStore.storeUnread(legacy), 0, 'миграция сохраняет прежнее состояние списка');
 
   // Завершённый разговор не ждёт никого — ни в шапке, ни в списке.
   chatStore.setMode(cold, 'closed');
@@ -11384,7 +11407,9 @@ test('галочки: отправлено, доставлено, прочита
   const second = chatStore.addMessage(bounded, 'user', 'А в чёрном?');
   chatStore.markStore(bounded, 'read', first.at);
   assert.deepEqual(chatStore.receipt(bounded), { got: first.at, read: first.at });
-  assert.equal(chatStore.storeUnread(bounded), 1, 'уточнение всё ещё ждёт своего ответа');
+  assert.equal(chatStore.storeUnread(bounded), 2, 'ИИ не снимает ни одно уведомление менеджера');
+  chatStore.markManager(bounded, first.at);
+  assert.equal(chatStore.storeUnread(bounded), 1, 'человек просмотрел только первый вопрос');
   assert.ok(second.at > chatStore.receipt(bounded).read);
 
   // Отметки покупателя — своя пара, и покупателю она не уезжает: его окно
@@ -11398,14 +11423,19 @@ test('галочки: отправлено, доставлено, прочита
   // Отметки переживают перезапуск: иначе после каждого рестарта покупатель
   // видел бы у старых реплик одну галочку.
   chatStore.markStore(chat, 'read');
+  chatStore.markManager(chat);
+  const managerNow = chat.managerRead;
   const now = chatStore.receipt(chat);
   chatStore.flush();
   chatStore.init(dir);
   assert.deepEqual(chatStore.receipt(chatStore.get(chat.id)), now);
+  assert.equal(chatStore.get(chat.id).managerRead, managerNow, 'просмотр менеджера тоже переживает перезапуск');
 
   // Прежние диалоги (поля нет вовсе) читаются без миграции — просто без галочек
   // до первой новой реплики.
-  assert.deepEqual(chatStore.create({}).receipt, { storeGot: 0, storeRead: 0, userGot: 0, userRead: 0 });
+  const blank = chatStore.create({});
+  assert.deepEqual(blank.receipt, { storeGot: 0, storeRead: 0, userGot: 0, userRead: 0 });
+  assert.equal(blank.managerRead, 0);
   assert.deepEqual(chatStore.receipt({}), { got: 0, read: 0 });
 });
 
