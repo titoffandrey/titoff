@@ -58,7 +58,12 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
    поэтому вид остаётся приглушённым — на наведении лишь чуть светлее. */
 .btn-soldout{opacity:.45}
 .btn-soldout:hover{opacity:.62}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+/* Главная кнопка залита ГРАДИЕНТОМ слева направо: от акцента магазина к его
+   же «глубокому» тону (`--accent-deep`, считает сервер из акцента). Плоская
+   заливка на крупной кнопке выглядит нарисованным прямоугольником, а градиент
+   даёт ей объём. Запасной `background-color` идёт первым — там, где градиента
+   не будет, кнопка остаётся сплошной акцентной, а не прозрачной. */
+.btn-primary{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);color:#fff}
 .btn-primary:hover{filter:brightness(1.05)}
 .btn-lg{padding:13px 26px;font-size:16px}
 .btn-sm{padding:6px 12px;font-size:13px}
@@ -1117,8 +1122,10 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
   font-size:14px;font-weight:650;letter-spacing:-.01em;transition:transform .14s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease,filter .18s ease
 }
 .btn:hover{border-color:#c7c7cd;background:#f7f7f9}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.btn-primary:hover{background:var(--accent);border-color:var(--accent);filter:brightness(1.05);box-shadow:0 8px 20px rgba(17,17,26,.13);transform:translateY(-1px)}
+.btn-primary{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);color:#fff}
+/* На наведении градиент остаётся — правило обязано переопределить общее
+   `.btn:hover{background:#f7f7f9}`, иначе главная кнопка на наведении белеет. */
+.btn-primary:hover{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);filter:brightness(1.05);box-shadow:0 8px 20px rgba(17,17,26,.13);transform:translateY(-1px)}
 .btn:active,.btn-primary:active{transform:scale(.98);box-shadow:none}
 .btn-lg{min-height:50px;padding:13px 26px;font-size:16px;border-radius:16px}
 .btn-sm{min-height:36px;padding:7px 13px;font-size:13px;border-radius:11px}
@@ -4567,7 +4574,8 @@ details.metric-bots>summary:hover{background:#fffaf0}
 /* Кнопка. Круг акцентного цвета — единственный такой элемент на витрине,
    поэтому её находят глазами, не разглядывая углы. */
 .chat-fab{position:relative;width:60px;height:60px;border-radius:50%;border:0;cursor:pointer;
-  background:var(--accent);color:#fff;display:grid;place-items:center;
+  background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));
+  color:#fff;display:grid;place-items:center;
   box-shadow:0 8px 26px rgba(0,0,0,.22);
   transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease}
 .chat-fab:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.28)}
@@ -4713,11 +4721,19 @@ details.metric-bots>summary:hover{background:#fffaf0}
    выше её перебивает. Та же грабля, что была у скрытых плиток вложений
    (.rv-thumb[hidden]). */
 .chat-fab .chat-badge[hidden]{display:none}
-.chat-form{display:flex;align-items:flex-end;gap:8px}
+/* Ряд ввода. Кнопки прижаты к НИЗУ поля, потому что поле растёт под текст до
+   четырёх строк: по центру они уезжали бы в середину высокого поля. А чтобы у
+   однострочного поля они не выглядели просевшими, высота у всех троих одна —
+   `--chat-row`, и она же задана полю минимумом. Пока кнопки были 38 px, а поле
+   43 px (16 px кегля на телефоне против 15 px здесь), их середина сидела на два
+   с половиной пикселя ниже середины поля — ровно та кривизна, которую видно, но
+   не сразу объяснишь. */
+.chat-form{display:flex;align-items:flex-end;gap:8px;--chat-row:41px}
 .chat-form textarea{flex:1;resize:none;border:1px solid var(--border);border-radius:18px;padding:9px 13px;
-  font-family:inherit;font-size:15px;line-height:1.4;max-height:96px;color:var(--text);background:#fff}
+  font-family:inherit;font-size:15px;line-height:1.4;min-height:var(--chat-row);max-height:96px;color:var(--text);background:#fff}
 .chat-form textarea:focus{outline:none;border-color:var(--accent)}
-.chat-send{width:38px;height:38px;flex:none;border:0;border-radius:50%;background:var(--accent);color:#fff;
+.chat-send{width:var(--chat-row);height:var(--chat-row);flex:none;border:0;border-radius:50%;color:#fff;
+  background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));
   cursor:pointer;display:grid;place-items:center;transition:opacity .15s,transform .06s}
 .chat-send:hover{opacity:.9}
 .chat-send:active{transform:scale(.94)}
@@ -4729,7 +4745,7 @@ details.metric-bots>summary:hover{background:#fffaf0}
    кнопки по краям поля разной величины смотрятся случайными. */
 .chat-form input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.chat-clip{width:38px;height:38px;flex:none;border-radius:50%;color:var(--muted);cursor:pointer;
+.chat-clip{width:var(--chat-row);height:var(--chat-row);flex:none;border-radius:50%;color:var(--muted);cursor:pointer;
   display:grid;place-items:center;transition:color .15s,background .15s}
 .chat-clip:hover{color:var(--accent);background:rgba(0,0,0,.04)}
 .chat-form input[type=file]:focus-visible+.chat-clip{outline:2px solid var(--accent);outline-offset:2px}
@@ -5156,4 +5172,7 @@ details.metric-bots>summary:hover{background:#fffaf0}
   input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),
   .field select,.field textarea,select,textarea,
   .chat-form textarea,.chat-answer textarea,.chat-edit-form textarea{font-size:16px}
+  /* Кегль поля вырос — вместе с ним обязана вырасти и высота ряда, иначе
+     кнопки снова окажутся ниже середины поля ровно на эту разницу. */
+  .chat-form{--chat-row:43px}
 }

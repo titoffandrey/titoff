@@ -1991,6 +1991,63 @@ test('шапка и корзина читаются с клавиатуры и �
   assert.match(app, /drawer\.setAttribute\('inert', ''\)/);
 });
 
+test('главная кнопка залита градиентом от акцента к его глубокому тону', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  /* Второй цвет считает сервер из акцента, а не задаёт отдельной настройкой:
+   * владелец правит один цвет, и два поля «от» и «до» рядом означали бы, что
+   * пару подбирать ему. Сдвиг — насыщенность −17 п.п., светлота −15 п.п. */
+  assert.equal(render.deepAccent('#5b91f6'), '#2867dd');
+  assert.equal(render.deepAccent('#0071e3'), '#0d4b8a');
+  // Тёмный акцент почти не темнеет дальше, и это правильно: у чёрной кнопки
+  // градиента быть не должно, а не «чёрная переходит в никуда».
+  assert.equal(render.deepAccent('#1d1d1f'), '#1f1f1f');
+  // Мусор в настройках сводится к цвету по умолчанию, а не роняет страницу.
+  assert.equal(render.deepAccent('нет такого'), render.deepAccent('#0071e3'));
+
+  // Обе переменные уезжают в разметку одной строкой, рядом с акцентом.
+  const html = render.homePage({ storeName: 'Т', tagline: '', currency: '₽', accentColor: '#5b91f6' },
+    { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) }, {});
+  assert.match(html, /--accent:#5b91f6;--accent-deep:#2867dd;/);
+
+  /* Заливка задаётся ДВУМЯ свойствами: `background-color` остаётся запасным на
+   * случай, когда градиента не будет, иначе кнопка стала бы прозрачной. */
+  // Селектор ищем ОТ НАЧАЛА СТРОКИ: `.chat-fab` стоит ещё и в общем перечне
+  // `button,.btn,summary,.nav-cat,.chat-fab{…}`, и без якоря находился бы он.
+  const rule = name => (css.match(new RegExp('\\n\\' + name + '\\{([^}]*)\\}')) || [])[1] || '';
+  for (const sel of ['.btn-primary', '.chat-send', '.chat-fab']) {
+    assert.match(rule(sel), /background-color:var\(--accent\)/, sel + ' без запасной заливки');
+    assert.match(rule(sel), /background-image:linear-gradient\(to right,var\(--accent\),var\(--accent-deep/, sel + ' без градиента');
+  }
+  /* На наведении градиент обязан остаться: общее `.btn:hover{background:#f7f7f9}`
+   * иначе перекрасит главную кнопку в белое. */
+  assert.match(css, /\.btn-primary:hover\{[^}]*background-image:linear-gradient/);
+});
+
+test('ряд ввода в чате: поле и обе кнопки одной высоты', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  /* Кнопки прижаты к низу поля (оно растёт под текст), и чтобы у однострочного
+   * поля они не выглядели просевшими, высота у всех троих одна. Пока кнопки были
+   * 38 px, а поле 43 px, их середина сидела ниже середины поля — это и была та
+   * кривизна, которую видно, но не сразу объяснишь. */
+  assert.match(css, /\.chat-form\{[^}]*--chat-row:41px/);
+  assert.match(css, /\.chat-form textarea\{[^}]*min-height:var\(--chat-row\)/);
+  assert.match(css, /\.chat-send\{[^}]*width:var\(--chat-row\);height:var\(--chat-row\)/);
+  assert.match(css, /\.chat-clip\{[^}]*width:var\(--chat-row\);height:var\(--chat-row\)/);
+  /* На телефоне кегль поля поднимается до 16 px (иначе Safari приближает
+   * страницу) — вместе с ним обязана вырасти и высота ряда. */
+  const coarse = css.slice(css.indexOf('@media (pointer:coarse){'));
+  assert.match(coarse, /\.chat-form\{--chat-row:43px\}/);
+
+  // Стрелка нарисована по центру холста: прежняя шла от 4.5 до 17.5 в рамке 24
+  // единиц, то есть на целую единицу левее середины.
+  const widget = render.chatWidget({ storeName: 'Т', chatEnabled: true, aiApiKey: 'k' });
+  const path4 = (widget.match(/class="chat-send"[\s\S]*?d="([^"]+)"/) || [])[1] || '';
+  const xs = (path4.match(/-?\d+(?:\.\d+)?(?=[, ]|$)/g) || []).length;
+  assert.ok(xs, 'путь стрелки пропал');
+  assert.match(path4, /^M5\.5 12h13M13 6\.5l5\.5 5\.5L13 17\.5$/);
+});
+
 test('цвета витрины читаются: скидка, зачёркнутая цена и Telegram', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   // Порог 4.5:1 на белом. Цена и процент — это текст про деньги, а не оформление,
