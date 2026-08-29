@@ -132,14 +132,14 @@
     }
   }
 
-  /* Разговор во весь экран — только на телефоне и только на своей странице.
+  /* Разговор во весь экран — на любой ширине, но только на своей странице.
    * Признак ставит сервер классом `a-app` у <body>: `:has()` для этого не
-   * годится (его поддерживают не все версии Safari, доходящие до панели), а
-   * ширину спрашиваем у того же медиазапроса, что и CSS. */
+   * годится, его поддерживают не все версии Safari, доходящие до панели.
+   * Спрашивать ширину здесь больше не нужно — на мониторе разговор такой же
+   * полноэкранный, как на телефоне. */
   var view = document.querySelector('.chat-view');
   function app() {
-    return !!view && document.body.classList.contains('a-app')
-      && matchMedia('(max-width:640px)').matches;
+    return !!view && document.body.classList.contains('a-app');
   }
 
   /* Клавиатура. Ровно та же беда и то же лечение, что у окна чата на витрине:
@@ -169,6 +169,11 @@
   if (profile) {
     document.addEventListener('click', function (e) {
       if (!profile.checked) return;
+      /* САМ ПЕРЕКЛЮЧАТЕЛЬ — не «мимо», и это не мелочь: нажатие по подписи
+       * браузер повторяет нажатием по её полю, а поле лежит РЯДОМ с шапкой, а не
+       * внутри неё. Без этой проверки профиль открывался и тут же закрывался сам
+       * — со стороны выглядело так, будто имя вообще не нажимается. */
+      if (e.target === profile) return;
       if (e.target.closest && e.target.closest('.chat-head-box')) return;
       profile.checked = false;
     });
@@ -186,6 +191,149 @@
     field.addEventListener('input', grow);
     grow();
   }
+
+  /* ==================== Ответ на конкретную реплику ====================
+   *
+   * Путей два, и это не роскошь: они отвечают разным рукам.
+   *
+   *   1. «Ответить» первым пунктом в меню реплики — обычная ССЫЛКА
+   *      (`?reply=<время>`). Работает везде, с клавиатуры и без скриптов вовсе:
+   *      сервер вернёт ту же страницу с уже подставленной цитатой.
+   *   2. Смахивание реплики в сторону — на сенсорном экране, как в Telegram и
+   *      WhatsApp. Мышью такого нет намеренно: горизонтальное перетаскивание по
+   *      тексту — это выделение, и отбирать его у мыши ради жеста нельзя.
+   *
+   * Оба пути берут цитату ИЗ ОДНОЙ И ТОЙ ЖЕ ссылки (`data-*` у пункта меню):
+   * второе место, где решается, что попадёт в цитату, разъехалось бы с первым.
+   * Разметку плашки рисует сервер — скрипт только подставляет в неё имя и текст.
+   */
+  var chip = dock && dock.querySelector('.chat-answer-reply');
+  var chipWho = chip && chip.querySelector('.chat-answer-reply-who');
+  var chipText = chip && chip.querySelector('.chat-answer-reply-text');
+  var chipAt = chip && chip.querySelector('input[name="replyTo"]');
+
+  function setReply(at, who, text) {
+    if (!chip) return;
+    chipAt.value = at || '';
+    chipWho.textContent = who || '';
+    chipText.textContent = text || '';
+    chip.hidden = !at;
+    if (at && field) field.focus();
+  }
+
+  // Выделенная реплика — раскрытое меню под ней. Открытым остаётся одно: два
+  // ряда кнопок в разных местах ленты читались бы как два начатых действия.
+  function closeTools(keep) {
+    var open = thread.querySelectorAll('.chat-bubble[open]');
+    for (var i = 0; i < open.length; i++) if (open[i] !== keep) open[i].open = false;
+  }
+
+  function replyFrom(link) {
+    setReply(link.getAttribute('data-chat-reply'),
+      link.getAttribute('data-reply-who'), link.getAttribute('data-reply-text'));
+    closeTools();
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var link = t.closest('[data-chat-reply]');
+    // Без плашки (её нет на странице «написать первым») ссылка работает как
+    // ссылка: цитату подставит сервер.
+    if (link && chip) { e.preventDefault(); replyFrom(link); return; }
+    var off = t.closest('.chat-answer-reply-x');
+    if (off && chip) { e.preventDefault(); setReply('', '', ''); return; }
+    /* Нажали мимо — выделение снимается. Открытое меню, которое иначе не убрать
+     * иначе как повторным попаданием в ту же реплику, — ровно та мелочь, что
+     * раздражает каждый раз. Внутри самого пузыря (форма правки, поле ввода)
+     * ничего не закрываем: это и есть начатое действие. */
+    closeTools(t.closest('.chat-bubble'));
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    // Esc снимает сперва выделение реплики, а потом уже отменяет ответ: два
+    // состояния — два нажатия, как в мессенджерах.
+    if (thread.querySelector('.chat-bubble[open]')) { closeTools(); return; }
+    if (chip && !chip.hidden) setReply('', '', '');
+  });
+
+  /* -------------------------- Смахивание --------------------------
+   *
+   * Порог хода — `SWIPE_ON`, дальше `SWIPE_MAX` реплика не едет: жест обязан
+   * упираться, иначе непонятно, сработает он или нет. Направление любое: в
+   * Telegram отвечают ходом влево, в WhatsApp — вправо, и требовать от менеджера
+   * помнить, в каком он мессенджере, незачем.
+   *
+   * Вертикальный ход — это прокрутка ленты, и жест мы отпускаем сразу: пузырь,
+   * дёргающийся при листании, хуже отсутствия жеста. Ровно за этим у `.chat-line`
+   * стоит `touch-action:pan-y` — прокрутку делает браузер, горизонталь достаётся
+   * нам.
+   */
+  var SWIPE_ON = 52, SWIPE_MAX = 74, drag = null, swipedAt = 0;
+
+  function dragEnd(fire) {
+    if (!drag) return;
+    var line = drag.line, item = drag.item, on = drag.on, dx = drag.dx, link = drag.link;
+    drag = null;
+    line.style.transform = '';
+    item.classList.remove('is-drag');
+    item.style.setProperty('--swipe', 0);
+    if (!on) return;
+    // Ход был — значит нажатие в конце него принадлежит жесту, а не пузырю:
+    // иначе смахивание заодно раскрывало бы меню реплики или снимок.
+    swipedAt = Date.now();
+    setTimeout(function () {
+      item.classList.remove('is-swipe-left');
+      item.classList.remove('is-swipe-right');
+    }, 220);
+    if (fire && Math.abs(dx) >= SWIPE_ON) replyFrom(link);
+  }
+
+  thread.addEventListener('pointerdown', function (e) {
+    // Мышь не смахивает: горизонтальное перетаскивание по тексту — это его
+    // выделение, и отбирать его ради жеста нельзя.
+    if (!e.isPrimary || e.pointerType === 'mouse' || !chip) return;
+    var line = e.target.closest && e.target.closest('.chat-line');
+    if (!line) return;
+    // Отвечать не на что (системная строка) — и вести нечего.
+    var link = line.parentNode && line.parentNode.querySelector('[data-chat-reply]');
+    var item = line.closest('.chat-item');
+    if (!link || !item) return;
+    dragEnd(false);
+    drag = { line: line, item: item, link: link, x: e.clientX, y: e.clientY, dx: 0, on: false, id: e.pointerId };
+  });
+
+  thread.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.on) {
+      if (Math.abs(dy) > Math.abs(dx)) { dragEnd(false); return; }   // это прокрутка
+      if (Math.abs(dx) < 10) return;
+      drag.on = true;
+      drag.item.classList.add('is-drag');
+      // Захват: палец уходит с пузыря, а события обязаны доходить до конца хода.
+      try { drag.line.setPointerCapture(e.pointerId); } catch (err) { /* не умеет — переживём */ }
+    }
+    drag.dx = dx;
+    var shift = Math.max(-SWIPE_MAX, Math.min(SWIPE_MAX, dx));
+    drag.line.style.transform = 'translateX(' + shift + 'px)';
+    drag.item.classList.toggle('is-swipe-right', dx > 0);
+    drag.item.classList.toggle('is-swipe-left', dx < 0);
+    drag.item.style.setProperty('--swipe', Math.min(1, Math.abs(dx) / SWIPE_ON));
+  });
+
+  thread.addEventListener('pointerup', function () { dragEnd(true); });
+  thread.addEventListener('pointercancel', function () { dragEnd(false); });
+
+  // Нажатие, доставшееся от жеста, гасим НА ПЕРЕХВАТЕ: до него ни `<details>`,
+  // ни просмотрщик снимков не успевают сработать.
+  thread.addEventListener('click', function (e) {
+    if (Date.now() - swipedAt > 400) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
   toBottom();
 
   /* Живое обновление подменяет содержимое ленты целиком, и после подмены она

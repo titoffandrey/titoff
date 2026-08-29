@@ -4754,6 +4754,22 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 .chat-me .chat-who{color:rgba(255,255,255,.85)}
 
+/* Цитата: на какую реплику отвечает магазин. Полоска слева и приглушённый текст
+   — тот же язык, что в любом мессенджере. Строка одна: цитата отвечает на «о чём
+   это», а полная реплика лежит выше в той же ленте.
+   `white-space:normal` обязателен — у пузыря `pre-line`, и цитата с переносами
+   растянулась бы на пол-окна. */
+.chat-quote{display:block;margin:0 0 6px;padding:3px 9px;border-left:3px solid var(--accent);
+  border-radius:5px;background:rgba(15,23,42,.05);font-size:12.5px;line-height:1.38;white-space:normal}
+.chat-quote-who{display:block;font-weight:600;font-size:11.5px;color:var(--accent);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-quote-text{display:block;color:#48484a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* В своей реплике (акцентный фон) цитата рисуется своими цветами: акцент на
+   акценте не читается вовсе. */
+.chat-me .chat-quote{border-left-color:rgba(255,255,255,.75);background:rgba(255,255,255,.16)}
+.chat-me .chat-quote-who{color:#fff}
+.chat-me .chat-quote-text{color:rgba(255,255,255,.85)}
+
 /* Время в конце реплики — как в любом мессенджере. Покупатель возвращается в
    чат через час и через день, и без времени непонятно, ответили ему только что
    или вчера вечером.
@@ -5007,7 +5023,11 @@ details.metric-bots>summary:hover{background:#fffaf0}
    стоят открыто всегда, поэтому подпись там ничего не переключает — курсор у
    неё обычный, а шеврона нет вовсе. */
 .chat-head-who{display:flex;align-items:center;gap:13px;flex:1;min-width:0}
-.chat-head-who-txt{flex:1;min-width:0}
+/* Тексты НЕ растягиваются на всю подпись: шеврон обязан стоять сразу за именем,
+   а не улетать к кнопкам в другой конец шапки — там он читался бы как чужая
+   кнопка. Нажимается при этом по-прежнему вся строка: растягивается сама
+   подпись (`flex:1` выше). */
+.chat-head-who-txt{flex:0 1 auto;min-width:0}
 .chat-head-chev{display:none;flex:none;width:16px;height:16px;color:#b9b9c0;transition:transform .18s}
 .chat-profile-switch:checked~.chat-head-box .chat-head-chev{transform:rotate(90deg)}
 .chat-head-name{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;
@@ -5071,10 +5091,16 @@ details.metric-bots>summary:hover{background:#fffaf0}
    включая реквизиты и адрес. */
 .chat-orders{border:1px solid var(--border);border-bottom:0;background:#fff;padding:10px 16px 12px}
 .chat-orders-head{font-size:11.5px;font-weight:600;color:var(--muted);margin-bottom:7px}
-.chat-order{display:grid;gap:2px;padding:8px 0;color:inherit;text-decoration:none}
+.chat-order{display:grid;gap:1px;padding:6px 0;color:inherit;text-decoration:none}
 .chat-order+.chat-order{border-top:1px solid var(--border-soft)}
 .chat-order-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .chat-order-top b{font-size:14px}
+/* Состав и состояние — ОДНИМ рядом. Своей строкой плашка занимала у каждой
+   заявки целый ряд, а говорит она то же, что и соседняя ячейка: на боевых
+   данных две заявки так съедали пол-экрана до первой реплики. */
+.chat-order-low{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.chat-order-low .chat-order-items{flex:1 1 140px}
+.chat-order-low .chat-order-state{flex:none;margin-top:0}
 /* Сумма прижата к правому краю: деньги сравнивают столбиком сверху вниз, а не
    ищут глазами после состава. */
 .chat-order-sum{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
@@ -5089,6 +5115,9 @@ details.metric-bots>summary:hover{background:#fffaf0}
 /* Лента. Своя рамка снизу продолжает шапку — переписка и собеседник читаются
    одним блоком, а не тремя карточками подряд. */
 .chat-thread{display:flex;flex-direction:column;gap:6px;max-height:58vh;overflow-y:auto;
+  /* Вбок лента не ездит никогда: смахнутая реплика уезжает за свой край, и без
+     этого браузер завёл бы горизонтальную прокрутку на всю переписку. */
+  overflow-x:hidden;
   padding:16px;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 16px 16px}
 .chat-thread-empty{margin:auto;padding:30px 0}
 
@@ -5111,7 +5140,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
    добавлял по 24 px к каждой реплике — на полутора десятках это целый экран
    пустоты. Открытая форма правки уезжает под пузырь переносом (`flex-wrap`),
    потому что в строку она не поместится никогда. */
-.chat-item{display:flex;align-items:flex-end;flex-wrap:wrap;gap:2px 4px;max-width:74%;min-width:0}
+.chat-item{display:flex;align-items:flex-end;flex-wrap:wrap;gap:2px 4px;max-width:74%;min-width:0;
+  /* Точка отсчёта для подсказки смахивания: стрелка «ответить» лежит под самим
+     пузырём и открывается по мере того, как он уезжает в сторону. */
+  position:relative}
 .chat-item.is-user{align-self:flex-start;justify-content:flex-start}
 .chat-item.is-ai,.chat-item.is-operator{align-self:flex-end;flex-direction:row-reverse}
 .chat-item.is-system{align-self:center;justify-content:center;max-width:100%}
@@ -5133,9 +5165,30 @@ details.metric-bots>summary:hover{background:#fffaf0}
    кнопок читались как содержание, а пальцем в него ещё надо было попасть.
    Теперь пузырь и есть кнопка: нажали — под ним раскрылся ряд действий. */
 .chat-bubble{display:contents}
-.chat-line{cursor:pointer;list-style:none}
+/* `touch-action:pan-y` — то, чем смахивание вообще возможно: вертикальную
+   прокрутку браузер по-прежнему делает сам, а горизонтальный жест отдаёт
+   скрипту. Без него он забирал бы жест себе и реплика не двигалась бы вовсе. */
+.chat-line{cursor:pointer;list-style:none;touch-action:pan-y;
+  transition:transform .18s ease}
+/* Пока палец ведёт реплику, переход выключен: с ним пузырь тянулся бы за
+   пальцем с задержкой в кадр. */
+.chat-item.is-drag .chat-line{transition:none}
 .chat-line::-webkit-details-marker{display:none}
 .chat-bubble[open]>.chat-line{box-shadow:0 0 0 2px var(--accent)}
+/* Подсказка смахивания: та же загнутая стрелка, что стоит у пункта «Ответить».
+   Лежит она ПОД пузырём у того края, от которого его ведут, и проявляется по
+   мере хода (`--swipe` ставит скрипт) — ровно как в мессенджерах. Значок
+   нарисован в самом правиле: отдельный файл ради одной фигуры — лишний запрос
+   на страницу, а внешние адреса запрещены CSP. */
+.chat-item::after{content:'';position:absolute;top:50%;z-index:0;width:30px;height:30px;margin-top:-15px;
+  border-radius:50%;background:#fff center/17px 17px no-repeat
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 7 4.5 11.5 9 16'/%3E%3Cpath d='M4.5 11.5h8.6a5.4 5.4 0 0 1 5.4 5.4V18'/%3E%3C/svg%3E");
+  box-shadow:0 1px 4px rgba(15,23,42,.18);opacity:0;pointer-events:none}
+.chat-item.is-swipe-right::after{left:4px;opacity:var(--swipe,0)}
+.chat-item.is-swipe-left::after{right:4px;opacity:var(--swipe,0)}
+/* Пузырь едет ПОВЕРХ подсказки, иначе она проступала бы сквозь него с первого
+   же пикселя хода. */
+.chat-line{z-index:1}
 .chat-tools{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .chat-item.is-ai .chat-tools,.chat-item.is-operator .chat-tools{justify-content:flex-end}
 .chat-tool{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;
@@ -5166,6 +5219,18 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-line-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 .chat-line.is-operator .chat-line-who{color:#0b7a37}
 .chat-line-text{display:inline}
+/* Цитата в пузыре: на какую реплику это ответ. Полоска слева и приглушённый
+   текст — тот же язык, что в любом мессенджере, и он же отделяет её от самого
+   ответа. Строка одна: цитата отвечает на «о чём это», а полная реплика лежит
+   выше в той же ленте.
+   `white-space:normal` обязателен — у пузыря `pre-line`, и снимок цитаты с
+   переносами растянул бы её на пол-экрана. */
+.chat-line-reply{display:block;margin:0 0 5px;padding:3px 8px;border-left:3px solid currentColor;
+  border-radius:5px;background:rgba(15,23,42,.05);color:var(--accent);
+  font-size:12px;line-height:1.4;white-space:normal}
+.chat-line.is-operator .chat-line-reply{color:#0b7a37}
+.chat-line-reply b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-line-reply span{display:block;color:#48484a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Снимки покупателя в переписке панели. Классы свои (`chat-line-*`), а не общие
    с витриной: одноимённое правило красило бы чужой элемент — эта грабля тут уже
    была, и пересечение имён запрещено тестом.
@@ -5219,57 +5284,88 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-answer-row{display:flex;align-items:flex-end;gap:8px}
 .chat-answer-row textarea{min-height:42px;max-height:132px;resize:none;overflow-y:auto}
 .chat-answer-row .chat-answer-send{flex:none;margin:0}
+/* Кому отвечаем — плашка над полем ввода, как в мессенджере. Она всегда лежит в
+   разметке и просто скрыта: скрипт подставляет в готовые узлы имя и текст, а
+   рисует их сервер. `[hidden]` прописан явно — браузерная таблица не перебивает
+   `display:flex` (та же грабля, что у скрытых плиток вложений). */
+.chat-answer-reply{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:5px 10px;
+  border-left:3px solid var(--accent);border-radius:6px;background:var(--bg2)}
+.chat-answer-reply[hidden]{display:none}
+.chat-answer-reply-txt{flex:1;min-width:0;line-height:1.35}
+.chat-answer-reply-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent)}
+.chat-answer-reply-text{display:block;font-size:12.5px;color:#48484a;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-answer-reply-x{display:grid;place-items:center;flex:none;width:28px;height:28px;
+  border-radius:9px;color:var(--muted)}
+.chat-answer-reply-x:hover{background:#fff;color:var(--text)}
+.chat-answer-reply-x svg{width:16px;height:16px}
 .chat-answer-dock .chat-answer-acts{margin-top:8px;gap:6px}
 .chat-answer-dock .chat-answer-acts .btn{flex:none;font-size:12.5px}
 
-/* ================= Разговор на телефоне — экран мессенджера ==================
+/* =================== Разговор — экран мессенджера целиком ===================
  *
  * Чем это было раньше: обычной страницей панели. Сверху шапка панели с бургером
  * и кнопкой «← Все диалоги», под ней карточка собеседника, ряд техники и
- * заказы — до первой реплики уходило полэкрана. Поле ответа прилипало снизу
- * `position:sticky`, но клавиатуру никто не обрабатывал: браузер сдвигал
- * видимую область, а страница оставалась на месте — поле пряталось под
- * клавиатурой, шапка уезжала вверх. У покупателя в окне чата всё это давно
- * сделано (`public/chat.js`), а у менеджера — нет, хотя разговор один и тот же.
+ * заказы — до первой реплики уходило полэкрана. На телефоне поле ответа вдобавок
+ * пряталось под клавиатурой, а на мониторе пара заявок с плашками оплаты
+ * отжимала ленту так, что самой переписки было не видно вовсе.
  *
- * Теперь разговор занимает экран целиком: шапка с собеседником сверху, лента
- * посередине (единственная прокручиваемая область), поле ответа снизу. Признак
- * ставит сервер классом `a-app` у <body> — `:has()` для этого не годится, его
- * поддерживают не все версии Safari, доходящие до панели.
+ * Теперь разговор занимает экран целиком — И НА ТЕЛЕФОНЕ, И НА КОМПЬЮТЕРЕ: шапка
+ * с собеседником сверху, лента посередине (единственная прокручиваемая область),
+ * поле ответа снизу, подробности о человеке — под нажатием на его имя. Правило
+ * тут одно: разговор читают всё время, а «кто это и откуда» узнают один раз, и
+ * ширина экрана этого не меняет.
+ *
+ * Признак ставит СЕРВЕР классом `a-app` у <body> — `:has()` для этого не
+ * годится, его поддерживают не все версии Safari, доходящие до панели.
  */
-@media (max-width:640px){
-  .a-app{overflow:hidden}
-  /* Шапки панели на этом экране нет вовсе: в мессенджере разговор открывается
-     на весь экран, а к списку ведёт стрелка в его собственной шапке. */
-  .a-app .a-topbar,.a-app .a-flash{display:none}
-  .a-app .a-content{padding:0;max-width:none}
-  .a-app .chat-view{position:fixed;inset:0;z-index:60;
-    display:flex;flex-direction:column;height:100dvh;background:var(--bg2)}
-  /* Шапка и поле ответа не сжимаются и не прокручиваются — прокручивается
-     только лента между ними. Прежней «прокрутки внутри прокрутки» тут больше
-     нет: страница под панелью не двигается вовсе. */
-  .a-app .chat-head-box,.a-app .chat-answer-dock{flex:none}
-  .a-app .chat-head-box{display:block;position:relative;z-index:3}
-  .a-app .chat-thread{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-  .a-app .chat-back{display:grid}
-  .a-app .chat-head-who{cursor:pointer}
-  .a-app .chat-head-chev{display:block}
-  /* Подробности о собеседнике — под нажатием на имя. Раскрытые они ложатся
-     ПОВЕРХ ленты, а не раздвигают её: иначе шапка прыгала бы на пол-экрана и
-     переписка уезжала вниз. */
-  .a-app .chat-head-drop{display:block;position:absolute;left:0;right:0;
-    top:100%;max-height:60vh;overflow-y:auto;
-    background:#fff;border-bottom:1px solid var(--border);
-    box-shadow:0 18px 34px rgba(15,23,42,.14);
-    visibility:hidden;opacity:0;transform:translateY(-6px);transition:opacity .16s,transform .16s,visibility .16s}
-  .a-app .chat-profile-switch:checked~.chat-head-box .chat-head-drop{visibility:visible;opacity:1;transform:none}
+.a-app{overflow:hidden}
+/* Шапки панели на этом экране нет вовсе: в мессенджере разговор открывается на
+   весь экран, а к списку ведёт стрелка в его собственной шапке. Плашка
+   («Реплика изменена») переехала внутрь разговора — за краем экрана от неё не
+   было бы толку. */
+.a-app .a-topbar{display:none}
+.a-app .a-content{padding:0;max-width:none}
+.a-app .chat-view{position:fixed;inset:0;z-index:60;
+  display:flex;flex-direction:column;height:100dvh;background:var(--bg2);
+  /* Колонка разговора стоит по центру: во всю ширину монитора реплика в 74%
+     ленты тянулась бы на полметра, а глаз возвращался бы к началу строки. Поля
+     считаются от ширины, поэтому в узком окне и на телефоне колонка просто
+     занимает всё, и отдельного медиазапроса на это не нужно. */
+  --chat-pad:max(16px,calc((100% - 1020px)/2))}
+.a-app .chat-head-card,.a-app .chat-thread,.a-app .chat-answer-dock,
+.a-app .chat-head-meta,.a-app .chat-orders{padding-left:var(--chat-pad);padding-right:var(--chat-pad)}
+/* Шапка и поле ответа не сжимаются и не прокручиваются — прокручивается только
+   лента между ними. Прокрутки внутри прокрутки тут нет: страница под экраном не
+   двигается вовсе. */
+.a-app .chat-head-box,.a-app .chat-answer-dock,.a-app .chat-flash{flex:none}
+.a-app .chat-head-box{display:block;position:relative;z-index:3}
+.a-app .chat-thread{flex:1;min-height:0;max-height:none;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.a-app .chat-back{display:grid}
+.a-app .chat-head-who{cursor:pointer}
+.a-app .chat-head-chev{display:block}
+/* Боковых рамок и скруглений у полноэкранных блоков нет: три карточки подряд
+   разваливали бы экран на части, а рамка по краю окна не отделяет ни от чего. */
+.a-app .chat-head-card,.a-app .chat-thread,.a-app .chat-answer-dock,.a-app .chat-flash{
+  border-radius:0;border-left:0;border-right:0}
+.a-app .chat-answer-dock{margin:0;box-shadow:0 -8px 20px rgba(15,23,42,.08)}
+.a-app .chat-flash{margin:0}
+/* Подробности о собеседнике — под нажатием на имя. Раскрытые они ложатся ПОВЕРХ
+   ленты, а не раздвигают её: иначе шапка прыгала бы на пол-экрана и переписка
+   уезжала вниз. */
+.a-app .chat-head-drop{display:block;position:absolute;left:0;right:0;
+  top:100%;max-height:70vh;overflow-y:auto;
+  background:#fff;border-bottom:1px solid var(--border);
+  box-shadow:0 18px 34px rgba(15,23,42,.14);
+  visibility:hidden;opacity:0;transform:translateY(-6px);transition:opacity .16s,transform .16s,visibility .16s}
+.a-app .chat-profile-switch:checked~.chat-head-box .chat-head-drop{visibility:visible;opacity:1;transform:none}
 
+@media (max-width:640px){
+  /* На телефоне колонка равна экрану, и поля у неё свои — 12 px вместо 16. */
+  .a-app .chat-view{--chat-pad:12px}
   .chat-row{padding:10px 12px}
   .chat-item{max-width:88%}
   .chat-thread{max-height:none;padding:12px}
-  /* Шапка, заказы и лента идут во всю ширину экрана одним блоком: боковые
-     рамки на 375 px отбирают у переписки поля дважды, а сам блок разваливается
-     на три карточки подряд. */
   .chat-head-card,.chat-head-meta,.chat-orders,.chat-thread{border-radius:0;border-left:0;border-right:0}
   .chat-orders{padding:10px 12px 12px}
   .chat-head-go{display:none}
@@ -5285,15 +5381,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .chat-head-sub{margin-top:1px;font-size:12px}
   .chat-head-meta{padding:8px 12px;gap:10px;border-left:0;border-right:0}
   .chat-ai-btn,.chat-drop-btn{width:34px;height:34px;border-radius:10px}
-  /* Поле ответа во всю ширину ЭКРАНА: у `.a-content` свои 16 px по бокам, и
-     прилипшая форма стояла в них — по краям оставались промежутки, сквозь
-     которые проезжала лента. */
-  .chat-answer-dock{margin:0 -16px;border-radius:0;border-left:0;border-right:0;padding:10px 12px;
+  .chat-answer-dock{border-radius:0;border-left:0;border-right:0;padding:10px 12px;
     /* Вырез под домашнюю полосу. В полноэкранной раскладке поле стоит внизу
-       всегда, поэтому и вырез нужен всегда — отрицательного поля, которое
-       схлопывало его в потоке, здесь уже не нужно. */
+       всегда, поэтому и вырез нужен всегда. */
     padding-bottom:calc(10px + env(safe-area-inset-bottom))}
-  .a-app .chat-answer-dock{margin:0;box-shadow:0 -8px 20px rgba(15,23,42,.08)}
   /* Клавиатура открыта — панель посажена в видимую область, и вырез под
      домашнюю полосу там уже не нужен: её просто нет на экране. */
   .a-app .chat-view[style*="height"] .chat-answer-dock{padding-bottom:10px}

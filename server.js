@@ -1786,6 +1786,9 @@ function chatMessageView(m) {
   // завести там второе знание о том, где лежат загрузки.
   const photos = CHAT.photosOf(m);
   if (photos.length) view.photos = photos.map(f => '/uploads/' + encodeURIComponent(f));
+  // Цитата уезжает как есть: это снимок, собранный сервером (`CHAT.replyTo`), и
+  // покупателю он нужен ровно затем, чтобы видеть, на что ему ответили.
+  if (m.reply) view.reply = m.reply;
   return view;
 }
 
@@ -3816,7 +3819,12 @@ app.get('/admin/chat/:id', (req, res) => {
    * сравнением текста плашки: подпись правят словами, и звук отвалился бы молча.
    * Скрипт убирает параметр из адреса сразу, чтобы обновление страницы не
    * повторяло сигнал. */
-  res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat), req.query.sent === '1'));
+  /* `reply=<время реплики>` — запасной путь ответа на конкретное сообщение: без
+   * скриптов «Ответить» это обычная ссылка, и страница возвращается с уже
+   * подставленной цитатой над полем ответа. Со скриптом переход перехватывается
+   * и цитата встаёт на место без перезагрузки. */
+  res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat),
+    req.query.sent === '1', req.query.reply));
 });
 
 /* Ответ оператора из панели. Делает ровно то же, что сообщение в теме
@@ -3861,12 +3869,18 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   cancelTakeover(chat.id);
   if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
   CHAT.markStore(chat, 'read');
+  /* На какую реплику отвечаем. Из запроса приходит ТОЛЬКО её время: сам снимок
+   * цитаты собирает хранилище по переписке, поэтому подменить автора или текст
+   * цитаты телом формы нельзя. Реплики нет (её успели удалить) — отвечаем без
+   * цитаты, а не отказываем: ответ важнее ссылки на вопрос. */
+  const reply = CHAT.replyTo(chat, Math.floor(Number(req.body.replyTo) || 0));
   // Имя подставляет само хранилище (`SPEAKERS` в lib/chat.js): покупатель видит
   // одного и того же менеджера, откуда бы тот ни ответил — из темы или отсюда.
-  CHAT.say(chat, 'operator', text);
+  CHAT.say(chat, 'operator', text, { reply });
   // В тему уходит и ответ из панели: иначе дежурный в Telegram видел бы вопрос
-  // без ответа и написал бы второй раз то же самое.
-  TGCHAT.relaySystem(chat, 'Ответ из панели: ' + text);
+  // без ответа и написал бы второй раз то же самое. Цитату называем словами —
+  // тема в Telegram про наш ответ на конкретную реплику ничего не знает.
+  TGCHAT.relaySystem(chat, (reply ? 'Ответ из панели на «' + reply.text + '»: ' : 'Ответ из панели: ') + text);
   return back('Отправлено', true);
 });
 

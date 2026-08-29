@@ -11023,7 +11023,7 @@ test('на телефоне сайт ведёт себя как приложен
   }
 });
 
-test('диалог в панели на телефоне — экран мессенджера', () => {
+test('диалог в панели — экран мессенджера на любой ширине', () => {
   const chat = {
     id: 'c1', mode: 'ai', messages: [{ at: Date.now(), role: 'user', text: 'привет' }],
     name: '', city: 'Москва', ip: '1.2.3.4', lastSeen: Date.now(), receipt: {}
@@ -11045,13 +11045,39 @@ test('диалог в панели на телефоне — экран месс
   assert.match(html, /<div class="chat-head-drop">[\s\S]*chat-head-meta/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  /* Правила лежат ВНЕ медиазапроса: разговор занимает экран целиком и на
+   * мониторе тоже. Раньше на десктопе он был обычной страницей панели, и пара
+   * заявок с плашками оплаты отжимала ленту так, что переписки было не видно. */
   const mobile = css.slice(css.indexOf('@media (max-width:640px){'));
-  // Экран целиком: шапка и поле не сжимаются, прокручивается только лента.
-  assert.match(mobile, /\.a-app \.chat-view\{position:fixed;inset:0/);
-  assert.match(mobile, /\.a-app \.chat-thread\{flex:1;min-height:0;overflow-y:auto/);
-  assert.match(mobile, /\.a-app \.a-topbar,\.a-app \.a-flash\{display:none\}/);
-  // На десктопе обёртка убирается из раскладки — блоки стоят как стояли.
+  const wide = css.slice(0, css.indexOf('@media (max-width:640px){'));
+  assert.match(wide, /\.a-app \.chat-view\{position:fixed;inset:0/);
+  assert.match(wide, /\.a-app \.chat-thread\{flex:1;min-height:0;max-height:none;overflow-y:auto/);
+  assert.match(wide, /\.a-app \.a-topbar\{display:none\}/);
+  assert.match(wide, /\.a-app \.chat-back\{display:grid\}/, 'к списку ведёт стрелка в шапке разговора');
+  /* Колонка по центру: во всю ширину монитора реплика в 74% ленты тянулась бы на
+   * полметра. Поля считаются от ширины, поэтому медиазапроса на это не нужно —
+   * в узком окне колонка просто занимает всё. */
+  assert.match(wide, /--chat-pad:max\(16px,calc\(\(100% - 1020px\)\/2\)\)/);
+  assert.match(mobile, /\.a-app \.chat-view\{--chat-pad:12px\}/);
+  // На телефоне и подавно — правила ужимают шапку до одного ряда.
+  assert.match(mobile, /\.chat-head-card\{padding:8px 12px/);
+
+  /* Плашка («Реплика изменена») живёт ВНУТРИ экрана: шапки панели тут нет, и на
+   * обычном её месте плашка осталась бы за краем. Класс тот же, поэтому гаснет
+   * она сама через пять секунд — правило одно на всю панель. */
+  const flashed = adminViews.chatPage(SETTINGS, db, chat, 'Реплика изменена', [], false);
+  assert.match(flashed, /<div class="chat-view"[\s\S]*a-flash ok chat-flash">Реплика изменена</);
+  assert.doesNotMatch(flashed, /a-main">\s*<div class="a-flash/);
+  // На десктопе обёртка подробностей раньше убиралась из раскладки; теперь
+  // раскрытие общее, и правило `display:contents` осталось только запасным.
   assert.match(css, /\n\.chat-head-box\{display:contents\}/);
+
+  /* Профиль закрывается нажатием мимо — но САМ ПЕРЕКЛЮЧАТЕЛЬ не «мимо»: нажатие
+   * по подписи браузер повторяет нажатием по её полю, а поле лежит РЯДОМ с
+   * шапкой, а не внутри неё. Без этой проверки профиль открывался и тут же
+   * закрывался сам, и со стороны это выглядело так, будто имя не нажимается. */
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /if \(e\.target === profile\) return;/);
 });
 
 /* ============ ОТЧЁТ ПО КАССАМ: ЧТО ИМЕННО ОНА ПРИСЛАЛА ============ */
@@ -11743,12 +11769,94 @@ test('действия над репликой открываются нажат
   assert.match(ui, /execCommand\('copy'\)/, 'без https clipboard-API не работает — нужен запасной путь');
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(css, /\.chat-line\{cursor:pointer;list-style:none\}/);
+  assert.match(css, /\.chat-line\{cursor:pointer;list-style:none/);
   assert.match(css, /\.chat-tools\{flex-basis:100%/, 'меню уезжает под пузырь, а не встаёт рядом');
-  // Поле ответа во всю ширину экрана: у .a-content свои поля по бокам, и
-  // прилипшая форма стояла в них — по краям оставались промежутки.
-  const mobile = css.slice(css.indexOf('@media (max-width:640px){'));
-  assert.match(mobile, /\.chat-answer-dock\{margin:0 -16px/);
+
+  /* Нажали мимо — выделение снимается, и открытым остаётся одно меню. Открытый
+   * ряд кнопок, который не убрать иначе как повторным попаданием в ту же
+   * реплику, — ровно та мелочь, что раздражает каждый раз. */
+  assert.match(ui, /function closeTools\(keep\)/);
+  assert.match(ui, /closeTools\(t\.closest\('\.chat-bubble'\)\)/,
+    'внутри самого пузыря ничего не закрываем: это начатое действие');
+  assert.match(ui, /if \(e\.key !== 'Escape'\) return/);
+});
+
+test('на реплику отвечают ссылкой из меню и смахиванием пальцем', () => {
+  /* Ответ на конкретную реплику. Путей два, и они отвечают разным рукам:
+   * «Ответить» в меню — обычная ссылка (работает с клавиатуры и без скриптов
+   * вовсе), смахивание — жест сенсорного экрана. Мышью жеста нет намеренно:
+   * горизонтальное перетаскивание по тексту — это его выделение. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-reply-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ name: 'Алёна' });
+  const ask = chatStore.addMessage(chat, 'user', 'Есть 256 ГБ в чёрном?');
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0 };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []);
+
+  // Ссылка, а не кнопка со скриптом: без JS сервер вернёт ту же страницу с уже
+  // подставленной цитатой.
+  assert.match(html, new RegExp('href="/admin/chat/' + chat.id + '\\?reply=' + ask.at + '#chat-answer"'));
+  assert.match(html, new RegExp('data-chat-reply="' + ask.at + '"'));
+  assert.match(html, /data-reply-text="Есть 256 ГБ в чёрном\?"/);
+  assert.match(html, /data-reply-who="Алёна"/, 'подпись цитаты — имя собеседника');
+  // Плашка над полем всегда лежит в разметке и просто скрыта: скрипт подставляет
+  // в готовые узлы имя и текст, а рисует их сервер.
+  assert.match(html, /<div class="chat-answer-reply" hidden>/);
+  assert.match(html, /<input type="hidden" name="replyTo" value="">/);
+
+  // Тот же адрес с `?reply=` — цитата уже на месте, поле готово к ответу.
+  const chosen = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', [], false, String(ask.at));
+  assert.match(chosen, /<div class="chat-answer-reply">/);
+  assert.match(chosen, new RegExp('name="replyTo" value="' + ask.at + '"'));
+  assert.match(chosen, /class="chat-answer-reply-text">Есть 256 ГБ в чёрном\?</);
+  // Крестик — обычная ссылка на ту же страницу без параметра: отменить ответ
+  // можно и там, где скрипты панели не загрузились.
+  assert.match(chosen, new RegExp('class="chat-answer-reply-x" href="/admin/chat/' + chat.id + '"'));
+
+  /* СНИМОК, а не ссылка на оригинал: правка и удаление реплики покупателю не
+   * показываются вовсе, и резолви мы цитату на лету, удалённая реплика
+   * превратила бы её в «сообщение удалено» прямо у него в окне. */
+  const quote = chatStore.replyTo(chat, ask.at);
+  const answer = chatStore.addMessage(chat, 'operator', 'Да, есть', { reply: quote });
+  assert.equal(answer.reply.text, 'Есть 256 ГБ в чёрном?');
+  assert.equal(answer.reply.role, 'user');
+  chatStore.dropMessage(chat, ask.at);
+  assert.equal(chatStore.get(chat.id).messages[0].reply.text, 'Есть 256 ГБ в чёрном?',
+    'удалили оригинал — цитата осталась такой, какой её видел покупатель');
+  // Ссылка в цитате сворачивается в название: скобки с адресом читались бы как
+  // вылезшая наружу разметка.
+  const linked = chatStore.addMessage(chat, 'ai', 'Смотрите [Айфон 17 Pro](/product/iphone-17-pro)');
+  assert.equal(chatStore.replyTo(chat, linked.at).text, 'Смотрите Айфон 17 Pro');
+  // Чужой объект в цитату не попадает: время, роль и текст сверяет хранилище.
+  assert.equal(chatStore.addMessage(chat, 'operator', 'x', { reply: { at: 0, text: 'подделка' } }).reply, undefined);
+
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /e\.pointerType === 'mouse'/, 'мышью реплику не смахивают');
+  assert.match(ui, /if \(Math\.abs\(dy\) > Math\.abs\(dx\)\) \{ dragEnd\(false\); return; \}/,
+    'ведут вниз — это прокрутка ленты, жест отпускаем');
+  assert.match(ui, /Date\.now\(\) - swipedAt > 400/, 'нажатие в конце жеста пузырю не достаётся');
+  // Цитату оба пути берут из ОДНОЙ ссылки: второе место, где решается, что в неё
+  // попадёт, разъехалось бы с первым.
+  assert.match(ui, /querySelector\('\[data-chat-reply\]'\)/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.chat-line\{[^}]*touch-action:pan-y/,
+    'вертикаль браузеру, горизонталь скрипту — иначе жеста не будет вовсе');
+  assert.match(css, /\.chat-thread\{[^}]*overflow-x:hidden/,
+    'смахнутая реплика не должна заводить горизонтальную прокрутку');
+  assert.match(css, /\.chat-answer-reply\[hidden\]\{display:none\}/,
+    'браузерная таблица не перебивает display:flex — та же грабля, что у плиток вложений');
+
+  // Покупатель видит ту же цитату: своего разбора и своей копии текста в окне
+  // нет — снимок приезжает от сервера.
+  const shop = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.match(shop, /function quoteNode\(reply\)/);
+  assert.match(shop, /if \(reply && reply\.text\) row\.appendChild\(quoteNode\(reply\)\)/);
+  assert.match(shop, /reply\.role === 'user' \? 'Вы'/);
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /if \(m\.reply\) view\.reply = m\.reply/);
+  assert.match(server, /const reply = CHAT\.replyTo\(chat, Math\.floor\(Number\(req\.body\.replyTo\) \|\| 0\)\)/,
+    'из запроса приходит только время реплики — снимок собирает хранилище');
 });
 
 test('оплату можно отменить рукой — и вернуть обратно', () => {

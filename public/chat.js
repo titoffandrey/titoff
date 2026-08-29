@@ -170,7 +170,30 @@
     return box;
   }
 
-  function bubble(role, text, by, at, photos, local) {
+  /* Цитата: на какую реплику отвечает магазин.
+   *
+   * Приезжает она СНИМКОМ от сервера (`reply` у сообщения) — своего разбора и
+   * своей копии текста здесь нет: покупатель обязан видеть ровно ту цитату,
+   * которую менеджер выбрал в панели.
+   *
+   * Своя реплика подписана «Вы»: имени покупатель нам не называл, а «Гость» в
+   * его собственном окне читалось бы странно. Магазин подписан тем же голосом,
+   * что и в самой ленте, — имя приходит готовым, от сервера. */
+  function quoteNode(reply) {
+    var box = document.createElement('span');
+    box.className = 'chat-quote';
+    var who = document.createElement('b');
+    who.className = 'chat-quote-who';
+    who.textContent = reply.role === 'user' ? 'Вы' : (reply.by || 'Магазин');
+    var body = document.createElement('span');
+    body.className = 'chat-quote-text';
+    body.textContent = String(reply.text || '');
+    box.appendChild(who);
+    box.appendChild(body);
+    return box;
+  }
+
+  function bubble(role, text, by, at, photos, local, reply) {
     var row = document.createElement('div');
     row.className = 'chat-msg chat-' + (role === 'user' ? 'me' : role === 'system' ? 'sys' : 'them');
     if (role === 'system') {
@@ -191,6 +214,8 @@
       who.textContent = by;
       row.appendChild(who);
     }
+    // Цитата стоит первой: сначала «на что отвечают», потом сам ответ.
+    if (reply && reply.text) row.appendChild(quoteNode(reply));
     /* Снимки идут ПЕРЕД текстом — как в любом мессенджере: подпись относится к
      * картинке, а не наоборот. Реплика бывает и вовсе без слов, поэтому пустой
      * пузырь текста в неё не добавляется. */
@@ -429,7 +454,7 @@
      * ответы. */
     var stamp = message.at || Date.now();
     dayDivider(stamp);
-    var row = bubble(message.role, message.text, message.by, stamp, message.photos, message.local);
+    var row = bubble(message.role, message.text, message.by, stamp, message.photos, message.local, message.reply);
     if (message.role === 'user') mine(row, message.at);
     list.appendChild(row);
     scroll();
