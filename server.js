@@ -3833,7 +3833,7 @@ app.get('/admin/chat/:id', (req, res) => {
  * «ответа оператора» быть не должно: разъехавшись, они означали бы, что бот
  * перебивает человека в зависимости от того, откуда тот написал.
  */
-app.post('/admin/chat/:id/reply', (req, res) => {
+app.post('/admin/chat/:id/reply', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
   if (!chat) return sendNotFound(req, res);
@@ -3865,7 +3865,15 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   }
 
   const text = CHAT.clean(req.body.text, CHAT.MAX_TEXT).trim();
-  if (!text) return back('Пустой ответ не отправлен');
+  /* Менеджер прикладывает снимки тем же путём, что и покупатель: multipart
+   * уже разобран общим server-lib, а optimizeUploads проверяет сигнатуру,
+   * перекодирует изображение в WebP и снимает метаданные. Поле нарочно зовётся
+   * `photos` с обеих сторон — второй договор о допустимых вложениях здесь был
+   * бы только источником расхождений. */
+  const raw = req.filesFor ? req.filesFor('photos').slice(0, CHAT.MAX_PHOTOS) : [];
+  const photos = raw.length ? await optimizeUploads(raw, 1400) : [];
+  // Как и у покупателя, снимок без подписи — полноценная реплика.
+  if (!text && !photos.length) return back('Пустой ответ не отправлен');
   cancelTakeover(chat.id);
   if (chat.mode !== 'operator') CHAT.setMode(chat, 'operator');
   CHAT.markStore(chat, 'read');
@@ -3876,11 +3884,15 @@ app.post('/admin/chat/:id/reply', (req, res) => {
   const reply = CHAT.replyTo(chat, Math.floor(Number(req.body.replyTo) || 0));
   // Имя подставляет само хранилище (`SPEAKERS` в lib/chat.js): покупатель видит
   // одного и того же менеджера, откуда бы тот ни ответил — из темы или отсюда.
-  CHAT.say(chat, 'operator', text, { reply });
+  CHAT.say(chat, 'operator', text, { reply, photos });
   // В тему уходит и ответ из панели: иначе дежурный в Telegram видел бы вопрос
   // без ответа и написал бы второй раз то же самое. Цитату называем словами —
   // тема в Telegram про наш ответ на конкретную реплику ничего не знает.
-  TGCHAT.relaySystem(chat, (reply ? 'Ответ из панели на «' + reply.text + '»: ' : 'Ответ из панели: ') + text);
+  const relayPhotos = photos.length
+    ? (text ? '\n' : '') + '📷 ' + photos.length + ' фото — смотреть в панели'
+    : '';
+  TGCHAT.relaySystem(chat, (reply ? 'Ответ из панели на «' + reply.text + '»: ' : 'Ответ из панели: ')
+    + text + relayPhotos);
   return back('Отправлено', true);
 });
 

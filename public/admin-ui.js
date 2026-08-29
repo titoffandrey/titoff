@@ -192,6 +192,125 @@
     grow();
   }
 
+  /* ======================= Фотографии в ответе =======================
+   *
+   * Снимки ведут себя так же, как у покупателя: можно выбрать несколько раз,
+   * увидеть плитки до отправки и убрать промах. Сам input после выбора
+   * очищается, чтобы повторно выбрать тот же файл; настоящую очередь держим в
+   * памяти и при отправке собираем multipart сами. Обычный ответ без файлов
+   * остаётся нативной формой и работает даже без этого скрипта. */
+  var photoInput = dock && dock.querySelector('.chat-answer-file');
+  var photoBox = dock && dock.querySelector('.chat-answer-picks');
+  var photoNote = dock && dock.querySelector('.chat-answer-photo-note');
+  var sendButton = dock && dock.querySelector('.chat-answer-send-round');
+  var maxPhotos = Math.max(1, Number(dock && dock.getAttribute('data-max-photos')) || 3);
+  var maxPhotoBytes = 6 * 1024 * 1024;
+  var photoFiles = [], photoUrls = [];
+
+  function sayPhoto(text, error) {
+    if (!photoNote) return;
+    photoNote.textContent = text || '';
+    photoNote.hidden = !text;
+    photoNote.classList.toggle('is-error', !!error);
+  }
+
+  function clearPhotoUrls() {
+    for (var i = 0; i < photoUrls.length; i++) URL.revokeObjectURL(photoUrls[i]);
+    photoUrls = [];
+  }
+
+  function renderPhotos() {
+    if (!photoBox) return;
+    clearPhotoUrls();
+    photoBox.textContent = '';
+    photoBox.hidden = !photoFiles.length;
+    for (var i = 0; i < photoFiles.length; i++) {
+      var url = URL.createObjectURL(photoFiles[i]);
+      photoUrls.push(url);
+      var cell = document.createElement('span');
+      cell.className = 'chat-answer-pick';
+      var img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      cell.appendChild(img);
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'chat-answer-pick-x';
+      remove.setAttribute('data-chat-photo', String(i));
+      remove.setAttribute('aria-label', 'Убрать фото ' + (i + 1));
+      remove.textContent = '×';
+      cell.appendChild(remove);
+      photoBox.appendChild(cell);
+    }
+  }
+
+  function pickPhotos(list) {
+    var tooMany = false, tooBig = false, notImage = false;
+    for (var i = 0; i < list.length; i++) {
+      var file = list[i];
+      if (!file) continue;
+      if (photoFiles.length >= maxPhotos) { tooMany = true; break; }
+      if (!/^image\//.test(file.type || '')) { notImage = true; continue; }
+      if (file.size > maxPhotoBytes) { tooBig = true; continue; }
+      photoFiles.push(file);
+    }
+    if (notImage) sayPhoto('Приложить можно только фотографии.', true);
+    else if (tooBig) sayPhoto('Один снимок — не больше 6 МБ.', true);
+    else if (tooMany) sayPhoto('К сообщению можно приложить не больше ' + maxPhotos + ' фото.', true);
+    else sayPhoto('');
+    renderPhotos();
+  }
+
+  if (photoInput) {
+    photoInput.addEventListener('change', function () {
+      pickPhotos(photoInput.files ? [].slice.call(photoInput.files) : []);
+      photoInput.value = '';
+    });
+  }
+  if (photoBox) {
+    photoBox.addEventListener('click', function (e) {
+      var remove = e.target.closest && e.target.closest('[data-chat-photo]');
+      if (!remove) return;
+      photoFiles.splice(Number(remove.getAttribute('data-chat-photo')), 1);
+      sayPhoto('');
+      renderPhotos();
+    });
+  }
+
+  if (dock) {
+    dock.addEventListener('submit', function (e) {
+      var text = String(field && field.value || '').trim();
+      if (!text && !photoFiles.length) {
+        e.preventDefault();
+        sayPhoto('Напишите сообщение или приложите фото.', true);
+        if (field) field.focus();
+        return;
+      }
+      // Без снимков браузер отправляет обычную форму с PRG-переходом.
+      if (!photoFiles.length) return;
+      e.preventDefault();
+      var body = new FormData(dock);
+      // Пустой очищенный input уже мог дать техническую файловую часть.
+      body.delete('photos');
+      for (var i = 0; i < photoFiles.length; i++) body.append('photos', photoFiles[i], photoFiles[i].name);
+      if (sendButton) sendButton.disabled = true;
+      sayPhoto('Отправляем фото…');
+      fetch(dock.action, { method: 'POST', credentials: 'same-origin', body: body })
+        .then(function (res) {
+          if (!res.ok) throw new Error('upload');
+          // fetch следует за 303 сам; переходим на итоговый адрес с `sent=1`,
+          // чтобы звук и очистка адреса остались общими с текстовым ответом.
+          window.location.assign(res.url || dock.action);
+        })
+        .catch(function () {
+          if (sendButton) sendButton.disabled = false;
+          sayPhoto('Не удалось отправить. Проверьте соединение и попробуйте ещё раз.', true);
+        });
+    });
+  }
+
+  window.addEventListener('pagehide', clearPhotoUrls);
+
   /* ==================== Ответ на конкретную реплику ====================
    *
    * Путей два, и это не роскошь: они отвечают разным рукам.

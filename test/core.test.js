@@ -10642,9 +10642,16 @@ test('Enter отправляет, а время с галочкой держат
   // Время у растущего ответа дописывается в ту же обёртку, а не рядом с ней.
   assert.match(shop, /var meta = state\.live\.querySelector\('\.chat-meta'\)/);
 
-  // В панели время и галочка лежат в одном элементе, и разрывать его тоже
-  // нельзя: это одна подпись.
-  assert.match(css, /\.chat-line-at\{[\s\S]{0,320}white-space:nowrap\}/);
+  /* В панели метаданные тоже стоят ОТ КРАЯ пузыря. Обычный inline переносил
+   * целиком «18:11 ✓✓» на новую строку и начинал её слева, когда после текста
+   * не хватало места. Абсолютная подпись плюс резерв последней строки держат
+   * её в правом нижнем углу и не дают накрыть последнее слово. */
+  assert.match(css, /\.chat-line-at\{[^}]*position:absolute[^}]*right:\d+px[^}]*bottom:\d+px[^}]*white-space:nowrap\}/);
+  assert.match(css, /\.chat-line-text::after\{content:'';display:inline-block;width:\d+px/);
+  assert.match(css, /\.chat-line\.is-ai \.chat-line-text::after,\.chat-line\.is-operator \.chat-line-text::after\{width:\d+px\}/,
+    'у своей реплики резерв учитывает и часы, и галочки');
+  assert.match(css, /\.chat-line-shots\+\.chat-line-at\{position:static[^}]*justify-content:flex-end/,
+    'у фото без подписи метаданные не перекрывают кадр, но остаются справа');
 });
 
 test('чат звучит одинаково у покупателя и у менеджера, и только по делу', () => {
@@ -10916,6 +10923,42 @@ test('к сообщению в чате прикладывается до трё
   const rows = adminViews.chatList(SETTINGS, Object.assign({}, db, { }), '');
   const photoRow = rows.slice(rows.indexOf(photoOnly.id), rows.indexOf('</a>', rows.indexOf(photoOnly.id)));
   assert.match(photoRow, /📷 1 фото/);
+});
+
+test('менеджер прикладывает фото и отправляет круглой кнопкой мессенджера', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-admin-shots-'));
+  chatStore.init(dir);
+  const chat = chatStore.create({ city: 'Москва' });
+  chatStore.addMessage(chat, 'user', 'Пришлите, пожалуйста, фото упаковки');
+  const db = { pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [] };
+  const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []);
+
+  // Без JS остаётся обычная multipart-форма, а подпись можно не писать.
+  assert.match(html, /<form class="chat-answer chat-answer-dock"[^>]*enctype="multipart\/form-data"[^>]*data-max-photos="3"/);
+  assert.match(html, /class="chat-answer-file sr-only"[^>]*name="photos"[^>]*multiple/);
+  const answer = html.slice(html.indexOf('<form class="chat-answer chat-answer-dock"'), html.indexOf('</form>', html.indexOf('<form class="chat-answer chat-answer-dock"')));
+  assert.doesNotMatch(answer, /<textarea[^>]*required/, 'реплика только из фото должна отправляться');
+  assert.match(answer, /chat-answer-send chat-answer-send-round[^>]*aria-label="Отправить"/);
+  assert.doesNotMatch(answer, />Отправить<\/button>/, 'место текста занимает понятная стрелка');
+
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /var photoFiles = \[\], photoUrls = \[\]/);
+  assert.match(ui, /photoFiles\.splice\(Number\(remove\.getAttribute\('data-chat-photo'\)\), 1\)/,
+    'выбранный по ошибке снимок можно убрать до отправки');
+  assert.match(ui, /var body = new FormData\(dock\)[\s\S]{0,240}body\.append\('photos', photoFiles\[i\]/,
+    'очередь снимков уходит одной multipart-репликой');
+
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/admin/chat/:id/reply'"), server.indexOf("app.post('/admin/chat/:id/delete'"));
+  assert.match(route, /async \(req, res\)/);
+  assert.match(route, /req\.filesFor\('photos'\)\.slice\(0, CHAT\.MAX_PHOTOS\)/);
+  assert.match(route, /await optimizeUploads\(raw, 1400\)/,
+    'фото менеджера очищаются и пережимаются тем же путём, что фото покупателя');
+  assert.match(route, /CHAT\.say\(chat, 'operator', text, \{ reply, photos \}\)/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.chat-answer-clip,\.chat-answer-send-round\{[^}]*width:42px[^}]*height:42px[^}]*border-radius:50%/);
+  assert.match(css, /\.chat-answer-picks\{[^}]*display:flex/);
 });
 
 test('стили чата не пересекаются у витрины и панели', () => {

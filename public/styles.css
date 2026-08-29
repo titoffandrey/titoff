@@ -5219,6 +5219,13 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-line-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 .chat-line.is-operator .chat-line-who{color:#0b7a37}
 .chat-line-text{display:inline}
+/* Время теперь стоит поверх зарезервированного хвоста последней строки. Само
+   абсолютное позиционирование не участвует в ширине пузыря, поэтому без этого
+   хвоста короткая реплика могла бы оказаться уже подписи, а длинная — накрыть
+   последним словом часы. У своей реплики резерв шире: рядом со временем стоят
+   галочки доставки. */
+.chat-line-text::after{content:'';display:inline-block;width:40px;height:1px}
+.chat-line.is-ai .chat-line-text::after,.chat-line.is-operator .chat-line-text::after{width:61px}
 /* Цитата в пузыре: на какую реплику это ответ. Полоска слева и приглушённый
    текст — тот же язык, что в любом мессенджере, и он же отделяет её от самого
    ответа. Строка одна: цитата отвечает на «о чём это», а полная реплика лежит
@@ -5243,18 +5250,22 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-line-shot img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;display:block;
   background:#f5f5f7;cursor:zoom-in}
 .chat-line-shots.is-1 .chat-line-shot img{aspect-ratio:auto;max-height:220px}
-/* Время — обычный inline-элемент в конце текста, а НЕ float.
-   Float не участвует в расчёте max-content ширины: пузырь получался ровно по
-   тексту, время в него не влезало и толкало последнее слово на новую строку —
-   «Есть iPhone 17 Pro Max?» ломалось надвое при пустой половине экрана рядом.
-   Инлайновое время пузырь учитывает и расширяется на него, а у длинной реплики
-   оно просто оказывается в конце последней строки — ровно как в Telegram. */
-.chat-line-at{display:inline-block;margin-left:8px;font-size:10.5px;color:var(--muted);
-  font-variant-numeric:tabular-nums;user-select:none;vertical-align:baseline;
+/* Время и галочки закреплены в правом нижнем углу пузыря. Раньше это был
+   inline-элемент после текста: если остатка строки не хватало, вся подпись
+   переносилась вниз и начиналась слева — именно это видно на мобильном снимке.
+   `right/bottom` дают одно положение при любой длине реплики, а резерв выше не
+   позволяет подписи накрыть текст. */
+.chat-line-at{position:absolute;right:10px;bottom:5px;display:inline-flex;align-items:center;
+  margin:0;font-size:10.5px;line-height:1;color:var(--muted);
+  font-variant-numeric:tabular-nums;user-select:none;
   /* Время и галочка внутри — одной строкой: разорвать их переносом нельзя, это
      одна подпись. Та же беда, что была у окна покупателя. */
   white-space:nowrap}
 .chat-line.is-system .chat-line-at{display:none}
+/* У реплики только из снимков нет текста, который мог бы зарезервировать место.
+   Там подпись идёт своим поточным рядом под кадрами, но остаётся у правого
+   края — изображение она не перекрывает. */
+.chat-line-shots+.chat-line-at{position:static;display:flex;justify-content:flex-end;margin-top:5px}
 /* Галочка у своей реплики: дошла ли она до покупателя и открывал ли он окно.
    Синий — тот же, что у ссылок Telegram в подвале витрины (4.6 на белом): на
    светлом пузыре бледная отметка «прочитано» не читалась бы вовсе. */
@@ -5282,8 +5293,35 @@ details.metric-bots>summary:hover{background:#fffaf0}
 /* Ввод и «Отправить» — одной строкой: кнопка относится к тексту, а снизу она
    вместе с двумя служебными занимала три ряда на самом дорогом месте экрана. */
 .chat-answer-row{display:flex;align-items:flex-end;gap:8px}
-.chat-answer-row textarea{min-height:42px;max-height:132px;resize:none;overflow-y:auto}
+.chat-answer-row textarea{flex:1;min-width:0;min-height:42px;max-height:132px;resize:none;overflow-y:auto}
 .chat-answer-row .chat-answer-send{flex:none;margin:0}
+/* Скрепка и круглая стрелка — тот же ряд действий, что в окне покупателя.
+   Текстовая синяя плашка отнимала почти треть строки на телефоне и выглядела
+   как кнопка обычной формы, а не отправка сообщения. */
+.chat-answer-clip,.chat-answer-send-round{display:grid;place-items:center;flex:none;width:42px;height:42px;
+  padding:0;border-radius:50%;cursor:pointer;transition:background .15s,color .15s,transform .08s}
+.chat-answer-clip{border:1px solid var(--border);background:#fff;color:var(--muted)}
+.chat-answer-clip:hover{background:var(--bg2);color:var(--accent)}
+.chat-answer-file:focus-visible+.chat-answer-clip{outline:2px solid var(--accent);outline-offset:2px}
+.chat-answer-send-round{border:0;background:var(--accent);color:#fff;box-shadow:0 3px 9px rgba(0,113,227,.24)}
+.chat-answer-send-round:hover{filter:brightness(.96)}
+.chat-answer-clip:active,.chat-answer-send-round:active{transform:scale(.94)}
+.chat-answer-send-round:disabled{opacity:.55;cursor:wait;transform:none}
+.chat-answer-clip svg,.chat-answer-send-round svg{width:19px;height:19px}
+/* Выбранные снимки видны до отправки, и каждый можно убрать отдельно. Имена
+   классов принадлежат панели: витринные `.chat-picks/.chat-pick` намеренно не
+   переиспользуются, чтобы два чата в общей таблице стилей не красили друг
+   друга. */
+.chat-answer-picks{display:flex;gap:7px;overflow-x:auto;margin:0 0 8px;padding:1px 1px 3px}
+.chat-answer-picks[hidden]{display:none}
+.chat-answer-pick{position:relative;flex:none;width:58px;height:58px;border-radius:10px;overflow:hidden;
+  background:var(--bg2);border:1px solid var(--border)}
+.chat-answer-pick img{display:block;width:100%;height:100%;object-fit:cover}
+.chat-answer-pick-x{position:absolute;right:2px;top:2px;display:grid;place-items:center;width:21px;height:21px;
+  padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.68);color:#fff;font:600 16px/1 Arial;cursor:pointer}
+.chat-answer-photo-note{margin:0 0 7px;color:var(--muted);font-size:12px}
+.chat-answer-photo-note.is-error{color:#b42318}
+.chat-answer-photo-note[hidden]{display:none}
 /* Кому отвечаем — плашка над полем ввода, как в мессенджере. Она всегда лежит в
    разметке и просто скрыта: скрипт подставляет в готовые узлы имя и текст, а
    рисует их сервер. `[hidden]` прописан явно — браузерная таблица не перебивает
