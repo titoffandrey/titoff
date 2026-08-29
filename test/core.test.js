@@ -10366,7 +10366,7 @@ test('ключ ИИ и адрес API наружу не уезжают', () => {
   assert.match(ai.endpointOf({}), /api\.openai\.com/);
 });
 
-test('форма запроса к модели чинится по отказу API, а не по имени модели', async () => {
+test('форма неизвестной модели чинится по отказу API, а GPT-5.6 сразу получает верный запрос', async () => {
   /* Новые модели OpenAI не принимают ни `max_tokens`, ни свою температуру, и на
    * витрине это выглядит так, будто консультант молчит: на каждый вопрос —
    * запасная фраза «секунду, уточню». Ровно так и было с `gpt-5.6-luna`.
@@ -10425,6 +10425,7 @@ test('форма запроса к модели чинится по отказу
     assert.equal(seen[2].reasoning_effort, 'low', 'рассуждения — самые дорогие токены в ответе');
     assert.equal(seen[2].verbosity, 'low');
     assert.ok(seen[2].prompt_cache_key, 'ключ кэша — чтобы запрос попал туда, где уже лежит наш каталог');
+    assert.equal(seen[2].prompt_cache_options.mode, 'implicit');
     assert.equal(seen[2].prompt_cache_options.ttl, '30m');
     assert.equal(seen[2].stream_options.include_usage, true, 'без расхода в ответе не видно, работает ли кэш');
 
@@ -10433,6 +10434,37 @@ test('форма запроса к модели чинится по отказу
     const again = await ai.stream(cfg, [{ role: 'user', content: 'а 512?' }], () => {});
     assert.equal(again.ok, true);
     assert.equal(seen.length, 4, 'второй разговор идёт сразу верной формой');
+
+    /* Настроенная на бою официальная GPT-5.6 не должна после КАЖДОГО
+     * перезапуска заново сообщать нам два уже известных факта: max_tokens и
+     * temperature она не принимает. Кроме задержки первого покупателя, эти
+     * отказы засоряли журнал и маскировали настоящие сбои. */
+    seen.length = 0;
+    global.fetch = async (url, opts) => { seen.push(JSON.parse(opts.body)); return answer('Да'); };
+    const safe = '8bf32a46f0c1448d8b3b44b97b5d2c01';
+    const modern = await ai.stream(
+      { aiApiKey: 'k', aiModel: 'gpt-5.6-luna' },
+      [
+        { role: 'system', content: 'постоянные правила и каталог' },
+        { role: 'user', content: 'есть?' },
+        { role: 'system', content: 'покупатель смотрит карточку' }
+      ],
+      () => {},
+      { safetyIdentifier: safe }
+    );
+    assert.equal(modern.ok, true);
+    assert.equal(seen.length, 1, 'ни одного пробного HTTP 400 после перезапуска');
+    assert.equal(ai.MAX_TOKENS, 400, 'четырём коротким фразам оставлен двойной запас, не 700 токенов');
+    assert.equal(seen[0].max_completion_tokens, ai.MAX_TOKENS);
+    assert.ok(!('max_tokens' in seen[0]) && !('temperature' in seen[0]));
+    assert.equal(seen[0].safety_identifier, safe, 'наружу уходит только необратимая метка, не id посетителя');
+    assert.equal(seen[0].messages[0].role, 'developer');
+    assert.equal(seen[0].messages[0].content[0].type, 'text');
+    assert.equal(seen[0].messages[0].content[0].prompt_cache_breakpoint.mode, 'explicit',
+      'неизменный общий префикс имеет свою границу кэша');
+    assert.equal(seen[0].messages[2].role, 'developer', 'динамическая обстановка тоже остаётся инструкцией, а не репликой покупателя');
+    assert.equal(seen[0].prompt_cache_options.mode, 'implicit',
+      'история одного разговора продолжает кэшироваться автоматически');
 
     // Модель постарше не знает про рассуждения — снимаем и их, ответ остаётся.
     seen.length = 0;
@@ -10593,7 +10625,7 @@ test('ответ консультанта печатается, а не пада
   // Маршрут ответа обязан идти через пейсер, а не пушить куски модели напрямую.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const fn = server.slice(server.indexOf('async function aiAnswer('), server.indexOf('app.post(\'/api/chat/open\''));
-  assert.match(fn, /AI\.stream\(s, messages, piece => pace\.feed\(piece\)\)/);
+  assert.match(fn, /AI\.stream\(s, messages, piece => pace\.feed\(piece\), \{/);
   assert.match(fn, /await pace\.finish\(\)/);
   assert.doesNotMatch(fn, /AI\.stream\([\s\S]{0,120}CHAT\.push\(chat\.id, 'delta'/, 'куски модели не уходят покупателю напрямую');
   assert.match(fn, /const typed = pace\.sent\(\)/, 'при входе оператора сохраняется напечатанное');
@@ -10821,6 +10853,41 @@ test('консультант не повторяется и не отговар�
   assert.match(rules, /Ссылка на страницу не заменяет ответ/);
   // Приветствие — это приветствие, а не повод показать товар из корзины.
   assert.match(rules, /На приветствие отвечай приветствием/);
+
+  /* Запрет в промпте остаётся страховкой, но простая гарантия теперь вообще не
+   * зависит от случайности модели. Один и тот же вопрос четыре раза раскрывает
+   * четыре разных блока фактов, уже сказанное узнаётся по самой сохранённой
+   * переписке, а API на этом пути не нужен. */
+  const repeated = { messages: [] };
+  const warranty = [];
+  const warrantyQuestions = [
+    'Так у вас гарантия 1 год?',
+    'На что действует гарантия?',
+    'Напишите тут, на что распространяется гарантия',
+    'Ты сказать не можешь?'
+  ];
+  for (const question of warrantyQuestions) {
+    repeated.messages.push({ role: 'user', text: question });
+    const answer = chatPrompt.warrantyAnswer(repeated, question);
+    warranty.push(answer);
+    repeated.messages.push({ role: 'ai', text: answer });
+  }
+  assert.equal(new Set(warranty).size, 4, 'четыре повтора — четыре разных полезных ответа');
+  assert.ok(warranty.every(Boolean));
+  assert.ok(warranty.every(text => !/\/warranty/.test(text)), 'вместо ответа ссылка больше не повторяется');
+  assert.match(chatPrompt.warrantyAnswer(repeated, 'А гарантия?'), /Чтобы не повторять уже сказанное/);
+  assert.equal(chatPrompt.warrantyAnswer({ messages: [] }, 'Гарантия Apple международная?'), '',
+    'фирменную и международную гарантию не сводим к общему шаблону');
+
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const answerPath = server.slice(server.indexOf('async function aiAnswer('), server.indexOf("app.post('/api/chat/open'"));
+  assert.ok(answerPath.indexOf('PROMPT.warrantyAnswer') < answerPath.indexOf('AI.stream'),
+    'локальный ответ выбирается до сборки платного запроса');
+  assert.match(answerPath, /pace\.feed\(warranty\)/);
+  assert.match(answerPath, /question\.photos\.length \? '' : PROMPT\.warrantyAnswer/,
+    'снимок неисправности FAQ не перехватывает: его должен увидеть менеджер');
+  assert.match(server, /createHmac\('sha256', secret\).*slice\(0, 32\)/,
+    'safety identifier необратим и не раскрывает внутренний id');
 
   /* Дверь к менеджеру сужена. Прежнее «не знаешь ответа — передам менеджеру»
    * модель открывала на вопросы, ответ на которые у неё был («восстановленные?»,

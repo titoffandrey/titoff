@@ -1920,9 +1920,24 @@ async function aiReply(chat, info) {
 function lastQuestion(chat) {
   const list = (chat && chat.messages) || [];
   for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i].role === 'user') return { text: list[i].text || '', at: list[i].at || 0 };
+    if (list[i].role === 'user') return {
+      text: list[i].text || '',
+      at: list[i].at || 0,
+      photos: Array.isArray(list[i].photos) ? list[i].photos : []
+    };
   }
-  return { text: '', at: 0 };
+  return { text: '', at: 0, photos: [] };
+}
+
+/* OpenAI рекомендует стабильную неперсональную метку конечного пользователя
+ * для обнаружения злоупотреблений. Ни visitorId, ни id диалога наружу не
+ * отдаём: HMAC по секрету установки нельзя обратить и нельзя сопоставить с
+ * идентификаторами другой системы. */
+function aiSafetyIdentifier(chat, s) {
+  const source = String(chat && (chat.visitorId || chat.id) || '');
+  const secret = String(s && s.sessionSecret || '');
+  if (!source || !secret) return '';
+  return crypto.createHmac('sha256', secret).update(source).digest('hex').slice(0, 32);
 }
 
 /* Ссылки в готовом ответе консультанта: голый адрес → название из каталога.
@@ -1945,10 +1960,13 @@ function chatLinkNames(text, growing) {
 async function aiAnswer(chat, info, s) {
   const question = lastQuestion(chat);
   CHAT.push(chat.id, 'typing', {});
-  // Вопрос ушёл в модель — для покупателя это «доставлено»: у его реплики
-  // появляется вторая галочка ещё до того, как придёт ответ.
+  // Консультант взял вопрос — для покупателя это «доставлено»: у его реплики
+  // появляется вторая галочка ещё до того, как придёт ответ. Простой вопрос о
+  // гарантии ниже может решиться локально и вовсе не уходить во внешний API.
   CHAT.markStore(chat, 'got', question.at);
-  const messages = PROMPT.build(db, s, chat, info);
+  // Если к вопросу приложен снимок, нужен менеджер: локальный FAQ его не
+  // видит и не должен делать вид, будто оценил неисправность по фотографии.
+  const warranty = question.photos.length ? '' : PROMPT.warrantyAnswer(chat, question.text);
   /* Ответ идёт покупателю не как его отдаёт модель, а как его печатал бы
    * человек: с паузой на прочтение вопроса и ровным темпом (lib/chat-typing.js).
    * Модель отвечает быстрее любого человека, и без этого окно выглядело так,
@@ -1964,7 +1982,16 @@ async function aiAnswer(chat, info, s) {
       return !!at && at.mode === 'ai';
     }
   });
-  const result = await AI.stream(s, messages, piece => pace.feed(piece));
+  let result;
+  if (warranty) {
+    pace.feed(warranty);
+    result = { ok: true, text: warranty, error: '' };
+  } else {
+    const messages = PROMPT.build(db, s, chat, info);
+    result = await AI.stream(s, messages, piece => pace.feed(piece), {
+      safetyIdentifier: aiSafetyIdentifier(chat, s)
+    });
+  }
   // Допечатываем остаток. Даже когда печатать нечего (модель не ответила),
   // пауза выдерживается: мгновенное «уточню и вернусь» выдавало бы автоматику.
   await pace.finish();
