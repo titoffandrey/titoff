@@ -11788,9 +11788,9 @@ test('диалог не завершается: ни кнопкой в пане�
   assert.doesNotMatch(adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []), /chat-ai-btn/);
 });
 
-test('действия над репликой открываются нажатием на неё саму', () => {
+test('действия над репликой открываются удержанием, а не коротким нажатием', () => {
   /* Карандаш у каждой реплики читался как содержание, а пальцем в него ещё надо
-   * было попасть. Теперь пузырь и есть кнопка — как в мессенджерах. */
+   * было попасть. Теперь удерживается сам пузырь — как в мессенджерах. */
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-tools-'));
   chatStore.init(dir);
   const chat = chatStore.create({ name: 'Даллас' });
@@ -11799,15 +11799,26 @@ test('действия над репликой открываются нажат
   const html = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id), '', []);
 
   assert.match(html, /<details class="chat-bubble"><summary class="chat-line/);
+  assert.match(html, /title="Удерживайте, чтобы выбрать реплику"/);
   for (const word of ['Скопировать', 'Изменить', 'Удалить']) assert.ok(html.includes(word), 'в меню есть «' + word + '»');
   assert.match(html, /data-chat-copy="А чего так дешево\?\)"/);
   assert.match(html, /data-confirm="Удалить эту реплику/);
   assert.doesNotMatch(html, /chat-edit-open/, 'прежнего карандаша быть не должно');
 
-  /* Меню на `<details>` — ни строчки скрипта: работает и там, где скрипты
-   * панели не загрузились. Скрипту достаётся только копирование: буфер обмена
-   * из разметки не открыть. */
+  /* `<details>` хранит состояние и доступен с клавиатуры, но указательный клик
+   * скрипт гасит: короткий тап при чтении ленты не должен выбирать реплику. */
   const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  const hold = ui.slice(ui.indexOf('/* -------------------------- Удержание'),
+    ui.indexOf('/* -------------------------- Смахивание'));
+  assert.match(hold, /var HOLD_MS = 480, HOLD_MOVE = 10/);
+  assert.match(hold, /active\.timer = setTimeout\(function \(\) \{[\s\S]*active\.bubble\.open = true;[\s\S]*\}, HOLD_MS\)/,
+    'меню раскрывается только после выдержанного таймера');
+  assert.match(hold, /Math\.abs\(e\.clientX - hold\.x\) >= HOLD_MOVE/,
+    'прокрутка или смахивание отменяют удержание');
+  assert.match(hold, /e\.key !== 'Enter' && e\.key !== ' '/,
+    'Enter и Space открывают меню сразу даже с display:contents у details');
+  assert.match(hold, /e\.detail === 0/, 'средствам доступности задержка не нужна');
+  assert.match(hold, /e\.preventDefault\(\)/, 'обычное указательное нажатие не раскрывает details');
   assert.match(ui, /data-chat-copy/);
   assert.match(ui, /execCommand\('copy'\)/, 'без https clipboard-API не работает — нужен запасной путь');
 

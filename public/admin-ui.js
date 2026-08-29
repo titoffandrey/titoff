@@ -377,6 +377,91 @@
     if (chip && !chip.hidden) setReply('', '', '');
   });
 
+  /* -------------------------- Удержание --------------------------
+   *
+   * `<summary>` сам раскрывает `<details>` по обычному нажатию. Для меню
+   * реплики это слишком легко задеть при чтении ленты, поэтому указательный
+   * клик гасим, а выделяем реплику только после короткого удержания. Клавиатуру
+   * обрабатываем отдельно: Enter/Space обязаны работать без таймера.
+   *
+   * Ход на 10 px отменяет удержание раньше порога смахивания: палец либо
+   * листает ленту, либо отвечает жестом, но случайно меню не раскрывает.
+   */
+  var HOLD_MS = 480, HOLD_MOVE = 10, hold = null, heldLine = null, heldAt = 0;
+
+  function messageControl(target) {
+    return target && target.closest
+      && target.closest('a,button,input,textarea,select,label,[contenteditable]');
+  }
+
+  function holdEnd(id) {
+    if (!hold || (id !== undefined && hold.id !== id)) return;
+    clearTimeout(hold.timer);
+    hold.line.classList.remove('is-holding');
+    hold = null;
+  }
+
+  thread.addEventListener('pointerdown', function (e) {
+    if (!e.isPrimary || e.button !== 0 || messageControl(e.target)) return;
+    var line = e.target.closest && e.target.closest('.chat-line');
+    var bubble = line && line.parentNode;
+    if (!line || !bubble || !bubble.classList.contains('chat-bubble')) return;
+    holdEnd();
+    var active = hold = {
+      line: line, bubble: bubble, x: e.clientX, y: e.clientY,
+      id: e.pointerId, timer: 0
+    };
+    line.classList.add('is-holding');
+    active.timer = setTimeout(function () {
+      if (hold !== active) return;
+      heldLine = active.line;
+      heldAt = Date.now();
+      closeTools(active.bubble);
+      active.bubble.open = true;
+    }, HOLD_MS);
+  });
+
+  thread.addEventListener('pointermove', function (e) {
+    if (!hold || e.pointerId !== hold.id) return;
+    if (Math.abs(e.clientX - hold.x) >= HOLD_MOVE || Math.abs(e.clientY - hold.y) >= HOLD_MOVE) {
+      holdEnd(e.pointerId);
+    }
+  });
+  thread.addEventListener('pointerup', function (e) { holdEnd(e.pointerId); });
+  thread.addEventListener('pointercancel', function (e) { holdEnd(e.pointerId); });
+  thread.addEventListener('pointerleave', function (e) {
+    if (e.pointerType === 'mouse') holdEnd(e.pointerId);
+  });
+
+  // Долгое нажатие на сенсорном экране не должно заодно показывать системное
+  // меню выделения текста. Правый клик мышью без предшествующего удержания не
+  // трогаем — скопировать текст им по-прежнему можно.
+  thread.addEventListener('contextmenu', function (e) {
+    var line = e.target.closest && e.target.closest('.chat-line');
+    if (line === heldLine && Date.now() - heldAt < 1000) e.preventDefault();
+  });
+
+  // Chromium не активирует `summary`, когда его родительский `details` имеет
+  // `display:contents`, поэтому на нативный keyboard-click здесь не полагаемся.
+  thread.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var line = e.target.closest && e.target.closest('.chat-line');
+    if (!line || e.target !== line) return;
+    var bubble = line.parentNode;
+    e.preventDefault();
+    closeTools(bubble);
+    bubble.open = !bubble.open;
+  });
+
+  // Интерактивные узлы внутри пузыря (прежде всего снимки) живут своей жизнью.
+  // `detail === 0` — программная активация или средство доступности: у них
+  // раскрытие остаётся мгновенным. Любой указательный клик требует удержания.
+  thread.addEventListener('click', function (e) {
+    var line = e.target.closest && e.target.closest('.chat-line');
+    if (!line || messageControl(e.target) || e.detail === 0) return;
+    e.preventDefault();
+  }, true);
+
   /* -------------------------- Смахивание --------------------------
    *
    * Порог хода — `SWIPE_ON`, дальше `SWIPE_MAX` реплика не едет: жест обязан
