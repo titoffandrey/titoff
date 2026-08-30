@@ -4494,7 +4494,13 @@ app.post('/admin/settings', async (req, res) => {
       patch.aiTakeoverMinutes = n;
     }
   }
-  if (req.body.chatPrompt !== undefined) patch.chatPrompt = String(req.body.chatPrompt).slice(0, PROMPT.MAX_INSTRUCTION);
+  if (req.body.chatPrompt !== undefined) {
+    patch.chatPrompt = String(req.body.chatPrompt).slice(0, PROMPT.MAX_INSTRUCTION);
+    // После первого сохранения поле уже содержит ВСЕ правила, показанные в
+    // textarea. Без отметки следующий показ принял бы их за старую добавку
+    // владельца и ещё раз приписал стандартную инструкцию сверху.
+    patch.chatPromptComplete = true;
+  }
   if (req.body.chatGreeting !== undefined) patch.chatGreeting = String(req.body.chatGreeting).trim().slice(0, 400);
   if (req.body.chatChatId !== undefined) {
     const room = String(req.body.chatChatId).trim().slice(0, 40);

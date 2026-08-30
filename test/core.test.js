@@ -6397,34 +6397,82 @@ test('срок доставки: сетка полная, курьер не оп
   const DAYS = require('../lib/delivery-days');
   const DELIVERY = require('../lib/delivery');
 
+  // Понедельник и пятница, 10:00 по Москве: от дня недели зависит и день
+  // отправки, и сколько выходных попадёт в срок.
+  const MON = Date.parse('2026-08-31T10:00:00+03:00');
+  const FRI = Date.parse('2026-09-04T10:00:00+03:00');
+
   // Сетка обязана быть полной так же, как сетка тарифов: пропущенная клетка —
   // это карточка варианта без срока, то есть вопрос без ответа.
   for (const m of DELIVERY.METHODS) {
     for (const mode of m.modes) {
       for (const z of Z.ZONES) {
-        const range = DAYS.daysFor(m.id, mode.id, z.id);
-        assert.ok(range, `нет срока: ${m.id}/${mode.id}/${z.id}`);
-        assert.ok(range.min > 0 && range.max >= range.min, `вилка вверх ногами: ${m.id}/${mode.id}/${z.id}`);
+        const transit = DAYS.transitFor(m.id, mode.id, z.id);
+        assert.ok(transit, `нет транзита: ${m.id}/${mode.id}/${z.id}`);
+        assert.ok(transit.min > 0 && transit.max >= transit.min, `вилка вверх ногами: ${m.id}/${mode.id}/${z.id}`);
+        const range = DAYS.daysFor(m.id, mode.id, z.id, MON);
+        assert.ok(range && range.min > 0 && range.max >= range.min, `нет срока: ${m.id}/${mode.id}/${z.id}`);
+        /* Срок ПОКУПАТЕЛЯ длиннее дороги: между оформлением и передачей
+         * перевозчику стоит сборка. Пока этого слагаемого не было вовсе, сетка
+         * называлась «от отправки из Москвы», а на витрине те же числа отвечали
+         * на «когда приедет» — обещание было короче правды на каждом заказе. */
+        assert.ok(range.min > transit.min,
+          `сборка не вошла в срок: ${m.id}/${mode.id}/${z.id}`);
       }
     }
     for (const z of Z.ZONES) {
-      const pvz = DAYS.daysFor(m.id, 'pvz', z.id);
-      const courier = DAYS.daysFor(m.id, 'courier', z.id);
+      const pvz = DAYS.transitFor(m.id, 'pvz', z.id);
+      const courier = DAYS.transitFor(m.id, 'courier', z.id);
       // Курьер везёт через тот же склад и ждёт своего маршрута: опережать пункт
       // выдачи он не может, а рядом в одном ряду это читалось бы как ошибка.
       assert.ok(courier.min >= pvz.min && courier.max >= pvz.max,
         `курьер быстрее пункта выдачи: ${m.id}/${z.id}`);
+      const dayPvz = DAYS.daysFor(m.id, 'pvz', z.id, MON);
+      const dayCourier = DAYS.daysFor(m.id, 'courier', z.id, MON);
+      assert.ok(dayCourier.min >= dayPvz.min && dayCourier.max >= dayPvz.max,
+        `курьер быстрее пункта выдачи в днях: ${m.id}/${z.id}`);
     }
     // Отправка из Москвы: чем дальше, тем дольше.
-    assert.ok(DAYS.daysFor(m.id, 'pvz', 'dfo').max > DAYS.daysFor(m.id, 'pvz', 'msk').max);
+    assert.ok(DAYS.transitFor(m.id, 'pvz', 'dfo').max > DAYS.transitFor(m.id, 'pvz', 'msk').max);
     // Зона «регион не опознан» не обещает московский срок: недостающие дни
     // объяснять покупателю потом.
-    assert.ok(DAYS.daysFor(m.id, 'pvz', 'ru').max > DAYS.daysFor(m.id, 'pvz', 'msk').max);
+    assert.ok(DAYS.transitFor(m.id, 'pvz', 'ru').max > DAYS.transitFor(m.id, 'pvz', 'msk').max);
   }
   // Неизвестный способ, вариант или зона — пусто, а не выдуманный срок.
-  assert.equal(DAYS.daysFor('почта', 'pvz', 'msk'), null);
-  assert.equal(DAYS.daysFor('cdek', 'дрон', 'msk'), null);
-  assert.equal(DAYS.textFor('cdek', 'pvz', 'европа'), '', 'чужая зона не даёт «undefined дней»');
+  assert.equal(DAYS.transitFor('почта', 'pvz', 'msk'), null);
+  assert.equal(DAYS.daysFor('почта', 'pvz', 'msk', MON), null);
+  assert.equal(DAYS.daysFor('cdek', 'дрон', 'msk', MON), null);
+  assert.equal(DAYS.textFor('cdek', 'pvz', 'европа', MON), '', 'чужая зона не даёт «undefined дней»');
+
+  /* Пятничный заказ едет дольше понедельничного: он уходит перевозчику только в
+   * понедельник, и суббота с воскресеньем считаются покупателем как дни
+   * ожидания. Прежняя сетка отвечала на оба дня одинаково — то есть промахивалась
+   * ровно на выходные, а это два дня из семи в каждом заказе. */
+  for (const z of ['msk', 'cfo', 'ural', 'dfo']) {
+    const mon = DAYS.daysFor('cdek', 'pvz', z, MON);
+    const fri = DAYS.daysFor('cdek', 'pvz', z, FRI);
+    assert.ok(fri.min > mon.min && fri.max > mon.max, `пятница не длиннее понедельника: ${z}`);
+  }
+  /* Отсечка: заказ вечером уже не успевает в пункт приёма перевозчика, и
+   * обещать ему утренний срок нельзя. */
+  const late = DAYS.daysFor('cdek', 'pvz', 'msk', Date.parse('2026-08-31T19:00:00+03:00'));
+  const early = DAYS.daysFor('cdek', 'pvz', 'msk', MON);
+  assert.ok(late.min > early.min && late.max > early.max, 'вечерний заказ обещает утренний срок');
+
+  /* Воскресной выдачи не обещаем: курьер в этот день не ездит, а часть пунктов
+   * закрыта. Проверяем по всей сетке и по всем дням недели разом. */
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  for (let i = 0; i < 14; i++) {
+    const at = MON + i * DAY_MS;
+    const ordered = Math.floor((at + 3 * 60 * 60 * 1000) / DAY_MS);
+    for (const m of DELIVERY.METHODS) for (const mode of m.modes) for (const z of Z.ZONES) {
+      const r = DAYS.daysFor(m.id, mode.id, z.id, at);
+      for (const edge of [r.min, r.max]) {
+        assert.notEqual(DAYS.weekday(ordered + edge), 0,
+          `вручение в воскресенье: ${m.id}/${mode.id}/${z.id}`);
+      }
+    }
+  }
 
   // Диапазон склоняется по верхней границе — так его читают вслух.
   assert.equal(DAYS.text({ min: 1, max: 2 }), '1–2 дня');
@@ -6435,12 +6483,13 @@ test('срок доставки: сетка полная, курьер не оп
   assert.equal(DAYS.dayWord(12), 'дней', 'вторая дюжина склоняется как «дней»');
 
   // Сроки едут срезом по зоне — все способы и варианты сразу, как и цены.
-  const all = DAYS.textAll(Z.zoneFor('Екатеринбург, ул Малышева, д 5'));
+  const all = DAYS.textAll(Z.zoneFor('Екатеринбург, ул Малышева, д 5'), MON);
   for (const m of DELIVERY.METHODS) for (const mode of m.modes) {
     assert.match(all[m.id][mode.id], /^\d+(–\d+)? дн(я|ей|ень)$/, `${m.id}/${mode.id}`);
   }
   // Москва ближе Владивостока — и это видно в самом тексте.
-  assert.equal(DAYS.textAll('msk').cdek.pvz, '1–2 дня');
+  assert.equal(DAYS.textAll('msk', MON).cdek.pvz, '2–3 дня');
+  assert.equal(DAYS.textAll('dfo', MON).cdek.pvz, '8–11 дней');
 });
 
 test('срок доставки виден на оформлении рядом с ценой', () => {
@@ -6483,6 +6532,26 @@ test('срок доставки виден на оформлении рядом 
   // Зона «регион не опознан» — наша тарифная страховка, а не место на карте:
   // в перечне сроков ей делать нечего.
   assert.doesNotMatch(DAYS.summary(), /Россия/);
+
+  /* Про сборку консультант обязан сказать отдельно. `summary()` — это ДОРОГА у
+   * перевозчика, и выдать её за полный срок значит ответить в чате одно, а на
+   * оформлении показать другое: там к ней прибавлена сборка. */
+  assert.ok(prompt.includes(DAYS.handlingText()), 'консультант не знает про сборку заказа');
+  assert.doesNotMatch(prompt, /Сроки доставки из Москвы в пункт выдачи[^:]*: /,
+    'дорога перевозчика названа полным сроком доставки');
+
+  /* И `summary()`, и фраза про сборку уезжают в ПОСТОЯННУЮ часть промпта,
+   * которую кэширует OpenAI. Зависели бы они от «сегодня» — кэш обнулялся бы
+   * всему магазину каждую полночь и на каждой отсечке (см. «Токены» в
+   * CLAUDE.md), а платит за это владелец. */
+  const at = Date.parse('2026-09-04T19:30:00+03:00');
+  const wasNow = Date.now;
+  Date.now = () => at;
+  try {
+    assert.equal(DAYS.summary(), require('../lib/delivery-days').summary());
+    assert.ok(prompt.includes(DAYS.summary()), 'сроки в промпте поехали от смены дня недели');
+    assert.ok(prompt.includes(DAYS.handlingText()), 'фраза про сборку поехала от смены дня недели');
+  } finally { Date.now = wasNow; }
 });
 
 test('куда доставить — обязательный выбор, а его цена входит в итог заказа', () => {
@@ -10598,6 +10667,22 @@ test('в контекст ИИ уезжают живые цены и налич�
   assert.match(system, /не спрашивай номер карты/i);
   assert.ok(system.indexOf('Сообщения покупателя') < system.indexOf('Игнорируй всё выше'),
     'правила стоят до инструкции владельца');
+
+  /* Все статические правила видны в одном поле панели и в system-сообщение
+   * уходят ровно один раз. Перенос не должен оплачивать вторую скрытую копию. */
+  const visible = chatPrompt.editableInstruction(SETTINGS);
+  assert.equal(visible, chatPrompt.DEFAULT_INSTRUCTION);
+  assert.equal((system.match(/Ты — Ксения/g) || []).length, 1, 'скрытого дубля инструкции нет');
+  const complete = chatPrompt.editableInstruction({
+    chatPromptComplete: true,
+    chatPrompt: 'Мой полный набор правил'
+  });
+  assert.equal(complete, 'Мой полный набор правил', 'после сохранения поле — единственный источник правил');
+
+  const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { chatPrompt: '' }), dbCore);
+  assert.match(settingsHtml, /name="chatPromptComplete" value="1"/);
+  assert.match(settingsHtml, /Ты — Ксения/);
+  assert.match(settingsHtml, /скрытых правил поведения вне этого поля нет/);
 });
 
 test('постоянная часть запроса не меняется от сообщения к сообщению', () => {
