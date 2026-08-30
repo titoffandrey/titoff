@@ -569,13 +569,27 @@ test('privacy-браузер может отправить формы входа
   const app = new App({ secret: 'test', forceHttps: true });
   app.post('/admin/login', (req, res) => res.json({ ok: true }));
 
-  const res = response();
+  /* СКРЫТЫЙ Origin — это ОТСУТСТВУЮЩИЙ заголовок: так его прячут браузеры,
+   * которым не нравится рассказывать, откуда пришла форма. Проверять тут
+   * нечего, и запрос проходит. */
+  const hidden = response();
+  await app.handle(request('/admin/login', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), hidden);
+  assert.equal(hidden.statusCode, 200);
+
+  /* А вот буквальный `null` скрытым НЕ является: он означает непрозрачный
+   * источник — песочницу в iframe, страницу с `data:`, переход с чужого
+   * origin. Нашей формой это быть не может: `frame-ancestors 'none'` в CSP
+   * запрещает встраивать сайт в кадр вовсе. Раньше он проходил по отдельному
+   * исключению для входа — и это была единственная щель в проверке. */
+  const opaque = response();
   await app.handle(request('/admin/login', {
     method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
     headers: { host: 'shop.test', origin: 'null', 'content-type': 'application/json' }
-  }), res);
-
-  assert.equal(res.statusCode, 200);
+  }), opaque);
+  assert.equal(opaque.statusCode, 403, 'непрозрачный Origin не равен скрытому');
 });
 
 test('явный cross-site Origin не проходит даже на форме входа', async () => {
@@ -596,7 +610,7 @@ test('явный cross-site Origin не проходит даже на форм�
   assert.equal(calls, 0);
 });
 
-test('скрытый Origin внутри панели требует подписанную авторизованную сессию', async () => {
+test('непрозрачный Origin внутри панели не проходит даже с живой сессией', async () => {
   const app = new App({ secret: 'test', forceHttps: true });
   app.get('/authorize', (req, res) => { req.session.admin = 'signed-admin-stamp'; res.json({ ok: true }); });
   app.post('/private-change', (req, res) => res.json({ ok: true }));
@@ -606,12 +620,24 @@ test('скрытый Origin внутри панели требует подпи�
   const sessionCookie = [authRes.headers['set-cookie']].flat()
     .find(value => String(value).startsWith('sess=')).split(';')[0];
 
+  // Скрытый (отсутствующий) Origin с живой сессией — обычный запрос из панели.
   const allowed = response();
   await app.handle(request('/private-change', {
     method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
-    headers: { host: 'shop.test', origin: 'null', cookie: sessionCookie, 'content-type': 'application/json' }
+    headers: { host: 'shop.test', cookie: sessionCookie, 'content-type': 'application/json' }
   }), allowed);
   assert.equal(allowed.statusCode, 200);
+
+  /* А `Origin: null` — нет, и живая админская сессия его не оправдывает.
+   * Прежде здесь стояло исключение «непрозрачный источник + подписанная
+   * авторизация = пропускаем», и оно было единственным местом, где POST с
+   * непрозрачным источником доходил до маршрута панели. */
+  const opaque = response();
+  await app.handle(request('/private-change', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: { host: 'shop.test', origin: 'null', cookie: sessionCookie, 'content-type': 'application/json' }
+  }), opaque);
+  assert.equal(opaque.statusCode, 403);
 
   const blocked = response();
   await app.handle(request('/private-change', {
@@ -3411,7 +3437,7 @@ test('строка заказа: оплата собрана одним блок
   const archivedDb = Object.assign({}, db, {
     getOrders: () => [archived], visibleOrders: () => [], archivedOrders: () => [archived]
   });
-  const archivedHtml = adminViews.ordersList(SETTINGS, archivedDb, null, 1, 'archive');
+  const archivedHtml = adminViews.ordersList(SETTINGS, archivedDb, null, 1);
   assert.doesNotMatch(archivedHtml, /orders\/o1\/restore|Восстановить заказ/);
   assert.doesNotMatch(archivedHtml, /class="o-row/, 'архивные записи в список не попадают');
 
@@ -3766,7 +3792,7 @@ test('заказ не ведёт выполнение, а список ищет 
   const db = Object.assign({}, fresh, {
     visibleOrders: () => [paid, other], getOrders: () => [paid, other], archivedOrders: () => []
   });
-  const html = adminViews.ordersList(SETTINGS, db, null, 1, 'active', null,
+  const html = adminViews.ordersList(SETTINGS, db, null, 1, null,
     { q: 'Иван', pay: 'ok' });
   assert.match(html, new RegExp(`id="order-${order.id}"`));
   assert.doesNotMatch(html, /id="order-other"/);
@@ -4996,10 +5022,18 @@ test('оплата хранит отдельные попытки и закры�
   assert.equal(fresh.restoreOrder(order.id, 'admin').changed, true);
   assert.equal(fresh.restoreOrder(order.id, 'admin').changed, false, 'повтор restore идемпотентен');
   assert.equal(fresh.visibleOrders().some(x => x.id === order.id), true, 'заказ можно восстановить');
+  /* Прежде здесь проверялся `deleteOrder()` — псевдоним архивации, обещавший,
+   * что «админское удаление обратимо». Он снят вместе с этим обещанием:
+   * удаление из панели теперь окончательное (`purgeOrder`, свой тест ниже).
+   * Сам архив остаётся только как НАСЛЕДСТВО прежней версии, и проверяется
+   * именно так — что ветки, читающие его, работают. */
   const disposable = fresh.createOrder({ items: [], total: 1, contact: 'tg' });
-  assert.equal(fresh.deleteOrder(disposable.id), true, 'обычная заявка без кассы тоже уходит в архив');
-  assert.equal(fresh.getOrder(disposable.id).id, disposable.id, 'админское удаление обратимо');
+  assert.equal(fresh.archiveOrder(disposable.id, 'admin').changed, true);
   assert.equal(fresh.archivedOrders().some(x => x.id === disposable.id), true);
+  assert.equal(fresh.visibleOrders().some(x => x.id === disposable.id), false,
+    'наследственная заявка не показывается в рабочем списке');
+  assert.equal(typeof fresh.deleteOrder, 'undefined',
+    'псевдонима «удаление = архив» больше нет: он обещал обратимость, которой нет');
 
   // Из 'expired' в 'paid' дорасти можно и нужно: webhook об успехе вполне
   // приходит после того, как опрос увидел истёкший счёт.
@@ -5070,7 +5104,7 @@ test('режим правки не выключается после удале�
 
   const plain = adminViews.ordersList(s, fresh, null, 1);
   assert.match(plain, /class="edit-switch sr-only">/, 'по умолчанию режим выключен');
-  const editing = adminViews.ordersList(s, fresh, null, 1, '', '1');
+  const editing = adminViews.ordersList(s, fresh, null, 1, '1');
   assert.match(editing, /class="edit-switch sr-only" checked>/, 'адрес вернул режим правки');
   // Формы действий несут его обратно на сервер вместе со страницей: все эти
   // кнопки показываются только в режиме правки, значит и возвращаться надо в
@@ -6341,7 +6375,7 @@ test('куда доставить — обязательный выбор, а е
   assert.ok(route.indexOf('Выберите, куда доставить') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
   // Цена доставки считается на сервере заново — клиентской цифре верим не больше,
   // чем клиентской цене товара.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(settings\(\)\)\.max\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(s\)\.max\)/);
   assert.match(route, /total: grandTotal, itemsTotal: total/);
   assert.doesNotMatch(route, /req\.body\.deliveryPrice/, 'цену доставки витрина не присылает');
 
@@ -6644,7 +6678,7 @@ test('адрес пункта выдачи в заказе берётся из �
     'адрес покупателя обязан проверяться до записи');
   // Зона считается по адресу ПОКУПАТЕЛЯ: иначе цена менялась бы от выбора
   // пункта, и показанная сумма разошлась бы с той, что уйдёт в заказ.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(settings\(\)\)\.max\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(s\)\.max\)/);
 
   // Хранилище отсеивает мусор в коде, но существование пункта проверяет маршрут:
   // lib/db не может требовать lib/pickup — вышло бы кольцо require.
@@ -12594,7 +12628,7 @@ test('отправлением управляют из строки заказа
   };
   // Пока отправления нет, строка заказа зовёт его создать: это такая же часть
   // «что с этим заказом», как состояние оплаты.
-  const list = adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {});
+  const list = adminViews.ordersList(SETTINGS, db, null, 1, false, {});
   assert.match(list, /href="\/admin\/orders\/z9\/shipment"/);
   assert.match(list, /Создать отправление/);
 
@@ -12625,7 +12659,7 @@ test('отправлением управляют из строки заказа
 
   // В строке заказа состояние сжато до двух слов, а полное событие уезжает в
   // подсказку: «Отправлен в г. Петропавловск-Камчатский» занимал три строки.
-  const withShip = adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {});
+  const withShip = adminViews.ordersList(SETTINGS, db, null, 1, false, {});
   assert.match(withShip, /class="o-ship"[^>]*title="[^"]+">(в пути|ожидает отправки|готово к выдаче)</);
 });
 
@@ -12759,7 +12793,7 @@ test('отслеживание показывается покупателю т�
   };
   // В списке заказов скрытое отправление подписано отдельно: менеджер иначе
   // читал бы «в пути» и был уверен, что покупатель видит то же самое.
-  assert.match(adminViews.ordersList(SETTINGS, db, null, 1, 'active', false, {}), /class="o-ship is-off"[^>]*>скрыто</);
+  assert.match(adminViews.ordersList(SETTINGS, db, null, 1, false, {}), /class="o-ship is-off"[^>]*>скрыто</);
 
   /* Ссылку отправляют покупателю руками, поэтому она стоит полным адресом и с
    * кнопкой копирования: выделять адрес мышью по буквам — ровно то, чего быть
@@ -13168,4 +13202,242 @@ test('промокод не прячется под собственным CSS',
    * скрытой, и так же висели рядом плашка кода и поле ввода. */
   assert.match(css, /\.co-promo-form\{display:flex/);
   assert.match(css, /\.co-promo-chip\[hidden\],\.co-promo-form\[hidden\],\.co-promo-open\[hidden\]\{display:none\}/);
+});
+
+/* ==================== Разбор аудита: закреплённые правки ====================
+ *
+ * Всё, что ниже, — не новые правила, а починенные старые. Каждое из них уже
+ * один раз молча не работало, и увидеть это можно было только руками.
+ */
+
+test('лимиты чата считают и сессию, и адрес: без cookie сессии просто нет', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  /* Счётчик по сессии заведён ради живого покупателя за общим NAT или
+   * Tor-выходом. Но сессию клиент заводит себе САМ: не прислал cookie —
+   * `anonymousSessionId()` выдаёт новую, и сессионный предел для него не
+   * существует вовсе. Замер до правки: 80 запросов `/api/chat/open` без cookie
+   * прошли все 80 при пределе в 60 и создали 81 диалог.
+   *
+   * Цена промаха у чата самая высокая: каждая реплика — вызов модели за счёт
+   * владельца и сообщение в Telegram-группу. Поэтому у КАЖДОГО чатового ведра
+   * рядом с сессионным пределом стоит предел по адресу. */
+  assert.match(source, /function floodLimited\(req, bucket, perSession, perIp, windowMs\)/);
+  assert.match(source, /rateLimited\(req, bucket, perSession, windowMs, anonymousSessionId\(req\)\)\s*\|\|\s*rateLimited\(req, bucket \+ '-ip', perIp, windowMs\)/);
+  for (const bucket of ['chat-open', 'chat-send', 'chat-photo', 'chat-poll', 'chat-read']) {
+    assert.match(source, new RegExp("floodLimited\\(req, '" + bucket + "'"),
+      bucket + ' считается и по сессии, и по адресу');
+    assert.doesNotMatch(source, new RegExp("rateLimited\\(req, '" + bucket + "'[^)]*anonymousSessionId"),
+      bucket + ' больше не ограничен ОДНОЙ лишь сессией');
+  }
+  // Ответ модели — единственное действие витрины, которое стоит денег на каждом
+  // вызове, поэтому у него сверх этого есть общий бюджет процесса.
+  assert.match(source, /function aiBudgetSpent\(\)/);
+  assert.match(source, /aiBudgetSpent\(\)\)?\s*\{[\s\S]{0,400}?error: 'budget'/);
+});
+
+test('удаление товара уносит ВСЕ файлы его отзывов, а не только фото', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'product-files-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const mk = name => { fs.writeFileSync(path.join(fresh.UPLOAD_DIR, name), 'x'); return name; };
+  const product = fresh.createProduct({ name: 'T', category: 'C', price: 100, images: [mk('img1.webp')] });
+  fresh.createReview({
+    productId: product.id, author: 'A', rating: 5, text: 't',
+    photos: [mk('ph1.webp')], videos: [mk('vid1.mp4')], poster: mk('post1.webp'),
+    previews: { 'vid1.mp4': mk('prev1.webp') }
+  });
+  fresh.deleteProduct(product.id);
+  /* Прежде здесь стояло `r.photos`, а не `reviewFiles(r)`: ролики, кадр-заставка
+   * и превью оставались на диске навсегда. У товара с привезёнными отзывами
+   * Ozon это сотни мегабайт видео, на которые больше не ссылается ничто —
+   * удаление отзыва ПО ОДНОМУ всё это время уносило их правильно. */
+  assert.deepEqual(fs.readdirSync(fresh.UPLOAD_DIR), [],
+    'вместе с товаром уходят и ролики, и постер, и превью его отзывов');
+});
+
+test('логотип не остаётся сиротой, когда форма настроек отвергла правку', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = source.indexOf("app.post('/admin/settings'");
+  const route = source.slice(start, source.indexOf("\napp.", start + 10));
+  assert.ok(start > 0 && route.length > 500);
+  /* Правило этой формы одно: проверка идёт ДО записи. Загрузка файла — это
+   * запись, а `resolveLogo()` стоял перед десятком `fail()` (негодный merchant
+   * ID, перевёрнутые пределы, разброс цен, реквизиты, чат). Форма честно
+   * возвращала ошибку, `logoImage` оставался прежним, а файл лежал в хранилище
+   * сиротой — и так на каждую неудачную попытку. */
+  const resolveAt = route.indexOf('await resolveLogo(req,');
+  const lastFail = route.lastIndexOf('return fail(');
+  assert.ok(resolveAt > 0, 'логотип всё ещё загружается в этом маршруте');
+  assert.ok(lastFail > 0 && resolveAt > lastFail,
+    'логотип уезжает на диск ПОСЛЕ последнего отказа, иначе останется сиротой');
+  assert.ok(route.indexOf('db.saveSettings(patch)') > resolveAt,
+    'и до самой записи настроек');
+});
+
+test('вторичный цвет умеет вернуться к «как акцентный»', () => {
+  /* `<input type="color">` пустым не бывает вовсе, поэтому «пусто — берём
+   * акцентный» жило ровно до первого сохранения формы: круговая отправка
+   * штамповала в поле текущий акцент, и дальше вторичный цвет за акцентом уже
+   * не следовал никогда. Режим включает отдельная галочка. */
+  assert.match(render.brandFields({ secondaryColor: '', accentColor: '#0071e3' }),
+    /name="secondaryAuto"\s+checked/, 'пустой вторичный цвет — галочка стоит');
+  assert.doesNotMatch(render.brandFields({ secondaryColor: '#ff0000', accentColor: '#0071e3' }),
+    /name="secondaryAuto"\s+checked/, 'заданный цвет — галочка снята');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /secondaryColor: body\.secondaryAuto !== undefined \? ''/,
+    'снятая галочка приходит отсутствием поля, как все прочие в панели');
+});
+
+test('настройки по умолчанию знают про свои реквизиты и консультанта', () => {
+  const defaults = dbCore.defaultSettings();
+  /* Форма настроек писала эти поля, а `defaultSettings()` о них не знал: третий
+   * режим витрины (перевод прямо владельцу) и выключатель консультанта не были
+   * видны в единственном месте, где положено видеть все её настройки. */
+  for (const key of ['ownPayEnabled', 'ownPayCard', 'ownPayPhone', 'ownPayOwner', 'ownPayBank',
+    'aiEnabled', 'aiTakeoverMinutes']) {
+    assert.ok(key in defaults, 'в настройках по умолчанию есть ' + key);
+  }
+  // И читаются они ровно так же, как читалось их отсутствие, — иначе правка
+  // молча поменяла бы поведение установок, где файла настроек ещё нет.
+  const ai = require('../lib/ai');
+  const payments = require('../lib/payments');
+  const chat = require('../lib/chat');
+  assert.equal(ai.enabled(Object.assign({}, defaults, { aiApiKey: 'k' })),
+    ai.enabled({ aiApiKey: 'k' }), 'aiEnabled: true равно отсутствию поля');
+  assert.equal(payments.ownRequisites(defaults).on, payments.ownRequisites({}).on);
+  assert.equal(chat.takeoverMinutes(defaults), chat.takeoverMinutes({}));
+});
+
+test('уборка по сроку хранения идёт и на тихом магазине', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'retention-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 60 * 60 * 1000 });
+  metrics.data.visitors = [{ id: 'a'.repeat(32), ip: '1.2.3.4', lastSeen: Date.now() - 400 * 24 * 60 * 60 * 1000, hits: [] }];
+  metrics.reindex();
+  metrics.dirty = false;          // на магазине, где сегодня никого не было
+  metrics.lastCleanup = 0;
+  /* `flush()` выходит первой строкой при `!dirty`, а уборка звалась только из
+   * него — значит карточки старше 365 дней не удалялись вовсе, пока не придёт
+   * новый посетитель. Срок хранения — обещание из политики конфиденциальности,
+   * и держаться оно не должно на том, пришёл ли кто-то сегодня. */
+  metrics.maintain();
+  assert.equal(metrics.data.visitors.length, 0, 'просроченная карточка убрана без единого нового визита');
+  assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true, 'и файл переписан');
+
+  // У переписки та же беда и то же лечение — свой сторожевой таймер в init().
+  const chatSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'chat.js'), 'utf8');
+  assert.match(chatSource, /setInterval\(\(\) => \{ if \(cleanup\(\)\) markDirty\(\); \}, CLEANUP_MS\)/);
+  assert.match(chatSource, /load\(\);\s*\n\s*\/\/[^\n]*\n\s*startSweep\(\);/);
+  const analyticsSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'analytics.js'), 'utf8');
+  assert.match(analyticsSource, /setInterval\(\(\) => this\.maintain\(\)/,
+    'таймер метрики зовёт maintain(), а не flush()');
+});
+
+test('ответ из панели в выключенный чат не отправляется', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = source.indexOf("app.post('/admin/chat/:id/reply'");
+  const route = source.slice(start, source.indexOf("\napp.", start + 10));
+  assert.ok(start > 0 && route.length > 300);
+  /* «Написать покупателю» отказывал при выключенном чате («написанное он не
+   * увидит никогда»), а ответ в уже открытый диалог — нет. */
+  assert.match(route, /if \(!CHAT\.visible\(settings\(\)\)\) return back\(/);
+  // Но переключить диалог обратно на консультанта можно и при выключенном чате:
+  // это состояние переписки, а не сообщение покупателю.
+  assert.ok(route.indexOf("mode === 'ai'") < route.indexOf('CHAT.visible(settings())'),
+    'проверка стоит после ветки режима, а не в начале маршрута');
+});
+
+test('негодная дата нового отзыва возвращает форму, а не молча ставит «сейчас»', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = source.indexOf("app.post('/admin/reviews/new'");
+  const route = source.slice(start, source.indexOf("\n// Раньше маршрута", start));
+  assert.ok(start > 0 && route.length > 300);
+  /* Форма правки рядом честно отвечала «Не разобрали дату отзыва», а форма
+   * создания молча ставила «сейчас»: отзыв вставал сегодняшним днём посреди
+   * набора трёхлетней давности, и заметить это можно было только глазами. */
+  assert.match(route, /if \(req\.body\.date && !createdAt\)/);
+  assert.match(route, /Не разобрали дату отзыва/);
+  assert.ok(route.indexOf('if (req.body.date && !createdAt)') < route.indexOf('optimizeUploads('),
+    'проверка идёт до сохранения файлов, как во всех формах панели');
+
+  /* Введённое возвращается вместе с ошибкой — и форма остаётся формой СОЗДАНИЯ:
+   * черновик приходит объектом без `id`, а по нему `reviewForm` и отличает
+   * правку от создания. */
+  const formDb = { getProducts: () => [{ id: 'p1', name: 'Товар' }], pendingReviewCount: () => 0 };
+  const draft = adminViews.reviewForm(SETTINGS, formDb, { productId: 'p1', author: 'Пётр', text: 'ой' }, {});
+  assert.match(draft, /action="\/admin\/reviews\/new"/, 'адрес отправки — создание');
+  assert.match(draft, /value="Пётр"/, 'введённое имя вернулось');
+  assert.doesNotMatch(draft, /Удалить отзыв/, 'у записи, которой ещё нет, кнопки удаления быть не может');
+});
+
+test('панель не пишет свои 404 в метрику витрины', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const panel = source.slice(source.indexOf('/* =========================== ПАНЕЛЬ (/admin)'));
+  /* `sendNotFound()` записывает просмотр страницы `/404` с адресом запроса. То
+   * есть работа владельца — открыл заказ по старой ссылке, зашёл в удалённый
+   * диалог — оседала в отчёте посетителей его же магазина, среди
+   * «неподтверждённых автоматических запросов», вместе с адресами панели.
+   * Метрика считает ПОКУПАТЕЛЕЙ. */
+  assert.doesNotMatch(panel, /return sendNotFound\(req, res\)/,
+    'в панели «не нашлось» возвращает в раздел, а не рисует 404 витрины');
+  assert.match(source, /function adminMissing\(res, section, message\)/);
+  for (const [route, section] of [['/admin/shipments', 'Заказ не найден'], ['/admin/chat', 'Диалог не найден']]) {
+    assert.match(panel, new RegExp("adminMissing\\(res, '" + route + "', '" + section + "'\\)"));
+  }
+});
+
+test('в списке заказов не осталось мёртвых веток архива', () => {
+  const raw = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
+  /* Смотрим на КОД без комментариев — той же чисткой, что идёт на отдаче: сама
+   * документация рядом объясняет, что здесь стояло, и без этого тест ловил бы
+   * собственное объяснение (та же грабля, что у теста `admin-live.js`).
+   *
+   * Архив снят вместе со вкладками «Текущие / Удалённые», но в коде оставался
+   * `const archiveView = false;` — и полтора десятка веток `archiveView ? … : …`
+   * висели недостижимыми, вместе с принимаемым, но никуда не ведущим
+   * `?view=archive`. */
+  const source = require('../lib/minify').js(raw);
+  assert.doesNotMatch(source, /archiveView/);
+  assert.match(source, /function ordersList\(settings, db, flash, page, edit, filters\)/,
+    'параметра view у списка больше нет');
+  const listDb = {
+    getOrders: () => [], visibleOrders: () => [], archivedOrders: () => [],
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
+  };
+  const html = adminViews.ordersList(SETTINGS, listDb, null, 1);
+  assert.doesNotMatch(html, /view=archive/);
+  // Само наследство при этом читается как раньше: заявки прежней версии
+  // остаются невидимыми, и чистятся разово руками.
+  assert.equal(typeof dbCore.purgeArchivedOrders, 'function');
+  assert.equal(typeof dbCore.deleteOrder, 'undefined');
+});
+
+test('крупная карточка уведомления не пропадает молча', t => {
+  const live = require('../lib/live');
+  const errors = [];
+  const original = console.error;
+  console.error = (...args) => errors.push(args.join(' '));
+  t.after(() => { console.error = original; });
+  /* Предел здесь сторожевой: разметку собирает сервер, а тексты в ней обрезаны,
+   * поэтому дойти до четырёх килобайт карточка может только если что-то в её
+   * сборке сломалось. Прежде такой случай выглядел как «уведомления перестали
+   * приходить» — без единой строки в логе. */
+  assert.equal(live.note('x'.repeat(live.NOTE_MAX + 1)), false);
+  // Подписчиков нет — до проверки размера дело и не дойдёт, но код причины
+  // обязан быть на месте.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'live.js'), 'utf8');
+  assert.match(source, /body\.length > NOTE_MAX\) \{\s*\n\s*console\.error\(/);
+});
+
+test('заказ по id ищется индексом, а не перебором всего файла', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'db.js'), 'utf8');
+  /* `payRemind()` спрашивает до двадцати заказов из подписанной сессии на
+   * КАЖДОЙ странице витрины. Перебором это двадцать проходов по всему файлу, а
+   * заказы не удаляются сами: замер на 20 000 заявок давал до 3,3 мс на показ
+   * главной — больше, чем весь её рендер. Ключ актуальности тот же, что у
+   * индекса отзывов: ссылка на массив. */
+  assert.match(source, /function orderIndex\(\)/);
+  assert.match(source, /if \(_orderIndex\.src === list\) return _orderIndex\.byId/);
+  assert.match(source, /function getOrder\(id\) \{\s*\n\s*return orderIndex\(\)\.get\(/);
 });

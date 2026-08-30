@@ -131,7 +131,6 @@ if (!sessionSecret || String(sessionSecret).length < 32) {
 }
 const app = new App({
   secret: sessionSecret,
-  uploadDir: db.UPLOAD_DIR,
   trustProxy: process.env.TRUST_PROXY === '1',
   forceHttps: process.env.FORCE_HTTPS === '1'
 });
@@ -483,7 +482,15 @@ function brandFields(body) {
     telegramBotToken: short(body.telegramBotToken, 240).trim(), telegramChatId: short(body.telegramChatId, 100).trim(),
     notifyReviews: body.notifyReviews !== undefined,
     logoText: short(body.logoText, 120), logoFont: BRAND_FONTS.has(body.logoFont) ? body.logoFont : 'system',
-    secondaryColor: safeHex(body.secondaryColor, safeHex(body.accentColor, '#0071e3'))
+    /* Пустой вторичный цвет означает «как акцентный», и вернуться к нему надо
+     * уметь: `<input type="color">` пустым не бывает, поэтому режим включает
+     * отдельная галочка (снятая приходит отсутствием поля, как все прочие).
+     *
+     * Без неё настройка жила ровно до первого сохранения: форма отправляла
+     * текущий акцент числом, `secondaryColor` навсегда становился хексом, и
+     * дальше смена акцента вторичный цвет за собой уже не тянула — хотя
+     * `defaultSettings()` обещает ровно обратное. */
+    secondaryColor: body.secondaryAuto !== undefined ? '' : safeHex(body.secondaryColor, safeHex(body.accentColor, '#0071e3'))
   };
 }
 
@@ -609,6 +616,30 @@ function anonymousSessionId(req) {
   const id = crypto.randomBytes(16).toString('hex');
   req.session.buyerId = id;
   return id;
+}
+
+/* Лимит публичной формы: по подписанной сессии И по адресу — всегда обоими.
+ *
+ * ЧТО ЗДЕСЬ БЫЛО СЛОМАНО. Счётчик по сессии заведён не от хорошей жизни: за
+ * одним адресом сидит целый офис или Tor-выход, и общий предел отдавал бы чужой
+ * отказ живому покупателю. Но сессию клиент заводит себе САМ: не прислал
+ * cookie — `anonymousSessionId()` выдаёт новую, и сессионный счётчик для него не
+ * существует вовсе. Проверено на живом сервере: 80 запросов `/api/chat/open`
+ * без cookie прошли все 80 при пределе в 60, и создали 81 диалог; те же 80 с
+ * одной cookie дали 60 ответов и 20 отказов.
+ *
+ * Цена этого промаха у чата самая высокая во всём проекте: каждая реплика — это
+ * вызов модели ЗА СЧЁТ ВЛАДЕЛЬЦА и сообщение в Telegram-группу, а созданные
+ * впустую диалоги вытесняют живые переписки по потолку в `MAX_CHATS`.
+ *
+ * Поэтому сессионный предел остаётся (он и защищает живого покупателя от
+ * соседа по NAT), а рядом с ним всегда стоит широкий предел по адресу: живого
+ * человека он не заденет никогда, но кладёт потолок тому, кто ходит без cookie.
+ * Ровно так уже был устроен `/api/order` — `order` по сессии плюс `order-ip`.
+ */
+function floodLimited(req, bucket, perSession, perIp, windowMs) {
+  return rateLimited(req, bucket, perSession, windowMs, anonymousSessionId(req))
+    || rateLimited(req, bucket + '-ip', perIp, windowMs);
 }
 // Раз в 30 минут выметаем протухшие записи, чтобы карты не росли бесконечно.
 const sweep = setInterval(() => {
@@ -1363,9 +1394,13 @@ app.post('/api/order', async (req, res) => {
     // сохраниться до того, как цвет или конфигурацию распродали.
     const storageLabel = String(it.storage || '').trim();
     if (storageLabel && Array.isArray(view.storages)) {
-      const s = view.storages.find(x => x.label === storageLabel);
-      if (s && s.inStock === false) { changed(it, 'out_of_stock', view.name + ' ' + s.label); continue; }
-      if (s) { sum += Number(s.add) || 0; name += ' ' + s.label; }
+      /* Имя переменной не `s`: снаружи так называются НАСТРОЙКИ магазина, от
+       * которых здесь же считается цена (`PF.priceOf(view, s)`). Затенение было
+       * безвредным ровно до первой новой строки внутри этого блока — а цена,
+       * посчитанная по конфигурации памяти вместо настроек, поехала бы молча. */
+      const storage = view.storages.find(x => x.label === storageLabel);
+      if (storage && storage.inStock === false) { changed(it, 'out_of_stock', view.name + ' ' + storage.label); continue; }
+      if (storage) { sum += Number(storage.add) || 0; name += ' ' + storage.label; }
     }
     const color = String(it.color || '').trim();
     if (color && Array.isArray(view.colors)) {
@@ -1506,7 +1541,9 @@ app.post('/api/order', async (req, res) => {
    * заказ. Разойтись зоны почти не могут — дальше 60 км пункты не предлагаются,
    * а зоны здесь размером с федеральный округ.
    */
-  const ship = SHIP.quote(delivery, deliveryMode, address, total, PAYMENTS.limits(settings()).max);
+  // Настройки берём те же, что читались в начале маршрута: второй `settings()`
+  // здесь означал бы второй источник правды о пределах кассы в одном заказе.
+  const ship = SHIP.quote(delivery, deliveryMode, address, total, PAYMENTS.limits(s).max);
   if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
   const grandTotal = total + ship.price;
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
@@ -1846,6 +1883,27 @@ const aiQueued = new Map();
  * этого ещё одно поле на диске и чинить его при каждой записи — дороже задачи.
  */
 const aiTakeover = new Map();
+
+/* ОБЩИЙ БЮДЖЕТ ПРОЦЕССА на ответы модели — последний рубеж, за которым деньги.
+ *
+ * Пределы по сессии и по адресу выше держат одного клиента. Но ответ
+ * консультанта — единственное действие витрины, которое СТОИТ ВЛАДЕЛЬЦУ ДЕНЕГ
+ * на каждом вызове, и оставлять его без общего потолка нельзя: распределённый
+ * поток обходит любой лимит по адресу, а счёт за токены придёт один.
+ *
+ * Тот же приём, что у касс (`pay-provider-global`), и число выбрано так же
+ * щедро: 300 ответов за десять минут — это 43 000 в сутки, вчетверо больше
+ * всего, что бывает у живого магазина. Упёрлись — модель не зовём вовсе, а
+ * покупатель получает обычное «уточню и вернусь»: вопрос к этому моменту уже
+ * лежит в теме Telegram, и отвечает на него человек. Молчать было бы хуже.
+ */
+const AI_BUDGET_PER_WINDOW = 300;
+const AI_BUDGET_WINDOW_MS = 10 * 60 * 1000;
+// Без привязки к запросу: считаем ВСЕ ответы вместе, кто бы их ни попросил.
+// `rateLimited` при заданном identity адрес не спрашивает вовсе.
+function aiBudgetSpent() {
+  return rateLimited(null, 'ai-answer-global', AI_BUDGET_PER_WINDOW, AI_BUDGET_WINDOW_MS, 'all');
+}
 /* Через сколько консультант возвращается — настройка владельца (минуты живут в
  * lib/chat.js, там же их предел и значение по умолчанию). Пять минут были
  * зашиты числом, а магазину магазин рознь: где-то дежурный сидит в теме
@@ -1984,8 +2042,14 @@ async function aiAnswer(chat, info, s) {
   });
   let result;
   if (warranty) {
+    // Локальный ответ про гарантию бюджет не расходует: он не стоит ни токена.
     pace.feed(warranty);
     result = { ok: true, text: warranty, error: '' };
+  } else if (aiBudgetSpent()) {
+    // Общий потолок процесса выбран — в модель не идём вовсе. Дальше по коду
+    // это обычный отказ: покупатель получает «уточню и вернусь», а в тему
+    // Telegram уходит отметка с причиной, и вопрос ждёт менеджера.
+    result = { ok: false, text: '', error: 'budget' };
   } else {
     const messages = PROMPT.build(db, s, chat, info);
     result = await AI.stream(s, messages, piece => pace.feed(piece), {
@@ -2056,7 +2120,9 @@ async function aiAnswer(chat, info, s) {
 app.post('/api/chat/open', (req, res) => {
   const s = settings();
   if (!CHAT.visible(s)) return res.json({ ok: false, error: 'off' }, 404);
-  if (rateLimited(req, 'chat-open', 60, 10 * 60 * 1000, anonymousSessionId(req))) {
+  // По сессии И по адресу: без второго предела клиент без cookie заводил бы
+  // диалоги без счёта и вытеснял живые переписки (см. `floodLimited`).
+  if (floodLimited(req, 'chat-open', 60, 300, 10 * 60 * 1000)) {
     return res.json({ ok: false, error: 'Слишком часто. Попробуйте позже.' }, 429);
   }
   const info = chatContext(req);
@@ -2085,9 +2151,12 @@ app.post('/api/chat/open', (req, res) => {
 app.post('/api/chat/send', async (req, res) => {
   const s = settings();
   if (!CHAT.visible(s)) return res.json({ ok: false, error: 'off' }, 404);
-  // Лимит по подписанной сессии, а не по IP: за одним адресом сидит целый офис
-  // или Tor-выход, и общий счётчик отдавал бы чужой отказ живому покупателю.
-  if (rateLimited(req, 'chat-send', 40, 5 * 60 * 1000, anonymousSessionId(req))) {
+  /* Предел по подписанной сессии — чтобы сосед по NAT или Tor-выходу не отдавал
+   * живому покупателю чужой отказ. И предел по адресу рядом с ним — потому что
+   * сессию клиент заводит себе сам, и без cookie сессионный счётчик для него не
+   * существует (см. `floodLimited`). Здесь это не мелочь: каждая реплика стоит
+   * вызова модели за счёт владельца и сообщения в Telegram-группу. */
+  if (floodLimited(req, 'chat-send', 40, 200, 5 * 60 * 1000)) {
     return res.json({ ok: false, error: 'Слишком много сообщений подряд. Подождите минуту.' }, 429);
   }
   const text = CHAT.clean(req.body && req.body.text, CHAT.MAX_TEXT).trim();
@@ -2112,7 +2181,7 @@ app.post('/api/chat/send', async (req, res) => {
   /* Свой лимит на файлы, помимо общего лимита реплик: сорок сообщений по три
    * снимка в каждом — это уже гигабайты на диске за пять минут. Считается он
    * ТОЛЬКО когда файлы правда пришли, поэтому обычную переписку не задевает. */
-  if (raw.length && rateLimited(req, 'chat-photo', 24, 10 * 60 * 1000, anonymousSessionId(req))) {
+  if (raw.length && floodLimited(req, 'chat-photo', 24, 120, 10 * 60 * 1000)) {
     return res.json({ ok: false, error: 'Слишком много снимков подряд. Попробуйте через несколько минут.' }, 429);
   }
   const photos = raw.length ? await optimizeUploads(raw, 1400) : [];
@@ -2196,6 +2265,11 @@ app.get('/api/chat/stream', (req, res) => {
   // через тик `presenceSweep`: карточку посетителя открывают ровно тогда, когда
   // в чате загорелось «в сети».
   if (chat.visitorId) metrics.seen(chat.visitorId);
+  /* Сессию дописываем ДО заголовков потока: `currentChat()` мог только что
+   * подобрать разговор по метке посетителя и положить его id в сессию, а поток
+   * пишет заголовки сам, минуя `res.json`. Без этого id доезжал до браузера
+   * лишь со следующим обычным запросом. */
+  res.flushSession();
   CHAT.attach(chat.id, req, res);
 });
 
@@ -2206,7 +2280,7 @@ app.get('/api/chat/poll', (req, res) => {
   if (!CHAT.visible(settings())) return res.json({ ok: false }, 404);
   const chat = currentChat(req);
   if (!chat) return res.json({ ok: false }, 404);
-  if (rateLimited(req, 'chat-poll', 120, 5 * 60 * 1000, anonymousSessionId(req))) {
+  if (floodLimited(req, 'chat-poll', 120, 600, 5 * 60 * 1000)) {
     return res.json({ ok: false }, 429);
   }
   const since = Math.max(0, Math.floor(Number(req.query.since)) || 0);
@@ -2234,6 +2308,11 @@ app.get('/api/chat/poll', (req, res) => {
 // Покупатель открыл окно — значок непрочитанного гаснет, а у реплик магазина в
 // панели появляются синие галочки: он их увидел.
 app.post('/api/chat/read', (req, res) => {
+  // Единственный маршрут чата, у которого не было ни выключателя, ни предела.
+  // Каждый вызов двигает отметки и метит переписку к записи на диск, поэтому
+  // считается он наравне с опросом — тем же двойным лимитом.
+  if (!CHAT.visible(settings())) return res.json({ ok: false }, 404);
+  if (floodLimited(req, 'chat-read', 120, 600, 5 * 60 * 1000)) return res.json({ ok: false }, 429);
   const chat = currentChat(req);
   if (chat) { CHAT.markRead(chat); CHAT.markUser(chat, 'read'); }
   res.json({ ok: true });
@@ -3122,6 +3201,22 @@ const paymentSweep = setInterval(() => { reconcileOpenPayments().catch(() => {})
 if (paymentSweep.unref) paymentSweep.unref();
 /* ====================== /ОПЛАТА: CrocoPAY (схема H2H) ====================== */
 
+/* Ненайденное В ПАНЕЛИ — это не 404 витрины.
+ *
+ * Прежде админские маршруты звали `sendNotFound()`, а он записывает просмотр
+ * страницы `/404` с адресом запроса. То есть работа владельца — открыл заказ по
+ * старой ссылке, зашёл в удалённый диалог — оседала в отчёте посетителей его же
+ * магазина, в списке «неподтверждённых автоматических запросов», вместе с
+ * адресами панели. Метрика считает ПОКУПАТЕЛЕЙ, и владельцу в ней не место.
+ *
+ * Вместо этого — возврат в свой раздел с объяснением: ровно так уже устроены
+ * все прочие «не нашлось» в панели (`res.redirect('/admin/products')`,
+ * `reviewsBackUrl(req.query, 'Отзыв не найден')`).
+ */
+function adminMissing(res, section, message) {
+  return res.redirect(section + '?flash=' + encodeURIComponent(message), 303);
+}
+
 /* =========================== ПАНЕЛЬ (/admin) =========================== *
  * Панель одна и с полными правами: каталог, модерация отзывов, заказы, метрика
  * и все настройки магазина. Раньше их было две — /owner для общего каталога и
@@ -3441,13 +3536,27 @@ app.get('/admin/reviews/new', (req, res) => { if (!guardAdmin(req, res)) return;
 app.post('/admin/reviews/new', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const p = db.getProduct(req.body.productId); if (!p) return res.redirect('/admin/reviews');
+  /* Дата разбирается ДО загрузки файлов и до записи — то же правило, что у
+   * формы правки рядом. Прежде негодная дата молча становилась «сейчас»: форма
+   * отвечала «Отзыв добавлен», а отзыв вставал сегодняшним днём посреди набора
+   * трёхлетней давности, и заметить это можно было только глазами на витрине.
+   * Пустое поле — по-прежнему «сейчас», это законное значение. */
+  const createdAt = parseDt(req.body.date);
+  if (req.body.date && !createdAt) {
+    // Черновик БЕЗ id — форма остаётся формой создания (см. `isEdit` там же).
+    return res.send(A.reviewForm(settings(), db, {
+      productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text,
+      config: req.body.config, delivery: req.body.delivery, status: req.body.status,
+      reply: { text: req.body.reply }
+    }, { flash: 'Не разобрали дату отзыва', flashType: 'err' }), 400);
+  }
   const photos = await optimizeUploads(req.filesFor('photos').slice(0, REVIEW_PHOTO_MAX), 1400);
   db.createReview({
     productId: p.id, author: req.body.author, rating: req.body.rating, text: req.body.text,
     config: req.body.config, delivery: req.body.delivery, reply: { text: req.body.reply },
     photos, previews: await reviewPreviews(photos),
     status: req.body.status === 'pending' ? 'pending' : 'approved',
-    createdAt: parseDt(req.body.date) || Date.now()
+    createdAt: createdAt || Date.now()
   });
   res.redirect('/admin/reviews/product/' + encodeURIComponent(p.id) + '?flash=' + encodeURIComponent('Отзыв добавлен'));
 });
@@ -3523,7 +3632,7 @@ app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res))
 /* ---------- Заказы ---------- */
 app.get('/admin/orders', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  const html = A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.view, req.query.edit, req.query);
+  const html = A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.edit, req.query);
   /* Список открыт — заявки увидены, счётчик в шапке гаснет. Метка ставится ПОСЛЕ
    * сборки страницы: иначе бейдж пропадал бы на той самой странице, ради которой
    * его нажали, и «сколько пришло» разглядеть было бы негде.
@@ -3675,14 +3784,14 @@ app.get('/admin/shipments', (req, res) => {
 app.get('/admin/orders/:id/shipment', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const order = db.getOrder(req.params.id);
-  if (!order) return sendNotFound(req, res);
+  if (!order) return adminMissing(res, '/admin/shipments', 'Заказ не найден');
   res.send(A.shipmentPage(settings(), db, order, { flash: req.query.flash, origin: originOf(req) }));
 });
 
 app.post('/admin/orders/:id/shipment', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const order = db.getOrder(req.params.id);
-  if (!order) return sendNotFound(req, res);
+  if (!order) return adminMissing(res, '/admin/shipments', 'Заказ не найден');
   const form = shipmentForm(req, order);
   // Проверка идёт ДО записи и возвращает введённое — то же правило, что у формы
   // товара и настроек: иначе правка теряется целиком.
@@ -3777,7 +3886,7 @@ function chatTarget(key) {
 app.get('/admin/chat/new', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const found = chatTarget(req.query.to);
-  if (!found.visitor) return sendNotFound(req, res);
+  if (!found.visitor) return adminMissing(res, '/admin/chat', 'Посетитель не найден');
   // Разговор с этим человеком мог уже идти — тогда и писать надо в него, а не
   // заводить второй: у покупателя окно чата одно.
   const existing = CHAT.byVisitorId(found.visitor.id);
@@ -3789,7 +3898,7 @@ app.post('/admin/chat/new', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const s = settings();
   const found = chatTarget(req.body.to);
-  if (!found.visitor) return sendNotFound(req, res);
+  if (!found.visitor) return adminMissing(res, '/admin/chat', 'Посетитель не найден');
   const to = '/admin/chat/new?to=' + encodeURIComponent(found.key);
   /* Выключенный чат — отказ, а не молчаливая отправка в никуда: у покупателя
    * нет ни кнопки, ни окна, и написанное он не увидит никогда. Проверка идёт ДО
@@ -3836,7 +3945,7 @@ app.post('/admin/chat/new', (req, res) => {
 app.get('/admin/chat/:id', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
-  if (!chat) return sendNotFound(req, res);
+  if (!chat) return adminMissing(res, '/admin/chat', 'Диалог не найден');
   /* Диалог открыт — реплики покупателя прочитаны, и у него это видно галочками.
    * Для панели это ещё и человеческий просмотр: только он снимает «новое», а
    * ответ ИИ — нет. Фоновый live-fetch скрытой вкладки просмотром не считаем;
@@ -3869,7 +3978,7 @@ app.get('/admin/chat/:id', (req, res) => {
 app.post('/admin/chat/:id/reply', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
-  if (!chat) return sendNotFound(req, res);
+  if (!chat) return adminMissing(res, '/admin/chat', 'Диалог не найден');
   // Любое действие из формы подтверждает, что диалог видел человек.
   CHAT.markManager(chat);
   // `sent` добавляет к адресу возврата признак «ответ ушёл»: по нему панель
@@ -3905,6 +4014,12 @@ app.post('/admin/chat/:id/reply', async (req, res) => {
    * перекодирует изображение в WebP и снимает метаданные. Поле нарочно зовётся
    * `photos` с обеих сторон — второй договор о допустимых вложениях здесь был
    * бы только источником расхождений. */
+  /* Выключенный чат — отказ, ровно как у «Написать покупателю» выше: у него нет
+   * ни кнопки, ни окна, и написанное он не увидит никогда. Проверка стоит здесь,
+   * а не в начале маршрута, намеренно: переключить диалог обратно на
+   * консультанта (ветка `mode` выше) можно и при выключенном чате — это
+   * состояние переписки, а не сообщение покупателю. */
+  if (!CHAT.visible(settings())) return back('Чат на витрине выключен — покупатель ответа не увидит');
   const raw = req.filesFor ? req.filesFor('photos').slice(0, CHAT.MAX_PHOTOS) : [];
   const photos = raw.length ? await optimizeUploads(raw, 1400) : [];
   // Как и у покупателя, снимок без подписи — полноценная реплика.
@@ -3939,7 +4054,7 @@ app.post('/admin/chat/:id/reply', async (req, res) => {
 app.post('/admin/chat/:id/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
-  if (!chat) return sendNotFound(req, res);
+  if (!chat) return adminMissing(res, '/admin/chat', 'Диалог не найден');
   CHAT.remove(chat.id);
   res.redirect('/admin/chat?flash=' + encodeURIComponent('Диалог удалён'), 303);
 });
@@ -3959,7 +4074,7 @@ app.post('/admin/chat/:id/delete', (req, res) => {
 app.post('/admin/chat/:id/message', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const chat = CHAT.get(req.params.id);
-  if (!chat) return sendNotFound(req, res);
+  if (!chat) return adminMissing(res, '/admin/chat', 'Диалог не найден');
   const back = (flash) => res.redirect('/admin/chat/' + encodeURIComponent(chat.id) + (flash ? '?flash=' + encodeURIComponent(flash) : ''), 303);
   const at = Math.floor(Number(req.body.at) || 0);
   if (!at) return back('Реплика не найдена');
@@ -4113,8 +4228,18 @@ app.post('/admin/settings', async (req, res) => {
   const passwordProblem = passwordError(req.body.adminPassword, false);
   if (passwordProblem) return fail(passwordProblem);
 
-  const logo = await resolveLogo(req, current.logoImage);
-  const patch = Object.assign(brandFields(req.body), { logoImage: logo.value });
+  /* Логотип здесь НЕ загружается — он уезжает на диск в самом конце, после всех
+   * проверок (см. ниже, перед `saveSettings`).
+   *
+   * Пока `resolveLogo()` стоял тут, он нарушал главное правило этой формы:
+   * проверка идёт ДО записи. Файл ложился на диск, а следом шёл десяток
+   * `fail()` — негодный merchant ID, перевёрнутые пределы сумм, разброс цен,
+   * реквизиты, чат. Форма честно возвращалась с ошибкой, `logoImage` оставался
+   * прежним, а загруженный файл лежал в хранилище сиротой: ссылок на него нет
+   * нигде, и ни одна уборка его не найдёт. Каждая неудачная попытка добавляла
+   * ещё один. Проверено: `status=400`, `logoImage: null`, файл на месте.
+   */
+  const patch = brandFields(req.body);
   patch.adminUsername = short(req.body.adminUsername, 100).trim() || current.adminUsername || 'admin';
   if (req.body.adminPassword && String(req.body.adminPassword).trim()) {
     patch.adminPasswordHash = auth.hashPassword(String(req.body.adminPassword).trim());
@@ -4363,6 +4488,12 @@ app.post('/admin/settings', async (req, res) => {
   if (willChat && !willAi && !willTg) {
     return fail('Чат включён, но отвечать некому: задайте ключ OpenAI или Telegram-бота с группой');
   }
+
+  /* Всё проверено — теперь можно писать. Логотип загружается ЗДЕСЬ и только
+   * здесь: после этой строки отказов уже нет, значит и сироте взяться неоткуда.
+   */
+  const logo = await resolveLogo(req, current.logoImage);
+  patch.logoImage = logo.value;
 
   db.saveSettings(patch);
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
