@@ -589,7 +589,7 @@ const products = [
   /* ============================== iPhone ============================== */
   {
     id: 'iphone-17-pro-max', name: 'iPhone 17 Pro Max', category: 'iPhone',
-    price: 67990, discountPercent: 6, inStock: true,
+    price: 67990, discountPercent: 20, inStock: true,
     shortDesc: 'A19 Pro, три камеры 48 Мп, 6.9", до 39 ч видео.',
     description: 'Самый мощный iPhone. Чип A19 Pro с 6-ядерным GPU и паровой камерой охлаждения, три камеры по 48 Мп с 8-кратным оптическим зумом и рекордная автономность — до 39 часов видео. Цельный корпус из кованого алюминия, Ceramic Shield 2 спереди и Ceramic Shield сзади.',
     specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 39 ч видео\nПамять: от 256 ГБ до 2 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -599,7 +599,7 @@ const products = [
   },
   {
     id: 'iphone-17-pro', name: 'iPhone 17 Pro', category: 'iPhone',
-    price: 66990, discountPercent: 13, inStock: true,
+    price: 66990, discountPercent: 20, inStock: true,
     shortDesc: 'A19 Pro, три камеры 48 Мп, 6.3".',
     description: 'Вся мощь Pro в компактном корпусе 6.3". Чип A19 Pro, тройная система камер 48 Мп с оптическим зумом 8×, до 33 часов видео и корпус из кованого алюминия.',
     specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, до 3000 нит\nЧип: A19 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, зум 8×\nФронталка: 18 Мп Center Stage\nАвтономность: до 33 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: кованый алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -618,7 +618,7 @@ const products = [
   },
   {
     id: 'iphone-17', name: 'iPhone 17', category: 'iPhone',
-    price: 51990, discountPercent: 9, inStock: true,
+    price: 51990, discountPercent: 20, inStock: true,
     shortDesc: 'A19, ProMotion 120 Гц, две камеры 48 Мп.',
     description: 'Впервые в базовой модели — ProMotion 120 Гц и стартовая память 256 ГБ. Чип A19, две камеры по 48 Мп, до 30 часов видео и Ceramic Shield 2 с втрое лучшей стойкостью к царапинам.',
     specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц\nЧип: A19, 5-ядерный GPU\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ\nФронталка: 18 Мп Center Stage\nАвтономность: до 30 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -628,7 +628,7 @@ const products = [
   },
   {
     id: 'iphone-17e', name: 'iPhone 17e', category: 'iPhone',
-    price: 54990, discountPercent: 8, inStock: true,
+    price: 54990, discountPercent: 20, inStock: true,
     shortDesc: 'A19, камера 48 Мп, 6.1" — доступный iPhone.',
     description: 'Максимум возможностей за минимальные деньги: чип A19 с поддержкой Apple Intelligence, камера 48 Мп Fusion с 2-кратным оптическим зумом, кнопка «Действие» и стартовая память 256 ГБ.',
     specs: 'Экран: 6.1" Super Retina XDR\nЧип: A19\nКамера: 48 Мп Fusion Main, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: 256 или 512 ГБ\nМатериал: алюминий, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C\nСвязь: 5G\nСистема: iOS 26 с Apple Intelligence',
@@ -638,7 +638,7 @@ const products = [
   },
   {
     id: 'iphone-16-pro-max', name: 'iPhone 16 Pro Max', category: 'iPhone',
-    price: 76990, discountPercent: 14, inStock: true,
+    price: 76990, discountPercent: 20, inStock: true,
     shortDesc: 'A18 Pro, титан, 6.9", зум 5×, до 33 ч видео.',
     description: 'Флагман прошлого поколения по цене без переплаты за новизну. Титановый корпус 6.9", чип A18 Pro, тройная камера с 48 Мп Fusion и 5-кратным тетрапризменным зумом, съёмка 4K120 в Dolby Vision и до 33 часов видео.',
     specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A18 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 33 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -648,7 +648,7 @@ const products = [
   },
   {
     id: 'iphone-16-pro', name: 'iPhone 16 Pro', category: 'iPhone',
-    price: 68990, discountPercent: 14, inStock: true,
+    price: 68990, discountPercent: 20, inStock: true,
     shortDesc: 'A18 Pro, титан, 6.3", зум 5×.',
     description: 'Компактный Pro в титановом корпусе: чип A18 Pro, три камеры с 48 Мп Fusion и 5-кратным зумом, кнопка Camera Control и до 27 часов видео.',
     specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A18 Pro, 6-ядерный GPU\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 27 ч видео\nПамять: от 128 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -658,7 +658,7 @@ const products = [
   },
   {
     id: 'iphone-16-plus', name: 'iPhone 16 Plus', category: 'iPhone',
-    price: 63990, discountPercent: 11, inStock: true,
+    price: 63990, discountPercent: 20, inStock: true,
     shortDesc: 'A18, большой экран 6.7", до 27 ч видео.',
     description: 'Тот же iPhone 16, но с экраном 6.7" и самой большой батареей в линейке — до 27 часов видео. Чип A18 с Apple Intelligence, камера 48 Мп Fusion и кнопка Camera Control.',
     specs: 'Экран: 6.7" Super Retina XDR\nЧип: A18\nКамеры: 48 Мп Fusion + 12 Мп СШУ\nФронталка: 12 Мп TrueDepth\nАвтономность: до 27 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -668,7 +668,7 @@ const products = [
   },
   {
     id: 'iphone-16', name: 'iPhone 16', category: 'iPhone',
-    price: 41990, discountPercent: 11, inStock: true,
+    price: 41990, discountPercent: 20, inStock: true,
     shortDesc: 'A18, две камеры, пять цветов.',
     description: 'Проверенный флагман прошлого поколения по сниженной цене. Чип A18 с поддержкой Apple Intelligence, камера 48 Мп Fusion, кнопка Camera Control и прочный корпус из алюминия.',
     specs: 'Экран: 6.1" Super Retina XDR\nЧип: A18\nКамеры: 48 Мп Fusion + 12 Мп СШУ\nФронталка: 12 Мп TrueDepth\nАвтономность: до 22 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -678,7 +678,7 @@ const products = [
   },
   {
     id: 'iphone-16e', name: 'iPhone 16e', category: 'iPhone',
-    price: 41990, discountPercent: 7, inStock: true,
+    price: 41990, discountPercent: 20, inStock: true,
     shortDesc: 'A18, камера 48 Мп, до 26 ч видео — вход в линейку.',
     description: 'Самый доступный iPhone с Apple Intelligence. Чип A18, камера 48 Мп Fusion с 2-кратным оптическим зумом, кнопка «Действие» и собственный модем Apple C1, с которым автономность выросла до 26 часов видео.',
     specs: 'Экран: 6.1" Super Retina XDR\nЧип: A18\nКамера: 48 Мп Fusion Main, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C\nСвязь: 5G, модем Apple C1\nСистема: iOS 26 с Apple Intelligence',
@@ -688,7 +688,7 @@ const products = [
   },
   {
     id: 'iphone-15-pro-max', name: 'iPhone 15 Pro Max', category: 'iPhone',
-    price: 41250, discountPercent: 13, inStock: true,
+    price: 41250, discountPercent: 20, inStock: true,
     shortDesc: 'A17 Pro, титан, 6.7", зум 5×, до 29 ч видео.',
     description: 'Первый iPhone из титана и первый с 5-кратным тетрапризменным зумом. Чип A17 Pro, кнопка «Действие» вместо переключателя звука, разъём USB-C и до 29 часов видео.',
     specs: 'Экран: 6.7" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A17 Pro, 6-ядерный GPU\nКамеры: 48 Мп Main + 12 Мп СШУ + 12 Мп теле, зум 5×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 29 ч видео\nПамять: от 256 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 6E\nСистема: iOS 26',
@@ -698,7 +698,7 @@ const products = [
   },
   {
     id: 'iphone-15-pro', name: 'iPhone 15 Pro', category: 'iPhone',
-    price: 33000, discountPercent: 12, inStock: true,
+    price: 33000, discountPercent: 20, inStock: true,
     shortDesc: 'A17 Pro, титан, 6.1", кнопка «Действие».',
     description: 'Самый лёгкий Pro за счёт титанового корпуса: 187 граммов. Чип A17 Pro, три камеры с 48 Мп Main и 3-кратным зумом, кнопка «Действие» и USB-C со скоростью до 10 Гбит/с.',
     specs: 'Экран: 6.1" Super Retina XDR, ProMotion 120 Гц, до 2000 нит\nЧип: A17 Pro, 6-ядерный GPU\nКамеры: 48 Мп Main + 12 Мп СШУ + 12 Мп теле, зум 3×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 23 ч видео\nПамять: от 128 ГБ до 1 ТБ\nМатериал: титан, Ceramic Shield\nЗащита: IP68\nКнопки: Действие\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 6E\nСистема: iOS 26',
@@ -708,7 +708,7 @@ const products = [
   },
   {
     id: 'iphone-15-plus', name: 'iPhone 15 Plus', category: 'iPhone',
-    price: 42000, discountPercent: 12, inStock: true,
+    price: 42000, discountPercent: 20, inStock: true,
     shortDesc: 'A16 Bionic, 6.7", камера 48 Мп, до 26 ч видео.',
     description: 'Большой экран 6.7" и запас автономности на два дня спокойного пользования. Камера 48 Мп с 2-кратным зумом без потери качества, Dynamic Island и разъём USB-C.',
     specs: 'Экран: 6.7" Super Retina XDR, Dynamic Island\nЧип: A16 Bionic\nКамеры: 48 Мп Main + 12 Мп СШУ, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 26 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 6\nСистема: iOS 26',
@@ -718,7 +718,7 @@ const products = [
   },
   {
     id: 'iphone-15', name: 'iPhone 15', category: 'iPhone',
-    price: 26500, discountPercent: 7, inStock: true,
+    price: 26500, discountPercent: 20, inStock: true,
     shortDesc: 'A16 Bionic, 6.1", камера 48 Мп, Dynamic Island.',
     description: 'Первый iPhone с USB-C и цветом, запечённым в само стекло. Камера 48 Мп с 2-кратным зумом, Dynamic Island и чип A16 Bionic — рабочая лошадка, которая ещё долго будет получать обновления.',
     specs: 'Экран: 6.1" Super Retina XDR, Dynamic Island\nЧип: A16 Bionic\nКамеры: 48 Мп Main + 12 Мп СШУ, зум 2×\nФронталка: 12 Мп TrueDepth\nАвтономность: до 20 ч видео\nПамять: от 128 до 512 ГБ\nМатериал: алюминий, Ceramic Shield\nЗащита: IP68\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 6\nСистема: iOS 26',
@@ -740,7 +740,7 @@ const products = [
   },
   {
     id: 'macbook-air-13-m5', name: 'MacBook Air 13" (M5)', category: 'Mac',
-    price: 119990, discountPercent: 8, inStock: true,
+    price: 119990, discountPercent: 20, inStock: true,
     shortDesc: 'M5, 13.6", до 18 часов работы, 1.24 кг.',
     description: 'Тонкий, быстрый, мощный и портативный. Чип M5 с 10-ядерным CPU, безвентиляторная конструкция, до 18 часов автономной работы и вес всего 1.24 кг.',
     specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
@@ -750,7 +750,7 @@ const products = [
   },
   {
     id: 'macbook-air-15-m5', name: 'MacBook Air 15" (M5)', category: 'Mac',
-    price: 139990, discountPercent: 7, inStock: true,
+    price: 139990, discountPercent: 20, inStock: true,
     shortDesc: 'M5, большой экран 15.3", шесть динамиков.',
     description: 'Всё то же, что в 13-дюймовом Air, но с большим экраном 15.3" и системой из шести динамиков. Идеально, когда нужен простор для работы и кино.',
     specs: 'Экран: 15.3" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.51 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
@@ -760,7 +760,7 @@ const products = [
   },
   {
     id: 'macbook-pro-14-m5', name: 'MacBook Pro 14" (M5)', category: 'Mac',
-    price: 189990, discountPercent: 10, inStock: true,
+    price: 189990, discountPercent: 20, inStock: true,
     shortDesc: 'M5 / M5 Pro / M5 Max, Liquid Retina XDR 120 Гц.',
     description: 'Самый продвинутый ноутбук Mac для требовательных задач. Чипы M5, M5 Pro или M5 Max, дисплей Liquid Retina XDR с ProMotion 120 Гц, Thunderbolt 5 и до 24 часов автономной работы.',
     specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 128 ГБ)\nПамять: от 1 ТБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
@@ -770,7 +770,7 @@ const products = [
   },
   {
     id: 'macbook-pro-16-m5-pro', name: 'MacBook Pro 16" (M5 Pro)', category: 'Mac',
-    price: 279990, discountPercent: 7, inStock: true,
+    price: 279990, discountPercent: 20, inStock: true,
     shortDesc: 'M5 Pro / M5 Max, 16.2" XDR, до 26 часов.',
     description: 'Максимальный экран и максимальная производительность. Чипы M5 Pro и M5 Max, до 128 ГБ объединённой памяти, четыре порта Thunderbolt 5 и самая долгая автономность среди ноутбуков Mac.',
     specs: 'Экран: 16.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 Pro (до M5 Max)\nОЗУ: 24 ГБ (до 128 ГБ)\nПамять: от 1 ТБ SSD\nАвтономность: до 26 ч\nВес: 2.14 кг\nПорты: 4× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
@@ -790,7 +790,7 @@ const products = [
   },
   {
     id: 'mac-mini-m5', name: 'Mac mini (M4)', category: 'Mac',
-    price: 74990, discountPercent: 6, inStock: true,
+    price: 74990, discountPercent: 20, inStock: true,
     shortDesc: 'Самый компактный Mac: M4 или M4 Pro, 12.7 см.',
     description: 'Самый маленький и доступный десктоп Mac. Чип M4 или M4 Pro, корпус 12.7 × 12.7 см, порты Thunderbolt спереди и сзади — подключается к любому монитору и клавиатуре.',
     specs: 'Чип: Apple M4 (опция M4 Pro)\nОЗУ: 16 ГБ (до 64 ГБ)\nПамять: от 256 ГБ SSD\nПорты: 2× Thunderbolt 4 спереди, 3× Thunderbolt сзади, HDMI, Ethernet\nРазмер: 12.7 × 12.7 × 5 см\nАудио: аудиоразъём 3.5 мм\nСвязь: Wi-Fi 7, Bluetooth 6\nПитание: встроенный блок питания',
@@ -832,7 +832,7 @@ const products = [
   /* =============================== iPad =============================== */
   {
     id: 'ipad-pro-13-m5', name: 'iPad Pro 13" (M5)', category: 'iPad',
-    price: 134990, discountPercent: 7, inStock: true,
+    price: 134990, discountPercent: 20, inStock: true,
     shortDesc: 'M5, Ultra Retina XDR OLED 13", Thunderbolt.',
     description: 'Самый мощный iPad. Чип M5, тандемный OLED-дисплей Ultra Retina XDR, толщина корпуса 5.1 мм, Thunderbolt и поддержка Apple Pencil Pro с Magic Keyboard.',
     specs: 'Экран: 13" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.1 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
@@ -843,7 +843,7 @@ const products = [
   },
   {
     id: 'ipad-pro-11-m5', name: 'iPad Pro 11" (M5)', category: 'iPad',
-    price: 104990, discountPercent: 9, inStock: true,
+    price: 104990, discountPercent: 20, inStock: true,
     shortDesc: 'M5, OLED 11", 5.3 мм, Apple Pencil Pro.',
     description: 'Компактный iPad Pro с чипом M5 и тандемным OLED-дисплеем Ultra Retina XDR. Толщина всего 5.3 мм при полной производительности Pro.',
     specs: 'Экран: 11" Ultra Retina XDR OLED, ProMotion 120 Гц\nЧип: Apple M5\nОЗУ: 12 ГБ\nПамять: от 256 ГБ до 2 ТБ\nКамера: 12 Мп + LiDAR\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nТолщина: 5.3 мм\nРазъём: USB-C с Thunderbolt / USB 4\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 7, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
@@ -853,7 +853,7 @@ const products = [
   },
   {
     id: 'ipad-air-13-m4', name: 'iPad Air 13" (M4)', category: 'iPad',
-    price: 79990, discountPercent: 11, inStock: true,
+    price: 79990, discountPercent: 20, inStock: true,
     shortDesc: 'M4, большой экран 13", четыре цвета.',
     description: 'Серьёзная производительность в тонком и легком корпусе. Чип M4, дисплей Liquid Retina 13", поддержка Apple Pencil Pro и клавиатуры Magic Keyboard.',
     specs: 'Экран: 13" Liquid Retina, 600 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 ГБ до 1 ТБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 618 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
@@ -863,7 +863,7 @@ const products = [
   },
   {
     id: 'ipad-air-11-m4', name: 'iPad Air 11" (M4)', category: 'iPad',
-    price: 55990, discountPercent: 7, inStock: true,
+    price: 55990, discountPercent: 20, inStock: true,
     shortDesc: 'M4, 11", лёгкий и универсальный.',
     description: 'Универсальный iPad для учёбы, работы и творчества: чип M4, дисплей Liquid Retina 11", поддержка Apple Pencil Pro и Apple Intelligence.',
     specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 ГБ до 1 ТБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 460 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
@@ -873,7 +873,7 @@ const products = [
   },
   {
     id: 'ipad-a16', name: 'iPad (A16)', category: 'iPad',
-    price: 34990, discountPercent: 10, inStock: true,
+    price: 34990, discountPercent: 20, inStock: true,
     shortDesc: 'A16, 11", четыре цвета — самый доступный iPad.',
     description: 'Красочный iPad для повседневных дел. Чип A16, дисплей Liquid Retina 11", поддержка Apple Pencil (USB-C) и целый день автономной работы.',
     specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple A16\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 477 г\nРазъём: USB-C\nПоддержка: Apple Pencil (USB-C)\nСвязь: Wi-Fi 6, 5G (опция)',
@@ -883,7 +883,7 @@ const products = [
   },
   {
     id: 'ipad-mini-a17-pro', name: 'iPad mini (A17 Pro)', category: 'iPad',
-    price: 49990, discountPercent: 9, inStock: true,
+    price: 49990, discountPercent: 20, inStock: true,
     shortDesc: 'A17 Pro, 8.3" — весь iPad в кармане.',
     description: 'Полноценный iPad в ультрапортативном формате. Чип A17 Pro с поддержкой Apple Intelligence, дисплей 8.3" и поддержка Apple Pencil Pro.',
     specs: 'Экран: 8.3" Liquid Retina, 500 нит\nЧип: Apple A17 Pro\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 293 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
@@ -895,7 +895,7 @@ const products = [
   /* =========================== Apple Watch =========================== */
   {
     id: 'watch-series-11-alu', name: 'Apple Watch Series 11 (алюминий)', category: 'Apple Watch',
-    price: 23250, discountPercent: 11, inStock: true,
+    price: 23250, discountPercent: 20, inStock: true,
     shortDesc: 'Уведомления о гипертонии, оценка сна, 5G.',
     description: 'Лучший способ следить за здоровьем: уведомления о признаках гипертонии, оценка качества сна, ЭКГ и кислород в крови. Экран в 2 раза устойчивее к царапинам, до 24 часов работы и связь 5G.',
     specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит\nЧип: S11 SiP\nАвтономность: до 24 ч\nНавигация: GPS\nЗащита: WR50, IP6X\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G (опция), Wi-Fi, Bluetooth 6\nЗарядка: быстрая, USB-C',
@@ -928,7 +928,7 @@ const products = [
   },
   {
     id: 'watch-ultra-3', name: 'Apple Watch Ultra 3', category: 'Apple Watch',
-    price: 44250, discountPercent: 10, inStock: true,
+    price: 44250, discountPercent: 20, inStock: true,
     shortDesc: 'Титан 49 мм, спутник, до 42 часов, WR100.',
     description: 'Часы для спорта и приключений. Титановый корпус 49 мм, самый большой дисплей Apple Watch, спутниковая связь и экстренный вызов SOS, до 42 часов работы и до 72 часов в режиме энергосбережения.',
     specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит\nЧип: S11 SiP\nАвтономность: до 42 ч (72 ч в экономном режиме)\nНавигация: двухчастотный GPS\nСвязь: 5G, спутниковые сообщения\nБезопасность: Emergency SOS, сирена 86 дБ\nДатчики: Vitals — пульс, ЭКГ, кислород, температура, глубиномер\nЗащита: WR100, погружения до 40 м, MIL-STD 810H\nСон: оценка сна и отслеживание фаз\nКнопки: Действие, двойное нажатие',
@@ -950,7 +950,7 @@ const products = [
   },
   {
     id: 'watch-se-3', name: 'Apple Watch SE 3', category: 'Apple Watch',
-    price: 27990, discountPercent: 13, inStock: true,
+    price: 27990, discountPercent: 20, inStock: true,
     shortDesc: 'Основные функции здоровья по приятной цене.',
     description: 'Все главные возможности Apple Watch за меньшие деньги: датчик температуры, уведомления об апноэ во время сна, определение аварии и до 18 часов работы.',
     specs: 'Корпус: алюминий 40 или 44 мм\nЭкран: Always-On Retina\nЧип: S10 SiP\nАвтономность: до 18 ч\nНавигация: GPS\nЗащита: WR50\nДатчики: пульс, температура, акселерометр\nСон: оценка сна и отслеживание фаз\nБезопасность: Emergency SOS, Crash Detection\nСвязь: LTE (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, USB-C',
@@ -973,7 +973,7 @@ const products = [
   /* ============================== AirPods ============================== */
   {
     id: 'airpods-pro-3', name: 'AirPods Pro 3', category: 'AirPods',
-    price: 13000, discountPercent: 13, inStock: true,
+    price: 13000, discountPercent: 20, inStock: true,
     shortDesc: 'Шумодав вдвое сильнее, пульсометр, IP57.',
     description: 'Активное шумоподавление вдвое эффективнее, чем у AirPods Pro 2, встроенный датчик пульса для тренировок, живой перевод и функции слухового аппарата. До 8 часов с включённым шумодавом.',
     specs: 'Чип: H2\nШумоподавление: активное, вдвое сильнее предыдущего\nДатчик пульса: есть\nАвтономность: до 8 ч (24 ч с кейсом)\nЗащита: IP57\nЗарядка: USB-C, MagSafe, Qi\nАудио: Spatial Audio с отслеживанием головы\nПоддержка: слуховой аппарат, проверка слуха, живой перевод\nКомплект: 5 размеров амбушюр',
@@ -994,7 +994,7 @@ const products = [
     // выбором «с шумоподавлением или без», а не две позиции в каталоге.
     // Базовая цена — версия без шумоподавления, доплата даёт прежние 17 990 ₽.
     id: 'airpods-4', name: 'AirPods 4', category: 'AirPods',
-    price: 7875, discountPercent: 12, inStock: true,
+    price: 7875, discountPercent: 20, inStock: true,
     shortDesc: 'Чип H2, кейс USB-C — с шумоподавлением или без.',
     description: 'Обновлённая форма для удобной посадки, чип H2, пространственное аудио с отслеживанием головы и компактный кейс с USB-C. В версии с активным шумоподавлением добавляются адаптивный звук, живой перевод и кейс с беспроводной зарядкой и динамиком для поиска.',
     specs: 'Чип: H2\nШумоподавление: активное и адаптивный звук — в версии с шумоподавлением\nАвтономность: до 5 ч (20–30 ч с кейсом)\nЗащита: IP54\nЗарядка: USB-C, а в версии с шумоподавлением ещё Qi и Apple Watch\nАудио: Spatial Audio с отслеживанием головы\nПоддержка: проверка слуха, Voice Isolation, живой перевод\nДатчики: оптический, акселерометр\nСвязь: Bluetooth 5.3',
@@ -1013,7 +1013,7 @@ const products = [
   },
   {
     id: 'airpods-max-2', name: 'AirPods Max 2', category: 'AirPods',
-    price: 35250, discountPercent: 8, inStock: true,
+    price: 35250, discountPercent: 20, inStock: true,
     shortDesc: 'Полноразмерные, H2, Lossless по USB-C, 20 ч.',
     description: 'Полноразмерные наушники нового поколения: чип H2 в каждой чашке, шумоподавление в 1.5 раза сильнее, Lossless-аудио и минимальная задержка по USB-C. Пять цветов.',
     specs: 'Тип: полноразмерные\nЧип: H2 в каждой чашке\nШумоподавление: активное, в 1.5 раза сильнее\nАвтономность: до 20 ч\nЗарядка: USB-C\nАудио: Lossless и ультранизкая задержка по USB-C, Spatial Audio\nМикрофоны: 9 микрофонов\nПоддержка: живой перевод, Digital Crown\nВес: 386 г',
@@ -1035,7 +1035,7 @@ const products = [
   /* ========================= Apple TV и Дом ========================= */
   {
     id: 'apple-tv-4k', name: 'Apple TV 4K', category: 'Apple TV и Дом',
-    price: 12990, discountPercent: 13, inStock: true,
+    price: 12990, discountPercent: 20, inStock: true,
     shortDesc: 'A17 Pro, 4K Dolby Vision, Siri Remote.',
     description: 'Кинематографичный опыт Apple на большом экране: чип A17 Pro с поддержкой Apple Intelligence, 4K HDR с Dolby Vision и Dolby Atmos, Wi-Fi 7 и пульт Siri Remote с USB-C.',
     specs: 'Чип: A17 Pro\nОЗУ: 8 ГБ\nПамять: 64 или 128 ГБ\nВидео: 4K HDR, Dolby Vision, HDR10+\nАудио: Dolby Atmos, поддержка HomePod как колонок\nПорты: HDMI 2.1, Ethernet (в версии 128 ГБ)\nСвязь: Wi-Fi 7, Bluetooth, Thread\nПоддержка: Siri Remote с USB-C',
@@ -1053,7 +1053,7 @@ const products = [
   },
   {
     id: 'homepod-mini', name: 'HomePod mini', category: 'Apple TV и Дом',
-    price: 11990, discountPercent: 8, inStock: true,
+    price: 11990, discountPercent: 20, inStock: true,
     shortDesc: 'Компактная колонка, пять цветов, Matter.',
     description: 'Удивительный звук для своего размера. Пять цветов, объёмное звучание на 360°, второе поколение чипа Ultra Wideband для передачи музыки с iPhone и полноценный хаб умного дома.',
     specs: 'Тип: компактная умная колонка\nАудио: полнодиапазонный драйвер, звук на 360°\nМикрофоны: 4 микрофона\nСвязь: Wi-Fi, Bluetooth, Thread, Matter, Ultra Wideband\nПоддержка: Siri, стереопара, Intercom\nРазмер: 8.4 см высота\nПитание: USB-C',
