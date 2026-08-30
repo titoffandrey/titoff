@@ -579,11 +579,24 @@ test('privacy-браузер может отправить формы входа
   }), hidden);
   assert.equal(hidden.statusCode, 200);
 
-  /* А вот буквальный `null` скрытым НЕ является: он означает непрозрачный
-   * источник — песочницу в iframe, страницу с `data:`, переход с чужого
-   * origin. Нашей формой это быть не может: `frame-ancestors 'none'` в CSP
-   * запрещает встраивать сайт в кадр вовсе. Раньше он проходил по отдельному
-   * исключению для входа — и это была единственная щель в проверке. */
+  /* Firefox с усиленной приватностью может скрыть Origin буквальным `null`,
+   * сохранив защищённый браузерный признак same-origin. Это всё ещё наша форма:
+   * JavaScript с другого сайта не может подделать Sec-Fetch-Site. */
+  const firefox = response();
+  await app.handle(request('/admin/login', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: {
+      host: 'shop.test', origin: 'null', 'sec-fetch-site': 'same-origin',
+      'content-type': 'application/json'
+    }
+  }), firefox);
+  assert.equal(firefox.statusCode, 200);
+
+  /* `null` без подтверждения same-origin означает непрозрачный источник —
+   * песочницу в iframe, страницу с `data:`, переход с чужого origin. Нашей
+   * формой это быть не может: `frame-ancestors 'none'` в CSP запрещает
+   * встраивать сайт в кадр вовсе. Раньше он проходил по отдельному исключению
+   * для входа — и это была единственная щель в проверке. */
   const opaque = response();
   await app.handle(request('/admin/login', {
     method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
@@ -628,7 +641,18 @@ test('непрозрачный Origin внутри панели не прохо�
   }), allowed);
   assert.equal(allowed.statusCode, 200);
 
-  /* А `Origin: null` — нет, и живая админская сессия его не оправдывает.
+  // Тот же privacy-режим не должен ломать формы после успешного входа.
+  const firefox = response();
+  await app.handle(request('/private-change', {
+    method: 'POST', body: Buffer.from('{}'), remoteAddress: '10.0.0.2',
+    headers: {
+      host: 'shop.test', origin: 'null', 'sec-fetch-site': 'same-origin',
+      cookie: sessionCookie, 'content-type': 'application/json'
+    }
+  }), firefox);
+  assert.equal(firefox.statusCode, 200);
+
+  /* А `Origin: null` без same-origin — нет, и живая админская сессия его не оправдывает.
    * Прежде здесь стояло исключение «непрозрачный источник + подписанная
    * авторизация = пропускаем», и оно было единственным местом, где POST с
    * непрозрачным источником доходил до маршрута панели. */
