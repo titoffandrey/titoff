@@ -4198,19 +4198,37 @@ app.post('/admin/promo/edit', (req, res) => {
   if (raw && !/^\d{1,2}$/.test(raw)) return res.redirect(promoBack(`Скидка — целое число от 1 до ${PROMO.MAX_PCT} или пусто`, true));
   const percent = PROMO.cleanPercent(raw);
   if (raw && !percent) return res.redirect(promoBack(`Скидка — целое число от 1 до ${PROMO.MAX_PCT} или пусто`, true));
+  /* Новое имя кода. Поле не пришло вовсе (старая форма) или пусто — код
+   * остаётся прежним: пустая строка тут означает «не меняю», а не «код без
+   * имени». Проверки те же, что у нового кода, — вид кода задан в одном месте.
+   */
+  const named = PROMO.normCode(req.body.newCode) || code;
+  if (named !== code) {
+    if (!PROMO.validCode(named)) return res.redirect(promoBack('Код — латиница, цифры, дефис и подчёркивание, от 2 до ' + PROMO.CODE_MAX + ' знаков', true));
+    if (list.some(c => c.code === named)) return res.redirect(promoBack('Такой код уже есть', true));
+  }
   const next = list.map(c => c.code === code
-    ? { code, percent, on: req.body.on !== undefined, note: String(req.body.note || '').trim().slice(0, 120) }
+    ? { code: named, percent, on: req.body.on !== undefined, note: String(req.body.note || '').trim().slice(0, 120) }
     : c);
   const patch = { promoCodes: next };
-  /* Код по умолчанию обязан остаться применимым. Выключили его или дали ему свой
-   * процент — он перестаёт быть скидкой витрины, и настройка обязана это
-   * признать: иначе `defaultCode()` молча вернёт null, и покупатель увидит в
-   * корзине цены без скидки при живой на вид настройке.
+  /* Код по умолчанию обязан остаться применимым И называться так, как он теперь
+   * называется. Переименование переносит настройку на новое имя само: иначе
+   * `defaultCode()` искал бы запись, которой больше нет, и покупатель увидел бы
+   * цены без скидки при живой на вид настройке. По той же причине настройка
+   * очищается, когда код выключили или дали ему свой процент — скидкой витрины
+   * он быть перестал.
    */
-  const def = next.find(c => c.code === PROMO.normCode(s.promoDefault));
-  if (def && def.code === code && (!def.on || def.percent)) patch.promoDefault = '';
+  if (PROMO.normCode(s.promoDefault) === code) {
+    const def = next.find(c => c.code === named);
+    patch.promoDefault = def && def.on && !def.percent ? named : '';
+  }
   db.saveSettings(patch);
-  res.redirect(promoBack('Промокод ' + code + ' сохранён'));
+  /* Переименование названо вслух вместе с его единственным последствием:
+   * заказы, оформленные по прежнему имени, остаются как есть, поэтому счётчик
+   * заказов у кода начинается заново. */
+  res.redirect(promoBack(named === code
+    ? 'Промокод ' + code + ' сохранён'
+    : 'Промокод ' + code + ' переименован в ' + named + ' — заказы по прежнему коду остались как есть'));
 });
 app.post('/admin/promo/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;

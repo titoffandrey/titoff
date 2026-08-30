@@ -3900,8 +3900,8 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .co-promo-apply:disabled{opacity:.5;cursor:default}
 .co-promo-note{margin:9px 0 0;font-size:12.5px;line-height:1.45;color:var(--muted)}
 .co-promo-note.is-err{color:#d92d20}
-/* «Вернуть SALE» — рядом с объяснением, а не отдельной кнопкой: она отвечает на
-   то же самое, что и строка над ней. */
+/* «Применить» у снятого кода — рядом с объяснением, а не отдельной кнопкой: она
+   отвечает на то же самое, что и строка перед ней. */
 .co-promo-back{margin-left:6px;padding:0;border:0;background:none;cursor:pointer;
   font:inherit;font-size:12.5px;font-weight:560;color:var(--accent)}
 .co-promo-back:hover{text-decoration:underline;text-underline-offset:3px}

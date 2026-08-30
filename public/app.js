@@ -208,18 +208,30 @@
   function cleanPromoCode(value) {
     return String(value == null ? '' : value).replace(/[^A-Za-z0-9_-]/g, '').toUpperCase().slice(0, 24);
   }
+  /* СНЯТИЕ КОДА НЕ ПЕРЕЖИВАЕТ ОТКРЫТИЕ СТРАНИЦЫ, а введённый код переживает.
+   *
+   * Скидка витрины — это скидка кода по умолчанию, и ценники каталога уже
+   * посчитаны с ним. Сохранённое «снят» означало бы, что покупатель, однажды
+   * убравший код, при каждом следующем заходе на оформление видит цены ВЫШЕ
+   * тех, что стоят на карточках, — а объяснить ему это нечем: свой выбор
+   * недельной давности он не помнит. Поэтому в localStorage ложится только
+   * введённый им код, а снятие действует в пределах открытой страницы: пока он
+   * тут, цены полные; вернулся на оформление — промокод снова применён.
+   */
   function loadPromoChoice() {
     var raw = null;
     try { raw = JSON.parse(localStorage.getItem(PROMO_KEY) || 'null'); } catch (e) {}
     if (!raw || typeof raw !== 'object') return;
-    if (raw.off === true) { promoChoice = { off: true }; return; }
+    // Запись «снят» от прежней версии витрины стирается: иначе она так и
+    // держала бы полные цены у вернувшегося покупателя.
+    if (raw.off === true) { savePromoChoice(); return; }
     var code = cleanPromoCode(raw.code);
     if (code) promoChoice = { code: code };
   }
   function savePromoChoice() {
     try {
-      if (!promoChoice) localStorage.removeItem(PROMO_KEY);
-      else localStorage.setItem(PROMO_KEY, JSON.stringify(promoChoice));
+      if (promoChoice && promoChoice.code) localStorage.setItem(PROMO_KEY, JSON.stringify(promoChoice));
+      else localStorage.removeItem(PROMO_KEY);
     } catch (e) {}
   }
   /* Поля запроса. Ничего не выбрано — полей нет вовсе, и это не то же самое, что
@@ -331,12 +343,21 @@
       note.className = 'co-promo-note' + (promoError ? ' is-err' : '');
       setText('co-promo-note-text', text);
     }
-    // «Вернуть» показываем только когда есть куда возвращаться: код по умолчанию
-    // могли выключить в панели, пока покупатель ходил по витрине.
+    /* Кнопка возврата показывается только когда есть куда возвращаться: код по
+     * умолчанию могли выключить в панели, пока покупатель ходил по витрине.
+     *
+     * Подпись у неё — «Применить», как у кнопки формы рядом: для покупателя это
+     * одно и то же действие, а прежнее «Вернуть SALE» заставляло его гадать,
+     * что такое SALE и куда его возвращают. Сам код при этом остаётся в
+     * доступном имени — двух одинаковых с виду кнопок в одной строке иначе не
+     * различить ни голосом, ни с клавиатуры. */
     if (back) {
       var canBack = !promoError && promoView.off && !!promoView.fallback;
       back.hidden = !canBack;
-      if (canBack) back.textContent = 'Вернуть ' + promoView.fallback;
+      if (canBack) {
+        back.textContent = 'Применить';
+        back.setAttribute('aria-label', 'Применить промокод ' + promoView.fallback);
+      }
     }
   }
 

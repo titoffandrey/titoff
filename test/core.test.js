@@ -13334,6 +13334,49 @@ test('промокод не прячется под собственным CSS',
   assert.match(css, /\.co-promo-chip\[hidden\],\.co-promo-form\[hidden\],\.co-promo-open\[hidden\]\{display:none\}/);
 });
 
+test('снятый промокод не переживает открытие страницы', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  /* Скидка витрины — это скидка кода по умолчанию, и ценники каталога уже
+   * посчитаны с ним. Сохранённое «снят» означало бы, что покупатель, однажды
+   * убравший код, при каждом следующем заходе видит цены ВЫШЕ карточных —
+   * причём из-за выбора, которого он не помнит. Поэтому в localStorage ложится
+   * только ВВЕДЁННЫЙ код, а снятие живёт в пределах открытой страницы. */
+  assert.match(js, /if \(promoChoice && promoChoice\.code\) localStorage\.setItem\(PROMO_KEY/);
+  assert.doesNotMatch(js, /promoChoice = \{ off: true \}; return;/,
+    'запись «снят» из localStorage больше не читается');
+  // Прежняя запись «снят» ещё лежит у вернувшихся покупателей — её стираем.
+  assert.match(js, /if \(raw\.off === true\) \{ savePromoChoice\(\); return; \}/);
+  // Подпись кнопки возврата — «Применить», как у кнопки формы рядом: для
+  // покупателя это одно действие. Код остаётся в доступном имени, иначе двух
+  // одинаковых с виду кнопок в строке не различить голосом.
+  assert.match(js, /back\.textContent = 'Применить'/);
+  assert.match(js, /back\.setAttribute\('aria-label', 'Применить промокод ' \+ promoView\.fallback\)/);
+  assert.doesNotMatch(js, /'Вернуть ' \+ promoView\.fallback/);
+});
+
+test('код переименовывается в панели, и настройка «по умолчанию» едет с ним', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const settings = Object.assign(dbCore.defaultSettings(), { storeName: 'Тест' });
+  const db = { visibleOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0 };
+  // Поле имени стоит в форме правки самой записи, рядом со скидкой и заметкой.
+  assert.match(adminViews.promoPage(settings, db, {}), /name="newCode"/);
+
+  const route = server.slice(server.indexOf("app.post('/admin/promo/edit'"), server.indexOf("app.post('/admin/promo/delete'"));
+  // Какая запись правится, говорит СТАРЫЙ код: новое имя приходит рядом.
+  assert.match(route, /const named = PROMO\.normCode\(req\.body\.newCode\) \|\| code/);
+  // Вид кода и занятость проверяются ДО записи — то же правило, что у add.
+  assert.ok(route.indexOf('Такой код уже есть') < route.indexOf('db.saveSettings'),
+    'проверка обязана идти до записи');
+  assert.match(route, /if \(list\.some\(c => c\.code === named\)\)/);
+  /* Настройка «по умолчанию» переезжает на новое имя сама: иначе
+   * `defaultCode()` искал бы запись, которой больше нет, и покупатель увидел бы
+   * цены без скидки при живой на вид настройке. Выключенный или ставший
+   * процентным код по-прежнему очищает её. */
+  assert.match(route, /patch\.promoDefault = def && def\.on && !def\.percent \? named : ''/);
+  // Заказы по прежнему имени остаются как есть, и панель говорит это вслух.
+  assert.match(route, /переименован в/);
+});
+
 /* ==================== Разбор аудита: закреплённые правки ====================
  *
  * Всё, что ниже, — не новые правила, а починенные старые. Каждое из них уже
