@@ -5368,7 +5368,7 @@ test('витрина уводит на свою страницу оплаты т
   assert.doesNotMatch(js, /crocopay\.tech|client_secret|Client-Secret/);
   // Выбора «оплатить позже» нет: включённая оплата — всегда оплата сразу.
   assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
-  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
+  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Оплатить' : 'Оформить заказ'; \}/);
   // Идём ли на оплату, решает ответ сервера: только он знает пересчитанную
   // сумму и пределы кассы. Витринная догадка нужна лишь для подписи кнопки.
   assert.match(submit, /online = !!d\.pay;/);
@@ -5499,13 +5499,15 @@ test('оплату можно выключить: витрина принима�
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(js, /if \(!ORDER_MAX\)/, 'ноль в скрипте означает «предела нет»');
 
-  // Оформление говорит про заявку и менеджера, а не про оплату, и знаков
-  // платёжных систем в подвале нет: обещать приём карт в этом режиме нельзя.
+  // Оформление не обещает оплату на витрине, и знаков платёжных систем в
+  // подвале нет: обещать приём карт в этом режиме нельзя. Про заявку и
+  // менеджера говорит подпись под кнопкой — своего подзаголовка у страницы
+  // нет вовсе, он повторял бы пронумерованные шаги под собой.
   const co = render.checkoutPage(off, { origin: '' });
   assert.doesNotMatch(co, /data-pay="1"/);
   assert.doesNotMatch(co, /footer-pay/);
-  assert.match(co, /менеджер свяжется с вами и подтвердит наличие/);
-  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Перейти к оплате' : 'Оформить заказ'; \}/);
+  assert.doesNotMatch(co, /checkout-sub/);
+  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Оплатить' : 'Оформить заказ'; \}/);
   assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
 
   // Заявка сразу настоящая: черновиком заказ становится только ради выбора
@@ -5859,11 +5861,111 @@ test('на оформлении нет «обсудим при подтверж�
     assert.doesNotMatch(text, /уточнить при подтверждении/);
   }
   assert.doesNotMatch(html, /подтвердит наличие/);
-  assert.match(html, /на следующем шаге откроется оплата/);
+  /* Подзаголовка у страницы нет вовсе: он описывал шаги, которые тут же стоят
+   * пронумерованными карточками, а про оплату отвечает подпись под кнопкой.
+   * Про режим витрины разметка по-прежнему говорит атрибутом — по нему скрипт
+   * и выбирает подпись кнопки. */
+  assert.doesNotMatch(html, /checkout-sub/);
+  assert.match(html, /data-pay="1"/);
   // Оплата не настроена — прежний путь «заявка» обязан остаться: иначе кнопка
   // вела бы в платёжку, которой нет.
   const off = render.checkoutPage(ss, { origin: '' });
-  assert.match(off, /менеджер свяжется с вами и подтвердит наличие/);
+  assert.doesNotMatch(off, /data-pay="1"/);
+  assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
+});
+
+test('шапка оформления стоит по центру на любой ширине', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const rend = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  assert.match(css, /\.checkout-head\{text-align:center/);
+  /* На телефоне тоже: прежний `text-align:left` в мобильном блоке прижимал
+   * заголовок к краю, и шапка страницы читалась как строка формы. */
+  const phone = css.slice(css.indexOf('@media(max-width:600px){'));
+  const head = phone.slice(phone.indexOf('.checkout-head{'), phone.indexOf('.checkout-head{') + 60);
+  assert.ok(head, 'мобильное правило шапки на месте');
+  assert.doesNotMatch(head, /text-align:left/);
+  // Одинокий заголовок не тащит отступ под несуществующий подзаголовок.
+  assert.match(css, /\.checkout-title:last-child\{margin-bottom:0\}/);
+  // У страницы оплаты подзаголовок остаётся: там он называет заказ и сумму.
+  const payPage = rend.slice(rend.indexOf('function payPage'));
+  assert.match(payPage, /class="checkout-sub"/);
+});
+
+test('строка доставки в сводке не разваливается: срок целиком, тарифной зоны нет', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const rail = js.slice(js.indexOf('function lineLabel'), js.indexOf('// ===== Оплата и доставка'));
+  assert.ok(rail.length > 100, 'сводка найдена');
+  /* Зона — наша внутренняя мерка тарифа, а не адрес покупателя. Вместе с ней
+   * строка не помещалась в панель: слева текст переносился на две строки, а
+   * справа «2–4 дня» ломалось надвое. */
+  assert.doesNotMatch(js, /zoneName/);
+  assert.match(rail, /co-line-sub/);
+  // Срок не переносится посреди диапазона; переносится левая часть.
+  assert.match(css, /\.co-line-muted span:last-child\{[^}]*white-space:nowrap/);
+  assert.match(css, /\.co-line-muted span:last-child\{[^}]*flex:none/);
+  assert.match(css, /\.co-line-muted span:first-child\{[^}]*min-width:0/);
+  /* Подстрока выровнена под ПОДПИСЬ строки выше, а не под её значок: отступ
+   * равен ширине глифа и зазору до текста. */
+  assert.match(css, /\.co-line-label\{[^}]*gap:8px/);
+  assert.match(css, /\.co-line-ico\{width:16px/);
+  assert.match(css, /\.co-line-sub\{[^}]*padding-left:24px/);
+
+  /* Сводку не только читаем глазами, но и СОБИРАЕМ: строчная проверка пропустит
+   * потерянную переменную, а покупатель увидит панель без единой суммы. */
+  const from = js.indexOf('function lineLabel');
+  const to = js.indexOf('// ===== Оплата и доставка', from);
+  assert.ok(from > -1 && to > from, 'блок сводки найден');
+  const factory = new Function(
+    'document', 'Cart', 'money', 'shipCurrent', 'deliveryName', 'deliveryModeName',
+    'shipDaysCurrent', 'orderTotal', 'promoView', 'escapeHtml', 'coIcon',
+    js.slice(from, to) + '\nreturn renderRail;'
+  );
+  let out = '';
+  const side = { set innerHTML(v) { out = v; } };
+  const renderRail = factory(
+    { getElementById: id => (id === 'checkout-side' ? side : null) },
+    { items: [{}], availableCount: () => 1, total: () => 67990, saved: () => 0 },
+    n => n + ' ₽', () => 510, () => 'СДЭК', () => 'В пункт выдачи', () => '2–4 дня',
+    () => 68500, null, s => s, (name, cls) => '<svg class="' + cls + '" data-ico="' + name + '"></svg>'
+  );
+  renderRail();
+  assert.match(out, /Товары \(1\)/);
+  assert.match(out, /data-ico="truck"/);
+  assert.match(out, /СДЭК, в пункт выдачи/);
+  assert.match(out, /2–4 дня/);
+  assert.match(out, /68500 ₽/);
+  assert.doesNotMatch(out, /undefined/);
+});
+
+test('кнопка оформления называется «Оплатить», а её значок переживает пересчёт', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Оплатить' : 'Оформить заказ'; \}/);
+  /* Значок живёт СНАРУЖИ `.btn-checkout-label`: подпись меняется через
+   * textContent, и вложенный глиф стирало бы первым же пересчётом. Замок —
+   * только там, где на сайте правда платят. */
+  assert.match(js, /<span class="btn-checkout-ico" id="co-btn-ico">' \+ coIcon\(payOnline\(\) \? 'lock' : 'check'/);
+  const sync = js.slice(js.indexOf('function syncSubmit'), js.indexOf('function syncSubmit') + 1600);
+  assert.match(sync, /label\.textContent = canOrder \? submitLabel\(\)/);
+  assert.match(sync, /ico\.hidden = !canOrder/);
+  /* Скрытый значок обязан правда исчезать: `hidden` браузерная таблица делает
+   * всего лишь display:none, а своё display:flex её перебивает. */
+  assert.match(css, /\.btn-checkout-ico\[hidden\]\{display:none\}/);
+});
+
+test('у вариантов доставки свои значки, и они из общего набора страницы', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  /* «Навес и дверь» означает пункт выдачи и в этом ряду, и в списке пунктов
+   * ниже: разные рисунки на один и тот же выбор читались бы как два разных
+   * варианта. Незнакомый id остаётся без значка, а не с чужим. */
+  assert.match(js, /m\.id === 'courier' \? 'truck' : \(m\.id === 'pvz' \? 'pvz' : ''\)/);
+  assert.match(js, /class="co-mode-ico">' \+ coIcon\(ico, 'co-ico'\)/);
+  assert.match(css, /\.co-mode:has\(input:checked\) \.co-mode-ico\{color:var\(--accent\)\}/);
+  // Пустая корзина показывает тот же волосяной глиф, а не эмодзи.
+  assert.match(js, /checkout-empty-ico" aria-hidden="true">' \+ coIcon\('cart'/);
+  assert.doesNotMatch(js, /checkout-empty-ico[^\n]*🛒/);
 });
 
 test('имя, фамилия, адрес и способ доставки обязательны', () => {
@@ -6430,7 +6532,7 @@ test('скидка на оформлении показана тем же язы
   assert.match(js, /выгода ' \+ money\(sale\.saved \* i\.qty\)/);
   // Подпись строки выгоды называет промокод, когда он применён, и остаётся
   // «Скидкой», когда промокодов нет вовсе.
-  assert.match(js, /co-line-save"><span>' \+ escapeHtml\(saveLabel\) \+ '<\/span><span>−/);
+  assert.match(js, /co-line-save">' \+ lineLabel\('tag', escapeHtml\(saveLabel\)\) \+ '<span>−/);
   assert.match(js, /promoView\.code\s*\n?\s*\? 'Промокод ' \+ promoView\.code : 'Скидка'/);
   assert.match(css, /\.co-line-save span\{color:var\(--sale\)/);
   /* Столбик сводки обязан сходиться: при скидке «Товары» показывают сумму ДО
@@ -6677,8 +6779,12 @@ test('список пунктов витрина берёт у сервера и
 
   // Значки: витрина и постамат различаются рисунком, вес штриха тот же, что у
   // остальных глифов витрины.
-  assert.match(js, /PVZ_ICONS = \{/);
-  for (const name of ['pvz', 'postamat', 'pin', 'chevron', 'check']) {
+  // Набор глифов страницы оформления ОДИН на все её блоки: пункты выдачи,
+  // строки сводки, варианты доставки и кнопка оплаты. Второй набор со своим
+  // весом штриха читался бы как значки из другого магазина.
+  assert.match(js, /CO_ICONS = \{/);
+  assert.doesNotMatch(js, /PVZ_ICONS/, 'второго набора значков быть не должно');
+  for (const name of ['pvz', 'postamat', 'pin', 'chevron', 'check', 'tag', 'bag', 'truck', 'lock', 'cart']) {
     assert.match(js, new RegExp(name + ':\\s*\'<path'), 'нет значка ' + name);
   }
   assert.match(js, /stroke-width="1\.6"/);

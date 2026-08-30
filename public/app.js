@@ -49,7 +49,11 @@
     whatsapp: '<path d="M12.05 2A9.86 9.86 0 0 0 3.6 16.9L2.6 21.4l4.62-1.2A9.86 9.86 0 1 0 12.05 2Zm5.72 13.9c-.24.68-1.4 1.3-1.96 1.38-.5.08-1.13.11-1.83-.11-.42-.14-.96-.31-1.65-.61-2.9-1.26-4.8-4.2-4.95-4.4-.14-.19-1.18-1.57-1.18-3s.75-2.13 1.02-2.42c.26-.29.58-.36.77-.36h.55c.18 0 .42-.07.65.5.24.58.81 2 .88 2.15.07.14.12.31.02.5-.1.2-.14.32-.29.49-.14.17-.3.38-.43.51-.14.14-.29.3-.13.59.17.29.75 1.24 1.61 2.01 1.11.99 2.04 1.29 2.33 1.44.29.14.46.12.63-.07.17-.2.72-.84.92-1.13.19-.29.38-.24.64-.14.26.1 1.67.79 1.96.93.29.15.48.22.55.34.07.12.07.7-.17 1.38Z"/>',
     mobile: '<path fill-rule="evenodd" d="M8.6 1.6h6.8A2.6 2.6 0 0 1 18 4.2v15.6a2.6 2.6 0 0 1-2.6 2.6H8.6A2.6 2.6 0 0 1 6 19.8V4.2a2.6 2.6 0 0 1 2.6-2.6Zm1.15 2.6a.55.55 0 0 0 0 1.1h4.5a.55.55 0 0 0 0-1.1h-4.5Z"/>',
     telegram: '<path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71l-4.15-3.06-1.99 1.94c-.23.23-.42.42-.83.42z"/>',
-    mail: '<path d="M2.4 6.2A2 2 0 0 1 4.4 4.5h15.2a2 2 0 0 1 2 1.7L12 12.6 2.4 6.2Z"/><path d="M2.25 8.2 11.6 14.4a.7.7 0 0 0 .8 0l9.35-6.2V17a2 2 0 0 1-2 2H4.25a2 2 0 0 1-2-2V8.2Z"/>'
+    mail: '<path d="M2.4 6.2A2 2 0 0 1 4.4 4.5h15.2a2 2 0 0 1 2 1.7L12 12.6 2.4 6.2Z"/><path d="M2.25 8.2 11.6 14.4a.7.7 0 0 0 .8 0l9.35-6.2V17a2 2 0 0 1-2 2H4.25a2 2 0 0 1-2-2V8.2Z"/>',
+    /* Булавка у подписи «Адрес». ЗАЛИТАЯ, а не волосяная копия той, что стоит в
+     * блоке пунктов выдачи: в подписи это 13 px, и на таком размере контур не
+     * читается — то же правило, что у остальных значков этого набора. */
+    pin: '<path fill-rule="evenodd" d="M12 2.2a7.4 7.4 0 0 0-7.4 7.4c0 5.2 6.6 11.6 6.88 11.87a.75.75 0 0 0 1.04 0c.28-.27 6.88-6.67 6.88-11.87A7.4 7.4 0 0 0 12 2.2Zm0 10.1a2.7 2.7 0 1 1 0-5.4 2.7 2.7 0 0 1 0 5.4Z"/>'
   };
   // Значок и слово, к которому он относится, — одним куском: иначе перенос
   // строки оставляет значок в конце одной строки, а слово уводит на другую.
@@ -58,6 +62,40 @@
       ? '<svg class="note-ico" viewBox="0 0 24 24" aria-hidden="true">' + NOTE_ICONS[name] + '</svg>'
       : '';
     return '<span class="ico-word">' + glyph + escapeHtml(word) + '</span>';
+  }
+
+  /* Глифы страницы оформления — ОДИН набор на всю страницу, а не по своему на
+   * блок: холст 24×24 и волосяная обводка 1.6, тот же вес штриха, что у значков
+   * характеристик и блока доверия, поэтому в одной странице они не спорят.
+   * Второй набор с другим весом читался бы как значки из другого магазина.
+   *
+   * Пункт выдачи и постамат различаются РИСУНКОМ: у первого навес и дверь, у
+   * второго шкаф с ячейками. Это главное, что покупателю надо увидеть с одного
+   * взгляда — в постамате никто не поможет и не даст примерить.
+   *
+   * Значок корзины повторяет контур `CART_ICO` в lib/render.js: витрина
+   * рисуется и сервером, и скриптом, а корзина в проекте одна. Спрайт страницы
+   * оформления сюда не тянем — там лежат только логотипы перевозчиков, и ради
+   * одного глифа заводить второй спрайт незачем.
+   */
+  var CO_ICONS = {
+    pvz: '<path d="M3.6 9.2 5.2 4.4h13.6l1.6 4.8M4.9 9.2v10.4h14.2V9.2M9.7 19.6v-5.4h4.6v5.4"/>',
+    postamat: '<path d="M5.6 3.8h12.8v16.4H5.6zM5.6 9.6h12.8M5.6 15.2h12.8M15.4 6.4v.6M15.4 12.2v.6M15.4 17.8v.6"/>',
+    pin: '<path d="M12 21.2s6.6-6.1 6.6-10.6a6.6 6.6 0 0 0-13.2 0C5.4 15.1 12 21.2 12 21.2zM12 13a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2z"/>',
+    chevron: '<path d="M7.2 10.2 12 15l4.8-4.8"/>',
+    check: '<path d="m5.4 12.6 4.4 4.4 8.8-9.6"/>',
+    // Ярлык скидки — тот же силуэт, что у значка раздела «Промокоды» в панели.
+    tag: '<path d="M20.4 3.6h-7.65a2 2 0 0 0-1.41.59l-7.16 7.16a2 2 0 0 0 0 2.83l5.64 5.64a2 2 0 0 0 2.83 0l7.16-7.16a2 2 0 0 0 .59-1.41Z"/><circle cx="16.9" cy="7.1" r="1.4"/>',
+    bag: '<path d="M5.7 8.4h12.6l-.85 10.9a1.7 1.7 0 0 1-1.7 1.5H8.25a1.7 1.7 0 0 1-1.7-1.5Z"/><path d="M9 10.6V7.2a3 3 0 0 1 6 0v3.4"/>',
+    truck: '<path d="M2.7 6.2h9.9v9.9H2.7z"/><path d="M12.6 9.5h3.5l2.9 2.9v3.7h-6.4z"/><circle cx="7" cy="18.2" r="1.8"/><circle cx="16" cy="18.2" r="1.8"/>',
+    lock: '<path d="M7.4 10.3h9.2a1.7 1.7 0 0 1 1.7 1.7v6.5a1.7 1.7 0 0 1-1.7 1.7H7.4a1.7 1.7 0 0 1-1.7-1.7V12a1.7 1.7 0 0 1 1.7-1.7Z"/><path d="M8.7 10.3V7.6a3.3 3.3 0 0 1 6.6 0v2.7"/>',
+    cart: '<path d="M2.9 4.3h2.05l.65 2.75h14.6l-2.05 7.3H7.9L5.6 7.05"/><circle cx="9.7" cy="18.4" r="1.55"/><circle cx="16.5" cy="18.4" r="1.55"/>'
+  };
+  function coIcon(name, cls) {
+    var d = CO_ICONS[name];
+    if (!d) return '';
+    return '<svg class="' + cls + '" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+      + ' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
   }
 
   // Корзина хранит снимок данных на момент добавления: у позиций, положенных
@@ -194,11 +232,9 @@
     syncPromo();
   }
 
-  // Ярлык у строки промокода. Тот же силуэт, что у значка раздела в панели, и
-  // тот же волосяной контур, что у остальных глифов витрины.
-  var PROMO_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<path d="M20.4 3.6h-7.65a2 2 0 0 0-1.41.59l-7.16 7.16a2 2 0 0 0 0 2.83l5.64 5.64a2 2 0 0 0 2.83 0l7.16-7.16a2 2 0 0 0 .59-1.41Z"/>'
-    + '<circle cx="16.9" cy="7.1" r="1.4"/></svg>';
+  // Ярлык у строки промокода — из общего набора глифов страницы: тот же ярлык
+  // стоит и в строке выгоды в сводке, и разъезжаться им незачем.
+  var PROMO_ICO = coIcon('tag', 'co-tag-ico');
 
   /* Разметка блока собирается ОДИН РАЗ (`dataset.ready`), как форма получателя и
    * кнопка оформления: пересчёт доставки и смена количества перерисовывают
@@ -357,7 +393,7 @@
     if (page) page.classList.toggle('is-empty', !Cart.items.length);   // пустая корзина — одна колонка по центру
     if (!Cart.items.length) {
       items.innerHTML = '<div class="checkout-empty">'
-        + '<div class="checkout-empty-ico" aria-hidden="true">🛒</div>'
+        + '<div class="checkout-empty-ico" aria-hidden="true">' + coIcon('cart', 'co-empty-ico') + '</div>'
         + '<h2>В корзине пока пусто</h2>'
         + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
         + '<a class="btn btn-primary btn-lg" href="/">Перейти в каталог</a></div>';
@@ -474,7 +510,9 @@
          * было одно на двоих, адрес пункта затирал адрес покупателя, и при уходе
          * на курьера его приходилось восстанавливать из памяти скрипта.
          */
-        + '<div class="field"><label for="co-address">Адрес <span class="req">*</span></label>'
+        // Значок у подписи — как у Telegram и почты строкой выше: булавка
+        // говорит «сюда поедет заказ» до того, как прочитано само слово.
+        + '<div class="field"><label for="co-address">' + iconWord('pin', 'Адрес') + ' <span class="req">*</span></label>'
         + '<div class="suggest-box">'
         + '<input type="text" id="co-address" maxlength="400" placeholder="Город, улица, дом" autocomplete="street-address"'
         + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list" required>'
@@ -506,8 +544,16 @@
     // после формы — цену видно непосредственно перед подтверждением заказа.
     if (action && !action.dataset.ready) {
       action.dataset.ready = '1';
+      /* Замок у подписи — там, где на сайте правда платят: он говорит о защите
+       * перевода одним знаком, и говорить это словами под кнопкой не нужно. В
+       * режиме заявок платежа нет вовсе, и замок был бы обещанием ни о чём —
+       * там стоит галочка «заказ принят». Значок живёт СНАРУЖИ `.btn-checkout-label`:
+       * подпись меняется через `textContent` в syncSubmit, и вложенный глиф
+       * стирало бы первым же пересчётом.
+       */
       action.innerHTML = '<div class="co-submit">'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
+        + '<span class="btn-checkout-ico" id="co-btn-ico">' + coIcon(payOnline() ? 'lock' : 'check', 'btn-ico') + '</span>'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
@@ -538,6 +584,10 @@
       submit.disabled = !canOrder || !!overLimit;
       var label = submit.querySelector('.btn-checkout-label');
       if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
+      // «Нет доступных товаров» — не действие, и замок рядом с ним обещал бы
+      // оплату, которой не будет.
+      var ico = document.getElementById('co-btn-ico');
+      if (ico) ico.hidden = !canOrder;
     }
     var limitMsg = document.getElementById('order-msg');
     if (limitMsg && (overLimit || limitMsg.dataset.limit)) {
@@ -743,6 +793,24 @@
     return value ? { ok: true } : { ok: false, error: 'Укажите номер телефона' };
   }
 
+  /* Подпись строки расчёта со своим глифом. Покупка, выгода и доставка — три
+   * РАЗНЫЕ вещи в одном столбике чисел, и значок отвечает на «что это за
+   * строка» быстрее подписи. Значок стоит у всех трёх сразу: дай его одной —
+   * подписи встанут на разном отступе, и столбик развалится. У «Итого» его нет
+   * намеренно: та строка отбита линией и набрана крупнее, с расчётом её не
+   * спутать.
+   *
+   * Под доставкой идёт подстрока с перевозчиком и вариантом — и БОЛЬШЕ ничем.
+   * Раньше туда же дописывалась тарифная зона («СДЭК, в пункт выдачи ·
+   * Северо-Запад»), и строка не помещалась в панель: слева текст переносился на
+   * две строки, а справа «2–4 дня» ломалось надвое — сводка выглядела сломанной
+   * ровно там, где покупатель сверяет, за что платит. Зона — наша внутренняя
+   * мерка тарифа, а не адрес покупателя: цену объясняют перевозчик и вариант.
+   */
+  function lineLabel(ico, text) {
+    return '<span class="co-line-label">' + coIcon(ico, 'co-line-ico') + text + '</span>';
+  }
+
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
   // возиться с отдельными id ради трёх строк смысла нет.
   function renderRail() {
@@ -756,6 +824,7 @@
     // Цена доставки известна только по адресу: до него в строке стоит сам
     // способ, а не «0 ₽» — обещать бесплатную доставку мы не можем.
     var price = shipCurrent();
+    // Перевозчик и вариант — и больше ничего (см. lineLabel о тарифной зоне).
     var way = [deliveryName(), deliveryModeName().toLowerCase()].filter(Boolean).join(', ');
     /* Выгода — отдельной строкой между товарами и доставкой, и розовой, как
      * процент и цена со скидкой на карточке. Это единственная строка сводки,
@@ -773,15 +842,16 @@
      * берём из ответа сервера — своего списка кодов витрина не держит. */
     var saveLabel = promoView && promoView.on && promoView.code
       ? 'Промокод ' + promoView.code : 'Скидка';
-    side.innerHTML = '<div class="co-line"><span>Товары (' + count + ')</span><span>' + goods + '</span></div>'
-      + (saved > 0 ? '<div class="co-line co-line-save"><span>' + escapeHtml(saveLabel) + '</span><span>−' + money(saved) + '</span></div>' : '')
-      + '<div class="co-line"><span>Доставка</span><span>'
+    side.innerHTML = '<div class="co-line">' + lineLabel('bag', 'Товары (' + count + ')') + '<span>' + goods + '</span></div>'
+      + (saved > 0 ? '<div class="co-line co-line-save">' + lineLabel('tag', escapeHtml(saveLabel)) + '<span>−' + money(saved) + '</span></div>' : '')
+      + '<div class="co-line">' + lineLabel('truck', 'Доставка') + '<span>'
       + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>'
       // Срок стоит СПРАВА, прямо под ценой доставки: правый столбец сводки — это
       // ответы числами, и «сколько» с «когда» читаются вместе. Слева при этом
-      // остаётся способ с тарифной зоной, объясняющей саму цену.
-      + (way ? '<div class="co-line co-line-muted"><span>' + escapeHtml(way)
-        + (price != null && ship.zoneName ? ' · ' + escapeHtml(ship.zoneName) : '') + '</span><span>'
+      // остаётся перевозчик с вариантом, объясняющий саму цену. Подстрока
+      // выровнена под подпись «Доставка», а не под её значок, — это уточнение к
+      // строке выше, а не ещё одна строка расчёта.
+      + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
         + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
@@ -796,7 +866,11 @@
     var page = document.getElementById('checkout-page');
     return !!(page && page.dataset && page.dataset.pay);
   }
-  function submitLabel() { return payOnline() ? 'Перейти к оплате' : 'Оформить заказ'; }
+  // «Оплатить», а не «Перейти к оплате»: на кнопке рядом с суммой длинная
+  // подпись отжимала само число к краю, а никуда, кроме оплаты, кнопка и не
+  // ведёт. В режиме заявок платить на сайте нечем — там она остаётся
+  // «Оформить заказ».
+  function submitLabel() { return payOnline() ? 'Оплатить' : 'Оформить заказ'; }
   // Под кнопкой — одна короткая строка и ссылка на политику второй строкой.
   // Прежнее объяснение про номер карты занимало три строки и читалось как
   // оправдание: покупателю на этом шаге важно только, чем он платит.
@@ -920,8 +994,16 @@
         // стоять в одном столбце друг под другом. До адреса срока нет так же,
         // как и цены: он считается по той же зоне.
         var days = shipDays(deliveryChoice(), m.id);
+        /* Значок варианта — тот же, что у пункта выдачи ниже: «навес и дверь»
+         * означает одно и то же в обоих блоках, и разные рисунки на один и тот
+         * же выбор читались бы как два разных варианта. Курьеру достаётся
+         * фургон — он же стоит у строки «Доставка» в сводке. Незнакомый id
+         * (перевозчик добавил свой вариант) остаётся без значка, а не с чужим.
+         */
+        var ico = m.id === 'courier' ? 'truck' : (m.id === 'pvz' ? 'pvz' : '');
         return '<label class="co-mode"><input type="radio" name="co-delivery-mode" value="' + escapeHtml(m.id) + '"'
           + (m.id === picked ? ' checked' : '') + '>'
+          + (ico ? '<span class="co-mode-ico">' + coIcon(ico, 'co-ico') + '</span>' : '')
           + '<span class="co-mode-text"><b>' + escapeHtml(m.name) + '</b>'
           + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span>'
           + '<span class="co-mode-price">' + (price == null ? '—' : money(price))
@@ -1156,26 +1238,6 @@
     return (Math.round(km * 10) / 10).toLocaleString('ru-RU') + ' км';
   }
 
-  /* Значки блока. Холст 24×24 и волосяная обводка — тот же вес штриха, что у
-   * глифов характеристик и блока доверия, поэтому в одной странице они не спорят.
-   * Витрина и постамат различаются рисунком: у первого навес и дверь, у второго
-   * шкаф с ячейками. Это главное, что покупателю надо увидеть с одного взгляда —
-   * в постамате никто не поможет и не даст примерить.
-   */
-  var PVZ_ICONS = {
-    pvz: '<path d="M3.6 9.2 5.2 4.4h13.6l1.6 4.8M4.9 9.2v10.4h14.2V9.2M9.7 19.6v-5.4h4.6v5.4"/>',
-    postamat: '<path d="M5.6 3.8h12.8v16.4H5.6zM5.6 9.6h12.8M5.6 15.2h12.8M15.4 6.4v.6M15.4 12.2v.6M15.4 17.8v.6"/>',
-    pin: '<path d="M12 21.2s6.6-6.1 6.6-10.6a6.6 6.6 0 0 0-13.2 0C5.4 15.1 12 21.2 12 21.2zM12 13a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2z"/>',
-    chevron: '<path d="M7.2 10.2 12 15l4.8-4.8"/>',
-    check: '<path d="m5.4 12.6 4.4 4.4 8.8-9.6"/>'
-  };
-  function pvzIcon(name, cls) {
-    var d = PVZ_ICONS[name];
-    if (!d) return '';
-    return '<svg class="' + cls + '" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
-      + ' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
-  }
-
   /* Блок — это ТОЛЬКО выбор пункта, и устроен он как выпадающий список: пока
    * пункт не выбран, список раскрыт (выбирать всё равно придётся), после выбора
    * схлопывается в одну строку с выбранным пунктом, а нажатие на неё открывает
@@ -1227,7 +1289,7 @@
       + '<div class="co-pvz' + (open ? ' is-open' : '') + (picked ? ' is-picked' : '') + '">'
       + '<button type="button" class="co-pvz-head" id="co-pvz-head" aria-expanded="' + (open ? 'true' : 'false')
       + '" aria-controls="co-pvz-list">'
-      + '<span class="co-pvz-ico">' + pvzIcon(picked ? (picked.postamat ? 'postamat' : 'pvz') : 'pin', 'co-ico') + '</span>'
+      + '<span class="co-pvz-ico">' + coIcon(picked ? (picked.postamat ? 'postamat' : 'pvz') : 'pin', 'co-ico') + '</span>'
       + '<span class="co-pvz-text">'
       + (picked
         ? '<b>' + escapeHtml(picked.title)
@@ -1237,7 +1299,7 @@
           + ' рядом с вашим адресом</i>')
       + '</span>'
       + (picked ? '<span class="co-pvz-change">Изменить</span>' : '')
-      + pvzIcon('chevron', 'co-pvz-chev')
+      + coIcon('chevron', 'co-pvz-chev')
       + '</button>'
       + '<div class="co-pvz-drop" id="co-pvz-list" role="listbox" aria-label="Пункты выдачи">'
       + '<div class="co-pvz-inner">'
@@ -1246,12 +1308,12 @@
         var on = p.code === pickup.code;
         return '<button type="button" class="co-point' + (on ? ' is-picked' : '') + '" role="option"'
           + ' aria-selected="' + (on ? 'true' : 'false') + '" data-code="' + escapeHtml(p.code) + '">'
-          + '<span class="co-point-ico">' + pvzIcon(p.postamat ? 'postamat' : 'pvz', 'co-ico') + '</span>'
+          + '<span class="co-point-ico">' + coIcon(p.postamat ? 'postamat' : 'pvz', 'co-ico') + '</span>'
           + '<span class="co-point-text"><b>' + escapeHtml(p.title)
           + (p.postamat ? '<span class="co-point-kind">постамат</span>' : '') + '</b>'
           + (p.hours ? '<i>' + escapeHtml(p.hours) + '</i>' : '') + '</span>'
           + (km ? '<span class="co-point-km">' + escapeHtml(km) + '</span>' : '')
-          + '<span class="co-point-check">' + pvzIcon('check', 'co-ico') + '</span>'
+          + '<span class="co-point-check">' + coIcon('check', 'co-ico') + '</span>'
           + '</button>';
       }).join('')
       + '</div></div></div>';
@@ -1330,7 +1392,7 @@
    * устарел: показывать «не хватает дома» про адрес, который покупатель уже
    * дописал, нельзя.
    */
-  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, days: null, zoneName: '', pending: false, timer: null, requestSeq: 0 };
+  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, days: null, pending: false, timer: null, requestSeq: 0 };
 
   function shipPrice(method, mode) {
     if (!ship.prices || !method || !mode) return null;
@@ -1374,7 +1436,7 @@
       clearTimeout(ship.timer); ship.timer = null;
       ship.requestSeq++; ship.wanted = ''; ship.pending = false;
       ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
-      ship.prices = null; ship.days = null; ship.zoneName = '';
+      ship.prices = null; ship.days = null;
       syncDelivery();
       return;
     }
@@ -1384,7 +1446,7 @@
     // не относятся к форме. Сбрасываем их сразу, ещё до debounce: иначе на 350 мс
     // оставались активными доставка и итог от предыдущего города.
     ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
-    ship.prices = null; ship.days = null; ship.zoneName = ''; ship.pending = false;
+    ship.prices = null; ship.days = null; ship.pending = false;
     ship.wanted = key;
     var requestSeq = ++ship.requestSeq;
     syncDelivery();
@@ -1405,7 +1467,7 @@
           if (!d || !d.ok) return;
           ship.key = key; ship.address = address;
           ship.valid = !!d.valid; ship.error = d.error || '';
-          ship.prices = d.prices || null; ship.days = d.days || null; ship.zoneName = d.zoneName || '';
+          ship.prices = d.prices || null; ship.days = d.days || null;
           syncDelivery();
         })
         .catch(function () {
