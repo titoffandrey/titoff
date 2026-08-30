@@ -9993,6 +9993,7 @@ test('у собеседников постоянные имена, одни на
   // Даже когда имя из Telegram передали — оно не должно доехать до покупателя.
   const op = chatStore.addMessage(chat, 'operator', 'отвечу сам', { by: '@sales_ivan' });
   assert.equal(ai.by, chatStore.SPEAKERS.ai);
+  assert.equal(chatStore.SPEAKERS.ai, 'Ксения');
   assert.equal(op.by, chatStore.SPEAKERS.operator);
   assert.equal(chat.messages[0].by, '', 'у покупателя имени нет');
 
@@ -10048,6 +10049,18 @@ test('переписка в панели выглядит как мессенд�
   // Аватар с буквой и значки техники — по ним диалог узнают, не вчитываясь.
   assert.match(html, /class="chat-ava is-big/);
   assert.match(html, /class="cmarks/, 'страна и техника идут значками');
+
+  /* Рядом со статусом — МЕСТО, а не адрес: IP менеджеру не говорит ничего, а
+   * сам он никуда не делся — лежит в карточке посетителя, куда ведёт кнопка в
+   * той же шапке. Город при этом стоит заголовком (имени покупатель не назвал),
+   * поэтому строкой ниже он не повторяется — остаётся страна. */
+  const subAt = html.indexOf('<span class="chat-head-sub">');
+  const sub = html.slice(subAt, html.indexOf('</span></span>', subAt));
+  assert.match(sub, /class="chat-place">Швеция/);
+  assert.doesNotMatch(sub, /171\.25\.193\.82/, 'адреса рядом со статусом больше нет');
+  // Город при этом стал заголовком целиком, а не склейкой «Стокгольм, Швеция»:
+  // разбор места один на заголовок и на строку под ним.
+  assert.match(html, /class="chat-head-name">Стокгольм</);
 
   // Блоков «Начат» и «Реплик» больше нет: сколько реплик, видно по самой ленте,
   // а дата начала разговора не нужна ни для одного решения менеджера.
@@ -10370,7 +10383,11 @@ test('в панели видно, здесь ли покупатель', () => {
   chatStore.attach(chat.id, {}, { writeHead() {}, write() {}, end() {}, on() {} });
   const here = adminViews.chatPage(SETTINGS, db, chatStore.get(chat.id));
   assert.match(here, /chat-live is-on"><i><\/i>в сети</);
-  assert.match(here, /chat-ava is-big is-online/);
+  /* А вот точки на аватаре в шапке НЕТ: рядом стоит «в сети» словами, и второй
+   * способ сказать то же самое там ни к чему. В списке диалогов она остаётся —
+   * там про присутствие не говорит больше ничто. */
+  assert.doesNotMatch(here, /chat-ava is-big is-online/);
+  assert.match(adminViews.chatList(SETTINGS, db, '', 1), /chat-ava is-online/);
 });
 
 test('витрина показывает время и даты своими часами', () => {
@@ -10977,6 +10994,11 @@ test('ссылка консультанта — название товара, �
   const chatJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
   assert.match(chatJs, /window\.ChatLinks\.parts\(/);
   assert.ok(!/product\|checkout\|warranty/.test(chatJs), 'своей копии разбора в скрипте витрины нет');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.chat-them \.chat-link\{color:#06c;text-decoration:underline/,
+    'покупатель видит ссылку Ксении синей и подчёркнутой');
+  assert.match(css, /\.chat-line\.is-ai \.chat-line-text a\{color:#06c;text-decoration:underline/,
+    'в панели ссылка Ксении выглядит так же');
   // Ответ в Telegram уходит развёрнутым, а не со скобками.
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'chat-tg.js'), 'utf8'),
     /function relayAi[\s\S]{0,200}LINKS\.plain\(text\)/);
@@ -11012,6 +11034,10 @@ test('консультант не повторяется и не отговар�
    * получили одну и ту же фразу другими словами. Повторный вопрос означает
    * ровно одно: прошлый ответ не убедил, значит нужен ДРУГОЙ довод. */
   assert.match(rules, /Не повторяй собственные прошлые ответы/);
+  assert.match(rules, /Ты — Ксения/);
+  assert.match(rules, /Всегда говори о себе в женском роде/);
+  assert.match(rules, /временная промоакция от Яндекс Рекламы/);
+  assert.match(rules, /цены меняются каждые несколько часов и зависят от курса доллара/);
   assert.match(rules, /\[Название товара\]\(\/product\/id\)/, 'формат ссылки задан примером');
   assert.match(rules, /Голый адрес не пиши/);
   // Ссылка на страницу вместо ответа — та же отговорка: на «на что

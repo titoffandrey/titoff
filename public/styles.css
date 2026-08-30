@@ -4802,7 +4802,9 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
 .chat-me a{color:#fff;text-decoration:underline}
 .chat-them{align-self:flex-start;background:#fff;border:1px solid var(--border);border-bottom-left-radius:5px}
-.chat-them a{color:var(--accent);text-decoration:underline}
+/* Ссылка в ответе Ксении обязана выглядеть ссылкой даже у магазина с другим
+   акцентным цветом: общий `a` выше намеренно сбрасывает браузерное оформление. */
+.chat-them .chat-link{color:#06c;text-decoration:underline;text-underline-offset:2px}
 /* Системная строка («менеджер подключился») — не реплика, а отметка: она идёт
    по центру и мельче, иначе читается как ещё один собеседник. */
 /* Отметка о смене собеседника («Менеджер подключился к разговору») и прочие
@@ -5021,14 +5023,18 @@ details.metric-bots>summary:hover{background:#fffaf0}
 
 /* Аватар — кружок с первой буквой. Ни картинок, ни цвета по автору: пёстрая
    колонка кружков отвлекала бы от самих диалогов (то же решение, что у карточек
-   отзывов на витрине). Точка «в сети» висит на нём, как в мессенджерах. */
+   отзывов на витрине).
+
+   Точка «в сети» висит на нём ТОЛЬКО там, где про присутствие не сказано
+   словами, — в списке диалогов и в карточке уведомления. В шапке разговора
+   рядом стоит «в сети», и второй способ сказать то же самое там не нужен
+   (`dot: false` в `chatAvatar`), поэтому у крупного аватара её нет вовсе. */
 .chat-ava{position:relative;width:42px;height:42px;flex:none;border-radius:50%;
   display:grid;place-items:center;font-size:16px;font-weight:600;color:#fff;
   background:linear-gradient(135deg,#8e9bb0,#6b7688)}
 .chat-ava.is-big{width:52px;height:52px;font-size:20px}
 .chat-ava.is-online::after{content:"";position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;
   border-radius:50%;background:#22c55e;border:2.5px solid #fff}
-.chat-ava.is-big.is-online::after{width:14px;height:14px}
 
 /* Список диалогов — строки-ссылки с аватаром, как лента чатов. */
 .chat-list{padding:6px 0}
@@ -5105,7 +5111,9 @@ details.metric-bots>summary:hover{background:#fffaf0}
    до того, как у них появилось общее раскрытие. */
 .chat-head-box{display:contents}
 .chat-head-drop{display:contents}
-.chat-ip{color:var(--muted);font-variant-numeric:tabular-nums}
+/* Откуда пишет собеседник — рядом со статусом. Прежде здесь стоял его IP, и
+   табличные цифры были нужны ему; город набирается как обычный текст. */
+.chat-place{color:var(--muted)}
 
 /* «в сети» — зелёная точка, которая дышит: ровно то, что в мессенджере
    означает «пишите, он здесь». Ушедший получает ту же точку серой и без
@@ -5279,6 +5287,9 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-line-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 .chat-line.is-operator .chat-line-who{color:#0b7a37}
 .chat-line-text{display:inline}
+/* Менеджер видит ссылку Ксении так же, как покупатель: синим подчёркнутым
+   текстом, а не обычной фразой, на которую непонятно, что можно нажать. */
+.chat-line.is-ai .chat-line-text a{color:#06c;text-decoration:underline;text-underline-offset:2px}
 /* Время теперь стоит поверх зарезервированного хвоста последней строки. Само
    абсолютное позиционирование не участвует в ширине пузыря, поэтому без этого
    хвоста короткая реплика могла бы оказаться уже подписи, а длинная — накрыть
