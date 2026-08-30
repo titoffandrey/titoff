@@ -2204,6 +2204,17 @@ body.admin{background:#f4f4f6;color:#242426}
 /* Скрытое от покупателя: маршрут есть, но человек его не видит — и это важнее
    того, где сейчас посылка. Приглушено, чтобы не путать с «в пути». */
 .o-ship.is-off{color:#8a8a90;font-style:italic}
+/* Отправления ещё нет — это ДЕЙСТВИЕ, а не подпись состояния, поэтому и вид у
+   него кнопочный: пилюля со значком коробки. Пунктирной строкой оно читалось
+   как ещё одно состояние, а «Создать отправление» в узком столбце вдобавок
+   переносилось на две строки — отсюда `nowrap` и одно слово на кнопке. */
+.o-ship-new{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 9px 3px 6px;
+  border:1px solid var(--border);border-radius:999px;background:#fff;
+  font-size:11.5px;font-weight:600;line-height:1.35;color:#48484a;white-space:nowrap;
+  transition:color .12s,border-color .12s,background .12s}
+.o-ship-new svg{width:15px;height:15px;flex:none;color:#8a8a90;transition:color .12s}
+.o-ship-new:hover{color:var(--accent);border-color:var(--accent);background:var(--bg2)}
+.o-ship-new:hover svg{color:inherit}
 
 /* ---- Раздел «Отправления» -------------------------------------------------
    Список того же, что подписано в строке заказа, поэтому цвета состояний те же
@@ -4274,6 +4285,17 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .pay-draft-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;padding-top:14px;
   border-top:1px solid var(--border-soft,var(--border))}
 .pay-draft-actions .btn{width:100%}
+/* Отмена оплаты покупателем — СТРОКА внизу карточки, а не кнопка: главное
+   действие страницы одно (перевести деньги), и спорить с ним весом отмена не
+   должна. Волосяная линия сверху отбивает её от самих реквизитов: это выход из
+   шага, а не его часть. Тёплый красный появляется только на наведении — до него
+   строка остаётся служебной подписью. */
+.pay-cancel{margin:16px 0 0;padding-top:14px;text-align:center;
+  border-top:1px solid var(--border-soft,var(--border))}
+.pay-cancel-btn{padding:6px 12px;border:0;border-radius:10px;background:none;color:var(--muted);
+  font:inherit;font-size:13.5px;line-height:1.4;cursor:pointer;text-decoration:underline;
+  text-decoration-color:rgba(110,110,115,.35);text-underline-offset:3px}
+.pay-cancel-btn:hover{color:#b42318;text-decoration-color:currentColor}
 .checkout-return-note{margin:-4px 0 16px;padding:11px 14px;border:1px solid #b9dfc5;border-radius:12px;
   background:#f3fbf5;color:#176b35}
 /* Выбор валюты счёта. Стоит НАД способами и сделан ссылками: от валюты зависит
@@ -5098,10 +5120,6 @@ details.metric-bots>summary:hover{background:#fffaf0}
 /* Кнопка «дальше отвечает консультант» — значком и в шапке, рядом с тем, о ком
    она: кто ведёт разговор. Внизу, среди кнопок отправки, она отвечала на другой
    вопрос и занимала место у самого поля ввода. */
-/* Отмена оплаты — действие обратимое, но денежное: подписываем его тем же
-   тёплым красным, что и удаление реплики, чтобы не нажать мимо. */
-.o-void{color:#b42318}
-.o-void:hover{border-color:#e2a19b;background:#fff1ef}
 .chat-ai-back{display:flex;flex:none}
 .chat-ai-btn,.chat-drop-btn{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;
   border:1px solid var(--border);background:#fff;color:var(--accent);cursor:pointer;

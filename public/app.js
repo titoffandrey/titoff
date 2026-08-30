@@ -2,6 +2,20 @@
 (function () {
   'use strict';
   var KEY = 'cart_v1';
+  /* Снимок корзины, уехавшей в оформленный заказ.
+   *
+   * Товары настоящего заказа из корзины пропадают — так и надо (иначе их легко
+   * заказать дважды, а про неоплаченный заказ напоминает полоса под шапкой). Но
+   * оплату по своим реквизитам покупатель вправе отменить, и тогда он
+   * возвращается на оформление: предлагать ему собрать ту же корзину заново, по
+   * позиции, — худшее, что можно сделать с человеком, который уже всё выбрал.
+   *
+   * Из самого заказа её не восстановить: у позиции там лежат только
+   * `{id, name, price, qty}`, а цвет, память и доп. значения остались лишь
+   * словами внутри названия. Поэтому снимок делается ЗДЕСЬ, где варианты ещё
+   * структурные, и лежит у покупателя — на сервер он не уезжает вовсе.
+   */
+  var HOLD_KEY = 'cart_hold_v1';
   var ANALYTICS_DISABLED_KEY = 'analytics_disabled_v1';
   var analyticsTimer = null;
   var CUR = window.__CURRENCY__ || '₽';
@@ -1771,6 +1785,43 @@
     },
     remove: function (key) { this.items = this.items.filter(function (i) { return itemKey(i) !== key; }); this.save(); this.render(); },
     clear: function () { this.items = []; this.save(); this.render(); },
+    /* Отложить корзину перед тем, как её очистит оформленный заказ (`HOLD_KEY`
+     * выше). Снимок один — на последний заказ: корзина после оформления пуста,
+     * и второй заказ подряд собирается уже из новых товаров. */
+    hold: function (orderId) {
+      var id = String(orderId || '');
+      if (!id || !this.items.length) return;
+      try { localStorage.setItem(HOLD_KEY, JSON.stringify({ at: Date.now(), order: id, items: this.items })); } catch (e) {}
+    },
+    /* Вернуть отложенное после отмены оплаты. Какой заказ отменён, говорит
+     * СЕРВЕР (`data-restore` на странице оформления) — снимок берётся только
+     * когда он про этот самый заказ: иначе отмена старой заявки вернула бы в
+     * корзину товары следующей, которая всё ещё ждёт денег.
+     *
+     * Непустую корзину не трогаем: покупатель мог набрать её заново, и своё
+     * всегда важнее запомненного (то же правило, что у памяти формы). */
+    restore: function (orderId) {
+      var id = String(orderId || '');
+      if (!id) return false;
+      var raw = null;
+      try { raw = JSON.parse(localStorage.getItem(HOLD_KEY) || 'null'); } catch (e) {}
+      var at = raw && Number(raw.at);
+      var fresh = isFinite(at) && at > 0 && Date.now() - at >= 0 && Date.now() - at <= FORM_TTL;
+      var drop = function () { try { localStorage.removeItem(HOLD_KEY); } catch (e) {} };
+      // Битый или протухший снимок убираем из браузера — он больше ни на что не
+      // годен. А вот ЧУЖОЙ оставляем: он про другой заказ, и тот ещё может быть
+      // отменён своей очередью.
+      if (!raw || !fresh || !Array.isArray(raw.items) || !raw.items.length) { drop(); return false; }
+      if (raw.order !== id) return false;
+      drop();
+      if (this.items.length) return false;
+      // Чистится снимок тем же `cleanItem`, что и сама корзина: он пролежал в
+      // браузере неделю и мог быть поправлен руками.
+      this.items = raw.items.slice(0, MAX_CART_LINES).map(cleanItem).filter(Boolean);
+      if (!this.items.length) return false;
+      this.save();
+      return true;
+    },
     count: function () { return this.items.reduce(function (a, i) { return a + Number(i.qty); }, 0); },
     // Сервер исключает распроданные позиции из заявки. Сумма в интерфейсе должна
     // совпадать с ним, а не обещать покупателю более высокий итог.
@@ -2115,8 +2166,13 @@
     // Выбор промокода — ДО первого запроса корзины: иначе снявший скидку
     // покупатель увидел бы цены со скидкой и через мгновение их же без неё.
     loadPromoChoice();
+    var checkoutNode = document.getElementById('checkout-page');
+    // Покупатель отменил оплату — возвращаем ему ту же корзину, с которой он
+    // оформлял заказ. Строго ДО первой отрисовки и до запроса цен: иначе он
+    // увидит пустое оформление и через мгновение товары в нём.
+    if (checkoutNode && checkoutNode.dataset.restore) Cart.restore(checkoutNode.dataset.restore);
     Cart.updateBadge();
-    if (document.getElementById('checkout-page')) Cart.render();   // страница оформления рисуется сразу
+    if (checkoutNode) Cart.render();                               // страница оформления рисуется сразу
     refreshCartFromServer();                                       // подтянуть свежие фото, цены и наличие
     try {                                                          // благодарность после перезагрузки со свежим отзывом
       if (sessionStorage.getItem('review_thanks')) { sessionStorage.removeItem('review_thanks'); toast('Спасибо за отзыв!'); }
@@ -3012,7 +3068,10 @@
           // страницы оплаты не выбрав способ, должен найти товары на месте.
           // Очистит её pay.js, когда способ выбран. Заказ по своим реквизитам
           // черновиком не бывает — способ там один, и товары уже уехали в заказ.
-          if (!online || !d.draft) Cart.clear();
+          // Перед очисткой откладываем снимок: оплату по своим реквизитам
+          // покупатель вправе отменить, и тогда корзина возвращается к нему
+          // целиком, с вариантами (см. `Cart.hold`).
+          if (!online || !d.draft) { Cart.hold(d.id); Cart.clear(); }
           var number = d.number || '';
           var page = document.getElementById('checkout-page');
           if (page) {                       // страница оформления: показываем результат на всю ширину

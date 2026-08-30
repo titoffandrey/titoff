@@ -4650,8 +4650,10 @@ test('оформление с онлайн-оплатой не чистит ко
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
   // Корзина остаётся до выбора способа: иначе ушедший со страницы оплаты
-  // покупатель теряет и заказ, и товары разом.
-  assert.match(js, /if \(!online \|\| !d\.draft\) Cart\.clear\(\)/);
+  // покупатель теряет и заказ, и товары разом. А перед очисткой — снимок:
+  // оплату по своим реквизитам покупатель вправе отменить, и тогда корзина
+  // возвращается к нему целиком, с вариантами (см. `Cart.hold`).
+  assert.match(js, /if \(!online \|\| !d\.draft\) \{ Cart\.hold\(d\.id\); Cart\.clear\(\); \}/);
   // А при отказе кассы корзина ОСТАЁТСЯ: заплатить не вышло, и покупателю нужно
   // чем-то попробовать ещё раз. Раньше она чистилась и здесь — по флагу
   // `placed`, — и «назад» возвращало пустую корзину с пустой формой.
@@ -12174,37 +12176,45 @@ test('на реплику отвечают ссылкой из меню и см�
     'из запроса приходит только время реплики — снимок собирает хранилище');
 });
 
-test('оплату можно отменить рукой — и вернуть обратно', () => {
+test('оплату отменяет сам покупатель, а в панели этой кнопки нет', () => {
   /* Покупатель нажал «Оплатить», заказ ушёл в ожидание перевода — и передумал,
    * ошибся суммой или оформил второй раз. Ждать сутки, пока заявка провисит в
-   * списке, незачем. */
+   * списке, незачем — и звонить менеджеру, чтобы тот нажал кнопку за него, тоже.
+   * Отмена стоит строкой внизу его собственной страницы оплаты. */
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'void-pay-'));
   const store = freshDb(dir);
   const order = store.createOrder({ items: [], total: 50000, payMode: 'own' });
-
-  assert.equal(store.setOrderVoided(order.id, true, 'admin').changed, true);
-  const off = store.getOrder(order.id);
-  assert.ok(off.manualVoid.at > 0);
-  assert.deepEqual(render.payView(off), {
-    tone: 'off', label: 'оплата отменена',
-    when: render.payView(off).when, whenLabel: 'отменил менеджер'
-  });
-  // Покупателю страница оплаты говорит, что заказ закрыт: реквизиты ему больше
-  // не нужны, а «ждём перевод» было бы неправдой.
   const ss = Object.assign({}, SETTINGS, {
     ownPayEnabled: true, ownPayCard: '5599002143815845', ownPayOwner: 'Сергеев Александр Викторович'
   });
   const PAYMENTS = require('../lib/payments');
-  const page = render.payPage(ss, off, { origin: '', own: PAYMENTS.ownRequisites(ss) });
-  assert.match(page, /Заказ закрыт/);
-  assert.doesNotMatch(page, /5599 0021 4381 5845/, 'реквизиты отменённому заказу не показываем');
 
-  // Передумали обратно — тем же нажатием.
-  assert.equal(store.setOrderVoided(order.id, false, 'admin').changed, true);
-  assert.equal(store.getOrder(order.id).manualVoid, null);
+  // Строка отмены есть у своих реквизитов — там, где касса не участвует вовсе.
+  const live = render.payPage(ss, store.getOrder(order.id), { origin: '', own: PAYMENTS.ownRequisites(ss) });
+  assert.match(live, new RegExp('action="/pay/' + order.id + '/cancel"'));
+  assert.match(live, /class="pay-cancel-btn"[^>]*>Отменить оплату</);
+  assert.match(live, /data-confirm="Отменить оплату этого заказа/);
+
+  assert.equal(store.setOrderVoided(order.id, true, 'customer').changed, true);
+  const off = store.getOrder(order.id);
+  assert.ok(off.manualVoid.at > 0);
+  // КТО отменил — сказано прямо: решение покупателя и своё собственное действие
+  // менеджер обязан различать.
+  assert.deepEqual(render.payView(off), {
+    tone: 'off', label: 'оплата отменена',
+    when: render.payView(off).when, whenLabel: 'отменил покупатель'
+  });
+
+  // Покупателю страница оплаты говорит, что заказ закрыт: реквизиты ему больше
+  // не нужны, а «ждём перевод» было бы неправдой. И ведёт туда, где заказ
+  // оформляют заново — товары ждут его там.
+  const page = render.payPage(ss, off, { origin: '', own: PAYMENTS.ownRequisites(ss) });
+  assert.match(page, /Оплата отменена/);
+  assert.match(page, /href="\/checkout"/);
+  assert.doesNotMatch(page, /5599 0021 4381 5845/, 'реквизиты отменённому заказу не показываем');
+  assert.doesNotMatch(page, /\/cancel"/, 'отменять уже отменённое нечего');
 
   // Отменённое и оплаченное разом не бывает: одна отметка снимает другую.
-  store.setOrderVoided(order.id, true, 'admin');
   store.setOrderPaidManually(order.id, true, 'admin');
   assert.equal(store.getOrder(order.id).manualVoid, null);
   assert.ok(store.getOrder(order.id).manualPaid);
@@ -12217,23 +12227,119 @@ test('оплату можно отменить рукой — и вернуть 
     token: 't'.repeat(32), method: 'SBP', amount: 1000, currency: 'RUB'
   });
   store.settleOrderPayment(paid.id, { attemptId: 'b'.repeat(24), status: 'paid', paidTotal: 1000 });
-  assert.equal(store.setOrderVoided(paid.id, true, 'admin').reason, 'settled_by_provider');
+  assert.equal(store.setOrderVoided(paid.id, true, 'customer').reason, 'settled_by_provider');
 
-  // Кнопка стоит в строке заказа, рядом с отметкой оплаты, и предупреждает.
+  /* В панели кнопки отмены больше НЕТ — ни её самой, ни маршрута: лишнюю заявку
+   * менеджер удаляет, и для покупателя она тоже закрыта. */
   const db = {
     pendingReviewCount: () => 0, getProducts: () => [], visibleProducts: () => [], newOrderCount: () => 0,
     getOrders: () => [off], visibleOrders: () => [off], archivedOrders: () => []
   };
   const list = adminViews.ordersList(SETTINGS, db, {});
-  assert.match(list, /action="\/admin\/orders\/[^"]+\/void"/);
-  assert.match(list, /data-confirm="Отменить оплату этого заказа/);
+  assert.doesNotMatch(list, /\/void"/);
+  assert.doesNotMatch(list, /Отменить оплату/);
+  assert.match(list, /action="\/admin\/orders\/[^"]+\/delete"/, 'удаление — то, чем менеджер закрывает заявку');
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.doesNotMatch(source, /app\.post\('\/admin\/orders\/:id\/void'/);
+  /* Касса покупателю не отдаётся: её счёт живёт своей жизнью, деньги по нему
+   * бывают в пути, и связать поздний перевод с «отменённым» заказом было бы уже
+   * не с чем. Оплаченный заказ он не отменяет тем более. */
+  const cancel = source.slice(source.indexOf("app.post('/pay/:id/cancel'"), source.indexOf('/* Сверить ОДНУ адресную попытку'));
+  assert.match(cancel, /order\.payMode !== 'own' \|\| order\.manualPaid/);
+  assert.match(cancel, /db\.setOrderVoided\(order\.id, true, 'customer'\)/);
+  assert.match(cancel, /req\.session\.restoreOrder = order\.id/);
 
   // Новый счёт отменённому заказу не выставляется — как и удалённому.
-  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(source, /db\.isOrderArchived\(currentOrder\) \|\| currentOrder\.manualVoid/);
   // И полоса «вернитесь к оплате» на витрине про него молчит.
   const remind = source.slice(source.indexOf('function payRemind('), source.indexOf('function rememberOwnOrder('));
   assert.match(remind, /order\.manualVoid/);
+});
+
+test('отменённая оплата возвращает покупателю ту же корзину', () => {
+  /* Товары настоящего заказа из корзины пропадают, и это правильно. Но отменив
+   * оплату, покупатель попадает на оформление — и собирать ту же корзину заново,
+   * по позиции, ему предлагать нельзя.
+   *
+   * Из самого заказа её не собрать: у позиции там только `{id, name, price,
+   * qty}`, а цвет, память и доп. значения остались словами внутри названия.
+   * Поэтому снимок делает витрина, а сервер лишь говорит, КАКОЙ заказ отменён. */
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  // Признак одноразовый и приезжает от сервера, а не из адреса.
+  assert.match(source, /const restoreOrder = String\(req\.session\.restoreOrder \|\| ''\)/);
+  assert.match(source, /if \(restoreOrder\) delete req\.session\.restoreOrder/);
+  assert.match(render.checkoutPage(SETTINGS, { restoreOrder: 'abc123' }), /data-restore="abc123"/);
+  assert.doesNotMatch(render.checkoutPage(SETTINGS, {}), /data-restore/);
+
+  // Возврат идёт ДО первой отрисовки и до запроса цен: иначе покупатель видит
+  // пустое оформление и через мгновение товары в нём.
+  assert.ok(js.indexOf('Cart.restore(checkoutNode.dataset.restore)') < js.indexOf('refreshCartFromServer();  '));
+
+  // Сами правила проверяем исполнением: regex по исходнику не поймал бы ни
+  // чужой заказ, ни протухший снимок.
+  const from = js.indexOf('  var Cart = {');
+  const to = js.indexOf('  window.Cart = Cart;', from);
+  assert.ok(from > -1 && to > from, 'объект корзины найден');
+  const store = new Map();
+  const localStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: k => store.delete(k)
+  };
+  const make = new Function('localStorage', 'HOLD_KEY', 'FORM_TTL', 'MAX_CART_LINES', 'cleanItem', 'itemKey', 'toast',
+    js.slice(from, to) + '\nreturn Cart;');
+  const cart = () => {
+    const c = make(localStorage, 'cart_hold_v1', 7 * 24 * 3600 * 1000, 20,
+      it => (it && it.id ? it : null), it => it.id, () => {});
+    c.save = function () { localStorage.setItem('cart_v1', JSON.stringify(this.items)); };
+    c.render = () => {};
+    c.updateBadge = () => {};
+    return c;
+  };
+  const goods = [{ id: 'iphone', qty: 1, storage: '512 ГБ', color: 'Синий' }];
+
+  const a = cart();
+  a.items = goods.slice();
+  a.hold('order-1');
+  a.items = [];
+
+  // Не тот заказ — снимок не берём и не стираем: он про другой заказ, и тот ещё
+  // может быть отменён своей очередью.
+  const wrong = cart();
+  wrong.items = [];
+  assert.equal(wrong.restore('order-2'), false);
+
+  const b = cart();
+  b.items = [];
+  assert.equal(b.restore('order-1'), true);
+  assert.deepEqual(b.items, goods);
+  // Второй раз возвращать нечего.
+  const c = cart();
+  c.items = [];
+  assert.equal(c.restore('order-1'), false);
+
+  // Непустую корзину не трогаем: своё важнее запомненного.
+  const d = cart();
+  d.items = goods.slice();
+  d.hold('order-3');
+  const e = cart();
+  e.items = [{ id: 'ipad', qty: 1 }];
+  assert.equal(e.restore('order-3'), false);
+  assert.deepEqual(e.items, [{ id: 'ipad', qty: 1 }]);
+
+  // Протухший снимок (неделя) не возвращается.
+  const f = cart();
+  f.items = goods.slice();
+  f.hold('order-4');
+  const stale = JSON.parse(localStorage.getItem('cart_hold_v1'));
+  stale.at = Date.now() - 8 * 24 * 3600 * 1000;
+  localStorage.setItem('cart_hold_v1', JSON.stringify(stale));
+  const g = cart();
+  g.items = [];
+  assert.equal(g.restore('order-4'), false);
 });
 
 test('переписку можно удалить целиком — сразу и насовсем', () => {

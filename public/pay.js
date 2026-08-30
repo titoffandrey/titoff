@@ -76,6 +76,14 @@
     });
   });
 
+  /* Отмена оплаты необратима — спрашиваем, как в панели, по `data-confirm`.
+   * Форма при этом остаётся обычной: без скрипта она просто отправится сразу,
+   * и отменить заказ по-прежнему можно. */
+  page.addEventListener('submit', function (e) {
+    var form = e.target && e.target.closest ? e.target.closest('form[data-confirm]') : null;
+    if (form && !window.confirm(form.getAttribute('data-confirm'))) e.preventDefault();
+  });
+
   /* -------------------------------- Обратный отсчёт ------------------------- */
   var left = document.getElementById('pay-left');
   var timerBox = document.getElementById('pay-timer');
