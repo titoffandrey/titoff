@@ -304,6 +304,33 @@ test('плавающие цены держатся в заданном проц�
   // Кассы выключены — потолка нет вовсе, и коридор возвращается к процентам.
   assert.ok(float.priceOf(heavy, on, t0) <= 239990 * 1.05);
 
+  /* «АССОРТИМЕНТ — НЕТ» КАСАЕТСЯ И ОТДЕЛЬНОЙ СБОРКИ, а не только карточки
+   * целиком. Потолок гасит каждое значение, выводящее сборку за предел
+   * (`overLimit` в lib/render.js), и пока коридор обрезался просто потолком,
+   * колебание этого не берегло: у MacBook Pro 14" база 189 990 уходила в
+   * 196 990, и одно значение оперативной памяти гасло само собой — покупатель,
+   * вернувшийся через час, находил «нет в наличии» там, где час назад
+   * продавалось. Товар при этом с витрины не исчезал, поэтому проверка выше
+   * ничего не ловила. */
+  const laptop = {
+    id: 'mbp-14', price: 189990, inStock: true, colors: [], bands: [],
+    storages: [{ label: '1 ТБ', add: 0 }, { label: '2 ТБ', add: 36000 }, { label: '8 ТБ', add: 198000 }],
+    options: [{ name: 'ОЗУ', values: [{ label: '24 ГБ', add: 0 }, { label: '64 ГБ', add: 54000 }] }]
+  };
+  const fits = at => {
+    const v = float.priceOf(laptop, withCashbox, at);
+    const adds = [0, 36000, 198000, 54000];
+    return adds.filter(a => v + a <= 250000).length;
+  };
+  const atBase = [0, 36000, 198000, 54000].filter(a => 189990 + a <= 250000).length;
+  for (let i = 0; i < 48; i++) {
+    assert.equal(fits(t0 + i * hour), atBase,
+      'колебание убрало сборку, которая продавалась по цене каталога');
+  }
+  // Запас считается от самой дорогой доплаты, которая влезала при цене каталога.
+  assert.equal(float.headroom(laptop, 189990, 250000), 54000);
+  assert.equal(float.headroom(laptop, 189990, 0), 0, 'кассы выключены — потолка нет');
+
   // Товар можно исключить: у позиции с прайсом поставщика цена выторгована.
   assert.equal(float.floats({ noPriceFloat: true }), false);
   assert.equal(float.floats({}), true, 'поля нет — товар участвует, как в catalog.js');
@@ -355,15 +382,30 @@ test('плавающая цена одна на каталог, карточку
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.doesNotMatch(server, /D\.effectivePrice/, 'цену на витрине спрашивают у lib/price-float.js');
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8'), /D\.effectivePrice/);
+  /* Спрашивают её обе денежные двери через ОДИН разбор позиции — lib/pricing.js.
+   * Раньше цену собирали два отдельных куска кода по полсотни строк, и согласие
+   * между ними держалось на внимательности того, кто правит оба места разом. */
+  const pricing = fs.readFileSync(path.join(__dirname, '..', 'lib', 'pricing.js'), 'utf8');
+  assert.match(pricing, /PF\.priceOf\(view, settings\)/);
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/address-suggest'"));
-  assert.match(cart, /PF\.priceOf\(view, s\)/);
+  assert.match(cart, /PRICING\.resolve\(view, it, s, promo\)/);
   const order = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf("app.post('/api/analytics'"));
-  assert.match(order, /const base = PF\.priceOf\(view, s\)/);
+  assert.match(order, /PRICING\.resolve\(view, it, s, promo, \{ previous: true \}\)/);
+  /* Своего сложения доплат в маршрутах не осталось: два расчёта одной цены и
+   * есть то, из-за чего корзина расходится с заявкой. Смотрим КОД без
+   * комментариев — та же чистка, что идёт на отдаче: иначе проверка спотыкается
+   * об упоминание расчёта в объяснении рядом с ним. */
+  const bare = code => require('../lib/minify').js(code);
+  const orderLoop = order.slice(order.indexOf('for (const it of rawItems)'), order.indexOf('if (changes.length)'));
+  for (const [where, code] of [['корзина', cart], ['заказ', orderLoop]]) {
+    assert.doesNotMatch(bare(code), /PF\.priceOf|PROMO\.priceFor|optionsAdd\(/, where + ' снова считает цену сам');
+  }
 
   /* Цену, которую покупатель ВИДЕЛ, за ним держим до конца оформления: период
    * мог смениться, пока он заполнял форму, и «корзина изменилась» на ровном
    * месте читалось бы как подмена цены под руками. */
-  assert.match(order, /PF\.previousOf\(view, s\)/);
+  assert.match(pricing, /PF\.previousOf\(view, settings\)/);
+  assert.match(order, /row\.previous && same\(row\.previous\.price\)/);
   assert.equal(float.previousOf(product, on, 1787000000000),
     float.priceOf(product, on, 1787000000000 - 3600000));
 
@@ -1629,17 +1671,33 @@ test('правка базовой цены двигает полные цены 
   // 13" показывал 179 990 вместо введённых 89 990).
   //
   // Правило: доплата — свойство варианта и живёт в `dataset.add`; смена базовой
-  // цены перерисовывает поля полных цен и доплат не трогает.
+  // цены перерисовывает поля полных цен и доплат не трогает. Арифметика у всех
+  // трёх редакторов одна и лежит в одном файле — тремя копиями она разъезжалась
+  // бы молча, а увидеть это можно только руками в панели.
+  const mixin = fs.readFileSync(path.join(__dirname, '..', 'public', 'variant-price.js'), 'utf8');
+  assert.match(mixin, /function reprice\(\)/, 'нет пересчёта полей при смене базовой цены');
+  assert.match(mixin, /row\.dataset\.add/, 'доплата не запоминается у строки');
+  assert.match(mixin, /el\.addEventListener\('input', function \(\) \{ reprice\(\); sync\(\); \}\)/,
+    'правка базовой цены обязана перерисовывать полные цены, а не пересчитывать доплаты');
+  /* Отрицательная доплата не обнуляется молча: введённое остаётся в поле, а
+   * отказ с объяснением даёт сервер. Прежним молчанием был `Math.max(0, …)`, и
+   * ищем мы его в КОДЕ без комментариев — той же чисткой, что идёт на отдаче:
+   * иначе тест спотыкается о собственное описание этой граблей (так же устроена
+   * проверка admin-live.js). */
+  assert.ok(!/Math\.max\(0,/.test(require('../lib/minify').js(mixin)),
+    'цена ниже базовой снова гасится молча');
   for (const name of ['option-editor.js', 'color-editor.js', 'band-editor.js']) {
     const js = fs.readFileSync(path.join(__dirname, '..', 'public', name), 'utf8');
-    assert.match(js, /function reprice\(\)/, name + ': нет пересчёта полей при смене базовой цены');
-    assert.match(js, /row\.dataset\.add/, name + ': доплата не запоминается у строки');
-    assert.match(js, /baseInput\.addEventListener\('input', function \(\) \{ reprice\(\); sync\(\); \}\)/,
-      name + ': правка базовой цены обязана перерисовывать полные цены, а не пересчитывать доплаты');
+    assert.match(js, /window\.VariantPrice\(/, name + ': своя копия перевода «полная цена ↔ доплата»');
+    assert.match(js, /money\.watchBase\(sync\)/, name + ': правка базовой цены не перерисовывает полные цены');
     // Голая подписка `baseInput -> sync` и есть прежнее поведение.
-    assert.ok(!/baseInput\.addEventListener\('input', sync\)/.test(js),
+    assert.ok(!/baseInput\.addEventListener/.test(js),
       name + ': осталась прежняя подписка, пересчитывающая доплату от базы');
   }
+  // Миксин обязан подключаться РАНЬШЕ редакторов: без него они не соберутся.
+  const form = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
+  assert.ok(form.indexOf('variant-price.js') < form.indexOf('color-editor.js'),
+    'variant-price.js обязан идти до редакторов, которые его зовут');
 
   // Первое значение группы — самое дешёвое, и доплаты у него быть не должно:
   // именно ненулевая доплата у базового значения и есть след этой поломки.
@@ -1761,6 +1819,31 @@ test('в форме товара задаётся процент, а старо�
   assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: '95' }).map(e => e.field), ['discountPercent']);
   assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: '13' }), []);
   assert.deepEqual(validateProduct({ name: 'A', category: 'C', price: '100', discountPercent: '' }), []);
+  assert.deepEqual(validateProduct({
+    name: 'A', category: 'C', price: '100', discountPercent: '',
+    storages: '256 ГБ | 0\n512 ГБ | 0'
+  }).map(e => e.field), ['storages'], 'одинаковая цена разных объёмов должна остановить сохранение');
+  assert.deepEqual(validateProduct({
+    name: 'A', category: 'C', price: '100', discountPercent: '',
+    storages: '256 ГБ | 0\n512 ГБ | 12000'
+  }), []);
+
+  /* Цена варианта НИЖЕ базовой отвергается со словами, а не гасится молча.
+   * Доплата к базовой цене отрицательной не бывает (базовая сборка и есть самая
+   * дешёвая), и разборщики сводили её к нулю — владелец вписывал свою цену,
+   * видел «Сохранено» и после перезагрузки находил на её месте базовую. Правило
+   * одно на все три поля вариантов. */
+  const cheap = (body) => validateProduct(Object.assign({ name: 'A', category: 'C', price: '60000', discountPercent: '' }, body));
+  const cheapStorage = cheap({ storages: '256 ГБ | 0\n128 ГБ | -5000' });
+  assert.equal(cheapStorage.length, 1);
+  assert.match(cheapStorage[0].text, /«128 ГБ» дешевле базовой сборки на 5000 ₽/);
+  assert.match(cheapStorage[0].text, /55000 ₽/, 'сказано, до какой цены снижать базовую');
+  assert.equal(cheap({ options: '# SIM\n- Только eSIM | 0\n- Без лотка | -3000' }).length, 1,
+    'у доп. характеристик правило то же');
+  assert.equal(cheap({ bands: '# Ткань | M\n- Синяя | #123456 | -2000' }).length, 1,
+    'у ремешков доплата — третье поле, перед ней стоит цвет');
+  assert.deepEqual(cheap({ bands: '# Ткань | M\n- Синяя | #123456 | 7000' }), [],
+    'обычный платный ремешок сохраняется как раньше');
 
   // Витрина: процент один на все сборки, полосы «Специальные цены» с таймером
   // на главной больше нет.
@@ -2310,7 +2393,13 @@ test('каталог не содержит дублей и некорректн�
     assert.ok(product.name && !names.has(product.name), `повтор названия: ${product.name}`);
     assert.ok(Number.isFinite(Number(product.price)) && Number(product.price) >= 0, `цена: ${product.name}`);
     for (const color of (product.colors || [])) assert.match(color.hex, /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i);
-    for (const storage of (product.storages || [])) assert.ok(storage.label && Number.isFinite(Number(storage.add)));
+    const storagePrices = new Map();
+    for (const storage of (product.storages || [])) {
+      assert.ok(storage.label && Number.isFinite(Number(storage.add)));
+      assert.equal(storagePrices.has(Number(storage.add)), false,
+        `одинаковая доплата у ${product.name}: ${storagePrices.get(Number(storage.add))} и ${storage.label}`);
+      storagePrices.set(Number(storage.add), storage.label);
+    }
     // Доп. характеристики: у группы должны быть значения, а ограничение
     // «только для конфигураций» — ссылаться на существующие. Опечатка в метке
     // прячет значение навсегда и молча, поэтому проверяем её здесь.
@@ -2754,6 +2843,27 @@ test('карточка каталога показывает цену самой
   phone.storages[0].inStock = true;
   phone.options[0].values[0].inStock = false;
   assert.equal(nbsp(price(render.homePage(ss, db, {}))), '63 000 ₽');
+
+  // Порядок прайса не является сортировкой: у складских остатков старший объём
+  // иногда дешевле среднего. Берём реальный минимум, а не первую строку.
+  phone.options[0].values[0].inStock = true;
+  phone.storages = [
+    { label: '128 ГБ', add: 0, inStock: false },
+    { label: '256 ГБ', add: 8000 },
+    { label: '512 ГБ', add: 6000 }
+  ];
+  assert.equal(render.startPrice(phone), 66000);
+
+  // Коллекции ремешков идут в порядке Apple, а не по доплате. Дорогая первая
+  // коллекция не должна завышать «от» на карточке (случай Apple Watch Hermès).
+  const watch = {
+    price: 100000, inStock: true, colors: [{ name: 'Серебристый', hex: '#ddd' }], storages: [], options: [],
+    bands: [
+      { name: 'Металл', sizes: [{ label: 'M' }], options: [{ name: 'Сталь', add: 26000 }] },
+      { name: 'Ткань', sizes: [{ label: 'M' }], options: [{ name: 'Синяя', add: 0 }] }
+    ]
+  };
+  assert.equal(render.startPrice(watch), 100000);
 
   // Базовая цена остаётся базовой: скрипт считает сумму как «база + доплаты
   // выбранного», и подменить её ценой стартовой сборки нельзя.
@@ -6560,13 +6670,15 @@ test('скидка на оформлении показана тем же язы
    * карточке: процент товара от ПОЛНОЙ цены сборки. Своей формулы у витрины
    * нет — она разъехалась бы с каталогом на первом же товаре с доплатой. */
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/address-suggest'"));
-  /* Обе цифры даёт ОДНА функция (lib/promo.js): промокод меняет и цену, и
-   * зачёркнутую сумму, и считать их по отдельности значило бы завести в маршруте
-   * два расчёта одной скидки. Без промокода она отдаёт ровно то же, что отдавала
-   * прежняя пара `PF.priceOf` + `D.compareFor`. */
-  assert.match(cart, /const priced = PROMO\.priceFor\(sum, D\.discountPct\(view\), promo\)/);
-  assert.match(cart, /const price = priced\.price, compare = priced\.compare/);
-  assert.match(cart, /price, compare,/);
+  /* Обе цифры даёт ОДНА функция (lib/promo.js), и зовёт её один общий разбор
+   * позиции (lib/pricing.js): промокод меняет и цену, и зачёркнутую сумму, и
+   * считать их по отдельности значило бы завести два расчёта одной скидки. Без
+   * промокода она отдаёт ровно то же, что отдавала прежняя пара `PF.priceOf` +
+   * `D.compareFor`. */
+  const pricing = fs.readFileSync(path.join(__dirname, '..', 'lib', 'pricing.js'), 'utf8');
+  assert.match(pricing, /const priced = PROMO\.priceFor\(sum, pct, promo\)/);
+  assert.match(pricing, /price: priced\.price, compare: priced\.compare/);
+  assert.match(cart, /price: row\.price, compare: row\.compare/);
   // Процент одинаков у любой сборки, а выгода в рублях у дорогой больше — так
   // скидка и работает. Раньше было наоборот: рубли те же, процент таял.
   const p = { price: 66990, discountPercent: 13 };
@@ -13286,21 +13398,80 @@ test('вид промокода проверяется, а справочник 
   assert.equal(list[0].on, true, 'поля нет — код работает: так читаются старые записи');
 });
 
+test('корзина и заказ считают позицию одним разбором', () => {
+  const PRICING = require('../lib/pricing');
+  const PROMO = require('../lib/promo');
+  const s = { currency: '₽' };
+  const view = {
+    id: 'w', name: 'Часы', price: 40000, discountPercent: 20, inStock: true,
+    colors: [{ name: 'Титан' }, { name: 'Чёрный', inStock: false }],
+    storages: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 3000 }],
+    options: [{ name: 'Связь', values: [{ label: 'GPS', add: 0 }, { label: 'Cellular', add: 8000 }] }],
+    bands: [{ name: 'Ткань', sizes: [{ label: 'S/M' }, { label: 'M/L', add: 500 }], options: [{ name: 'Синяя', add: 0 }, { name: 'Красная', add: 7000, inStock: false }] }]
+  };
+  const item = extra => Object.assign({
+    id: 'w', qty: 1, color: 'Титан', storage: '46 мм', band: 'Ткань · Синяя', bandSize: 'M/L',
+    options: [{ name: 'Связь', value: 'Cellular' }]
+  }, extra || {});
+  const off = PROMO.stateOf({}, null);
+
+  /* Сумма сборки — база плюс ВСЕ доплаты: конфигурация, значение группы,
+   * ремешок и его размер. Ровно её видят и корзина, и заявка. */
+  const row = PRICING.resolve(view, item(), s, off);
+  assert.equal(row.adds, 3000 + 8000 + 0 + 500);
+  assert.equal(row.sum, 51500);
+  assert.equal(row.price, 51500);
+  // Зачёркнутая цена выводится из процента товара, а не хранится: 20% от сборки.
+  assert.equal(row.compare, 64380);
+  assert.equal(row.name, 'Часы 46 мм, Титан, Ткань · Синяя M/L, Cellular');
+  assert.equal(row.problem, null);
+
+  /* Причина беды называется так же, как её показывает заказ, и у наличия она
+   * называет ИМЕННО распроданный вариант, а не товар целиком. */
+  assert.deepEqual(PRICING.resolve(view, item({ color: 'Чёрный' }), s, off).problem,
+    { reason: 'out_of_stock', label: 'Часы, Чёрный' });
+  assert.deepEqual(PRICING.resolve(view, item({ band: 'Ткань · Красная' }), s, off).problem,
+    { reason: 'out_of_stock', label: 'Часы, Красная' });
+  assert.equal(PRICING.resolve(view, item({ storage: 'нет такого' }), s, off).problem.reason, 'variant_changed');
+  assert.equal(PRICING.resolve(view, item({ options: [] }), s, off).problem.reason, 'variant_changed');
+  assert.equal(PRICING.resolve(view, Object.assign(item(), { bandSize: '' }), s, off).problem.reason, 'variant_changed');
+  // Товар целиком снят с продажи — про это говорим его именем.
+  assert.deepEqual(PRICING.resolve(Object.assign({}, view, { inStock: false }), item(), s, off).problem,
+    { reason: 'out_of_stock', label: 'Часы' });
+
+  /* Цена считается ДО КОНЦА даже у негодной позиции: корзина показывает её
+   * рядом с «нет в наличии», и пустая цена читалась бы как ошибка. */
+  const gone = PRICING.resolve(view, item({ color: 'Чёрный' }), s, off);
+  assert.equal(gone.price, 51500);
+
+  // Промокод со своим процентом считает скидку от ПОЛНОЙ цены сборки, и цену
+  // ценника он не поднимает никогда.
+  const vip = { promoOn: true, promoCodes: [{ code: 'VIP', percent: 30, on: true }] };
+  const priced = PRICING.resolve(view, item(), Object.assign({}, s, vip), PROMO.stateOf(vip, { code: 'VIP' }));
+  assert.equal(priced.price, Math.round(64380 * 0.7 / 10) * 10);
+  assert.ok(priced.price < row.price, 'код со своим процентом обязан быть выгоднее скидки товара');
+
+  // Прошлый период считается только по просьбе: он нужен заказу, а не корзине.
+  assert.equal(PRICING.resolve(view, item(), s, off).previous, null);
+});
+
 test('промокод считают в одном месте, а витрина своей скидки не знает', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const render = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
 
-  // Корзина и заказ считают ОДНОЙ функцией: два расчёта одной скидки разошлись
-  // бы на первом же коде со своим процентом.
+  /* Корзина и заказ считают ОДНОЙ функцией и через ОДИН разбор позиции: два
+   * расчёта одной скидки разошлись бы на первом же коде со своим процентом. */
+  const pricing = fs.readFileSync(path.join(__dirname, '..', 'lib', 'pricing.js'), 'utf8');
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/promo'"));
   const order = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('const visitorId ='));
-  assert.match(cart, /PROMO\.priceFor\(sum, D\.discountPct\(view\), promo\)/);
-  assert.match(order, /PROMO\.priceFor\(sum, D\.discountPct\(view\), promo\)/);
+  assert.match(cart, /PRICING\.resolve\(/);
+  assert.match(order, /PRICING\.resolve\(/);
+  assert.match(pricing, /PROMO\.priceFor\(sum, pct, promo\)/);
   // Прошлый период (плавающие цены) считается ТОЙ ЖЕ функцией: промокод со своим
   // процентом — не линейная надбавка, и «цена минус база плюс прошлая база»
   // дала бы не ту цифру, которую покупатель видел.
-  assert.match(order, /PROMO\.priceFor\(sum - base \+ prevBase, D\.discountPct\(view\), promo\)/);
+  assert.match(pricing, /PROMO\.priceFor\(sum - base \+ prevBase, pct, promo\)/);
   // Промокод — часть заказа: он уезжает в него вместе с выгодой.
   assert.match(order, /promoCode: promo\.promo \? promo\.promo\.code : ''/);
 

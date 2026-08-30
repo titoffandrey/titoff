@@ -35,14 +35,18 @@ const PICKUP = require('./lib/pickup');
 const GEOIP = require('./lib/geoip');
 const OSM = require('./lib/pickup-osm');
 const PAY = require('./lib/pay-methods');
-const { findBand, variantMissing, findOptions, optionsAdd, optionFits, choiceMap } = require('./lib/variants');
+const { findBand } = require('./lib/variants');
 const R = require('./lib/render');
 const D = require('./lib/discount');
 // Промокоды: скидка товара — она же скидка кода по умолчанию. Единственное
 // место, где код превращается в деньги, — `PROMO.priceFor()`; её спрашивают и
-// корзина, и заказ.
+// корзина, и заказ — через `lib/pricing.js`.
 const PROMO = require('./lib/promo');
 const PF = require('./lib/price-float');
+/* Цена одной позиции корзины: разбор варианта, доплаты, наличие и промокод.
+ * Один и тот же расчёт у `/api/cart` и `/api/order` — двумя копиями они
+ * показывали бы покупателю разные деньги на соседних экранах. */
+const PRICING = require('./lib/pricing');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
 const { Analytics, clientDetails, VISITORS_PER_PAGE } = require('./lib/analytics');
@@ -402,6 +406,56 @@ function validateProduct(body) {
     if (!Number.isFinite(n) || n < 0 || n > D.MAX_PCT) {
       errors.push({ field: 'discountPercent', text: `Скидка — число от 0 до ${D.MAX_PCT}` });
     }
+  }
+  // Два разных объёма с одной доплатой почти всегда означают пропущенную цену
+  // (как у 256/512 ГБ iPhone 17e). Не сохраняем такую сетку молча: владелец
+  // сразу увидит обе конфликтующие строки в форме товара.
+  const storagePrices = new Map();
+  for (const line of String(body.storages || '').split('\n').map(x => x.trim()).filter(Boolean)) {
+    const [rawLabel, rawAdd] = line.split('|');
+    const label = String(rawLabel || '').trim();
+    const add = Number(rawAdd);
+    if (!label || !Number.isFinite(add)) continue;
+    if (storagePrices.has(add) && storagePrices.get(add) !== label) {
+      errors.push({ field: 'storages', text: `У «${storagePrices.get(add)}» и «${label}» одинаковая доплата ${Math.round(add)} ₽` });
+      break;
+    }
+    storagePrices.set(add, label);
+  }
+  /* Цена варианта ниже базовой. `add` — доплата к базовой цене, а базовая сборка
+   * и есть самая дешёвая, поэтому отрицательной доплаты в модели нет: разборщики
+   * (`parseStorages` и соседи) сводят её к нулю.
+   *
+   * Сводили они её МОЛЧА, и это было хуже самого запрета: владелец вписывал цену
+   * ниже базовой, видел «Сохранено» — и после перезагрузки на её месте стояла
+   * базовая цена. Ни строчки объяснения, ни следа в форме. Теперь форма не
+   * сохраняется и прямо говорит, что делать: снизить базовую цену товара.
+   *
+   * Проверяются все три текстовых поля вариантов сразу — правило у них одно.
+   */
+  const base = Number.isFinite(price) ? Math.round(price) : 0;
+  const cheap = [];
+  const scan = (text, isValue, take) => {
+    for (const line of String(text || '').split('\n').map(x => x.trim()).filter(Boolean)) {
+      if (!isValue(line)) continue;
+      const parts = take(line).split('|');
+      const label = String(parts[0] || '').trim();
+      const add = Number(parts[1]);
+      if (!label || !Number.isFinite(add) || add >= 0) continue;
+      if (cheap.length < 3 && !cheap.some(x => x.label === label)) cheap.push({ label, add });
+    }
+  };
+  scan(body.storages, () => true, l => l);
+  // У доп. характеристик и ремешков доплата — второе поле строки значения («-»),
+  // а у ремешка перед ней стоит ещё и цвет, поэтому поле там третье.
+  scan(body.options, l => l.startsWith('-'), l => l.slice(1));
+  scan(body.bands, l => l.startsWith('-'), l => { const p = l.slice(1).split('|'); return [p[0], p[2]].join('|'); });
+  for (const { label, add } of cheap) {
+    errors.push({
+      field: 'storages',
+      text: `«${label.slice(0, 60)}» дешевле базовой сборки на ${Math.abs(Math.round(add))} ₽. `
+        + `Доплата к цене не бывает отрицательной — снизьте цену продажи до ${base + Math.round(add)} ₽ и пересчитайте остальные варианты`
+    });
   }
   return errors;
 }
@@ -1022,57 +1076,34 @@ app.post('/api/cart', (req, res) => {
     if (!it || typeof it !== 'object') return null;
     const view = db.visibleProduct(it.id);
     if (!view) return { id: String(it.id || ''), gone: true };
-    const storage = String(it.storage || '').trim();
-    const color = String(it.color || '').trim();
-    const st = storage && Array.isArray(view.storages) ? view.storages.find(x => x.label === storage) : null;
-    const cl = color && Array.isArray(view.colors) ? view.colors.find(x => x.name === color) : null;
-    const bandStr = String(it.band || '').trim();
-    const bandSize = String(it.bandSize || '').trim();
-    const band = findBand(view, bandStr);
-    const sz = band && bandSize ? (band.group.sizes || []).find(x => x.label === bandSize) : null;
-    // фото: снимок этого ремешка на этом корпусе → просто этого ремешка →
-    // цвета корпуса → первое общее. Тот же порядок, что в галерее товара.
+    /* Цену, наличие и совместимость разбирает `lib/pricing.js` — тот же расчёт,
+     * которым потом оформляется заказ. Своего сложения доплат здесь быть не
+     * должно: разойдясь с заказом, оно показало бы покупателю одну цену в
+     * корзине и другую в заявке, а увидеть это можно только глазами.
+     *
+     * Цена для сравнения приходит оттуда же: процент скидки товара от ПОЛНОЙ
+     * цены сборки, поэтому выгода в процентах у любой сборки одна и та же, а в
+     * рублях у дорогой она больше. Ноль — «зачёркивать нечего». Промокод меняет
+     * обе цифры разом (lib/promo.js).
+     */
+    const row = PRICING.resolve(view, it, s, promo);
+    // Фото — вопрос показа, а не денег, и нужно только здесь: снимок этого
+    // ремешка на этом корпусе → просто этого ремешка → цвета корпуса → первое
+    // общее. Тот же порядок, что в галерее товара.
+    const color = row.color;
     const ibs = view.imageBands || {}, ics = view.imageColors || {};
+    const band = findBand(view, row.band);
     const bandKey = band ? band.group.name + '|' + band.option.name : '';
     const byBand = bandKey
       ? ((view.images || []).find(src => ibs[src] === bandKey && ics[src] === color)
         || (view.images || []).find(src => ibs[src] === bandKey && !ics[src])) : null;
     const byColor = color
       ? (view.images || []).find(src => ics[src] === color && !ibs[src]) : null;
-    // Доп. характеристики: доплата за каждое выбранное значение
-    const chosen = findOptions(view, it);
-    const adds = (st ? Number(st.add) || 0 : 0)
-      + (band ? Number(band.option.add) || 0 : 0) + (sz ? Number(sz.add) || 0 : 0)
-      + optionsAdd(chosen);
-    // Цена текущего периода (lib/price-float.js), а не число из каталога: в
-    // корзине покупатель обязан видеть ровно то, что стояло на карточке.
-    const sum = PF.priceOf(view, s) + adds;
-    /* Цена для сравнения — та же, что зачёркнута на карточке и на странице
-      * товара, и считается ТЕМ ЖЕ способом: процент скидки товара от ПОЛНОЙ
-      * цены сборки. Поэтому выгода в процентах у любой сборки одна и та же, а
-      * в рублях у дорогой она больше — так скидка и работает.
-      *
-      * Ноль означает «зачёркивать нечего»: у товара без скидки сравнивать не с чем.
-      *
-      * Промокод меняет обе цифры разом (lib/promo.js): снятый код поднимает цену
-      * до полной и зачёркивать становится нечего, а код со своим процентом
-      * считает скидку от той же полной цены.
-      */
-    const priced = PROMO.priceFor(sum, D.discountPct(view), promo);
-    const price = priced.price, compare = priced.compare;
-    const outOfStock = !view.inStock || (st && st.inStock === false) || (cl && cl.inStock === false)
-      || (band && band.option.inStock === false)
-      || (band && band.option.forColor && band.option.forColor !== color)
-      || chosen.some(c => c.value && (c.value.inStock === false || !optionFits(c.value, storage, choiceMap(chosen))))
-      // Конфигурация тоже бывает привязана к выбору: 8 ТБ у MacBook Pro есть
-      // только с M5 Max. Проверяем на сервере — корзина могла собраться раньше.
-      || (st && !optionFits(st, storage, choiceMap(chosen)))
-      || variantMissing(view, it);
     return {
-      id: view.id, name: view.name, storage, color, price, compare,
-      band: band ? bandStr : '', bandSize: band ? bandSize : '',
+      id: view.id, name: view.name, storage: row.storage, color, price: row.price, compare: row.compare,
+      band: row.band, bandSize: row.bandSize,
       img: byBand || byColor || (view.images || [])[0] || '',
-      available: !outOfStock
+      available: !row.problem
     };
   }).filter(Boolean);
   /* Состояние промокода едет рядом с ценами, а не отдельным запросом: витрина
@@ -1380,72 +1411,24 @@ app.post('/api/order', async (req, res) => {
     if (!it || typeof it !== 'object') { changed(it, 'invalid'); continue; }
     const view = db.visibleProduct(it.id);
     if (!view) { changed(it, 'gone'); continue; }
-    if (!view.inStock) { changed(it, 'out_of_stock', view.name); continue; }
-    // Выбранного варианта больше нет в каталоге — заявку по базовой цене
-    // вместо него не оформляем.
-    if (variantMissing(view, it)) { changed(it, 'variant_changed', view.name); continue; }
     const rawQty = Number(it.qty);
     if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 99) {
       changed(it, 'quantity_changed', view.name); continue;
     }
     const qty = rawQty;
-    // База текущего периода — и она же запоминается отдельно: ниже по ней
-    // пересчитывается цена прошлого периода, если покупатель видел её.
-    const base = PF.priceOf(view, s);
-    // Собираем ЦЕНУ СБОРКИ — базу с доплатами. Промокод применяется один раз в
-    // самом конце (`PROMO.priceFor`): он считает скидку от всей сборки, а не от
-    // каждой доплаты по отдельности.
-    let sum = base;
-    let name = view.name;
-    // Наличие варианта проверяем на сервере: корзина живёт в localStorage и могла
-    // сохраниться до того, как цвет или конфигурацию распродали.
-    const storageLabel = String(it.storage || '').trim();
-    if (storageLabel && Array.isArray(view.storages)) {
-      /* Имя переменной не `s`: снаружи так называются НАСТРОЙКИ магазина, от
-       * которых здесь же считается цена (`PF.priceOf(view, s)`). Затенение было
-       * безвредным ровно до первой новой строки внутри этого блока — а цена,
-       * посчитанная по конфигурации памяти вместо настроек, поехала бы молча. */
-      const storage = view.storages.find(x => x.label === storageLabel);
-      if (storage && storage.inStock === false) { changed(it, 'out_of_stock', view.name + ' ' + storage.label); continue; }
-      if (storage) { sum += Number(storage.add) || 0; name += ' ' + storage.label; }
-    }
-    const color = String(it.color || '').trim();
-    if (color && Array.isArray(view.colors)) {
-      const c = view.colors.find(x => x.name === color);
-      if (c && c.inStock === false) { changed(it, 'out_of_stock', view.name + ', ' + c.name); continue; }
-      if (c) name += ', ' + color;
-    }
-    // Ремешок часов: доплата за вариацию и за размер, наличие тоже перепроверяем
-    const band = findBand(view, it.band);
-    if (band) {
-      if (band.option.inStock === false) { changed(it, 'out_of_stock', view.name + ', ' + band.option.name); continue; }
-      // вариация «в цвет корпуса» продаётся только со своим корпусом
-      if (band.option.forColor && band.option.forColor !== color) { changed(it, 'variant_changed', view.name); continue; }
-      sum += Number(band.option.add) || 0;
-      name += ', ' + band.group.name + ' \u00b7 ' + band.option.name;
-      const sz = (band.group.sizes || []).find(x => x.label === String(it.bandSize || '').trim());
-      if (sz) { sum += Number(sz.add) || 0; name += ' ' + sz.label; }
-    }
-    // Доп. характеристики: наличие и совместимость с конфигурацией перепроверяем
-    // так же, как у ремешка, — корзина могла сохраниться до правки каталога.
-    const chosen = findOptions(view, it);
-    const picked = choiceMap(chosen);
-    if (chosen.some(c => !c.value || c.value.inStock === false || !optionFits(c.value, storageLabel, picked))) {
-      changed(it, 'variant_changed', view.name); continue;
-    }
-    // Конфигурация, привязанная к чипу (8 ТБ только с M5 Max), проверяется здесь же.
-    const stPick = (view.storages || []).find(x => x.label === storageLabel);
-    if (stPick && !optionFits(stPick, storageLabel, picked)) { changed(it, 'variant_changed', view.name); continue; }
-    sum += optionsAdd(chosen);
-    for (const c of chosen) name += ', ' + c.value.label;
-    if (!Number.isFinite(sum) || sum < 0) { changed(it, 'price_changed', view.name); continue; }
-    /* Промокод — последним действием над собранной ценой, ровно как в
-     * `/api/cart`: тот же модуль, те же два числа. Своего расчёта здесь нет,
-     * иначе корзина и заказ разошлись бы на первом же коде со своим процентом.
+    /* Цену сборки, её название и все проверки наличия и совместимости даёт
+     * `lib/pricing.js` — ТОТ ЖЕ разбор, которым посчитана корзина. Своего
+     * сложения доплат здесь нет и быть не должно: покупатель видел цену в
+     * корзине, и заявка обязана оформиться по ней же, до рубля.
+     *
+     * `previous: true` просит посчитать заодно цену ПРОШЛОГО периода — она
+     * нужна ниже, на стыке смены периода прямо во время оформления.
      */
-    const priced = PROMO.priceFor(sum, D.discountPct(view), promo);
-    let price = priced.price;
-    let saved = Math.max(0, (priced.compare || 0) - price);
+    const row = PRICING.resolve(view, it, s, promo, { previous: true });
+    if (row.problem) { changed(it, row.problem.reason, row.problem.label); continue; }
+    const name = row.name;
+    let price = row.price;
+    let saved = row.saved;
     // Цена из браузера — не источник истины, а снимок того, что покупатель видел.
     // Разошлась с сервером — не оформляем заказ молча, а просим подтвердить новый
     // итог. Старые открытые вкладки без поля price остаются совместимыми.
@@ -1460,14 +1443,13 @@ app.post('/api/order', async (req, res) => {
        * Цену, которую он видел, за ним и держим — но ровно один период назад,
        * иначе старая вкладка покупала бы по вчерашней цене.
        */
-      const prevBase = PF.previousOf(view, s);
-      // Прошлый период считается ЧЕРЕЗ ТУ ЖЕ функцию: промокод со своим
+      // Считает её тот же `lib/pricing.js` и через тот же промокод: код со своим
       // процентом — не линейная надбавка, и «цена минус база плюс прошлая база»
-      // дала бы не ту цифру, которую покупатель видел.
-      const prev = PROMO.priceFor(sum - base + prevBase, D.discountPct(view), promo);
-      if (!same(price) && prevBase !== base && same(prev.price)) {
-        price = prev.price;
-        saved = Math.max(0, (prev.compare || 0) - price);
+      // дала бы не ту цифру, которую покупатель видел. `row.previous` пуст,
+      // когда период не менял цену, — тогда сравнивать не с чем.
+      if (!same(price) && row.previous && same(row.previous.price)) {
+        price = row.previous.price;
+        saved = row.previous.saved;
       } else if (!same(price)) { changed(it, 'price_changed', name, price); continue; }
     }
     items.push({ id: view.id, name, price, qty });

@@ -875,6 +875,14 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .stock-toggle input{width:16px;height:16px;flex:none;accent-color:var(--accent);cursor:pointer}
 .color-row.row-out,.storage-row.row-out{background:var(--bg2)}
 .color-row.row-out .color-name,.storage-row.row-out .st-label{text-decoration:line-through;color:var(--muted)}
+/* Вариант дешевле базовой сборки: доплата вышла отрицательной. Сохранить такое
+   нельзя (доплата к базовой цене отрицательной не бывает — базовая сборка и есть
+   самая дешёвая), но и молча обнулять введённое нельзя тем более: владелец видел
+   бы «Сохранено» и свою цену, стёртую до базовой. Поле остаётся как набрано,
+   строка помечена, отказ с объяснением даёт сервер. Тон — оранжевый очереди
+   модерации: это «поправьте», а не «сломалось». */
+.storage-row.row-cheap,.option-val-row.row-cheap,.band-opt-row.row-cheap{background:#fffaf2;box-shadow:inset 2px 0 0 #bf4800}
+.row-cheap .st-price-wrap input{color:#bf4800}
 
 /* ===== Редактор цветов товара (панель владельца) =====
    Селекторы намеренно с высокой специфичностью (.color-editor .color-row …),

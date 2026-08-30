@@ -147,29 +147,13 @@
   if (!editor) return;
   var raw = document.getElementById('storages-raw');
   var addBtn = document.getElementById('storage-add');
-  var baseInput = document.querySelector('input[name="price"]');
-
-  function base() { return Number(baseInput && baseInput.value) || 0; }
   function fmt(n) { return String(Math.round(n)); }
-  // Доплата — свойство самой конфигурации, а не разница с текущим содержимым
-  // поля цены: в поле вводится ПОЛНАЯ цена, поэтому доплата запоминается у
-  // строки, а поле пересчитывается при смене базовой цены. Пересчитывать наоборот
-  // (доплату от базы) нельзя — тогда снижение цены товара на 10 000 делает
-  // младшую конфигурацию платной на те же 10 000, и витрина показывает прежнюю
-  // цену: правка выглядит как несохранившаяся. См. тот же комментарий в
-  // option-editor.js — там на этом уже наступили.
-  function addOf(row) { var v = row.dataset.add; return v == null || v === '' ? 0 : Number(v) || 0; }
-  function readAdd(row) {
-    var priceStr = row.querySelector('.st-price').value.replace(/\s+/g, '');
-    var price = Number(priceStr);
-    row.dataset.add = (priceStr === '' || isNaN(price)) ? '' : String(Math.max(0, Math.round(price - base())));
-  }
-  function reprice() {
-    editor.querySelectorAll('.storage-row').forEach(function (row) {
-      if (row.dataset.add == null || row.dataset.add === '') return;
-      row.querySelector('.st-price').value = fmt(base() + addOf(row));
-    });
-  }
+  /* Перевод «полная цена ↔ доплата» — общий на три редактора (variant-price.js).
+   * Доплата остаётся свойством конфигурации, а при смене базовой цены
+   * пересчитываются ПОЛЯ: обратный порядок делал младшую конфигурацию платной
+   * ровно на величину снижения цены, и правка выглядела как несохранившаяся. */
+  var money = window.VariantPrice(editor, '.storage-row', '.st-price', fmt);
+  function addOf(row) { return money.addOf(row); }
 
   // `add` — доплата к базовой цене (null, когда цена ещё не введена).
   function makeRow(label, add, inStock, forChoice) {
@@ -188,12 +172,11 @@
       '<button type="button" class="color-del" title="Удалить вариант" aria-label="Удалить">&times;</button>';
     var stock = row.querySelector('.st-stock');
     row.querySelector('.st-label').value = label || '';
-    row.dataset.add = add != null ? String(Math.round(Number(add) || 0)) : '';
-    row.querySelector('.st-price').value = add != null ? fmt(base() + (Number(add) || 0)) : '';
+    money.setAdd(row, add);
     stock.checked = inStock !== false;
     row.classList.toggle('row-out', !stock.checked);
     row.querySelector('.st-label').addEventListener('input', sync);
-    row.querySelector('.st-price').addEventListener('input', function () { readAdd(row); sync(); });
+    row.querySelector('.st-price').addEventListener('input', function () { money.readAdd(row); sync(); });
     stock.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
     row.querySelector('.color-del').addEventListener('click', function () { row.remove(); sync(); });
     editor.appendChild(row);
@@ -216,6 +199,9 @@
   (raw.value || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean).forEach(function (l) {
     var parts = l.split('|');
     var label = (parts[0] || '').trim();
+    // Доплата бывает и отрицательной — вариант дешевле базовой сборки. Форму
+    // такую сервер не сохранит (см. validateProduct), но введённое обязано
+    // вернуться в поле как есть, а не превратиться в ноль под руками.
     var add = parseInt(parts[1], 10) || 0;
     var inStock = true, forChoice = '';
     parts.slice(2).forEach(function (part) {
@@ -231,7 +217,7 @@
     makeRow(label, add, inStock, forChoice);
   });
   // Базовая цена двигает все полные цены товара, доплаты при этом не меняются.
-  if (baseInput) baseInput.addEventListener('input', function () { reprice(); sync(); });
+  money.watchBase(sync);
   addBtn.addEventListener('click', function () {
     var row = makeRow('', null, true);
     sync();

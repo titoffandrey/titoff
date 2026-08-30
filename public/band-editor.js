@@ -11,27 +11,13 @@
   if (!editor) return;
   var raw = document.getElementById('bands-raw');
   var addBtn = document.getElementById('band-add');
-  var baseInput = document.querySelector('input[name="price"]');
-
-  function base() { return Number(baseInput && baseInput.value) || 0; }
-  // Доплата за ремешок — свойство самой вариации, а не разница с текущим
-  // содержимым поля цены: в поле вводится ПОЛНАЯ цена часов с ремешком, поэтому
-  // доплата запоминается у строки, а поле пересчитывается при смене базовой цены.
-  // Обратный пересчёт (доплата от базы) превращал снижение цены часов в платный
-  // базовый ремешок на ту же величину — витрина показывала прежнюю цену. См.
-  // option-editor.js: там на этом уже наступили.
-  function addOf(row) { var v = row.dataset.add; return v == null || v === '' ? 0 : Number(v) || 0; }
-  function readAdd(row) {
-    var priceStr = row.querySelector('.bo-price').value.replace(/\s+/g, '');
-    var price = Number(priceStr);
-    row.dataset.add = (priceStr === '' || isNaN(price)) ? '' : String(Math.max(0, Math.round(price - base())));
-  }
-  function reprice() {
-    editor.querySelectorAll('.band-opt-row').forEach(function (row) {
-      if (row.dataset.add == null || row.dataset.add === '') return;
-      row.querySelector('.bo-price').value = String(base() + addOf(row));
-    });
-  }
+  /* Доплата за ремешок — свойство самой вариации, а не разница с текущим
+   * содержимым поля цены: в поле вводится ПОЛНАЯ цена часов с ремешком. Перевод
+   * одного в другое общий на три редактора — variant-price.js. Обратный
+   * пересчёт (доплата от базы) превращал снижение цены часов в платный базовый
+   * ремешок на ту же величину, и витрина показывала прежнюю цену. */
+  var money = window.VariantPrice(editor, '.band-opt-row', '.bo-price');
+  function addOf(row) { return money.addOf(row); }
   // Вариация может продаваться только со своим корпусом — как титановый миланский у Apple
   function caseColors() {
     var out = [];
@@ -71,14 +57,13 @@
       '<button type="button" class="color-del" title="Удалить вариацию" aria-label="Удалить вариацию">&times;</button>';
     row.querySelector('.bo-name').value = opt.name || '';
     fillForSelect(row.querySelector('.bo-for'), opt.forColor || '');
-    row.dataset.add = opt.add != null ? String(Number(opt.add || 0)) : '';
-    row.querySelector('.bo-price').value = opt.add != null ? String(base() + Number(opt.add || 0)) : '';
+    money.setAdd(row, opt.add);
     var stock = row.querySelector('.bo-stock');
     stock.checked = opt.inStock !== false;
     row.classList.toggle('row-out', !stock.checked);
     row.querySelectorAll('input').forEach(function (inp) {
       var isPrice = inp.classList.contains('bo-price');
-      inp.addEventListener('input', function () { if (isPrice) readAdd(row); sync(); });
+      inp.addEventListener('input', function () { if (isPrice) money.readAdd(row); sync(); });
       inp.addEventListener('change', function () { row.classList.toggle('row-out', !stock.checked); sync(); });
     });
     row.querySelector('.color-del').addEventListener('click', function () { row.remove(); sync(); });
@@ -302,7 +287,7 @@
     box.querySelector('.bg-name').focus();
   });
   // Базовая цена двигает все полные цены часов, доплаты за ремешки не меняются.
-  if (baseInput) baseInput.addEventListener('input', function () { reprice(); sync(); });
+  money.watchBase(sync);
   // Цвета корпуса задаются в соседнем редакторе: их правка меняет и переключатель
   // корпуса над плитками загрузки, и список «только для этого корпуса».
   var colorEditor = document.getElementById('color-editor');

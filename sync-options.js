@@ -21,6 +21,10 @@ db.ensureSeeded();
 const live = db.getProducts();
 const byId = new Map(live.map(p => [p.id, p]));
 const byName = new Map(live.map(p => [p.name, p]));
+// Пустые группы обычно не переносим: владелец мог добавить их вручную в панели.
+// Здесь удаление принципиально — у MacBook Neo нет выбора ОЗУ, и оставлять
+// старые 16/24 ГБ означало бы продавать несуществующую конфигурацию.
+const CLEAR_OPTIONS = new Set(['macbook-neo']);
 
 let changed = 0, missing = 0, skipped = 0;
 
@@ -63,7 +67,8 @@ for (const src of catalog.products) {
   // Товар без групп в catalog.js трогаем только ради конфигураций: свою «Связь»
   // владелец мог добавить в панели, и перенос пустого списка её сотрёт. Так на
   // витрину доезжает новая доплата за память у iPhone Air, у которого групп нет.
-  const optChanged = !!(src.options || []).length && normOptions(cur.options) !== normOptions(src.options);
+  const optChanged = (!!(src.options || []).length || CLEAR_OPTIONS.has(src.id))
+    && normOptions(cur.options) !== normOptions(src.options);
   if (!optChanged && !stChanged) continue;
   // Метки конфигураций могли разойтись: тогда «только для 1 ТБ» указывало бы на
   // несуществующий вариант, и значение пропало бы с витрины навсегда. Сверяем с

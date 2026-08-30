@@ -197,9 +197,11 @@ const BANDS = {
     { name: 'Nike Sport Band', sizes: SPORT_SIZES, options: withAdd(NIKE_COLORS, 0) },
     { name: 'Nike Sport Loop', sizes: ONE_SIZE, options: withAdd(NIKE_COLORS, 0) },
     { name: 'Milanese Loop', sizes: SML, options: [
-      { name: 'Natural', hex: '#d6d6d8', add: 7000, forColor: 'Натуральный титан' },
-      { name: 'Gold', hex: '#d4b483', add: 7000, forColor: 'Золотой титан' },
-      { name: 'Slate', hex: '#5a5a5f', add: 7000, forColor: 'Сланцевый титан' }
+      // Стальной миланский ремешок Apple разрешает сочетать и с алюминиевым
+      // корпусом. Привязка к названиям титана прятала весь ряд у Series 10/11.
+      { name: 'Natural', hex: '#d6d6d8', add: 7000 },
+      { name: 'Gold', hex: '#d4b483', add: 7000 },
+      { name: 'Slate', hex: '#5a5a5f', add: 7000 }
     ] }
   ],
   // у титановых Series 11 к тем же ремешкам добавляются браслеты и кожаные
@@ -303,43 +305,44 @@ const ST = {
   ph128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }],
   ph128p: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 7000 }, { label: '512 ГБ', add: 19000 }, { label: '1 ТБ', add: 37000 }],
   pad128: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 8000 }, { label: '512 ГБ', add: 20000 }],
+  padAir: [{ label: '128 ГБ', add: 0 }, { label: '256 ГБ', add: 9000 }, { label: '512 ГБ', add: 27000 }, { label: '1 ТБ', add: 54000 }],
   pad256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 15000 }, { label: '1 ТБ', add: 40000 }, { label: '2 ТБ', add: 80000 }],
+  neo: [{ label: '256 ГБ · Magic Keyboard', add: 0 }, { label: '512 ГБ · клавиатура с Touch ID', add: 9000 }],
   mac256: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 18000 }, { label: '1 ТБ', add: 40000 }, { label: '2 ТБ', add: 80000 }],
   mac512: [{ label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 22000 }, { label: '2 ТБ', add: 62000 }, { label: '4 ТБ', add: 130000 }],
   // Накопители Mac по apple.com (август 2026). Доплаты — долларовые Apple по
   // курсу 90 ₽/$. Часть объёмов идёт только со своим чипом, отсюда forChoice.
-  air13: [
-    { label: '512 ГБ', add: 0 },
-    { label: '1 ТБ', add: 27000, forChoice: { 'Чип': ['M5, 10 ядер GPU'] } },
-    { label: '2 ТБ', add: 72000, forChoice: { 'Чип': ['M5, 10 ядер GPU'] } },
-    { label: '4 ТБ', add: 162000, forChoice: { 'Чип': ['M5, 10 ядер GPU'] } }
-  ],
-  air15: [{ label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 27000 }, { label: '2 ТБ', add: 72000 }, { label: '4 ТБ', add: 162000 }],
+  air13: [{ label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 18000 }, { label: '2 ТБ', add: 54000 }, { label: '4 ТБ', add: 108000 }],
+  air15: [{ label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 18000 }, { label: '2 ТБ', add: 54000 }, { label: '4 ТБ', add: 108000 }],
   pro14: [
-    { label: '1 ТБ', add: 0 },
-    { label: '2 ТБ', add: 45000 },
-    { label: '4 ТБ', add: 135000 },
-    { label: '8 ТБ', add: 270000, forChoice: { 'Чип': ['M5 Max, 32 ядра GPU'] } }
+    { label: '1 ТБ', add: 0, forChoice: { 'Чип': ['M5, 10 ядер CPU', 'M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU'] } },
+    { label: '2 ТБ', add: 36000 },
+    { label: '4 ТБ', add: 90000 },
+    { label: '8 ТБ', add: 198000, forChoice: { 'Чип': ['M5 Max, 32 ядра GPU', 'M5 Max, 40 ядер GPU'] } }
   ],
   pro16: [
     { label: '1 ТБ', add: 0, forChoice: { 'Чип': ['M5 Pro, 18 ядер CPU'] } },
-    { label: '2 ТБ', add: 45000 },
-    { label: '4 ТБ', add: 135000 },
-    { label: '8 ТБ', add: 270000, forChoice: { 'Чип': ['M5 Max, 32 ядра GPU', 'M5 Max, 40 ядер GPU'] } }
+    { label: '2 ТБ', add: 36000 },
+    { label: '4 ТБ', add: 90000 },
+    { label: '8 ТБ', add: 198000, forChoice: { 'Чип': ['M5 Max, 32 ядра GPU', 'M5 Max, 40 ядер GPU'] } }
   ],
-  imac: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 18000 }, { label: '1 ТБ', add: 45000 }, { label: '2 ТБ', add: 90000 }],
+  imac: [
+    { label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 18000 }, { label: '1 ТБ', add: 45000 },
+    { label: '2 ТБ', add: 90000, forChoice: { 'Порты и сеть': ['4 порта Thunderbolt и Gigabit Ethernet'] } }
+  ],
   mini: [
-    { label: '256 ГБ', add: 0 },
+    { label: '256 ГБ', add: 0, forChoice: { 'Чип': ['M4, 10 ядер CPU'] } },
     { label: '512 ГБ', add: 18000 },
-    { label: '1 ТБ', add: 45000 },
-    { label: '2 ТБ', add: 90000 },
-    { label: '4 ТБ', add: 180000, forChoice: { 'Чип': ['M4 Pro, 12 ядер CPU'] } },
-    { label: '8 ТБ', add: 360000, forChoice: { 'Чип': ['M4 Pro, 12 ядер CPU'] } }
+    { label: '1 ТБ', add: 36000 },
+    { label: '2 ТБ', add: 72000 },
+    { label: '4 ТБ', add: 126000, forChoice: { 'Чип': ['M4 Pro, 12 ядер CPU', 'M4 Pro, 14 ядер CPU'] } },
+    { label: '8 ТБ', add: 234000, forChoice: { 'Чип': ['M4 Pro, 12 ядер CPU', 'M4 Pro, 14 ядер CPU'] } }
   ],
   studio: [
-    { label: '512 ГБ', add: 0 }, { label: '1 ТБ', add: 18000 }, { label: '2 ТБ', add: 54000 },
+    { label: '512 ГБ', add: 0, forChoice: { 'Чип': ['M4 Max, 14 ядер CPU', 'M4 Max, 16 ядер CPU'] } },
+    { label: '1 ТБ', add: 18000 }, { label: '2 ТБ', add: 54000 },
     { label: '4 ТБ', add: 108000 }, { label: '8 ТБ', add: 216000 },
-    { label: '16 ТБ', add: 414000, forChoice: { 'Чип': ['M3 Ultra, 28 ядер CPU'] } }
+    { label: '16 ТБ', add: 432000, forChoice: { 'Чип': ['M3 Ultra, 28 ядер CPU', 'M3 Ultra, 32 ядра CPU'] } }
   ],
   watch42: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 4000 }],
   watch40: [{ label: '40 мм', add: 0 }, { label: '44 мм', add: 3000 }],
@@ -420,81 +423,117 @@ const OPT = {
    Без него витрина собирала бы то, чего Apple не продаёт. */
 const forChip = (...names) => ({ 'Чип': names });
 
-// MacBook Air: 13" — 8-ядерный GPU только в базе (16 ГБ / 512 ГБ), всё, что
-// выше, идёт с 10-ядерным. У 15" вариант один, поэтому и группы «Чип» нет.
-const CHIP_AIR13 = OPT.chip([['M5, 8 ядер GPU', 0], ['M5, 10 ядер GPU', 18000]]);
-const RAM_AIR13 = OPT.ram([
-  ['16 ГБ', 0],
-  ['24 ГБ', 18000, forChip('M5, 10 ядер GPU')],
-  ['32 ГБ', 36000, forChip('M5, 10 ядер GPU')]
-]);
+// В 13" Air 10-ядерный GPU стоит $100 только с базовыми 16 ГБ / 512 ГБ, но
+// включается без отдельной доплаты при 24+ ГБ или 1+ ТБ. Объединяем чип и ОЗУ
+// в один выбор: иначе две независимые доплаты складывались и завышали цену.
+const PERF_AIR13 = {
+  name: 'Чип и оперативная память', hint: '10-ядерный GPU включён с 24 ГБ памяти или накопителем от 1 ТБ',
+  values: [
+    { label: 'M5, 8 ядер GPU, 16 ГБ ОЗУ', add: 0, forStorage: ['512 ГБ'] },
+    { label: 'M5, 10 ядер GPU, 16 ГБ ОЗУ', add: 9000, forStorage: ['512 ГБ'] },
+    { label: 'M5, 10 ядер GPU, 16 ГБ ОЗУ · включено с 1 ТБ+', add: 0, forStorage: ['1 ТБ', '2 ТБ', '4 ТБ'] },
+    { label: 'M5, 10 ядер GPU, 24 ГБ ОЗУ', add: 18000 },
+    { label: 'M5, 10 ядер GPU, 32 ГБ ОЗУ', add: 36000 }
+  ]
+};
 const RAM_AIR15 = OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000], ['32 ГБ', 36000]]);
 
 // MacBook Pro 14": M5 → M5 Pro (15 и 18 ядер CPU) → M5 Max. 16": M5 Pro → M5 Max
 // (32 и 40 ядер GPU). Доплаты за чип — разница базовых цен Apple по тому же курсу.
 const CHIP_PRO14 = OPT.chip([
   ['M5, 10 ядер CPU', 0],
-  ['M5 Pro, 15 ядер CPU', 63000],
-  ['M5 Pro, 18 ядер CPU', 81000],
-  ['M5 Max, 32 ядра GPU', 153000]
+  // В доплате за чип не повторяем обязательные ОЗУ/SSD: они считаются своими
+  // рядами ниже. Сумма минимальной сборки каждого чипа совпадает с Apple.
+  ['M5 Pro, 15 ядер CPU', 27000],
+  ['M5 Pro, 18 ядер CPU', 45000],
+  ['M5 Max, 32 ядра GPU', 90000],
+  ['M5 Max, 40 ядер GPU', 126000]
 ]);
 const RAM_PRO14 = OPT.ram([
   ['16 ГБ', 0, forChip('M5, 10 ядер CPU')],
   ['24 ГБ', 18000, forChip('M5, 10 ядер CPU', 'M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU')],
   ['32 ГБ', 36000, forChip('M5, 10 ядер CPU')],
   ['36 ГБ', 45000, forChip('M5 Max, 32 ядра GPU')],
-  ['48 ГБ', 54000, forChip('M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU')],
-  ['64 ГБ', 90000, forChip('M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU')]
+  ['48 ГБ', 54000, forChip('M5 Pro, 15 ядер CPU', 'M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
+  ['64 ГБ', 72000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
+  ['128 ГБ', 144000, forChip('M5 Max, 40 ядер GPU')]
 ]);
 const CHIP_PRO16 = OPT.chip([
   ['M5 Pro, 18 ядер CPU', 0],
-  ['M5 Max, 32 ядра GPU', 126000],
-  ['M5 Max, 40 ядер GPU', 180000]
+  ['M5 Max, 32 ядра GPU', 27000],
+  ['M5 Max, 40 ядер GPU', 90000]
 ]);
 const RAM_PRO16 = OPT.ram([
   ['24 ГБ', 0, forChip('M5 Pro, 18 ядер CPU')],
   ['36 ГБ', 45000, forChip('M5 Max, 32 ядра GPU')],
-  ['48 ГБ', 54000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
-  ['64 ГБ', 90000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
-  ['128 ГБ', 270000, forChip('M5 Max, 40 ядер GPU')]
+  ['48 ГБ', 36000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
+  ['64 ГБ', 54000, forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 40 ядер GPU')],
+  ['128 ГБ', 126000, forChip('M5 Max, 40 ядер GPU')]
 ]);
 
 // Десктопы. iMac и Mac mini — всё ещё M4, Mac Studio — M4 Max и M3 Ultra.
-const RAM_IMAC = OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000], ['32 ГБ', 36000]]);
-const CHIP_MINI = OPT.chip([['M4, 10 ядер CPU', 0], ['M4 Pro, 12 ядер CPU', 72000]]);
+const forPorts = (...names) => ({ 'Порты и сеть': names });
+const RAM_IMAC = OPT.ram([
+  ['16 ГБ', 0], ['24 ГБ', 18000],
+  ['32 ГБ', 36000, forPorts('4 порта Thunderbolt и Gigabit Ethernet')]
+]);
+const CHIP_MINI = OPT.chip([
+  ['M4, 10 ядер CPU', 0],
+  ['M4 Pro, 12 ядер CPU', 36000],
+  ['M4 Pro, 14 ядер CPU', 54000]
+]);
 const RAM_MINI = OPT.ram([
   ['16 ГБ', 0, forChip('M4, 10 ядер CPU')],
-  ['24 ГБ', 18000, forChip('M4, 10 ядер CPU', 'M4 Pro, 12 ядер CPU')],
-  ['48 ГБ', 54000, forChip('M4 Pro, 12 ядер CPU')],
-  ['64 ГБ', 90000, forChip('M4 Pro, 12 ядер CPU')]
+  ['24 ГБ', 18000, forChip('M4, 10 ядер CPU', 'M4 Pro, 12 ядер CPU', 'M4 Pro, 14 ядер CPU')],
+  ['32 ГБ', 36000, forChip('M4, 10 ядер CPU')],
+  ['48 ГБ', 54000, forChip('M4 Pro, 12 ядер CPU', 'M4 Pro, 14 ядер CPU')],
+  ['64 ГБ', 72000, forChip('M4 Pro, 12 ядер CPU', 'M4 Pro, 14 ядер CPU')]
 ]);
-const CHIP_STUDIO = OPT.chip([['M4 Max, 14 ядер CPU', 0], ['M3 Ultra, 28 ядер CPU', 252000]]);
+const CHIP_STUDIO = OPT.chip([
+  ['M4 Max, 14 ядер CPU', 0],
+  ['M4 Max, 16 ядер CPU', 27000],
+  ['M3 Ultra, 28 ядер CPU', 72000],
+  ['M3 Ultra, 32 ядра CPU', 207000]
+]);
 const RAM_STUDIO = OPT.ram([
   ['36 ГБ', 0, forChip('M4 Max, 14 ядер CPU')],
-  ['64 ГБ', 36000, forChip('M4 Max, 14 ядер CPU')],
-  ['96 ГБ', 90000, forChip('M4 Max, 14 ядер CPU', 'M3 Ultra, 28 ядер CPU')],
-  ['256 ГБ', 306000, forChip('M3 Ultra, 28 ядер CPU')],
-  ['512 ГБ', 720000, forChip('M3 Ultra, 28 ядер CPU')]
+  ['48 ГБ', 18000, forChip('M4 Max, 16 ядер CPU')],
+  ['64 ГБ', 54000, forChip('M4 Max, 16 ядер CPU')],
+  ['128 ГБ', 126000, forChip('M4 Max, 16 ядер CPU')],
+  ['96 ГБ', 90000, forChip('M3 Ultra, 28 ядер CPU', 'M3 Ultra, 32 ядра CPU')],
+  ['256 ГБ', 306000, forChip('M3 Ultra, 32 ядра CPU')],
+  ['512 ГБ', 720000, forChip('M3 Ultra, 32 ядра CPU')]
 ]);
 
 // Группы, которые встречаются у одного-двух товаров, — отдельными константами
 const POWER_AIR = {
   name: 'Блок питания', hint: 'Выберите зарядное устройство в комплекте',
   values: [
-    { label: '30 Вт USB-C', add: 0 },
-    { label: '35 Вт с двумя портами', add: 0 },
-    { label: '70 Вт быстрая зарядка', add: 2990 }
+    { label: '40 Вт Dynamic Power (до 60 Вт)', add: 0 },
+    { label: '35 Вт с двумя портами', add: 1800 },
+    { label: '70 Вт быстрая зарядка', add: 1800 }
   ]
 };
 const POWER_PRO14 = {
   name: 'Блок питания', hint: 'Выберите зарядное устройство в комплекте',
-  values: [{ label: '70 Вт USB-C', add: 0 }, { label: '96 Вт быстрая зарядка', add: 3990 }]
+  values: [
+    { label: '70 Вт USB-C', add: 0, forChoice: forChip('M5, 10 ядер CPU', 'M5 Pro, 15 ядер CPU') },
+    { label: '96 Вт быстрая зарядка', add: 1800, forChoice: forChip('M5, 10 ядер CPU', 'M5 Pro, 15 ядер CPU') },
+    { label: '96 Вт · в комплекте', add: 0, forChoice: forChip('M5 Pro, 18 ядер CPU', 'M5 Max, 32 ядра GPU', 'M5 Max, 40 ядер GPU') }
+  ]
+};
+const IMAC_GLASS = {
+  name: 'Покрытие дисплея', hint: 'Выберите, какое стекло вам подходит',
+  values: [
+    { label: 'Стандартное стекло', add: 0 },
+    { label: 'Нанотекстурное стекло', add: 18000, forChoice: forPorts('4 порта Thunderbolt и Gigabit Ethernet') }
+  ]
 };
 const IMAC_PORTS = {
   name: 'Порты и сеть', hint: 'Выберите набор портов на задней панели',
   values: [
     { label: '2 порта Thunderbolt', add: 0 },
-    { label: '4 порта Thunderbolt и Gigabit Ethernet', add: 19990 }
+    { label: '4 порта Thunderbolt и Gigabit Ethernet', add: 18000 }
   ]
 };
 const IMAC_KEYBOARD = {
@@ -506,7 +545,7 @@ const IMAC_KEYBOARD = {
 };
 const MINI_ETHERNET = {
   name: 'Сеть', hint: 'Выберите скорость проводного подключения',
-  values: [{ label: 'Gigabit Ethernet', add: 0 }, { label: '10 Гбит Ethernet', add: 12990 }]
+  values: [{ label: 'Gigabit Ethernet', add: 0 }, { label: '10 Гбит Ethernet', add: 9000 }]
 };
 // Две версии AirPods 4 и два комплекта AirTag живут одной карточкой: у Apple
 // это тоже один товар с выбором, а не соседние позиции в каталоге. Доплата
@@ -694,9 +733,9 @@ const products = [
     price: 69990, inStock: true,
     shortDesc: 'Самый доступный MacBook: 13", лёгкий, четыре цвета.',
     description: 'Магия Mac по удивительной цене. Лёгкий 13-дюймовый ноутбук в четырёх ярких цветах, тоньше половины дюйма, с поддержкой Apple Intelligence и целым днём автономной работы.',
-    specs: 'Экран: 13.3" Liquid Retina\nЧип: Apple silicon с нейронным движком\nОЗУ: 16 или 24 ГБ\nПамять: от 256 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.2 кг\nПорты: 2× USB-C, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: стереодинамики, 3 микрофона\nКлавиатура: Magic Keyboard с Touch ID\nГотов к ИИ: Apple Intelligence в macOS 26',
-    colors: MB_NEO, storages: ST.mac256,
-    options: [OPT.ram([['16 ГБ', 0], ['24 ГБ', 18000]])],
+    specs: 'Экран: 13.0" Liquid Retina, 500 нит\nЧип: Apple A18 Pro, 6-ядерный CPU, 5-ядерный GPU\nОЗУ: 8 ГБ\nПамять: 256 или 512 ГБ SSD\nАвтономность: до 16 ч видео\nПорты: USB 3 (USB-C), USB 2 (USB-C), аудиоразъём\nЗарядка: 20 Вт USB-C\nКлавиатура: Magic Keyboard; Touch ID в версии 512 ГБ\nГотов к ИИ: Apple Intelligence в macOS 26',
+    colors: MB_NEO, storages: ST.neo,
+    options: [],
     images: [], createdAt: now - 0.7 * DAY
   },
   {
@@ -706,7 +745,7 @@ const products = [
     description: 'Тонкий, быстрый, мощный и портативный. Чип M5 с 10-ядерным CPU, безвентиляторная конструкция, до 18 часов автономной работы и вес всего 1.24 кг.',
     specs: 'Экран: 13.6" Liquid Retina, 500 нит\nЧип: Apple M5, 10-ядерный CPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 512 ГБ SSD\nАвтономность: до 18 ч\nВес: 1.24 кг\nПорты: 2× Thunderbolt 4, MagSafe 3, аудиоразъём\nКамера: 12 Мп Center Stage\nАудио: 4 динамика, Spatial Audio\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_AIR, storages: ST.air13,
-    options: [CHIP_AIR13, RAM_AIR13, POWER_AIR],
+    options: [PERF_AIR13, POWER_AIR],
     images: [], createdAt: now - 0.8 * DAY
   },
   {
@@ -724,7 +763,7 @@ const products = [
     price: 189990, discountPercent: 10, inStock: true,
     shortDesc: 'M5 / M5 Pro / M5 Max, Liquid Retina XDR 120 Гц.',
     description: 'Самый продвинутый ноутбук Mac для требовательных задач. Чипы M5, M5 Pro или M5 Max, дисплей Liquid Retina XDR с ProMotion 120 Гц, Thunderbolt 5 и до 24 часов автономной работы.',
-    specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 64 ГБ)\nПамять: от 1 ТБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    specs: 'Экран: 14.2" Liquid Retina XDR, 120 Гц, 1600 нит\nЧип: Apple M5 (до M5 Max)\nОЗУ: 16 ГБ (до 128 ГБ)\nПамять: от 1 ТБ SSD\nАвтономность: до 24 ч\nВес: 1.55 кг\nПорты: 3× Thunderbolt 5, HDMI, SDXC, MagSafe 3\nКамера: 12 Мп Center Stage\nАудио: 6 динамиков, 3 микрофона студийного качества\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: MB_PRO, storages: ST.pro14,
     options: [CHIP_PRO14, RAM_PRO14, OPT.glass(13500), POWER_PRO14],
     images: [], createdAt: now - 1.1 * DAY
@@ -746,7 +785,7 @@ const products = [
     description: 'Моноблок для творчества и работы: дисплей 24" Retina 4.5K, чип M4, камера Center Stage 12 Мп и подобранные в цвет Magic Keyboard и Magic Mouse в комплекте.',
     specs: 'Экран: 24" Retina 4.5K, 500 нит\nЧип: Apple M4, 8 или 10 ядер GPU\nОЗУ: 16 ГБ (до 32 ГБ)\nПамять: от 256 ГБ SSD\nКамера: 12 Мп Center Stage с Desk View\nАудио: 6 динамиков, Spatial Audio\nПорты: 2× Thunderbolt 4, 2× USB-C\nКлавиатура: Magic Keyboard в цвет корпуса\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: IMAC, storages: ST.imac,
-    options: [RAM_IMAC, OPT.glass(18000), IMAC_PORTS, IMAC_KEYBOARD],
+    options: [RAM_IMAC, IMAC_GLASS, IMAC_PORTS, IMAC_KEYBOARD],
     images: [], createdAt: now - 1.3 * DAY
   },
   {
@@ -764,7 +803,7 @@ const products = [
     price: 239990, inStock: true,
     shortDesc: 'M4 Max / M3 Ultra, Thunderbolt 5, 10 Гбит Ethernet.',
     description: 'Настольная станция для профессионалов: чипы M4 Max и M3 Ultra, до 512 ГБ объединённой памяти, четыре порта Thunderbolt 5 и Ethernet 10 Гбит/с в компактном корпусе.',
-    specs: 'Чип: Apple M4 Max (опция M3 Ultra)\nОЗУ: 36 ГБ (до 512 ГБ)\nПамять: от 512 ГБ SSD\nПорты: 4× Thunderbolt 5, 2× USB-A, HDMI, SDXC, Ethernet 10 Гбит/с\nРазмер: 19.7 × 19.7 × 9.5 см\nАудио: аудиоразъём для наушников высокого сопротивления\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
+    specs: 'Чип: Apple M4 Max (опция M3 Ultra)\nОЗУ: 36 ГБ (до 512 ГБ)\nПамять: от 512 ГБ SSD; M3 Ultra — от 1 ТБ\nПорты: 4× Thunderbolt 5, 2× USB-A, HDMI, SDXC, Ethernet 10 Гбит/с\nРазмер: 19.7 × 19.7 × 9.5 см\nАудио: аудиоразъём для наушников высокого сопротивления\nСвязь: Wi-Fi 7, Bluetooth 6\nГотов к ИИ: Apple Intelligence в macOS 26',
     colors: [C.silver], storages: ST.studio,
     options: [CHIP_STUDIO, RAM_STUDIO],
     images: [], createdAt: now - 1.5 * DAY
@@ -817,8 +856,8 @@ const products = [
     price: 79990, discountPercent: 11, inStock: true,
     shortDesc: 'M4, большой экран 13", четыре цвета.',
     description: 'Серьёзная производительность в тонком и легком корпусе. Чип M4, дисплей Liquid Retina 13", поддержка Apple Pencil Pro и клавиатуры Magic Keyboard.',
-    specs: 'Экран: 13" Liquid Retina, 600 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 618 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
-    colors: IPAD_AIR, storages: ST.pad128,
+    specs: 'Экран: 13" Liquid Retina, 600 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 ГБ до 1 ТБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 618 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
+    colors: IPAD_AIR, storages: ST.padAir,
     options: [OPT.cellular(15000)],
     images: [], createdAt: now - 2 * DAY
   },
@@ -827,8 +866,8 @@ const products = [
     price: 55990, discountPercent: 7, inStock: true,
     shortDesc: 'M4, 11", лёгкий и универсальный.',
     description: 'Универсальный iPad для учёбы, работы и творчества: чип M4, дисплей Liquid Retina 11", поддержка Apple Pencil Pro и Apple Intelligence.',
-    specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 до 512 ГБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 460 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
-    colors: IPAD_AIR, storages: ST.pad128,
+    specs: 'Экран: 11" Liquid Retina, 500 нит\nЧип: Apple M4\nОЗУ: 8 ГБ\nПамять: от 128 ГБ до 1 ТБ\nКамера: 12 Мп\nФронталка: 12 Мп Center Stage\nАвтономность: до 10 ч\nВес: 460 г\nРазъём: USB-C\nПоддержка: Apple Pencil Pro, Magic Keyboard\nСвязь: Wi-Fi 6E, 5G (опция)\nApple Intelligence: тексты, Genmoji, обновлённая Siri',
+    colors: IPAD_AIR, storages: ST.padAir,
     options: [OPT.cellular(15000)],
     images: [], createdAt: now - 2.1 * DAY
   },
