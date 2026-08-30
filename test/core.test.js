@@ -3316,10 +3316,14 @@ test('подписи полей панели связаны с элемента�
   const login = adminViews.loginPage({ storeName: 'Тест' }, null);
   assert.match(login, /<label for="admin-login">Логин<\/label><input id="admin-login"/);
   assert.match(login, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
+  /* Связь ставит либо сама разметка (у полей настроек теперь свои id — их видно
+   * в исходнике и по ним удобно ссылаться), либо `accessibleFields()` у тех, у
+   * кого `for` не проставлен. Проверяем именно СВЯЗЬ, а не то, кто её сделал:
+   * иначе тест ломается от каждого явно названного поля. */
   const page = adminViews.settingsPage({ storeName: 'Тест', adminUsername: 'admin' }, { pendingReviewCount: () => 0 });
-  const named = page.match(/<label for="(admin-field-\d+)">Название магазина[^<]*<\/label><input[^>]*id="\1"/);
+  const named = page.match(/<label for="([\w-]+)">Название магазина[^<]*<\/label><input[^>]*id="\1"/);
   assert.ok(named, 'подпись «Название магазина» не связана со своим полем');
-  assert.match(page, /<label for="admin-field-\d+">Слоган<\/label><input/);
+  assert.match(page, /<label for="[\w-]+">Слоган<\/label><input/);
 });
 
 test('HEAD обслуживается обработчиком GET, а не уходит в 404', async () => {
@@ -3694,7 +3698,7 @@ test('форма настроек возвращает введённое, а н
   const draft = { storeName: '', tagline: 'новый слоган', contactPhone: '+7 900' };
   const failed = adminViews.settingsPage(saved, db, 'Укажите название магазина', 'err', { draft });
   assert.match(failed, /name="tagline" value="новый слоган"/, 'введённое значение потеряно');
-  assert.match(failed, /name="contactPhone" value="\+7 900"/);
+  assert.match(failed, /name="contactPhone"[^>]*value="\+7 900"/);
   assert.match(failed, /class="a-flash err"/);
 
   // Снятая галочка приходит не значением, а ОТСУТСТВИЕМ поля. Если при возврате
@@ -5697,11 +5701,16 @@ test('настройки идут разделами, и свёрнутая ст
   // Разделы — обычные <details>, поэтому раскрываются и без скрипта.
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
-  assert.deepEqual(ids, ['store', 'brand', 'ship', 'pay', 'price', 'chat', 'telegram', 'dadata', 'legal', 'access']);
+  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'pay', 'price',
+    'chat', 'telegram', 'reviews', 'dadata', 'legal', 'access']);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
    * описывает, что внутри: описание читают один раз, а видят каждый день. */
-  assert.match(html, /iStore · ₽ · @manager/);
+  assert.match(html, /iStore · Оригинальная техника Apple с гарантией · ₽/);
+  // Контакты — свой раздел: их четыре, и в общем списке они терялись между
+  // валютой и текстом подвала.
+  assert.match(html, /class="set-note">@manager/);
+  assert.match(html, /фото разрешены/);
   assert.match(html, /логин: root/);
   assert.match(html, /ИП Иванов/);
   assert.match(html, /нет ключа — поле адреса остаётся обычным вводом/);
@@ -6490,6 +6499,30 @@ test('срок доставки: сетка полная, курьер не оп
   // Москва ближе Владивостока — и это видно в самом тексте.
   assert.equal(DAYS.textAll('msk', MON).cdek.pvz, '2–3 дня');
   assert.equal(DAYS.textAll('dfo', MON).cdek.pvz, '8–11 дней');
+
+  /* СБОРКА — НАСТРОЙКА, а не только константа: она входит в срок, который
+   * покупатель видит на оформлении и запоминает. У одного магазина заказ
+   * уезжает в тот же день, у другого товар едет со склада поставщика. */
+  assert.equal(DAYS.textAll('msk', MON, { shipHandlingDays: 0 }).cdek.pvz, '1–2 дня', 'отправка в день оплаты');
+  assert.equal(DAYS.textAll('msk', MON, { shipHandlingDays: 3 }).cdek.pvz, '4–5 дней');
+  // Значения нет (старые настройки), мусор и выход за границы — прежний рабочий
+  // день: витрина не должна ни закрыться, ни начать врать из-за опечатки в поле.
+  for (const bad of [undefined, {}, { shipHandlingDays: '' }, { shipHandlingDays: 'абв' },
+    { shipHandlingDays: -1 }, { shipHandlingDays: 99 }]) {
+    assert.equal(DAYS.handlingDays(bad), DAYS.HANDLING, JSON.stringify(bad));
+    assert.equal(DAYS.textAll('msk', MON, bad).cdek.pvz, '2–3 дня');
+  }
+  // Консультант называет сборку теми же числами, а «в день оплаты» — другой
+  // фразой: «через 0 дней» читается как отговорка.
+  assert.match(DAYS.handlingText({ shipHandlingDays: 2 }), /за 2 дня после оплаты/);
+  assert.match(DAYS.handlingText({ shipHandlingDays: 0 }), /в день оплаты/);
+  assert.doesNotMatch(DAYS.handlingText({ shipHandlingDays: 0 }), /0 дней/);
+
+  // Проверяет её сервер до записи, как и всё в форме настроек.
+  const source = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  const settingsRoute = source.slice(source.indexOf("app.post('/admin/settings'"));
+  const bad = settingsRoute.indexOf('Сборка заказа — целое число');
+  assert.ok(bad > 0 && bad < settingsRoute.indexOf('db.saveSettings'), 'проверка обязана идти до записи');
 });
 
 test('срок доставки виден на оформлении рядом с ценой', () => {
@@ -6500,7 +6533,9 @@ test('срок доставки виден на оформлении рядом 
 
   // Срок считает и подписывает СЕРВЕР — тем же ответом, что и цену: своя вилка
   // со своим склонением в скрипте разошлась бы с серверной молча.
-  assert.match(route, /days: SHIPDAYS\.textAll\(q\.zone\)/);
+  // Настройки идут туда же: в срок входит сборка магазина, а она правится в
+  // панели — жёсткое число обещало бы покупателю чужой срок.
+  assert.match(route, /days: SHIPDAYS\.textAll\(q\.zone, undefined, settings\(\)\)/);
   // Неполный адрес — ни цены, ни срока: зона по нему ещё не считается.
   assert.match(route, /valid: false[^)]*days: null/);
   assert.doesNotMatch(js, /delivery-days|DAYS\s*=/, 'сетки сроков в скрипте быть не должно');
@@ -9026,9 +9061,18 @@ test('покупатель снова может приложить фото к 
   // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const route = source.slice(source.indexOf("app.post('/api/reviews'"));
-  assert.match(route.slice(0, 1600), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
+  assert.match(route.slice(0, 2000), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
+  /* Поле «Фото» выключается в настройках, и выключенное означает «файлов не
+   * принимаем», а не «кнопку не показываем»: форма — это разметка, а запрос
+   * присылает кто угодно. Поэтому проверка стоит и в маршруте. */
+  assert.match(route.slice(0, 2000), /R\.reviewPhotosOn\(settings\(\)\)/);
+  const noPhotos = render.productPage({ storeName: 'Тест', currency: '₽', reviewPhotos: false }, db, product, {});
+  assert.doesNotMatch(noPhotos, /name="photos"/, 'выключенная настройка обязана убрать поле с витрины');
+  // Поля нет вовсе (настройки старой установки) — фото принимаются, как раньше.
+  assert.ok(render.reviewPhotosOn({}) && render.reviewPhotosOn(undefined));
+  assert.equal(render.reviewPhotosOn({ reviewPhotos: false }), false);
   // Превью делаем сразу: в ленте показывается оно, полный файл — в просмотрщике.
-  assert.match(route.slice(0, 1600), /previews: await reviewPreviews\(photos\)/);
+  assert.match(route.slice(0, 2000), /previews: await reviewPreviews\(photos\)/);
 });
 
 test('форма отзыва идёт во всю ширину и четырьмя рядами', () => {
@@ -13730,18 +13774,148 @@ test('логотип не остаётся сиротой, когда форма
     'и до самой записи настроек');
 });
 
-test('вторичный цвет умеет вернуться к «как акцентный»', () => {
-  /* `<input type="color">` пустым не бывает вовсе, поэтому «пусто — берём
-   * акцентный» жило ровно до первого сохранения формы: круговая отправка
-   * штамповала в поле текущий акцент, и дальше вторичный цвет за акцентом уже
-   * не следовал никогда. Режим включает отдельная галочка. */
-  assert.match(render.brandFields({ secondaryColor: '', accentColor: '#0071e3' }),
-    /name="secondaryAuto"\s+checked/, 'пустой вторичный цвет — галочка стоит');
-  assert.doesNotMatch(render.brandFields({ secondaryColor: '#ff0000', accentColor: '#0071e3' }),
-    /name="secondaryAuto"\s+checked/, 'заданный цвет — галочка снята');
-  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(source, /secondaryColor: body\.secondaryAuto !== undefined \? ''/,
-    'снятая галочка приходит отсутствием поля, как все прочие в панели');
+test('цветовая настройка у магазина одна, и она в «Оформлении»', () => {
+  /* Цветов было два: акцент и «вторичный» для выделенных букв логотипа — с
+   * галочкой «как акцентный» рядом, то есть настройка, чьё единственное
+   * разумное значение «то же самое». Две ручки на один вопрос заставляли
+   * подбирать пару и объяснять разницу. Теперь цвет один, и живёт он там, где
+   * его ищут, — в разделе «Оформление», а не среди валюты и контактов. */
+  const brand = render.brandFields({ accentColor: '#0071e3', storeName: 'iStore' });
+  assert.match(brand, /name="accentColor" type="color"/, 'акцент правится в «Оформлении»');
+  assert.doesNotMatch(brand, /secondaryColor|secondaryAuto/, 'вторая цветовая ручка вернулась');
+
+  const db = { pendingReviewCount: () => 0, getOrders: () => [] };
+  const page = adminViews.settingsPage(Object.assign(dbCore.defaultSettings(), { storeName: 'iStore' }), db, null);
+  assert.doesNotMatch(page, /secondaryColor|secondaryAuto/);
+  // Ровно одно поле цвета на всей странице настроек.
+  assert.equal((page.match(/type="color"/g) || []).length, 1);
+  // И один кружок в свёрнутой строке: второй обещал бы выбор, которого нет.
+  const dots = page.match(/<span class="set-dots"[^>]*>([\s\S]*?)<\/span>\s*<svg/);
+  assert.ok(dots && (dots[1].match(/<i /g) || []).length === 1, 'кружок цвета должен быть один');
+
+  /* Смотрим код БЕЗ комментариев — той же чисткой, что идёт на отдаче: про
+   * снятое поле в комментариях сказано намеренно, и ловить собственную
+   * документацию тест не должен. */
+  const bare = code => require('../lib/minify').js(code);
+  const server = bare(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  assert.doesNotMatch(server, /secondaryColor/, 'поле больше не пишется вовсе');
+  assert.doesNotMatch(bare(fs.readFileSync(path.join(__dirname, '..', 'lib', 'db.js'), 'utf8')), /secondaryColor/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Выделенные буквы логотипа берут тот же акцент — своей переменной у них нет.
+  assert.match(css, /\.logo-accent\{color:var\(--accent\)/);
+  assert.doesNotMatch(css, /var\(--secondary\)/);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8'), /--secondary:/);
+});
+
+test('оформление показывает, как это выглядит, а не только чем правится', () => {
+  /* Раздел отвечал на вопрос «какие тут поля»: цвет виден квадратиком, шрифт —
+   * словом «Гротеск», а фигурные скобки в надписи объяснялись абзацем. Показать
+   * можно самим видом — шапкой и кнопкой того же вида, что у покупателя. */
+  const html = render.brandFields({ accentColor: '#b42318', logoFont: 'grotesk', logoText: '{i}Store', storeName: 'iStore' });
+  assert.match(html, /class="brand-preview" data-brand-preview style="--accent:#b42318;--brand-font:/);
+  assert.match(html, /<span class="logo-accent">i<\/span>Store/, 'предпросмотр показывает выделенную букву');
+  /* Начертания записаны с кавычками и уезжают в АТРИБУТ: без экранирования
+   * первая же кавычка закрыла бы `style`, и остаток набора вывалился бы в
+   * разметку отдельными атрибутами. В `<style>` витрины того же экранировать не
+   * нужно, и на этом легко наступить. */
+  assert.match(html, /--brand-font:&quot;Space Grotesk&quot;/);
+  assert.doesNotMatch(html.slice(0, html.indexOf('</div>')), /style="[^"]*"[^>]*"/);
+
+  // Шрифт скрипту неоткуда взять, кроме как отсюда: список живёт в render.js, и
+  // своя копия в браузере разъехалась бы с ним молча.
+  assert.match(html, /<option value="grotesk" data-font="[^"]+" selected>/);
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /getAttribute\('data-font'\)/);
+  assert.doesNotMatch(ui, /SF Pro Rounded|Space Grotesk/, 'копия списка шрифтов в скрипте');
+  // Готовые акценты рисует скрипт: без него кнопка ничего не делала бы вовсе.
+  assert.match(html, /data-color-presets="#[0-9a-f]{6}(?:,#[0-9a-f]{6})+"/);
+  assert.doesNotMatch(html, /class="color-dot"/, 'пресеты в серверной разметке не нужны');
+  assert.match(ui, /className = 'color-dot'/);
+  // Текст владельца остаётся текстом: разметкой он не становится и здесь.
+  assert.doesNotMatch(ui.slice(ui.indexOf('Оформление: предпросмотр')), /innerHTML/);
+});
+
+test('контакты магазина собраны в одном месте и работают ссылками', () => {
+  /* Телефон лежал среди валюты, цвета и текста подвала — то есть там, где его
+   * не ищут. Контактов стало четыре, и у них свой раздел; в подвале витрины они
+   * ссылки, а не строки текста: выделять номер пальцем, чтобы позвонить, — то
+   * же самое, что не дать его вовсе. */
+  const settings = Object.assign(dbCore.defaultSettings(), {
+    storeName: 'iStore', contactPhone: '+79991234567',
+    contactEmail: 'shop@example.ru', contactHours: 'Ежедневно 10:00–21:00'
+  });
+  const db = { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const home = render.homePage(settings, db, {});
+  assert.match(home, /<a href="tel:\+79991234567">\+7 999 123-45-67<\/a>/);
+  assert.match(home, /<a href="mailto:shop@example\.ru">shop@example\.ru<\/a>/);
+  assert.match(home, /class="foot-hours">Ежедневно 10:00–21:00</);
+
+  // Номер хранится в одном виде (E.164) и показывается в одном — как в заказе:
+  // два формата одного номера читались бы как два разных номера.
+  const panel = adminViews.settingsPage(settings, { pendingReviewCount: () => 0, getOrders: () => [] }, null);
+  assert.match(panel, /name="contactPhone"[^>]*value="\+7 999 123-45-67"/);
+  assert.match(panel, /class="set-note">@?[^<]*\+7 999 123-45-67[^<]*shop@example\.ru/);
+
+  /* Проверка идёт ДО записи, как и всё в этой форме: и телефон, и почта уезжают
+   * в подвал КАЖДОЙ страницы ссылками, то есть ошибку увидит не владелец в
+   * панели, а покупатель — и уйдёт в никуда. */
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  const route = server.slice(server.indexOf("app.post('/admin/settings'"));
+  const check = route.indexOf('Телефон магазина введён с ошибкой');
+  assert.ok(check > 0 && check < route.indexOf('db.saveSettings'), 'телефон проверяется до записи');
+  assert.match(route.slice(0, 3000), /PHONE\.store\(raw\)/);
+  assert.match(route.slice(0, 3000), /адрес вида mail@example\.ru/);
+
+  // Консультант отвечает на «а позвонить можно?» сам: звать ради этого менеджера
+  // значило бы отправлять покупателя за тем, что написано на той же странице.
+  const promptDb = { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] };
+  const text = require('../lib/chat-prompt').build(promptDb, settings, null, {})[0].content;
+  assert.ok(text.includes('+7 999 123-45-67'), 'телефон магазина не доехал до консультанта');
+  assert.ok(text.includes('shop@example.ru') && text.includes('Ежедневно 10:00–21:00'));
+});
+
+test('описание магазина для выдачи — своё поле, а не слоган', () => {
+  /* Слоган пишется под первый экран и в выдаче выглядит обрубком, поэтому у
+   * магазина есть отдельное описание. Спрашивают его все одним способом:
+   * разъехавшись, страницы обещали бы в поиске разное об одном магазине. */
+  const db = { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const base = { storeName: 'iStore', tagline: 'Техника Apple', currency: '₽' };
+  const withMeta = Object.assign({}, base, { metaDescription: 'Доставка по России, гарантия 1 год' });
+  const home = render.homePage(withMeta, db, { origin: 'https://shop.test' });
+  assert.match(home, /<meta name="description" content="Доставка по России, гарантия 1 год">/);
+  assert.match(home, /og:description" content="Доставка по России, гарантия 1 год"/);
+  assert.match(home, /"description":"Доставка по России, гарантия 1 год"/, 'карточка Store в JSON-LD');
+  // Не заполнено — остаётся слоган, как было до появления поля.
+  assert.match(render.homePage(base, db, {}), /<meta name="description" content="Техника Apple">/);
+  // У товара описание своё: там в выдаче нужен сам товар, а не магазин.
+  const product = { id: 'p', name: 'iPhone', category: 'iPhone', price: 100, inStock: true, images: [], shortDesc: 'Смартфон' };
+  const page = render.productPage(withMeta, Object.assign({ reviewsForProduct: () => [], categories: () => [] }, db), product, {});
+  assert.match(page, /<meta name="description" content="Смартфон">/);
+});
+
+test('фото в отзывах включаются галочкой, а не правкой кода', () => {
+  /* Выключатель был константой в lib/render.js: убрать поле можно было только
+   * выкаткой — а нужно это ровно тогда, когда в хранилище уже сыплется мусор. */
+  const db = { pendingReviewCount: () => 0, getOrders: () => [] };
+  const on = adminViews.settingsPage(Object.assign(dbCore.defaultSettings(), { storeName: 'iStore' }), db, null);
+  assert.match(on, /<input type="hidden" name="reviewsForm" value="1">/);
+  assert.match(on, /name="reviewPhotos" checked/);
+  const off = adminViews.settingsPage(Object.assign(dbCore.defaultSettings(), { storeName: 'iStore', reviewPhotos: false }), db, null);
+  assert.doesNotMatch(off, /name="reviewPhotos" checked/);
+  assert.match(off, /только текст/);
+
+  /* Снятая галочка приходит ОТСУТСТВИЕМ поля, поэтому секция помечена скрытым
+   * `reviewsForm`: без него снятие было бы неотличимо от запроса без этой
+   * секции — то же правило, что у способов оплаты. */
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  assert.match(server, /req\.body\.reviewsForm !== undefined\) patch\.reviewPhotos = req\.body\.reviewPhotos !== undefined/);
+
+  // Уведомление об отзывах переехало к отзывам: галочка про них, а не про бота.
+  assert.match(on, /name="notifyReviews"/);
+  const reviewsBlock = on.slice(on.indexOf('id="set-reviews"'), on.indexOf('id="set-dadata"'));
+  assert.match(reviewsBlock, /name="notifyReviews"/, 'галочка уведомлений живёт в разделе отзывов');
+  const tgBlock = on.slice(on.indexOf('id="set-telegram"'), on.indexOf('id="set-reviews"'));
+  assert.doesNotMatch(tgBlock, /name="notifyReviews"/);
 });
 
 test('настройки по умолчанию знают про свои реквизиты и консультанта', () => {

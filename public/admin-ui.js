@@ -595,6 +595,110 @@
   }, true);
 })();
 
+/* ============== Оформление: предпросмотр и готовые акценты ==============
+ *
+ * Раздел «Оформление» отвечал на вопрос «какие тут поля», а не «как это
+ * выглядит»: цвет виден квадратиком, шрифт — только словом «Гротеск», а
+ * фигурные скобки в надписи объяснялись абзацем подсказки. Разметку
+ * предпросмотра рисует СЕРВЕР (`brandPreview()` в lib/render.js) — здесь только
+ * то, чего без скрипта не бывает: правка на лету и ряд готовых цветов.
+ *
+ * Без скрипта раздел работает как работал: предпросмотр показывает сохранённое,
+ * цвет выбирается родным контролом, пресетов просто нет — кнопке, которая
+ * ничего не делает, на экране не место.
+ */
+(function () {
+  'use strict';
+  var accent = document.querySelector('[data-brand-accent]');
+  var preview = document.querySelector('[data-brand-preview]');
+  if (!accent && !preview) return;
+  var pick = document.querySelector('.color-pick[data-color-presets]');
+  var value = document.querySelector('[data-color-value]');
+  var font = document.querySelector('[data-brand-font]');
+  var text = document.querySelector('[data-brand-text]');
+  var name = document.querySelector('input[name="storeName"]');
+  var logo = document.querySelector('[data-brand-logo]');
+  var HEX = /^#[0-9a-fA-F]{6}$/;
+  var dots = [];
+
+  function paintColor() {
+    var color = accent ? String(accent.value || '') : '';
+    if (!HEX.test(color)) return;
+    if (preview) preview.style.setProperty('--accent', color);
+    if (value) value.textContent = color.toUpperCase();
+    for (var i = 0; i < dots.length; i++) {
+      dots[i].classList.toggle('is-on', dots[i].getAttribute('data-color').toLowerCase() === color.toLowerCase());
+    }
+  }
+
+  /* Начертание берётся у ВЫБРАННОГО `<option>`: список шрифтов живёт в
+   * lib/render.js, и своя копия здесь разъехалась бы с ним молча — предпросмотр
+   * показывал бы не тот шрифт, который поедет на витрину. */
+  function paintFont() {
+    if (!preview || !font) return;
+    var opt = font.options[font.selectedIndex];
+    var family = opt && opt.getAttribute('data-font');
+    if (family) preview.style.setProperty('--brand-font', family);
+  }
+
+  /* Надпись логотипа. Разбор тот же, что у `logoTextMarkup()` на сервере: буквы
+   * в фигурных скобках красятся акцентом — ровно это и надо показать, иначе
+   * скобки приходится объяснять словами.
+   *
+   * Узлы строятся руками: текст владельца разметкой не становится ни здесь, ни
+   * где-либо ещё в панели. Логотип-картинка заменяет надпись целиком, поэтому
+   * при ней трогать нечего.
+   */
+  function paintText() {
+    if (!logo || !text || logo.querySelector('img')) return;
+    var raw = (text.value || '').trim() || (name ? String(name.value || '').trim() : '');
+    var box = document.createElement('span');
+    box.className = 'logo-txt';
+    var re = /\{([^}]*)\}/g, last = 0, m;
+    while ((m = re.exec(raw))) {
+      if (m.index > last) box.appendChild(document.createTextNode(raw.slice(last, m.index)));
+      var mark = document.createElement('span');
+      mark.className = 'logo-accent';
+      mark.textContent = m[1];
+      box.appendChild(mark);
+      last = re.lastIndex;
+    }
+    if (last < raw.length) box.appendChild(document.createTextNode(raw.slice(last)));
+    logo.textContent = '';
+    logo.appendChild(box);
+  }
+
+  if (pick && accent) {
+    var row = document.createElement('span');
+    row.className = 'color-presets';
+    var list = String(pick.getAttribute('data-color-presets') || '').split(',');
+    for (var i = 0; i < list.length; i++) {
+      var color = list[i].trim();
+      if (!HEX.test(color)) continue;
+      var dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'color-dot';
+      dot.style.background = color;
+      dot.setAttribute('data-color', color);
+      dot.setAttribute('aria-label', 'Цвет ' + color);
+      dot.title = color;
+      dot.addEventListener('click', function () {
+        accent.value = this.getAttribute('data-color');
+        paintColor();
+      });
+      row.appendChild(dot);
+      dots.push(dot);
+    }
+    if (dots.length) pick.appendChild(row);
+  }
+
+  if (accent) accent.addEventListener('input', paintColor);
+  if (font) font.addEventListener('change', paintFont);
+  if (text) text.addEventListener('input', paintText);
+  if (name) name.addEventListener('input', paintText);
+  paintColor();
+})();
+
 /* ===================== Копирование ===================== *
  *
  * Единственное действие панели, которое из разметки не сделать: буфер обмена

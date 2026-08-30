@@ -528,23 +528,22 @@ const BRAND_FONTS = new Set(['system', 'rounded', 'grotesk', 'serif', 'slab', 'm
 function brandFields(body) {
   return {
     storeName: short(body.storeName, 100).trim(), tagline: short(body.tagline, 240),
+    /* ЦВЕТ У МАГАЗИНА ОДИН. Вторым (`secondaryColor`) красились выделенные буквы
+     * логотипа, и рядом с ним стояла галочка «как акцентный» — то есть вся
+     * настройка сводилась к тому, чтобы её обнулить. Поле больше не пишется
+     * вовсе; сохранённое прежде значение остаётся лежать в settings.json и не
+     * читается нигде — переписывать историю ради снятого поля незачем. */
     accentColor: safeHex(body.accentColor, '#0071e3'), currency: short(body.currency, 12).replace(/[<>&]/g, '') || '₽',
     currencyPosition: body.currencyPosition === 'before' ? 'before' : 'after',
-    contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100), footerNote: short(body.footerNote, 500),
+    metaDescription: short(body.metaDescription, 300).trim(),
+    contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100),
+    contactEmail: short(body.contactEmail, 160).trim(), contactHours: short(body.contactHours, 120).trim(),
+    footerNote: short(body.footerNote, 500),
     legalOperator: short(body.legalOperator, 240).trim(), legalDetails: short(body.legalDetails, 240).trim(),
     legalAddress: short(body.legalAddress, 400).trim(), privacyEmail: short(body.privacyEmail, 160).trim(),
     telegramBotToken: short(body.telegramBotToken, 240).trim(), telegramChatId: short(body.telegramChatId, 100).trim(),
     notifyReviews: body.notifyReviews !== undefined,
-    logoText: short(body.logoText, 120), logoFont: BRAND_FONTS.has(body.logoFont) ? body.logoFont : 'system',
-    /* Пустой вторичный цвет означает «как акцентный», и вернуться к нему надо
-     * уметь: `<input type="color">` пустым не бывает, поэтому режим включает
-     * отдельная галочка (снятая приходит отсутствием поля, как все прочие).
-     *
-     * Без неё настройка жила ровно до первого сохранения: форма отправляла
-     * текущий акцент числом, `secondaryColor` навсегда становился хексом, и
-     * дальше смена акцента вторичный цвет за собой уже не тянула — хотя
-     * `defaultSettings()` обещает ровно обратное. */
-    secondaryColor: body.secondaryAuto !== undefined ? '' : safeHex(body.secondaryColor, safeHex(body.accentColor, '#0071e3'))
+    logoText: short(body.logoText, 120), logoFont: BRAND_FONTS.has(body.logoFont) ? body.logoFont : 'system'
   };
 }
 
@@ -1030,10 +1029,16 @@ app.post('/api/reviews', async (req, res) => {
   // NaN < 1 и NaN > 5 оба ложны — отзыв проходил проверку и молча получал 5 звёзд.
   const rating = Number(req.body.rating);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) return res.json({ ok: false, error: 'Укажите оценку от 1 до 5' }, 400);
-  // Снимки покупателя: предел свой, меньше панельного — здесь грузит кто угодно,
-  // а один файл может весить до 6 МБ. Превью делаем сразу, как и в панели: в
-  // ленте показывается именно оно, полный файл — только в просмотрщике.
-  const photos = await optimizeUploads(req.filesFor('photos').slice(0, R.REVIEW_PHOTOS_MAX), 1400);
+  /* Снимки покупателя: предел свой, меньше панельного — здесь грузит кто угодно,
+   * а один файл может весить до 6 МБ. Превью делаем сразу, как и в панели: в
+   * ленте показывается именно оно, полный файл — только в просмотрщике.
+   *
+   * Выключенное в настройках поле «Фото» проверяем ЗДЕСЬ, а не только в форме:
+   * форма — это разметка, а запрос присылает кто угодно, и убранная галочка
+   * обязана значить «файлов не принимаем», а не «кнопку не показываем». */
+  const photos = R.reviewPhotosOn(settings())
+    ? await optimizeUploads(req.filesFor('photos').slice(0, R.REVIEW_PHOTOS_MAX), 1400)
+    : [];
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating, text: req.body.text,
     photos, previews: await reviewPreviews(photos), status: 'pending',
@@ -1197,7 +1202,7 @@ app.post('/api/delivery/quote', (req, res) => {
   // своим склонением в скрипте разошлась бы с серверной молча.
   res.json({
     ok: true, valid: true, error: '', zone: q.zone, zoneName: q.zoneName,
-    prices: q.prices, days: SHIPDAYS.textAll(q.zone)
+    prices: q.prices, days: SHIPDAYS.textAll(q.zone, undefined, settings())
   });
 });
 
@@ -4267,6 +4272,30 @@ app.post('/admin/settings', async (req, res) => {
    * ещё один. Проверено: `status=400`, `logoImage: null`, файл на месте.
    */
   const patch = brandFields(req.body);
+  /* Контакты витрины проверяем ДО записи, как и всё в этой форме.
+   *
+   * Цена промаха здесь выше обычной опечатки: и телефон, и почта уезжают в
+   * подвал КАЖДОЙ страницы ссылками «позвонить» и «написать», то есть ошибка
+   * видна не владельцу в панели, а покупателю — и ведёт в никуда. Телефон
+   * сверяем тем же модулем, что и поле заказа, и храним в одном виде (E.164):
+   * два формата одного номера читались бы как два разных номера.
+   */
+  if (req.body.contactPhone !== undefined) {
+    const raw = String(req.body.contactPhone).trim();
+    const stored = PHONE.store(raw);
+    if (raw && !stored) return fail('Телефон магазина введён с ошибкой — например: +7 999 123-45-67');
+    patch.contactPhone = stored;
+  }
+  for (const [field, label] of [['contactEmail', 'Почта магазина'], ['privacyEmail', 'E-mail для обращений по персональным данным']]) {
+    const value = String(patch[field] || '').trim();
+    // Проверка нарочно грубая: адрес должен выглядеть адресом, а не быть
+    // доказанно существующим — ложный отказ здесь дороже пропущенной опечатки.
+    if (value && !/^[^\s@]+@[^\s@.]+\.[^\s@]{2,}$/.test(value)) return fail(`${label} — адрес вида mail@example.ru`);
+  }
+  // Галочка фото в отзывах: снятая приходит отсутствием поля, а скрытое
+  // `reviewsForm` говорит, что секция вообще пришла — без него снятие было бы
+  // неотличимо от запроса без этой секции (то же правило, что у способов оплаты).
+  if (req.body.reviewsForm !== undefined) patch.reviewPhotos = req.body.reviewPhotos !== undefined;
   patch.adminUsername = short(req.body.adminUsername, 100).trim() || current.adminUsername || 'admin';
   if (req.body.adminPassword && String(req.body.adminPassword).trim()) {
     patch.adminPasswordHash = auth.hashPassword(String(req.body.adminPassword).trim());
@@ -4282,6 +4311,22 @@ app.post('/admin/settings', async (req, res) => {
    * посылки. Мусор в поле не сохраняем вовсе — проверка до записи, как и всё в
    * этой форме. */
   if (req.body.shipFromCity !== undefined) patch.shipFromCity = TRACK.cleanCity(req.body.shipFromCity);
+  /* Сборка заказа — рабочие дни от приёма в работу до передачи перевозчику. Она
+   * входит в срок, который покупатель видит на оформлении, поэтому проверяется
+   * так же придирчиво, как пределы суммы: пустое поле возвращает значение по
+   * умолчанию (рабочий день), а «10» вместо «1» удлинило бы обещание у каждого
+   * заказа вдвое. Ноль законен и означает «отправляем в день оплаты». */
+  if (req.body.shipHandlingDays !== undefined) {
+    const raw = String(req.body.shipHandlingDays).replace(/\s+/g, '');
+    if (!raw) patch.shipHandlingDays = '';
+    else {
+      const days = Number(raw);
+      if (!Number.isInteger(days) || days < 0 || days > SHIPDAYS.HANDLING_MAX) {
+        return fail(`Сборка заказа — целое число рабочих дней от 0 до ${SHIPDAYS.HANDLING_MAX} или пусто`);
+      }
+      patch.shipHandlingDays = days;
+    }
+  }
   if (req.body.shipHoldDays !== undefined) {
     const raw = String(req.body.shipHoldDays).replace(/\s+/g, '').replace(',', '.');
     if (!raw) patch.shipHoldDays = '';
