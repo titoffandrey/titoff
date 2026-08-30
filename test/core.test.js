@@ -1240,8 +1240,11 @@ test('раздел метрики защищён панелью и показы�
      ОБА слова лежат в разметке, показывает нужное CSS по классу `is-off` —
      писать текст из скрипта нельзя по тому же правилу, по которому отсчёт срока
      счёта берёт «истёк» из `data-over`. */
-  assert.match(html, /<span class="a-live" title="[^"]+" data-title-off="[^"]+"><i><\/i><b class="a-live-on">online<\/b><b class="a-live-off">нет связи<\/b><\/span>/);
+  assert.match(html, /<span class="a-live" title="[^"]+" data-title-off="[^"]+"><i><\/i><b class="a-live-on"><span class="a-live-num"><\/span>online<\/b><b class="a-live-off">нет связи<\/b><\/span>/);
   assert.doesNotMatch(html, /<b>живое<\/b>/);
+  /* Слот числа пуст: сколько человек на витрине, разметка страницы не знает —
+     это приходит по каналу. До первого сообщения плашка выглядит как раньше. */
+  assert.match(html, /<span class="a-live-num"><\/span>/);
 
   const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
   /* Скрипт подписи НЕ пишет — только переключает класс и берёт заголовок из
@@ -1252,10 +1255,20 @@ test('раздел метрики защищён панелью и показы�
   assert.doesNotMatch(liveCode, /нет связи|online/, 'подписи плашки живут в разметке, а не в скрипте');
   assert.match(live, /es\.onerror\s*=\s*stale/, 'разрыв канала обязан доходить до плашки');
   assert.match(live, /es\.onopen\s*=\s*fresh/);
-  /* Плашка целиком принадлежит браузеру: сервер рисует её всегда подключённой,
-     и без защиты первая же удачная подмена стирала бы «нет связи» — отметка
-     возвращалась бы через несколько секунд, то есть мигала на ровном месте. */
+  /* Плашка целиком принадлежит браузеру — и снаружи, и ВНУТРИ. Сервер рисует её
+     всегда подключённой и без числа: без защиты первая же удачная подмена
+     стирала бы и «нет связи» (отметка возвращалась бы через несколько секунд,
+     то есть мигала на ровном месте), и цифру онлайна — та приходит по каналу, а
+     в свежей разметке её слот пуст. Поэтому морфинг выходит на плашке ДО
+     синхронизации атрибутов и детей. */
   assert.match(live, /el\.classList\.contains\('a-live'\)/);
+  assert.match(live, /if \(browserOwned\(from\)\) return;\s*\n\s*syncAttrs\(from, to\);/,
+    'плашку морфинг обязан пропускать целиком, а не только её атрибуты');
+  /* Число онлайна — своим событием канала: попади оно в общий объект номеров
+     версий, каждый пришедший на витрину посетитель заставлял бы панель
+     перезапрашивать всю страницу — список заказов, каталог, ленту отзывов. */
+  assert.match(live, /es\.addEventListener\('visitors'/);
+  assert.match(live, /slot\.textContent = text/, 'скрипт пишет только цифру');
 
   /* «Кто заходил» на телефоне — карточки: пять столбцов требуют 900 px, и
      список приходилось листать вбок, теряя из виду время визита. Ячейки для
@@ -9921,6 +9934,84 @@ test('событие приезжает в панель готовой карт�
   assert.equal(live.note('<div class="a-note">поздно</div>'), false);
   fs.rmSync(dir, { recursive: true, force: true });
   delete require.cache[key];
+});
+
+test('сколько человек на витрине — своим событием канала, а не номером версии', async () => {
+  // Свой экземпляр модуля: набор подписчиков у него общий на процесс.
+  const key = require.resolve('../lib/live');
+  delete require.cache[key];
+  const live = require('../lib/live');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-online-'));
+  live.watch(dir);
+
+  let people = 3;
+  live.online(() => people);
+
+  const tab = liveClient();
+  live.subscribe({ socket: {} }, tab, 'orders');
+  const seen = c => c.chunks.filter(x => x.startsWith('event: visitors'))
+    .map(x => JSON.parse(x.slice(x.indexOf('\ndata: ') + 7)).n);
+  const waitFor = async n => {
+    const started = Date.now();
+    while (seen(tab).length < n) {
+      if (Date.now() - started > live.POLL_MS * 6) throw new Error('число так и не пришло');
+      await new Promise(r => setTimeout(r, 50));
+    }
+  };
+
+  /* Число уезжает СРАЗУ при подписке: разметка страницы про онлайн ничего не
+   * знает и рисует пустой слот, а без этой строки шапка стояла бы без цифры до
+   * первого прихода или ухода посетителя — то есть иногда минутами. */
+  assert.deepEqual(seen(tab), [3]);
+  /* И это НЕ номер версии: попади онлайн в общий объект, каждый пришедший на
+   * витрину заставлял бы панель перезапрашивать всю страницу — список заказов,
+   * каталог, ленту отзывов. */
+  assert.equal(tab.messages().length, 1, 'номеров версий онлайн не касается');
+
+  people = 5;
+  await waitFor(2);
+  assert.deepEqual(seen(tab), [3, 5]);
+  assert.equal(tab.messages().length, 1, 'страница из-за онлайна не перезапрашивается');
+
+  // Не изменилось — не шлём: такт идёт раз в секунду, а число меняется реже.
+  const quiet = seen(tab).length;
+  await new Promise(r => setTimeout(r, live.POLL_MS * 2.5));
+  assert.equal(seen(tab).length, quiet, 'одно и то же число по кругу не рассылается');
+
+  // Источник — чужой код. Упади он, канал обязан жить дальше, а плашка просто
+  // останется без числа: до открытия канала она выглядит ровно так же.
+  live.online(() => { throw new Error('метрика упала'); });
+  await new Promise(r => setTimeout(r, live.POLL_MS * 2));
+  assert.equal(seen(tab).length, quiet, 'упавший источник не роняет канал');
+  assert.equal(live.clientCount(), 1);
+
+  tab.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  delete require.cache[key];
+});
+
+test('онлайн в шапке и на «Обзоре» считает одна функция', () => {
+  /* Два числа об одном и том же на соседних экранах читались бы как сбой,
+   * поэтому мерка одна: `metrics.onlineCount()`. Её же зовёт `pulse()`. */
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /LIVE\.online\(\(\) => metrics\.onlineCount\(\)\)/);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'analytics.js'), 'utf8');
+  assert.match(src, /online: this\.onlineCount\(\)/, 'плитка «Сейчас на сайте» обязана брать то же число');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-online-count-'));
+  const m = new Analytics({ dataDir: dir, geoEnabled: false });
+  const now = Date.now();
+  m.data.visitors = [
+    { id: 'a', clientConfirmed: true, lastSeen: now - 1000 },
+    { id: 'b', clientConfirmed: true, lastSeen: now - 5000 },
+    // Не подтверждённый браузером — это, скорее всего, робот, а не человек.
+    { id: 'c', clientConfirmed: false, lastSeen: now },
+    // Ушёл: порог онлайна — две минуты.
+    { id: 'd', clientConfirmed: true, lastSeen: now - 5 * 60 * 1000 }
+  ];
+  assert.equal(m.onlineCount(), 2);
+  assert.equal(m.pulse().online, 2);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('заказ, отзыв и реплика в чате приходят карточкой с миниатюрой', () => {

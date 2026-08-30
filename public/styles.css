@@ -1764,6 +1764,12 @@ body.admin{background:#f4f4f6;color:#242426}
   color:#8e8e93;font-size:11px;font-weight:620;white-space:nowrap}
 .a-live i{width:7px;height:7px;border-radius:50%;background:#0b7a37;animation:a-live-beat 2.4s ease-in-out infinite}
 .a-live b{font-weight:inherit}
+/* Число онлайна дописывает `public/admin-live.js` из канала, и до его первого
+   сообщения слот пуст — тогда плашка выглядит ровно так, как выглядела раньше:
+   одно слово «online». Отступ поэтому висит на `:not(:empty)`, иначе у пустого
+   слота перед словом оставался бы пробел ниоткуда. Цифры табличные — счётчик
+   тикает сам, и прыгающая на единицу ширина шапки была бы заметна. */
+.a-live-num:not(:empty){margin-right:.34em;font-variant-numeric:tabular-nums}
 .a-live.is-hit{animation:a-live-hit 1.1s ease-out}
 /* Оборванная связь. Оба слова лежат в разметке, здесь только показывается
    нужное — так все подписи про состояние остаются в одном месте.

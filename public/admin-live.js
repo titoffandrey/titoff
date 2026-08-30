@@ -77,13 +77,20 @@
 
   // Что человек уже решил сам: раскрыл свёртку, отметил галочку, выбрал пункт.
   function ownedByUser(el, name) {
-    /* Плашка связи целиком принадлежит браузеру: жив ли канал, знает только он,
-       а сервер рисует её всегда в подключённом виде. Без этого первая же удачная
-       подмена стирала бы отметку «нет связи» — и она возвращалась бы обратно
-       через несколько секунд, то есть мигала бы на ровном месте. */
-    if (el.classList && el.classList.contains('a-live')) return true;
     if (name === 'open' && el.tagName === 'DETAILS') return true;
     return FIELDS[el.tagName] && (name === 'value' || name === 'checked' || name === 'selected');
+  }
+
+  /* Плашка в шапке целиком принадлежит браузеру — и снаружи, и внутри.
+   *
+   * Снаружи: жив ли канал, знает только он, а сервер рисует плашку всегда
+   * подключённой; без защиты первая же удачная подмена стирала бы «нет связи»,
+   * и отметка возвращалась бы через несколько секунд, то есть мигала бы на
+   * ровном месте. Внутри: число онлайна приходит по каналу, а в свежей разметке
+   * его слот ПУСТ — морфинг детей стирал бы цифру на каждом обновлении.
+   */
+  function browserOwned(el) {
+    return !!(el.classList && el.classList.contains('a-live'));
   }
 
   function morph(from, to) {
@@ -92,6 +99,7 @@
       return;
     }
     if (from.nodeType !== 1) return;
+    if (browserOwned(from)) return;
     syncAttrs(from, to);
     // У поля ввода детей либо нет, либо они и есть его значение (textarea).
     if (FIELDS[from.tagName]) return;
@@ -229,6 +237,22 @@
     offTimer = setTimeout(function () { offTimer = null; setOffline(true); }, OFFLINE_AFTER);
   }
 
+  /* Сколько человек на витрине прямо сейчас. Считает это метрика, а присылает
+   * канал отдельным событием (`event: visitors`) — в общем объекте номеров
+   * версий такое число заставляло бы перезапрашивать всю страницу на каждого
+   * пришедшего посетителя.
+   *
+   * Скрипт пишет ЦИФРУ и только её: слово «online» и «нет связи» лежат в
+   * разметке, как и все подписи про состояние. Это то же исключение, что у
+   * отсчёта срока счёта в `admin-ui.js`, — число это данные, а не подпись.
+   */
+  function setOnline(n) {
+    var slot = document.querySelector('.a-live-num');
+    if (!slot) return;
+    var text = typeof n === 'number' && isFinite(n) && n >= 0 ? String(n) : '';
+    if (slot.textContent !== text) slot.textContent = text;
+  }
+
   // Отметка «обновилось» в шапке: без неё подмена происходит бесшумно, и
   // непонятно, живая страница или просто давно открытая.
   function flash() {
@@ -359,6 +383,13 @@
     var data; try { data = JSON.parse(e.data); } catch (x) { return; }
     fresh();
     if (data && data.html) noteShow(data.html);
+  });
+  // Люди на витрине — своим именем сообщения по той же причине: цифра в шапке
+  // меняется от каждого посетителя, а перерисовывать из-за неё страницу незачем.
+  es.addEventListener('visitors', function (e) {
+    var data; try { data = JSON.parse(e.data); } catch (x) { return; }
+    fresh();
+    if (data) setOnline(Number(data.n));
   });
 
   // Запасной путь. EventSource переподключается сам, но между попытками канал

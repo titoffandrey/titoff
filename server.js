@@ -86,6 +86,11 @@ const metrics = new Analytics({
   geoEnabled: process.env.GEOIP_ENABLED !== '0',
   remoteGeo: process.env.GEOIP_REMOTE === '1'
 });
+/* Число в шапке панели («3 online») считает метрика, а не канал: `lib/live.js`
+ * не подключает из проекта ничего, иначе require замкнулся бы в кольцо. Мерка
+ * та же, что у плитки «Сейчас на сайте» на «Обзоре» — одна функция на оба
+ * места, чтобы соседние экраны не называли разные числа. */
+LIVE.online(() => metrics.onlineCount());
 
 const PORT = process.env.PORT || 3000;
 // Публичный origin задаётся развёртыванием и не зависит от Host конкретного
