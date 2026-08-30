@@ -3964,17 +3964,12 @@ details.metric-bots>summary:hover{background:#fffaf0}
   font:inherit;font-size:12.5px;color:var(--muted);text-decoration:underline;
   text-underline-offset:3px;text-decoration-color:var(--border)}
 .co-promo-drop:hover{color:#d92d20;text-decoration-color:currentColor}
-/* «Ввести другой промокод» — тихая строка под плашкой: свой код есть у единиц. */
-.co-promo-open{display:block;margin:10px 0 0;padding:0;border:0;background:none;cursor:pointer;
-  font:inherit;font-size:13px;color:var(--accent)}
-.co-promo-open:hover{text-decoration:underline;text-underline-offset:3px}
-.co-promo-chip+.co-promo-form{margin-top:10px}
 .co-promo-form{display:flex;gap:8px}
 /* `hidden` не прячет то, у чего задан `display`: браузерная таблица даёт ему
    всего лишь `display:none`, а правило выше её перебивает. На этом в проекте
    уже наступали — так висела на виду кнопка чата, которую скрипт считал
    скрытой. */
-.co-promo[hidden],.co-promo-chip[hidden],.co-promo-form[hidden],.co-promo-open[hidden]{display:none}
+.co-promo[hidden],.co-promo-chip[hidden],.co-promo-form[hidden]{display:none}
 .co-promo-form input{flex:1;min-width:0;height:42px;padding:0 12px;border:1px solid var(--border);
   border-radius:12px;background:#fff;font:inherit;font-size:15px;letter-spacing:.04em;
   text-transform:uppercase}

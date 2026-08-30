@@ -278,7 +278,6 @@
       + '<span class="co-promo-text"><b id="co-promo-code"></b><i id="co-promo-cut"></i></span>'
       + '<button type="button" class="co-promo-drop" id="co-promo-drop">Удалить</button>'
       + '</div>'
-      + '<button type="button" class="co-promo-open" id="co-promo-open" hidden>Ввести другой промокод</button>'
       + '<form class="co-promo-form" id="co-promo-form">'
       + '<label class="sr-only" for="co-promo-input">Промокод</label>'
       + '<input type="text" id="co-promo-input" placeholder="Промокод" maxlength="24"'
@@ -295,17 +294,6 @@
     if (drop) drop.addEventListener('click', dropPromo);
     var back = document.getElementById('co-promo-back');
     if (back) back.addEventListener('click', restorePromo);
-    // «Ввести другой промокод» — раскрытие поля у того, у кого код уже применён.
-    // Держать поле открытым всегда незачем: свой код есть у единиц, а строка с
-    // применённым кодом нужна каждому.
-    var open = document.getElementById('co-promo-open');
-    if (open) open.addEventListener('click', function () {
-      var wrap = document.getElementById('co-promo');
-      if (wrap) wrap.classList.add('is-open');
-      syncPromo();
-      var input = document.getElementById('co-promo-input');
-      if (input) input.focus();
-    });
     syncPromo();
   }
 
@@ -324,15 +312,17 @@
     if (chip) chip.hidden = !applied;
     if (applied) {
       setText('co-promo-code', promoView.code);
-      // Что даёт код: свой процент — числом, скидка товара — словами. У неё
-      // процент у каждого товара свой, и одно число тут было бы неправдой.
-      setText('co-promo-cut', promoView.percent ? '−' + promoView.percent + '%' : 'скидка уже в ценах');
+      // Что даёт код: свой процент — числом, скидка товара — просто отметкой,
+      // что код в силе. У неё процент у каждого товара свой, и одно число тут
+      // было бы неправдой.
+      setText('co-promo-cut', promoView.percent ? '−' + promoView.percent + '%' : 'Промокод применён');
     }
-    var open = document.getElementById('co-promo-open');
-    var showForm = !applied || wrap.classList.contains('is-open');
-    if (open) open.hidden = !applied || showForm;
+    /* Поле ввода показывается только когда кода нет: другой код набирают,
+     * УДАЛИВ применённый, а не поверх него. Пока рядом с плашкой стояла строка
+     * «Ввести другой промокод», у покупателя было два пути к одному действию —
+     * и второй молча подменял бы уже применённый код. */
     var form = document.getElementById('co-promo-form');
-    if (form) form.hidden = !showForm;
+    if (form) form.hidden = applied;
 
     var note = document.getElementById('co-promo-note');
     var back = document.getElementById('co-promo-back');
@@ -385,8 +375,6 @@
         promoChoice = { code: code };
         savePromoChoice();
         if (input) input.value = '';
-        var wrap = document.getElementById('co-promo');
-        if (wrap) wrap.classList.remove('is-open');
         takePromo(d);
         repriceCart();
       })

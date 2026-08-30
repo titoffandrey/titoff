@@ -13665,7 +13665,17 @@ test('промокод не прячется под собственным CSS',
    * уже наступали — так висела на виду кнопка чата, которую скрипт считал
    * скрытой, и так же висели рядом плашка кода и поле ввода. */
   assert.match(css, /\.co-promo-form\{display:flex/);
-  assert.match(css, /\.co-promo-chip\[hidden\],\.co-promo-form\[hidden\],\.co-promo-open\[hidden\]\{display:none\}/);
+  assert.match(css, /\.co-promo-chip\[hidden\],\.co-promo-form\[hidden\]\{display:none\}/);
+
+  /* Поле ввода открывается только удалением применённого кода: второго пути к
+   * нему («Ввести другой промокод») быть не должно — он молча подменял бы
+   * уже применённый код. */
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.doesNotMatch(js, /co-promo-open/);
+  assert.match(js, /if \(form\) form\.hidden = applied;/);
+  // Скидка товара подписывается отметкой «код в силе», а не числом: процент у
+  // каждого товара свой, и одно число тут было бы неправдой.
+  assert.match(js, /'−' \+ promoView\.percent \+ '%' : 'Промокод применён'/);
 });
 
 test('снятый промокод не переживает открытие страницы', () => {
