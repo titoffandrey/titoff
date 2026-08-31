@@ -1704,6 +1704,32 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .legal-table code{padding:2px 6px;border-radius:6px;background:var(--bg2);font-size:12px}
 .legal-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
 
+/* «О компании». Раскладка та же, что у правовых страниц: разделы карточкой,
+   волосяные линии между ними. Своего здесь три вещи — разделы каталога
+   пилюлями, шаги покупки нумерованным списком и карта. */
+.about-page .trust{max-width:660px}
+.about-cats{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.about-cats li{margin:0}
+.about-cats a{display:inline-block;padding:7px 14px;border:1px solid var(--border);border-radius:999px;background:var(--bg2);color:var(--text);font-size:13px;line-height:1.3;text-decoration:none}
+.about-cats a:hover{border-color:var(--accent);color:var(--accent)}
+.about-steps{margin:0;padding-left:20px}
+.about-steps li+li{margin-top:10px}
+.about-steps b{color:var(--text);font-weight:640}
+/* Карта. Пока покупатель её не попросил, здесь стоит одна ссылка — рамка вокруг
+   неё остаётся, чтобы блок и до нажатия читался как карточка адреса, а не как
+   потерянная строка. Кнопку-заглушку вставляет public/app.js. */
+.about-map{margin-top:20px;overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:var(--bg2)}
+.map-open{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  width:100%;height:280px;padding:0;border:0;background:none;color:var(--text);font:inherit;cursor:pointer}
+.map-open:hover .map-open-label{color:var(--accent)}
+.map-open-label{font-size:15px;font-weight:620}
+/* Цена нажатия названа прямо: карта приедет с чужого сервера. */
+.map-open-note{color:var(--muted);font-size:12.5px}
+.map-frame{display:block;width:100%;height:380px;border:0}
+.about-map-link{display:block;padding:13px 16px;border-top:1px solid var(--border-soft);
+  background:#fff;color:var(--accent);font-size:14px;text-align:center;text-decoration:none}
+.about-map-link:hover{text-decoration:underline;text-underline-offset:3px}
+
 /* Корзина */
 .cart-overlay{background:rgba(17,17,26,.36);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
 .cart-drawer{width:430px;border-left:1px solid var(--border-soft);box-shadow:-24px 0 70px rgba(17,17,26,.16)}
@@ -3667,6 +3693,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .legal-section{padding:22px 18px}
   .legal-section h2{font-size:21px}
   .legal-details>div{grid-template-columns:1fr;gap:4px}
+  /* Карта на телефоне ниже: в полный рост она занимала бы весь экран, и адрес
+     над ней уезжал из виду. */
+  .map-open{height:200px}
+  .map-frame{height:300px}
   .legal-table-wrap{overflow:hidden}
   .legal-table,.legal-table tbody,.legal-table tr,.legal-table td{display:block;width:100%;min-width:0}
   .legal-table thead{display:none}
@@ -3674,6 +3704,9 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .legal-table tr:last-child{border-bottom:0}
   .legal-table td{display:grid;grid-template-columns:92px minmax(0,1fr);gap:10px;padding:5px 0;border:0}
   .legal-table td::before{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}
+  /* Подпись из разметки, а не второй копией слов в CSS: у таблицы сроков на
+     «О компании» заголовок столбца и подпись карточки обязаны совпадать. */
+  .legal-table td[data-l]::before{content:attr(data-l)}
   .purposes-table td:nth-child(1)::before{content:"Цель"}
   .purposes-table td:nth-child(2)::before{content:"Данные"}
   .purposes-table td:nth-child(3)::before{content:"Основание"}

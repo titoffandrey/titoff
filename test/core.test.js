@@ -2810,6 +2810,106 @@ test('гарантия и возврат — две отдельные стра�
   assert.match(css, /\.warranty-table td:nth-child\(2\)::before/);
 });
 
+test('«О компании» — факты из тех же модулей, что и витрина', () => {
+  const settings = {
+    storeName: 'a:Market', tagline: 'Оригинальная техника Apple', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    contactPhone: '+79991234567', contactEmail: 'shop@example.test', contactTelegram: '@manager', contactHours: 'Ежедневно 10:00–21:00',
+    storeAddress: 'г. Москва, Пресненская наб., 12', storeGeo: '55.749792, 37.537186',
+    legalOperator: 'ИП <Тест>', legalDetails: 'ИНН 123', legalAddress: 'Москва', privacyEmail: 'privacy@example.test'
+  };
+  const html = render.aboutPage(settings, { origin: 'https://example.test', categories: ['iPhone', 'Mac'] });
+
+  assert.match(html, /<link rel="canonical" href="https:\/\/example\.test\/about"/);
+  // Перевозчики и зоны сроков берутся из тех же модулей, что считают доставку на
+  // оформлении: переписанные словами, они разошлись бы с ним молча.
+  for (const m of require('../lib/delivery').METHODS) assert.ok(html.includes(m.name), 'нет перевозчика ' + m.name);
+  for (const z of require('../lib/delivery-days').summaryRows()) {
+    assert.ok(html.includes(z.name) && html.includes(z.days), 'нет зоны ' + z.name);
+  }
+  // Строка сроков консультанта и таблица страницы считаются одним проходом.
+  assert.equal(require('../lib/delivery-days').summary(),
+    require('../lib/delivery-days').summaryRows().map(r => r.name + ' — ' + r.days).join(', '));
+
+  // Контакты, категории и реквизиты — из настроек, и экранируются так же, как на
+  // правовых страницах.
+  assert.match(html, /href="tel:\+79991234567"/);
+  assert.match(html, /href="mailto:shop@example\.test"/);
+  assert.match(html, /href="https:\/\/t\.me\/manager"/);
+  assert.match(html, /href="\/\?category=iPhone"/);
+  assert.match(html, /ИП &lt;Тест&gt;/);
+  // Ссылки на остальные условия — ради них страницу и открывают вторым заходом.
+  for (const href of ['/warranty', '/returns', '/privacy', '/personal-data-consent', '/track']) {
+    assert.ok(html.includes(`href="${href}"`), 'нет ссылки на ' + href);
+  }
+  // Часы работы стоят у контактов и НЕ повторяются под адресом: в двух соседних
+  // разделах одно значение читается как две строки, которые зачем-то сверяют.
+  const address = html.slice(html.indexOf('id="address"'), html.indexOf('id="seller"'));
+  assert.match(html.slice(html.indexOf('id="contacts"'), html.indexOf('id="address"')), /Ежедневно 10:00–21:00/);
+  assert.doesNotMatch(address, /Время работы/);
+
+  // Слоган владельца точкой не заканчивается — иначе он слипается со следующей
+  // фразой в одно предложение.
+  assert.match(html, /Оригинальная техника Apple\. Здесь собрано/);
+
+  // Магазин без офлайн-точки не обещает адреса вовсе, и карты у него нет.
+  const online = render.aboutPage({ storeName: 'a:Market', currency: '₽' }, { origin: 'https://example.test' });
+  assert.doesNotMatch(online, /about-map/);
+  assert.match(online, /розничных точек, шоурума и самовывоза нет/);
+});
+
+test('карта «О компании» грузится только по нажатию', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const lib = fs.readFileSync(path.join(__dirname, '..', 'lib', 'server-lib.js'), 'utf8');
+  const base = { storeName: 'a:Market', currency: '₽', storeAddress: 'г. Москва, Пресненская наб., 12' };
+  const html = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base), { origin: 'https://example.test' });
+
+  /* Главное: в разметке страницы нет ни одного яндексовского АДРЕСА, который
+     браузер загрузил бы сам. Есть только data-атрибут и обычная ссылка —
+     значит обычный посетитель наружу не светится, а фрейм появляется после
+     того, как он сам попросил карту. */
+  assert.doesNotMatch(html, /<iframe/);
+  assert.doesNotMatch(html, /(src|href)="https:\/\/yandex\.ru\/map-widget/);
+  assert.match(html, /data-map="https:\/\/yandex\.ru\/map-widget\/v1\/\?ll=37\.537186%2C55\.749792/);
+  assert.match(html, /<a class="about-map-link" href="https:\/\/yandex\.ru\/maps\/\?/);
+  // Фрейм вставляет витринный скрипт, и адрес он берёт из разметки, а не
+  // собирает сам: второй сборщик того же адреса разошёлся бы с сервером.
+  assert.match(js, /function initStoreMap\(\)/);
+  assert.match(js, /frame\.src = box\.dataset\.map/);
+  assert.doesNotMatch(js, /yandex\.ru/);
+
+  // CSP пускает чужой хост только во фрейм. Ни script-src, ни connect-src, ни
+  // img-src о нём не знают — иначе послабление вышло бы за карту.
+  const csp = lib.match(/'Content-Security-Policy': "([^"]+)"/)[1];
+  assert.match(csp, /frame-src https:\/\/yandex\.ru https:\/\/\*\.yandex\.ru/);
+  for (const d of ['script-src', 'connect-src', 'img-src', 'style-src', 'font-src']) {
+    const value = csp.match(new RegExp(d + " ([^;]+)"))[1];
+    assert.doesNotMatch(value, /yandex/, d + ' пускает яндекс');
+  }
+
+  // Координаты необязательны: без них карта ищет по самому адресу, а мусор в
+  // поле — это «координат нет», а не сломанная страница.
+  const byText = render.aboutPage(base, { origin: 'https://example.test' });
+  assert.match(byText, /data-map="[^"]*text=%D0%B3/);
+  assert.equal(render.storePoint({ storeGeo: 'где-то в Москве' }), null);
+  assert.equal(render.storePoint({ storeGeo: '95.1, 37.5' }), null, 'широта больше 90 — не точка');
+  assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });
+});
+
+test('«О компании» — своя страница витрины: маршрут, подвал, метрика и карта сайта', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const home = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+
+  assert.match(home, /<li><a href="\/about">О компании<\/a><\/li>/);
+  assert.match(server, /\['\/about', R\.aboutPage\]/);
+  // Список публичных страниц один на метрику, карту сайта и проверку
+  // подтверждения: без /about живой посетитель уехал бы в «неподтверждённые
+  // автоматические запросы», а страница не попала бы в sitemap.
+  assert.match(server, /const PUBLIC_PAGES = \[[^\]]*'\/about'/);
+  const names = fs.readFileSync(path.join(__dirname, '..', 'lib', 'analytics-view.js'), 'utf8');
+  assert.match(names, /'\/about': 'О компании'/);
+});
+
 test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

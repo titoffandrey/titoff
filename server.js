@@ -548,6 +548,7 @@ function brandFields(body) {
     contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100),
     contactEmail: short(body.contactEmail, 160).trim(), contactHours: short(body.contactHours, 120).trim(),
     storeAddress: short(body.storeAddress, 300).trim(),
+    storeGeo: short(body.storeGeo, 60).trim(),
     footerNote: short(body.footerNote, 500),
     legalOperator: short(body.legalOperator, 240).trim(), legalDetails: short(body.legalDetails, 240).trim(),
     legalAddress: short(body.legalAddress, 400).trim(), privacyEmail: short(body.privacyEmail, 160).trim(),
@@ -590,7 +591,7 @@ function clientIp(req) {
 }
 // Страницы витрины, которые считаются посещениями. Один список на весь проект:
 // он же лежит в карте сайта и в проверке подтверждения метрики.
-const PUBLIC_PAGES = ['/', '/checkout', '/privacy', '/personal-data-consent', '/personal-data-publication-consent', '/warranty', '/returns'];
+const PUBLIC_PAGES = ['/', '/checkout', '/about', '/privacy', '/personal-data-consent', '/personal-data-publication-consent', '/warranty', '/returns'];
 function metricPublicPath(rawPath) {
   let pathname;
   try { pathname = decodeURIComponent(String(rawPath || '').split('?')[0]); } catch (e) { return ''; }
@@ -929,8 +930,11 @@ app.get('/track/:token', (req, res) => {
   })));
 });
 
-// Правовые страницы: у всех одна обвязка и один вид, отличается только текст.
+// Справочные страницы витрины: у всех одна обвязка и один вид, отличается
+// только текст. «О компании» стоит здесь же — ей нужны те же категории меню и
+// тот же origin, а своего состояния у неё нет.
 for (const [route, page] of [
+  ['/about', R.aboutPage],
   ['/privacy', R.privacyPage],
   ['/personal-data-consent', R.personalDataConsentPage],
   ['/personal-data-publication-consent', R.publicationConsentPage],
@@ -4303,6 +4307,13 @@ app.post('/admin/settings', async (req, res) => {
     const stored = PHONE.store(raw);
     if (raw && !stored) return fail('Телефон магазина введён с ошибкой — например: +7 999 123-45-67');
     patch.contactPhone = stored;
+  }
+  /* Координаты офлайн-точки. Проверяются до записи, как и всё в этой форме:
+   * мусор в поле не сломает витрину (карта тогда ищет по адресу), но и молча
+   * проглотить его нельзя — владелец увидит «Сохранено» и будет гадать, почему
+   * булавка стоит не там. Пустое поле законно и означает «искать по адресу». */
+  if (patch.storeGeo && !R.storePoint({ storeGeo: patch.storeGeo })) {
+    return fail('Координаты — широта и долгота через запятую, например: 55.751244, 37.618423');
   }
   for (const [field, label] of [['contactEmail', 'Почта магазина'], ['privacyEmail', 'E-mail для обращений по персональным данным']]) {
     const value = String(patch[field] || '').trim();
