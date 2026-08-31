@@ -1137,8 +1137,22 @@ test('«Кто заходил» — своя страница с отбором,
   assert.match(html, /class="mf-chip"[^>]*href="[^"]*device=/, 'отбор по устройству — ссылка, а не скрипт');
   assert.match(html, /Показать ещё 50/);
   assert.match(html, /name="from" value=""/);
+  assert.match(html, /class="mf-date-native"/, 'нативная дата остаётся запасным ходом без JS');
+  assert.match(html, /data-date-trigger="from"/, 'поверх неё есть календарь в стиле Trends');
+  assert.match(html, /data-date-label class="is-placeholder">ДД\.ММ\.ГГГГ</,
+    'пустая дата видна именно как плейсхолдер');
   assert.match(html, /<select name="sort">/);
   assert.match(html, /data-live="analytics/, 'страница обязана обновляться сама');
+
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(ui, /Произвольный период времени/);
+  assert.match(ui, /slot\.textContent !== text/,
+    'подпись даты не должна замыкать MutationObserver живой страницы');
+  assert.match(css, /\.gcal-backdrop\{[^}]*rgba\(50,50,50,\.5\)/,
+    'затемнение календаря совпадает с Google Trends');
+  assert.match(css, /\.gcal-day\.is-selected>span\{background:#4284f3/,
+    'выбранная дата совпадает с синим кругом Google');
 
   // Выбранный отбор уезжает скрытыми полями рядом с датами: иначе «Показать»
   // за один нажим стирал бы отбор по технике.
@@ -2205,6 +2219,12 @@ test('шапка сворачивается при прокрутке, а Telegr
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(css, /\.site-header\.header-compact/);
   assert.match(css, /\.site-header\.header-compact \.site-nav\{max-height:0/);
+  // Прозрачность и размытие сняты с липкой шапки ads-store.ru: 70 % белого в
+  // ОБОИХ состояниях. Прежние 96 % у свёрнутой делали ровно обратное — при
+  // прокрутке шапка становилась плотнее, чем в покое, и превращалась в сплошную
+  // белую полосу поверх товара.
+  assert.match(css, /\.site-header\{[^}]*background:rgba\(255,255,255,\.7\)[^}]*backdrop-filter:blur\(16px\) saturate\(140%\)/);
+  assert.match(css, /\.site-header\.header-compact\{background:rgba\(255,255,255,\.7\);box-shadow:0 2px 6px rgba\(0,0,0,\.06\)\}/);
   assert.match(css, /\.tg-header\{[^}]*border:1px solid[^}]*background:transparent/);
   assert.match(js, /function initCompactHeader\(\)/);
   assert.match(js, /initCompactHeader\(\);/);
@@ -2252,6 +2272,22 @@ test('в подвале Telegram — одна кнопка с действием
   // Глиф самолётика нарисован с воздухом внутри холста, поэтому рядом с текстом
   // он казался отставшим на пробел: пустоту съедают отрицательные поля.
   assert.match(css, /\.tg-cta \.tg-ico\{[^}]*margin:0 -\d+px 0 -\d+px/);
+});
+
+test('адрес единственной офлайн-точки виден в подвале и настройках', () => {
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const address = 'г. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»';
+  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', storeAddress: address }, fakeDb, {});
+  // Подписи «Офлайн-магазин» над адресом больше нет: слово повторяло то, что и
+  // так говорит сам адрес, и занимало отдельную строку в колонке контактов.
+  // Вместо него булавка — та же залитая, что у подписи «Адрес» на оформлении;
+  // значок озвучить нечем, поэтому имя строке даёт спрятанное слово рядом.
+  assert.match(html, /class="foot-address"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/div>/);
+  assert.doesNotMatch(html, /Офлайн-магазин/);
+
+  const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { storeAddress: address }), dbCore);
+  assert.match(settingsHtml, /name="storeAddress" value="г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»"/);
+  assert.match(settingsHtml, /единственная точка и в других городах магазинов нет/);
 });
 
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
@@ -2461,21 +2497,53 @@ test('минификатор снимает отступы, но не трога
   assert.ok(out.length < src.length);
 });
 
-test('правовые ссылки в подвале тоже помещаются в строку', () => {
+test('подвал — разделы: каталог, страницы покупателю и контакты', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
-  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {});
+  const withCats = Object.assign({}, fakeDb, { visibleCategories: () => ['iPhone', 'Mac'] });
+  const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, withCats, {});
+
+  // Каждая колонка названа: подпись видна глазами, а имя разделу-ориентиру даёт
+  // aria-label — колонок стало четыре, и безымянными они читались бы как один
+  // длинный список ссылок.
+  assert.match(html, /<nav class="footer-col" aria-label="Каталог">[\s\S]*?<div class="footer-col-head">Каталог<\/div>/);
+  assert.match(html, /<li><a href="\/\?category=iPhone">iPhone<\/a><\/li>/);
+  assert.match(html, /<nav class="footer-col" aria-label="Покупателю">/);
+  assert.match(html, /<div class="footer-col-head">Контакты<\/div>/);
+
+  // Правовые страницы и отслеживание переехали из мелкого ряда под копирайтом в
+  // раздел «Покупателю» — одной строкой на ссылку, как в подвале любого
+  // магазина. Прежней сетки 2×2 с кеглем от ширины экрана больше нет.
+  for (const t of ['Отследить заказ', 'Гарантия', 'Возврат и обмен', 'Политика конфиденциальности', 'Согласие на обработку данных']) {
+    assert.match(html, new RegExp('<li><a href="/[a-z-]+">' + t + '</a></li>'));
+  }
+  assert.doesNotMatch(html, /footer-links/);
+  assert.doesNotMatch(css, /\.footer-links/);
+
+  // Колонки — flex с переносом, а не сетка с четырьмя дорожками: у магазина без
+  // категорий колонки «Каталог» нет вовсе, и пустая дорожка оставила бы у
+  // правого края дыру шириной в зазор.
+  assert.match(css, /\.footer-cols\{display:flex;flex-wrap:wrap/);
+  assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /aria-label="Каталог"/);
+
+  // На телефоне разделы ссылок идут в две колонки, а магазин и контакты — во всю
+  // ширину: четырьмя блоками в столбик подвал растянулся бы на два экрана.
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.footer-links\{[^}]*grid-template-columns:repeat\(2,auto\)[^}]*font-size:min\(12px,calc\(\(100vw - 54px\)\/32\.9\)\)/);
-  assert.match(mobile, /\.footer-links a\{white-space:nowrap\}/);
-  // Длина строки вписана в CSS числом, поэтому подписи менять нельзя, не
-  // пересчитав константу 32.9 (это 31.3em самой длинной пары плюс запас).
-  // В сетке 2×2 такая пара — вторая строка, ссылки про персональные данные:
-  // «Гарантия» и «Возврат и обмен» короче и ширину колонок не задают.
-  assert.match(html, />Гарантия</);
-  assert.match(html, />Возврат и обмен</);
-  assert.match(html, />Политика конфиденциальности</);
-  assert.match(html, />Согласие на обработку данных</);
+  assert.match(mobile, /\.footer-cols\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(mobile, /\.footer-about,\.footer-contacts\{grid-column:1\/-1/);
+});
+
+test('цвета подвала — из подвала Google Trends, и одни на все его части', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Значения сняты с их страницы: фон #e9eef6, текст rgba(0,0,0,.87), ссылки и
+  // приглушённые подписи #444746.
+  assert.match(css, /:root\{--footer-bg:#e9eef6;--footer-ink:rgba\(0,0,0,\.87\);--footer-link:#444746\}/);
+  assert.match(css, /\.site-footer\{[^}]*background:var\(--footer-bg\);color:var\(--footer-ink\)/);
+  // Обводка знаков оплаты рисуется цветом подвала: с прежним --bg2 вокруг них
+  // остались бы светлые швы чужого оттенка, и увидеть это можно только глазами.
+  assert.match(css, /\.pay-mc svg\{[^}]*stroke:var\(--footer-bg\)/);
+  assert.match(css, /\.pay-sbp svg:first-child\{[^}]*stroke:var\(--footer-bg\)/);
+  assert.doesNotMatch(css, /stroke:var\(--bg2\)/);
 });
 
 test('гарантия и возврат — две отдельные страницы со своими условиями', () => {
@@ -11079,6 +11147,7 @@ test('в контекст ИИ уезжают живые цены и налич�
    * уходят ровно один раз. Перенос не должен оплачивать вторую скрытую копию. */
   const visible = chatPrompt.editableInstruction(SETTINGS);
   assert.equal(visible, chatPrompt.DEFAULT_INSTRUCTION);
+  assert.match(visible, /может продавать онлайн и через офлайн-точку/);
   assert.equal((system.match(/Ты — Ксения/g) || []).length, 1, 'скрытого дубля инструкции нет');
   const complete = chatPrompt.editableInstruction({
     chatPromptComplete: true,
@@ -11700,6 +11769,14 @@ test('консультант не повторяется и не отговар�
   }));
   assert.match(store, /самовывоза нет/, 'офлайн-точек нет — это спрашивают через один диалог');
   assert.match(store, /Оплаты при получении и наложенного платежа нет/);
+  const offline = chatPrompt.storeText(Object.assign({}, SETTINGS, {
+    storeAddress: 'г. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»'
+  }));
+  assert.match(offline, /Магазин работает онлайн и офлайн/);
+  assert.match(offline, /Единственная офлайн-точка: г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»/);
+  assert.match(offline, /Туда можно прийти и купить товар/);
+  assert.match(offline, /В других городах розничных точек и шоурумов нет/);
+  assert.doesNotMatch(offline, /Работаем только через интернет/);
 
   /* Оплата описывается ПО РЕЖИМУ ВИТРИНЫ, а не развилкой «касса или заявка».
    * Магазин на своих реквизитах попадал во вторую ветку, и консультант обещал

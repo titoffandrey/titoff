@@ -543,6 +543,7 @@ function brandFields(body) {
     metaDescription: short(body.metaDescription, 300).trim(),
     contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100),
     contactEmail: short(body.contactEmail, 160).trim(), contactHours: short(body.contactHours, 120).trim(),
+    storeAddress: short(body.storeAddress, 300).trim(),
     footerNote: short(body.footerNote, 500),
     legalOperator: short(body.legalOperator, 240).trim(), legalDetails: short(body.legalDetails, 240).trim(),
     legalAddress: short(body.legalAddress, 400).trim(), privacyEmail: short(body.privacyEmail, 160).trim(),

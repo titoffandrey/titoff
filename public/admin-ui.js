@@ -25,6 +25,338 @@
   });
 })();
 
+/* ================= Календарь диапазона в метрике =================
+ *
+ * Данные по-прежнему живут в двух родных `<input type=date>` и уходят обычной
+ * GET-формой. Этот слой отвечает только за вид и взаимодействие: диалог,
+ * палитра, непрерывная лента месяцев и формат ДД.ММ.ГГГГ повторяют Google
+ * Trends. Не загрузился скрипт — остаются нативные рабочие поля, а не две
+ * нарисованные кнопки без действия.
+ *
+ * Обработчик делегирован документу, потому что живая метрика подменяет форму
+ * прямо на открытой странице. Черновик хранится в диалоге, а по «ОК» всегда
+ * записывается в НОВЫЕ поля текущей формы, даже если подмена случилась, пока
+ * календарь был открыт.
+ */
+(function () {
+  'use strict';
+
+  var layer = null;
+  var pane = null;
+  var monthList = null;
+  var opener = null;
+  var activeName = 'from';
+  var activeTab = 'archive';
+  var draft = { from: '', to: '' };
+  var today = '';
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  function two(n) { return n < 10 ? '0' + n : String(n); }
+
+  function localToday() {
+    var d = new Date();
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate());
+  }
+
+  function parse(value) {
+    var m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+    if (d.getFullYear() !== Number(m[1]) || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3])) return null;
+    return d;
+  }
+
+  function ymd(d) {
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate());
+  }
+
+  function label(value) {
+    var d = parse(value);
+    return d ? two(d.getDate()) + '.' + two(d.getMonth() + 1) + '.' + d.getFullYear() : 'ДД.ММ.ГГГГ';
+  }
+
+  function shiftDay(value, amount) {
+    var d = parse(value) || new Date();
+    d.setDate(d.getDate() + amount);
+    return ymd(d);
+  }
+
+  function currentForm() { return document.querySelector('.mf-form'); }
+
+  function field(name) {
+    var form = currentForm();
+    return form ? form.querySelector('.mf-date-native[name="' + name + '"]') : null;
+  }
+
+  function paintPageLabels() {
+    var triggers = document.querySelectorAll('[data-date-trigger]');
+    for (var i = 0; i < triggers.length; i++) {
+      var trigger = triggers[i];
+      var input = trigger.parentNode && trigger.parentNode.querySelector('.mf-date-native');
+      var slot = trigger.querySelector('[data-date-label]');
+      if (!slot || !input) continue;
+      var text = label(input.value);
+      // `textContent=` даже с тем же значением создаёт новый текстовый узел.
+      // На живой странице это снова будит MutationObserver и без проверки
+      // замыкает его в бесконечную очередь обновлений после кнопки «ОК».
+      if (slot.textContent !== text) slot.textContent = text;
+      slot.classList.toggle('is-placeholder', !parse(input.value));
+    }
+  }
+
+  function enhance(root) {
+    // Добавление текста — не новая форма. Если прогнать через общий `document`,
+    // наблюдатель снова затронет все подписи дат, включая только что изменённую.
+    if (root && root.nodeType && root.nodeType !== 1 && root.nodeType !== 9) return;
+    var scope = root && root.querySelectorAll ? root : document;
+    var triggers = scope.querySelectorAll('[data-date-trigger]');
+    for (var i = 0; i < triggers.length; i++) {
+      triggers[i].hidden = false;
+      var control = triggers[i].closest ? triggers[i].closest('.mf-date-control') : triggers[i].parentNode;
+      if (control) control.classList.add('is-ready');
+    }
+    // `root` сам может быть кнопкой после точечной подмены.
+    if (root && root.matches && root.matches('[data-date-trigger]')) {
+      root.hidden = false;
+      var own = root.closest('.mf-date-control');
+      if (own) own.classList.add('is-ready');
+    }
+    paintPageLabels();
+  }
+
+  function build() {
+    if (layer) return;
+    layer = document.createElement('div');
+    layer.className = 'gcal-layer';
+    layer.hidden = true;
+    layer.innerHTML = '<div class="gcal-backdrop" data-gcal-cancel></div>'
+      + '<section class="gcal-dialog" role="dialog" aria-modal="true" aria-labelledby="gcal-title">'
+      + '<div class="gcal-title" id="gcal-title">Произвольный период времени</div>'
+      + '<div class="gcal-tabs" role="tablist">'
+      + '<button class="gcal-tab is-active" type="button" role="tab" aria-selected="true" data-gcal-tab="archive">АРХИВ</button>'
+      + '<button class="gcal-tab" type="button" role="tab" aria-selected="false" data-gcal-tab="week">ПРОШЛАЯ НЕДЕЛЯ</button></div>'
+      + '<div data-gcal-panel="archive" role="tabpanel">'
+      + '<div class="gcal-content"><div class="gcal-row"><i class="gcal-radio is-on" aria-hidden="true"></i><span>С</span>'
+      + '<button class="gcal-range-field" type="button" data-gcal-range="from"><span data-gcal-label="from"></span><svg class="gcal-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5z"/></svg></button></div>'
+      + '<div class="gcal-row"><i aria-hidden="true"></i><span>По</span>'
+      + '<button class="gcal-range-field" type="button" data-gcal-range="to"><span data-gcal-label="to"></span><svg class="gcal-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5z"/></svg></button></div>'
+      + '<div class="gcal-row gcal-year" aria-disabled="true"><i class="gcal-radio" aria-hidden="true"></i><span>Весь год</span>'
+      + '<span class="gcal-year-value"><b data-gcal-year></b><svg class="gcal-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5z"/></svg></span></div></div></div>'
+      + '<div class="gcal-last-week" data-gcal-panel="week" role="tabpanel" hidden><span><b>Последние 7 дней</b>Диапазон будет установлен по календарным дням.</span></div>'
+      + '<div class="gcal-actions"><button class="gcal-action" type="button" data-gcal-cancel>ОТМЕНА</button><button class="gcal-action" type="button" data-gcal-ok>ОК</button></div>'
+      + '<div class="gcal-pane" data-gcal-pane hidden><div class="gcal-pane-value"><span data-gcal-pane-value></span><svg class="gcal-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5z"/></svg></div>'
+      + '<div class="gcal-weekdays" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div class="gcal-months" data-gcal-months role="grid" aria-label="Календарь"></div></div>'
+      + '</section>';
+    document.body.appendChild(layer);
+    pane = layer.querySelector('[data-gcal-pane]');
+    monthList = layer.querySelector('[data-gcal-months]');
+  }
+
+  function paintDraft() {
+    if (!layer) return;
+    for (var i = 0; i < 2; i++) {
+      var name = i ? 'to' : 'from';
+      var slot = layer.querySelector('[data-gcal-label="' + name + '"]');
+      if (!slot) continue;
+      slot.textContent = label(draft[name]);
+      slot.classList.toggle('is-placeholder', !parse(draft[name]));
+    }
+    var year = layer.querySelector('[data-gcal-year]');
+    var date = parse(today) || new Date();
+    if (year) year.textContent = String(date.getFullYear());
+  }
+
+  function setTab(name) {
+    activeTab = name === 'week' ? 'week' : 'archive';
+    var tabs = layer.querySelectorAll('[data-gcal-tab]');
+    var panels = layer.querySelectorAll('[data-gcal-panel]');
+    for (var i = 0; i < tabs.length; i++) {
+      var on = tabs[i].getAttribute('data-gcal-tab') === activeTab;
+      tabs[i].classList.toggle('is-active', on);
+      tabs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    for (var p = 0; p < panels.length; p++) panels[p].hidden = panels[p].getAttribute('data-gcal-panel') !== activeTab;
+    pane.hidden = true;
+    if (activeTab === 'week') {
+      draft.to = today;
+      draft.from = shiftDay(today, -6);
+      paintDraft();
+    }
+  }
+
+  function addMonth(container, year, month, selected) {
+    var section = document.createElement('section');
+    section.className = 'gcal-month';
+    section.setAttribute('data-gcal-month', year + '-' + two(month + 1));
+    var title = document.createElement('div');
+    title.className = 'gcal-month-title';
+    title.textContent = MONTHS[month] + ' ' + year;
+    section.appendChild(title);
+    var days = document.createElement('div');
+    days.className = 'gcal-days';
+    var first = new Date(year, month, 1, 12).getDay();
+    var count = new Date(year, month + 1, 0, 12).getDate();
+    for (var blank = 0; blank < first; blank++) {
+      var empty = document.createElement('i');
+      empty.className = 'gcal-blank';
+      empty.setAttribute('aria-hidden', 'true');
+      days.appendChild(empty);
+    }
+    for (var day = 1; day <= count; day++) {
+      var value = year + '-' + two(month + 1) + '-' + two(day);
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'gcal-day';
+      button.setAttribute('data-gcal-day', value);
+      button.setAttribute('role', 'gridcell');
+      button.setAttribute('aria-label', label(value));
+      button.disabled = value > today;
+      if (value === today) button.classList.add('is-today');
+      if (value === selected) {
+        button.classList.add('is-selected');
+        button.setAttribute('aria-selected', 'true');
+      }
+      var number = document.createElement('span');
+      number.textContent = String(day);
+      button.appendChild(number);
+      days.appendChild(button);
+    }
+    section.appendChild(days);
+    container.appendChild(section);
+  }
+
+  function renderMonths() {
+    if (!monthList) return;
+    monthList.textContent = '';
+    var selected = draft[activeName];
+    var base = parse(selected) || parse(today) || new Date();
+    var end = parse(today) || new Date();
+    end = new Date(end.getFullYear(), end.getMonth(), 1, 12);
+    var start = new Date(end.getFullYear(), end.getMonth() - 12, 1, 12);
+    if (base < start) start = new Date(base.getFullYear(), base.getMonth(), 1, 12);
+    var cursor = new Date(start.getFullYear(), start.getMonth(), 1, 12);
+    var guard = 0;
+    while (cursor <= end && guard++ < 18) {
+      addMonth(monthList, cursor.getFullYear(), cursor.getMonth(), selected);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    var selectedNode = monthList.querySelector('.gcal-day.is-selected');
+    var selectedMonth = selectedNode && selectedNode.closest ? selectedNode.closest('.gcal-month') : null;
+    if (!selectedMonth) selectedMonth = monthList.querySelector('.gcal-month:last-child');
+    // `offsetTop` считается от всего листа и включает 80 px строки даты и
+    // заголовка недели. Вычитаем положение самого скролл-контейнера, иначе
+    // название месяца уезжает ровно на эти 80 px за верхний край.
+    monthList.scrollTop = selectedMonth
+      ? Math.max(0, selectedMonth.offsetTop - monthList.offsetTop)
+      : monthList.scrollHeight;
+  }
+
+  function showPane(name) {
+    activeName = name === 'to' ? 'to' : 'from';
+    setTab('archive');
+    // Размеры месяцев нужны для прокрутки к выбранному. У скрытого `pane` все
+    // `offsetTop` равны нулю, поэтому сначала показываем лист и только потом
+    // строим и ставим его на нужный месяц.
+    pane.hidden = false;
+    renderMonths();
+    var value = layer.querySelector('[data-gcal-pane-value]');
+    if (value) value.textContent = label(draft[activeName]);
+    var selected = monthList.querySelector('.gcal-day.is-selected');
+    if (selected) selected.focus();
+    else pane.querySelector('.gcal-pane-value').focus && pane.querySelector('.gcal-pane-value').focus();
+  }
+
+  function open(trigger) {
+    build();
+    opener = trigger;
+    activeName = trigger.getAttribute('data-date-trigger') === 'to' ? 'to' : 'from';
+    var from = field('from');
+    var to = field('to');
+    draft.from = from ? from.value : '';
+    draft.to = to ? to.value : '';
+    today = (from && from.max) || (to && to.max) || localToday();
+    paintDraft();
+    layer.hidden = false;
+    document.body.classList.add('gcal-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    showPane(activeName);
+  }
+
+  function close() {
+    if (!layer || layer.hidden) return;
+    layer.hidden = true;
+    pane.hidden = true;
+    document.body.classList.remove('gcal-open');
+    if (opener) {
+      opener.setAttribute('aria-expanded', 'false');
+      if (document.documentElement.contains(opener)) opener.focus();
+    }
+    opener = null;
+  }
+
+  function commit() {
+    var from = field('from');
+    var to = field('to');
+    if (from) from.value = draft.from;
+    if (to) to.value = draft.to;
+    var event;
+    try { event = new Event('change', { bubbles: true }); } catch (err) { event = document.createEvent('Event'); event.initEvent('change', true, false); }
+    if (from) from.dispatchEvent(event);
+    try { event = new Event('change', { bubbles: true }); } catch (err2) { event = document.createEvent('Event'); event.initEvent('change', true, false); }
+    if (to) to.dispatchEvent(event);
+    paintPageLabels();
+    close();
+  }
+
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    if (!target || !target.closest) return;
+    var trigger = target.closest('[data-date-trigger]');
+    if (trigger) { event.preventDefault(); open(trigger); return; }
+    if (!layer || layer.hidden) return;
+
+    var cancel = target.closest('[data-gcal-cancel]');
+    if (cancel) { event.preventDefault(); close(); return; }
+    if (target.closest('[data-gcal-ok]')) { event.preventDefault(); commit(); return; }
+    var tab = target.closest('[data-gcal-tab]');
+    if (tab) { event.preventDefault(); setTab(tab.getAttribute('data-gcal-tab')); return; }
+    var range = target.closest('[data-gcal-range]');
+    if (range) { event.preventDefault(); showPane(range.getAttribute('data-gcal-range')); return; }
+    var day = target.closest('[data-gcal-day]');
+    if (day && !day.disabled) {
+      event.preventDefault();
+      var chosen = day.getAttribute('data-gcal-day') || '';
+      draft[activeName] = chosen;
+      if (activeName === 'from' && draft.to && chosen > draft.to) draft.to = chosen;
+      if (activeName === 'to' && draft.from && chosen < draft.from) draft.from = chosen;
+      paintDraft();
+      pane.hidden = true;
+      var next = layer.querySelector('[data-gcal-range="' + (activeName === 'from' ? 'to' : 'from') + '"]');
+      if (next) next.focus();
+    }
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape' || !layer || layer.hidden) return;
+    event.preventDefault();
+    if (!pane.hidden) {
+      pane.hidden = true;
+      var range = layer.querySelector('[data-gcal-range="' + activeName + '"]');
+      if (range) range.focus();
+    } else close();
+  });
+
+  enhance(document);
+  var content = document.querySelector('.a-content');
+  if (content && typeof MutationObserver === 'function') {
+    new MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        for (var j = 0; j < records[i].addedNodes.length; j++) enhance(records[i].addedNodes[j]);
+      }
+    }).observe(content, { childList: true, subtree: true });
+  }
+})();
+
 /* Обратный отсчёт действующего счёта в списке заказов.
  *
  * Первый кадр рисует сервер (`orderStatus` в lib/render.js), скрипту остаётся
