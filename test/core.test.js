@@ -14698,6 +14698,43 @@ test('логотип — строчный геометрический ворд�
   assert.ok(share > 0.3 && share < 0.4, `надпись занимает ${(share * 100).toFixed(0)}% ряда`);
 });
 
+test('знак магазина рисуется контурами, а шрифт остаётся запасным путём', () => {
+  const base = { accentColor: '#0071e3', storeName: 'adcApple' };
+  const drawn = render.brandFields(Object.assign({ logoText: 'adc' }, base));
+
+  /* Нужного веса нет ни в одном системном начертании, а Firefox вдобавок не
+   * отдаёт сайту системные шрифты вовсе — набор установленных шрифтов служит
+   * признаком для отслеживания. Поэтому знак рисуется, а не набирается. */
+  assert.match(drawn, /<svg class="logo-mark" viewBox="0 0 \d+ \d+"/);
+  assert.doesNotMatch(drawn.slice(drawn.indexOf('bp-logo')), /logo-txt/, 'нарисованный знак не дублируется текстом');
+
+  /* Дырку в кольце пробивает `nonzero` — внешняя окружность по часовой,
+   * внутренняя против. `evenodd` здесь брать нельзя: стойка буквы накладывается
+   * на штрих кольца, и совпавшие области вывернулись бы в пустоту. */
+  assert.doesNotMatch(drawn, /evenodd/);
+  assert.match(drawn, /A50 50 0 1 1[\s\S]*A23 23 0 1 0/, 'окружности кольца идут в разные стороны');
+
+  // Доступное имя — название магазина, а не три буквы знака.
+  assert.match(drawn, /<svg class="logo-mark"[^>]*aria-label="adcApple"/);
+
+  /* Буквы без глифа не выдумываем: надпись остаётся текстом, как была. То же и
+   * у {фигурных скобок} — акцентная буква означала бы отдельный контур на цвет,
+   * а знак такого рода одноцветный. */
+  for (const text of ['istore', '{a}dc', 'adc store']) {
+    const fallback = render.brandFields(Object.assign({ logoText: text }, base));
+    assert.doesNotMatch(fallback, /logo-mark/, `«${text}» рисовать нечем — остаётся текстом`);
+    assert.match(fallback, /class="logo-txt"/);
+  }
+
+  /* Размер знака живёт в ОДНОМ месте — в `em` от кегля надписи, который уже
+   * ужимается в свёрнутой шапке и на телефоне. Свои пиксели развели бы знак с
+   * запасным текстовым вариантом на первой же смене высоты ряда. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const size = css.match(/\.logo-mark\{([^}]*)\}/);
+  assert.ok(size && /height:\.74em/.test(size[1]), 'высота знака задана в em');
+  assert.doesNotMatch(css, /\.logo-mark\{[^}]*height:\d+px/);
+});
+
 test('контакты магазина собраны в одном месте и работают ссылками', () => {
   /* Телефон лежал среди валюты, цвета и текста подвала — то есть там, где его
    * не ищут. Контактов стало четыре, и у них свой раздел; в подвале витрины они

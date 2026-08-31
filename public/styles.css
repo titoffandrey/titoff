@@ -775,6 +775,12 @@ body.admin{background:var(--bg2)}
    а не как логотип. Сам акцент остаётся настройкой владельца — буквы в
    {фигурных скобках} у `logoText`; скобок нет — надпись сплошная. */
 .logo-accent{color:var(--accent);display:inline-block}
+/* Нарисованный знак меряется в `em` от кегля надписи — того же, что уже ужимается
+   в свёрнутой шапке и на телефоне. Так у размера остаётся ОДНО место правки:
+   заведи знаку свои пиксели, и он разъедется с текстовым запасным вариантом на
+   первой же смене высоты ряда. .74em — рост выносной у строчной надписи, то
+   есть ровно та высота, которую занимал бы набранный текст. */
+.logo-mark{height:.74em;width:auto;display:block}
 .logo-img{height:34px;width:auto;max-width:200px;display:block;object-fit:contain}
 .logo-chip{display:inline-flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg2)}
 .logo-chip img{height:40px;max-width:160px;object-fit:contain;background:#fff;border-radius:6px}
