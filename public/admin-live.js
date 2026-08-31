@@ -140,9 +140,9 @@
     if (el && FIELDS[el.tagName] && el.closest && el.closest('[data-live-part]')) return true;
     // Открыт просмотрщик вложений: он держит ссылки на узлы страницы.
     if (document.body.classList.contains('lb-open')) return true;
-    // Раскрыто меню разделов — из-под руки его выдёргивать незачем.
+    // Открыто меню разделов — из-под руки его выдёргивать незачем.
     var menu = document.getElementById('a-menu');
-    return !!(menu && menu.open);
+    return !!(menu && menu.checked);
   }
 
   function apply(html) {

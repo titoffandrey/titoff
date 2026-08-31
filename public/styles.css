@@ -434,12 +434,15 @@ body.cart-open .cart-drawer{transform:translateX(0)}
    ========================================================= */
 body.admin{background:var(--bg2)}
 .a-shell{min-height:100vh}
-.a-nav{display:flex;flex-direction:column;gap:2px}
-.a-nav-item{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;font-size:15px;color:var(--text)}
-.a-nav-item:hover{background:var(--bg2)}
-.a-nav-item.active{background:var(--accent);color:#fff}
+/* Пункт раздела — пилюля во всю ширину панели: размеры, отступы и цвета сняты с
+   бокового меню Google Trends (см. блок «Меню разделов» ниже). */
+.a-nav{display:flex;flex-direction:column}
+.a-nav-item{display:flex;align-items:center;gap:4px;min-height:56px;padding:8px 24px 8px 16px;
+  border-radius:9999px;font-size:16px;color:#444746}
+.a-nav-item:hover{background:rgba(31,31,31,.08)}
+.a-nav-item.active{background:#c2e7ff;color:#004a77}
 .a-badge{margin-left:auto;background:#ff3b30;color:#fff;font-size:11px;font-weight:600;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 5px}
-.a-nav-item.active .a-badge{background:#fff;color:var(--accent)}
+.a-nav-item.active .a-badge{background:#fff;color:#004a77}
 .a-main{min-width:0;display:flex;flex-direction:column}
 .a-topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;height:64px;padding:0 24px;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10}
 .a-topbar .btn{white-space:nowrap}
@@ -1736,54 +1739,93 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* `font-display:swap` — а не `block`: пока файл едет, панель показывает текст
    системным шрифтом. Кэш у него `immutable`, так что подмена случается ровно
    один раз в жизни браузера, зато панель никогда не открывается пустой. */
-body.admin{background:#f4f4f6;color:#242426;
+/* `--a-topbar` — высота шапки, и она же отступ сверху у списка разделов: панель
+   уходит под шапку, а пункты начинаются под ней. Двумя числами эти места
+   разъехались бы молча — список полез бы на шапку или отстал от неё. */
+body.admin{--a-topbar:66px;background:#f4f4f6;color:#242426;
   font-family:Roboto,RobotoDraft,-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif}
 .a-shell{min-height:100dvh}
-.a-nav{gap:4px}
-.a-nav-item{min-height:44px;padding:10px 13px;border-radius:12px;font-size:14px;font-weight:560;transition:background .16s,color .16s,transform .12s}
+.a-nav-item{font-weight:400;transition:background .12s}
 /* Значок раздела: тот же холст 24×24 и та же волосяная обводка, что у значков
-   посетителя и глифов витрины — вес штриха во всём проекте один. */
-.a-nav-ico{width:19px;height:19px;flex:none;opacity:.75}
-.a-nav-item.active .a-nav-ico{opacity:1}
-.a-nav-item span{flex:1;min-width:0}
-/* Счётчик — тоже <span>, и правило выше растягивало его во всю строку. */
+   посетителя и глифов витрины — вес штриха во всём проекте один. Размер тоже
+   24 px, как у Material-глифов в меню Trends, и цвет общий с подписью: у них
+   значок не приглушается ни в одном состоянии. */
+.a-nav-ico{width:24px;height:24px;flex:none}
+/* Подпись отбита от значка на 8 px сверх зазора пилюли (у Google это padding
+   самого текста, а не gap ряда), и растягивается на всю свободную ширину.
+   Счётчик — тоже <span>, и без исключения он растянулся бы вместе с ней. */
+.a-nav-item>span:not(.a-badge){flex:1;min-width:0;padding:0 8px}
 .a-nav-item .a-badge{flex:none}
-.a-nav-item:hover{background:#f3f3f5}
-.a-nav-item:active{transform:scale(.98)}
-.a-nav-item.active{background:#242426;color:#fff;box-shadow:0 6px 16px rgba(17,17,26,.12)}
 .a-main{min-height:100dvh}
-.a-topbar{height:66px;padding:0 24px;border-color:var(--border-soft);background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+.a-topbar{height:var(--a-topbar);padding:0 24px;border-color:var(--border-soft);background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
 .a-topbar h1{font-size:23px;letter-spacing:-.035em}
 .a-content{width:100%;max-width:1500px;padding:22px 24px}
 .a-content-wide{max-width:1500px}
 
-/* ===== Меню разделов: кнопка в шапке, список выпадает под ней =====
+/* ===== Меню разделов: кнопка в шапке, панель выезжает слева =====
    Боковой колонки нет вовсе: она занимала четверть ширины, а нужна раз в
    несколько минут — на каталоге, заказах и метрике это место дороже отдать
-   таблице. Всё содержимое теперь во всю ширину, а разделы лежат в выпадающем
-   списке под кнопкой.
+   таблице. Разделы живут в панели, которая выезжает поверх страницы и уходит
+   обратно, как только по ней нажали.
 
-   Сам список — <details>, поэтому раскрывается и без скрипта (см.
-   lib/admin-views.js). Стрелку-маркер у <summary> убираем: кнопка тут своя. */
-.a-menu{position:relative;flex:none}
-.a-menu>summary{list-style:none}
-.a-menu>summary::-webkit-details-marker{display:none}
-.a-menu-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;
-  margin-left:-6px;border:1px solid transparent;border-radius:12px;background:none;color:var(--muted);cursor:pointer;
-  transition:background .14s,color .14s,border-color .14s}
-.a-menu-btn svg{width:21px;height:21px}
-.a-menu-btn:hover{background:#f2f2f5;color:var(--text)}
-.a-menu-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.a-menu[open]>.a-menu-btn{background:#242426;border-color:#242426;color:#fff}
-/* Счётчик очереди на кнопке: со свёрнутым меню его иначе не видно вовсе. */
-.a-menu-dot{position:absolute;top:-3px;right:-4px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+   ЧИСЛА СНЯТЫ С БОКОВОГО МЕНЮ GOOGLE TRENDS, а не подобраны на глаз: панель
+   320 px с закруглением 16 px у правого края, пункт 56 px пилюлей `9999px`,
+   выбранный залит `#c2e7ff` с подписью `#004a77`, обычный — `#444746`,
+   волосяная линия `#c4c7c5` с отступами по 28 px, затемнение — чистый чёрный
+   под 40 %, движение — четверть секунды по `cubic-bezier(.4,0,.2,1)`. Правишь
+   меню — сверяйся с их страницей, а не с памятью.
+
+   ПАНЕЛЬ РАСКРЫВАЕТСЯ ШИРИНОЙ, а не съезжает `transform`, — так это сделано и у
+   них: содержимое лежит в блоке фиксированной ширины (`.a-menu-list`), поэтому
+   при движении текст не переносится заново, а край панели идёт по экрану.
+
+   Шапка остаётся НАД затемнением (`z-index` у неё выше), как строка Trends: она
+   не гаснет, а кнопка меню остаётся на виду. На телефоне шапка не липкая
+   (`position:static`), поэтому позиционированная панель накрывает её сама — там
+   меню ведёт себя как обычное модальное, и список начинается от верха экрана.
+
+   Состояние держит скрытый чекбокс, а не <details>: `backdrop-filter` у шапки
+   делает её опорной для `position:fixed`, и панель внутри неё считала бы
+   координаты от шапки, а не от окна. Скрипта по-прежнему не нужно ни на что —
+   открывает подпись-кнопка, закрывает нажатие по затемнению (подпись к тому же
+   чекбоксу); `public/admin-ui.js` добавляет один Esc. */
+.a-menu-check{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.a-menu-btn{position:relative;display:inline-flex;flex:none;align-items:center;justify-content:center;
+  width:40px;height:40px;margin-left:-8px;border-radius:50%;color:#444746;cursor:pointer;transition:background .12s}
+.a-menu-btn svg{width:24px;height:24px}
+.a-menu-btn:hover{background:rgba(31,31,31,.08)}
+/* Фокус получает сам чекбокс — он и есть кнопка для клавиатуры, — а рамку
+   рисуем на видимой подписи: тот же приём, что у поиска в шапке витрины. */
+.a-menu-check:focus-visible~.a-topbar .a-menu-btn{outline:2px solid var(--accent);outline-offset:2px}
+/* Счётчик очереди на кнопке: с закрытым меню его иначе не видно вовсе. */
+.a-menu-dot{position:absolute;top:-1px;right:-2px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
   border:2px solid #fff;background:#ff3b30;color:#fff;font-size:10px;font-weight:700;line-height:13px;text-align:center}
-.a-menu-drop{position:absolute;top:calc(100% + 9px);left:-6px;z-index:40;width:max(248px,min(290px,calc(100vw - 32px)));
-  padding:8px;border:1px solid var(--border-soft);border-radius:18px;background:#fff;box-shadow:0 18px 44px rgba(17,17,26,.16)}
-.a-menu-brand{padding:8px 12px 10px;font-size:16px;font-weight:700;letter-spacing:-.03em;line-height:1.2}
-.a-menu-brand span{display:block;margin-top:3px;font-size:11px;font-weight:400;letter-spacing:.02em;color:var(--muted)}
-.a-menu-foot{margin-top:6px;padding-top:6px;border-top:1px solid var(--border-soft)}
-.a-menu-foot .a-nav-item{color:var(--muted);font-weight:500}
+/* `visibility` переключается ступенькой, а не плавно, поэтому длительности у
+   неё нет — есть ЗАДЕРЖКА, и только на закрытие: панель обязана исчезнуть из
+   потока фокуса и мыши, но лишь после того, как уедет за край. Задай ей
+   длительность — и открытое меню оставалось бы невидимым всю четверть секунды
+   движения, то есть кнопка выглядела бы сломанной. */
+.a-menu-wrap{position:fixed;inset:0;z-index:9;visibility:hidden;transition:visibility 0s .25s}
+.a-menu-scrim{position:absolute;inset:0;background:#000;opacity:0;cursor:default;
+  transition:opacity .25s cubic-bezier(.4,0,.2,1)}
+.a-menu-panel{position:absolute;top:0;bottom:0;left:0;width:0;overflow:hidden;background:#fff;
+  border-radius:0 16px 16px 0;transition:width .25s cubic-bezier(.4,0,.2,1)}
+/* Ширина списка фиксирована и от анимации не зависит: пересобирать раскладку
+   текста на каждом кадре — то же самое, что анимировать её `width`. Сверху —
+   высота шапки: панель уходит под неё, как у Trends под их строку меню. */
+.a-menu-list{width:min(320px,calc(100vw - 56px));height:100%;overflow-y:auto;
+  padding:calc(var(--a-topbar) + 8px) 8px 8px;display:flex;flex-direction:column}
+.a-menu-check:checked~.a-menu-wrap{visibility:visible;transition:visibility 0s}
+.a-menu-check:checked~.a-menu-wrap .a-menu-scrim{opacity:.4}
+.a-menu-check:checked~.a-menu-wrap .a-menu-panel{width:min(320px,calc(100vw - 56px))}
+/* Волосяная линия отделяет служебное от разделов — ровно как «Справка» и
+   «Отправить отзыв» у них. Отступы по 28 px внутри списка с его полями в 8 px
+   дают те самые 36 px от края панели. */
+.a-menu-sep{height:1px;margin:0 28px;background:#c4c7c5}
+@media (prefers-reduced-motion:reduce){
+  .a-menu-wrap,.a-menu-scrim,.a-menu-panel{transition:none}
+}
 .a-topbar{gap:10px}
 .a-topbar h1{flex:1;min-width:0}
 /* Кнопки раздела держатся вместе и не растаскиваются `space-between` шапки. */
@@ -3433,13 +3475,20 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .order-success-check{width:58px;height:58px;font-size:31px}
   .order-success h3{font-size:25px}
 
-  /* Мобильная панель: та же одна кнопка в шапке и тот же выпадающий список.
+  /* Мобильная панель: та же одна кнопка в шапке и та же выезжающая панель.
      Прежде здесь была прокручиваемая вбок лента разделов и кнопка выхода рядом
      с брендом — три разных способа навигации на 375 px. */
-  .a-menu-btn{margin-left:-4px;border-color:var(--border-soft)}
-  /* Список раздаётся на ширину экрана: 290 px рядом с левым краем оставляли
-     справа полосу пустоты, а пункты всё равно короткие. */
-  .a-menu-drop{left:-4px;width:calc(100vw - 24px);max-width:340px}
+  .a-menu-btn{margin-left:-6px}
+  /* На телефоне меню НАКРЫВАЕТ шапку и ведёт себя как обычное модальное окно:
+     шапка тут не липкая, и панель, начатая под ней, при прокрученной странице
+     висела бы с пустой полосой сверху. Значит и отступ ей не нужен — список
+     начинается от края экрана, ниже выреза.
+
+     Слой шапке приходится назвать явно (`z-index` у неё ниже по файлу, там же,
+     где она перестаёт быть липкой): `backdrop-filter` делает её отдельным
+     контекстом наложения, и в Chromium она рисуется поверх позиционированной
+     панели, хотя сама не позиционирована вовсе. */
+  .a-menu-list{padding-top:max(8px,env(safe-area-inset-top))}
 
   /* Сводка по заказам: карточки друг под другом, деньги сверху. Выручка —
      главное число страницы, и читают его первым. */
@@ -3710,8 +3759,12 @@ details.metric-bots>summary:hover{background:#fffaf0}
      во всю ширину. В один ряд две кнопки забирали по 48vw каждая, и на
      заголовок с отметкой не оставалось ничего: от названия раздела была видна
      одна буква с многоточием, от отметки «живое» — её зелёная точка, повисшая
-     в шапке ни к чему не относящимся кружком. */
-  .a-topbar{position:static;min-height:0;height:auto;padding:11px 16px;flex-wrap:wrap;row-gap:10px}
+     в шапке ни к чему не относящимся кружком.
+
+     Липкой она тут не остаётся, но и `static` ей не годится: слой нужно назвать
+     явно, иначе `backdrop-filter` кладёт её поверх выехавшего меню (см. блок
+     меню выше). `relative` ничего не двигает. */
+  .a-topbar{position:relative;z-index:1;min-height:0;height:auto;padding:11px 16px;flex-wrap:wrap;row-gap:10px}
   .a-topbar h1{flex:1 1 auto;min-width:0;overflow:hidden;font-size:20px;white-space:nowrap;text-overflow:ellipsis}
   .a-topbar-acts{flex:1 0 100%;gap:8px}
   /* Кнопки делят строку поровну: у «← Все отзывы» и «+ Добавить отзыв» разная
