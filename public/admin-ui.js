@@ -751,3 +751,85 @@
     } else fallback(text, done);
   });
 })();
+
+/* ===================== Карта посетителей по субъектам РФ ====================
+ *
+ * Контуры, цвета и числа рисует сервер — они лежат в `data-*` у самого контура.
+ * Скрипт делает одно, чего разметка не умеет: показывает подсказку у курсора,
+ * как на карте Google Trends. Обработчики делегированы документу, поэтому
+ * переживают живую подмену всей метрики (`admin-live.js`) без переинициализации.
+ *
+ * Клавиатурных обработчиков здесь нет намеренно: контуров восемьдесят три, и
+ * фокус на каждом дал бы восемьдесят три остановки табуляции посреди отчёта.
+ * Числа читаются из рейтинга справа — обычным текстом.
+ */
+(function () {
+  'use strict';
+  var active = null;
+  var sticky = false;   // подсказку открыли пальцем: сама она не уходит
+
+  function tipOf(region) {
+    var map = region && region.closest ? region.closest('.ru-map') : null;
+    return map ? map.querySelector('.rm-tip') : null;
+  }
+
+  function place(region, event) {
+    var tip = tipOf(region);
+    var stage = region && region.closest ? region.closest('.rm-map-stage') : null;
+    if (!tip || !stage || !event) return;
+    var box = stage.getBoundingClientRect();
+    var x = event.clientX - box.left + 13;
+    var y = event.clientY - box.top - 13;
+    // Подсказка не вылезает за карту: у края она встаёт слева от пальца, а не
+    // наполовину за границей панели.
+    x = Math.max(5, Math.min(box.width - (tip.offsetWidth || 150) - 5, x));
+    y = Math.max(5, Math.min(box.height - (tip.offsetHeight || 42) - 5, y));
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+
+  function show(region, event) {
+    var tip = tipOf(region);
+    if (!tip) return;
+    active = region;
+    var name = tip.querySelector('b');
+    var value = tip.querySelector('span');
+    if (name) name.textContent = region.getAttribute('data-region') || '';
+    if (value) value.textContent = (region.getAttribute('data-value') || '0') + ' ' + (region.getAttribute('data-unit') || 'посетителей');
+    tip.hidden = false;
+    place(region, event);
+  }
+
+  function hide() {
+    var tip = active ? tipOf(active) : null;
+    if (tip) tip.hidden = true;
+    active = null;
+    sticky = false;
+  }
+
+  function regionAt(target) {
+    return target && target.closest ? target.closest('.rm-region') : null;
+  }
+
+  document.addEventListener('pointerover', function (event) {
+    var region = regionAt(event.target);
+    if (!region) return;
+    /* Касание тоже даёт `pointerover`, но сразу за ним приходит `pointerout` —
+     * подсказка успевала бы только мигнуть. Поэтому у пальца она остаётся до
+     * следующего касания мимо: субъекты мелкие, и попадание в них — уже работа,
+     * которую не хочется делать дважды. */
+    sticky = event.pointerType === 'touch';
+    show(region, event);
+  });
+  document.addEventListener('pointermove', function (event) {
+    if (active && !sticky && document.documentElement.contains(active)) place(active, event);
+  });
+  document.addEventListener('pointerout', function (event) {
+    if (sticky) return;
+    if (active && regionAt(event.target) === active && !regionAt(event.relatedTarget)) hide();
+  });
+  // Касание мимо карты убирает залипшую подсказку — как закрывается меню разделов.
+  document.addEventListener('pointerdown', function (event) {
+    if (sticky && !regionAt(event.target)) hide();
+  });
+})();

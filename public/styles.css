@@ -1701,7 +1701,43 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .toast{bottom:calc(24px + env(safe-area-inset-bottom));border-radius:14px;box-shadow:var(--shadow-lg)}
 
 /* Панели управления */
-body.admin{background:#f4f4f6;color:#242426}
+
+/* ===== Шрифт панели — Roboto, тот же, которым набран интерфейс Google =====
+ *
+ * Стек снят с живой страницы Trends: у них `body` идёт
+ * `Roboto, RobotoDraft, Helvetica, Arial, sans-serif`. Google Sans, которым
+ * набраны их заголовки, — проприетарный и распространению не подлежит; Roboto
+ * открыт (Apache 2.0) и в стеке самого Google стоит первым.
+ *
+ * Файлы лежат у нас, а не грузятся с fonts.googleapis.com, по двум причинам:
+ * CSP проекта разрешает только свои шрифты (`font-src 'self'`), а панель,
+ * ходящая на каждом открытии к Google, рассказывала бы ему, когда владелец в
+ * неё заходит, — магазин прячется за Tor как раз от такого. Подробности и
+ * лицензия — в `public/fonts/README.md`.
+ *
+ * Шрифт ВАРИАТИВНЫЙ (ось `wght` 400–700): панель пользуется 400, 500, 560, 600,
+ * 650 и 700, и одним файлом закрыты все — тремя статическими начертаниями
+ * половина из них округлялась бы до соседнего.
+ *
+ * Подмножества разделены `unicode-range`, поэтому браузер качает только те, из
+ * которых на странице правда есть буквы. Витрина не качает ни одного: семейство
+ * назначено только телу панели, а объявление, которым никто не пользуется,
+ * браузер не трогает — у покупателя остаётся системный шрифт и шрифт бренда.
+ */
+@font-face{font-family:Roboto;font-style:normal;font-weight:400 700;font-display:swap;
+  src:url(fonts/roboto-cyrillic.woff2) format('woff2');
+  unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:Roboto;font-style:normal;font-weight:400 700;font-display:swap;
+  src:url(fonts/roboto-latin-ext.woff2) format('woff2');
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:Roboto;font-style:normal;font-weight:400 700;font-display:swap;
+  src:url(fonts/roboto-latin.woff2) format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+/* `font-display:swap` — а не `block`: пока файл едет, панель показывает текст
+   системным шрифтом. Кэш у него `immutable`, так что подмена случается ровно
+   один раз в жизни браузера, зато панель никогда не открывается пустой. */
+body.admin{background:#f4f4f6;color:#242426;
+  font-family:Roboto,RobotoDraft,-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif}
 .a-shell{min-height:100dvh}
 .a-nav{gap:4px}
 .a-nav-item{min-height:44px;padding:10px 13px;border-radius:12px;font-size:14px;font-weight:560;transition:background .16s,color .16s,transform .12s}
@@ -2785,62 +2821,94 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .metric-live.is-idle strong i{background:#c7c7cc;box-shadow:0 0 0 5px rgba(17,17,26,.05);animation:none}
 @keyframes metric-pulse{0%,100%{box-shadow:0 0 0 5px rgba(39,174,96,.12)}50%{box-shadow:0 0 0 9px rgba(39,174,96,.04)}}
 @media(prefers-reduced-motion:reduce){.metric-live strong i{animation:none}}
-.metric-grid-main,.metric-grid-secondary,.metric-grid-tertiary{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr);gap:14px;margin-bottom:14px}
-.metric-grid-secondary{grid-template-columns:repeat(2,minmax(0,1fr))}
-.metric-grid-tertiary{grid-template-columns:repeat(3,minmax(0,1fr))}
-.metric-grid-main>*,.metric-grid-secondary>*,.metric-grid-tertiary>*{min-width:0}
+.metric-grid-secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px}
+.metric-grid-secondary>*{min-width:0}
 .metric-panel{margin:0;padding:20px;overflow:hidden}
 .metric-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px}
 .metric-panel-head h2{margin:2px 0 0;font-size:19px;letter-spacing:-.025em}
 .metric-panel-head>span{color:#8e8e93;font-size:11px}
 .metric-kicker{color:#8e8e93;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-/* График «линия и точки».
-   Раскладка: слева колонка подписей оси, справа поле графика, под ним ряд дат.
-   Линию и заливку рисует растянутый SVG, точки и подписи — обычная разметка,
-   расставленная процентами: у пропорционального SVG подписи на телефоне
-   ужимаются до 5–6 px, а у растянутого точки превращаются в овалы. Штрих линии
-   держит `vector-effect="non-scaling-stroke"` (в разметке), поэтому толщина
-   одна на любой ширине. */
-.metric-chart{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;padding-top:6px}
-.mc-axis{display:flex;flex-direction:column;justify-content:space-between;height:210px;color:#a1a1a6;font-size:10px;font-variant-numeric:tabular-nums;text-align:right}
+/* Две главные визуализации повторяют композицию Google Trends: самостоятельные
+   широкие белые карточки, простой заголовок без верхнего регистра и один синий
+   цвет данных. */
+.trends-panel{margin-bottom:14px;padding:28px 32px;border-radius:20px}
+.trends-head{align-items:center;margin-bottom:24px}
+.trends-head h2{display:flex;align-items:center;gap:9px;margin:0;font-size:20px;font-weight:500;letter-spacing:-.02em}
+.trends-help{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border:2px solid #8b8f94;border-radius:50%;color:#777b80;font-size:12px;font-weight:700;line-height:1;cursor:help}
+/* У Google на этом месте стоит настоящий выпадающий список («Субъект РФ ▾»), и
+   первым заходом он был срисован вместе со стрелкой — кнопкой, которая ничего
+   не делает. Элемент, выглядящий нажимаемым и не нажимающийся, раздражает
+   каждый раз. Осталась подпись-плашка: она называет, ЧТО считает карта.
+   Селектор с двумя классами — чтобы перебить `.metric-panel-head>span` по
+   специфичности, а не `!important`. */
+.trends-head>.trends-scope{display:inline-flex;align-items:center;padding:7px 11px;border-radius:7px;background:#f1f3f4;color:#5f6368;font-size:12px}
+/* График — геометрия, сетка и наведение сняты с графика Google Trends.
+   Числа ниже не «на глаз», а с их страницы: шесть подписей оси (0 20 40 60 80
+   100), волосяная сетка одного тона, ПУНКТИРНАЯ направляющая во всю высоту
+   поля, залитая синяя точка без белого кольца и белая карточка с крупным
+   скруглением и мягкой тенью — без рамки. */
+.metric-chart{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;padding:34px 0 0}
+.mc-axis{display:flex;flex-direction:column;justify-content:space-between;height:250px;color:#70757a;font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
 .mc-axis span{line-height:1;transform:translateY(-.35em)}
 .mc-axis span:first-child{transform:none}
 .mc-axis span:last-child{transform:translateY(-.7em)}
-/* Сетка — фоном, а не элементами: волосяные линии на 0/25/50/75/100% высоты.
-   Делений пять, потому что и подписей оси пять: по трём линиям значение точки,
-   стоящей между ними, приходится прикидывать на глаз. Средние бледнее краёв —
-   они помогают читать высоту, а не очерчивают поле. */
-.mc-plot{position:relative;height:210px;
-  background-image:linear-gradient(#e4e4e9 1px,transparent 1px),linear-gradient(#f0f0f3 1px,transparent 1px),linear-gradient(#ececef 1px,transparent 1px),linear-gradient(#f0f0f3 1px,transparent 1px),linear-gradient(#e4e4e9 1px,transparent 1px);
-  background-size:100% 1px;background-repeat:no-repeat;background-position:0 0,0 25%,0 50%,0 75%,0 100%}
+/* Сетка — фоном, а не элементами: шесть волосяных линий на 0/20/40/60/80/100%
+   высоты. Тон у всех ОДИН: у Trends средние линии не бледнее краёв, поле
+   читается как разлинованный лист, а не как рамка с начинкой. */
+.mc-plot{position:relative;height:250px;
+  background-image:linear-gradient(#e8eaed 1px,transparent 1px),linear-gradient(#e8eaed 1px,transparent 1px),linear-gradient(#e8eaed 1px,transparent 1px),linear-gradient(#e8eaed 1px,transparent 1px),linear-gradient(#e8eaed 1px,transparent 1px),linear-gradient(#dadce0 1px,transparent 1px);
+  background-size:100% 1px;background-repeat:no-repeat;background-position:0 0,0 20%,0 40%,0 60%,0 80%,0 100%}
 .mc-svg{display:block;width:100%;height:100%}
-/* Точка на каждом делении: сам кружок в i, а обёртка нужна под подсказку и
-   увеличенную область попадания — 8 px кружок мышью не поймать. */
-.mc-dot{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;display:flex;align-items:center;justify-content:center}
-.mc-dot i{width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid var(--accent);transition:transform .12s ease}
-.mc-dot:hover i{transform:scale(1.5)}
-.mc-dot.is-now i{background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent)}
-
-/* Подсказка у точки — СВОЙ узел, а не атрибут `title`.
-   Родную подсказку браузер показывает через секунду с лишним удержания: чтобы
-   прочитать три значения подряд, приходилось замирать над каждой точкой. Эта
-   появляется сразу, стоит ровно над своей точкой и не мешает навести на
-   соседнюю (`pointer-events:none`). Показывает её CSS — скрипта на графике
-   по-прежнему нет ни строчки. */
-.mc-tip{position:absolute;bottom:calc(100% - 2px);left:50%;transform:translate(-50%,-2px);z-index:3;
-  padding:5px 9px;border-radius:9px;background:#242426;color:#fff;
-  font-size:11px;font-weight:600;line-height:1.3;white-space:nowrap;
-  box-shadow:0 6px 18px rgba(17,17,26,.22);
-  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .1s ease}
-.mc-dot:hover .mc-tip{opacity:1;visibility:visible}
-/* У крайних точек подсказка прижимается к своему краю: по центру она уезжала бы
-   за границу панели, и половина текста обрезалась бы. */
-.mc-tip.at-start{left:0;transform:translate(-6px,-2px)}
-.mc-tip.at-end{left:auto;right:0;transform:translate(6px,-2px)}
-@media(prefers-reduced-motion:reduce){.mc-dot i,.mc-tip{transition:none}}
-.mc-peak{position:absolute;transform:translate(-50%,-176%);padding:2px 6px;border-radius:7px;background:#242426;color:#fff;font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
-.mc-marks{position:relative;grid-column:2;height:14px;color:#a1a1a6;font-size:10px;font-variant-numeric:tabular-nums}
+.mc-hit{position:absolute;top:0;bottom:0;z-index:2}
+/* Направляющая ПУНКТИРНАЯ — так она и нарисована у Trends. Сплошная линия того
+   же тона, что сетка, читалась шестым делением, а не указателем на замер.
+   Рисуется фоном-градиентом, а не `border-left:dashed`: у рамки узор задаёт
+   браузер, и шаг у него разный в Chrome и Safari. */
+.mc-guide{display:none;position:absolute;top:0;bottom:0;width:1px;transform:translateX(-.5px);
+  background-image:linear-gradient(#9aa0a6 50%,transparent 50%);background-size:1px 5px;background-repeat:repeat-y}
+/* Точка — сплошной синий кружок без обводки и белого кольца: у Trends маркер
+   лежит НА линии и того же цвета, а кольцо разрывало бы её на глазах. */
+.mc-dot{display:none;position:absolute;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:#4285f4}
+.mc-tip{display:none;position:absolute;z-index:4;min-width:190px;padding:16px 18px;border-radius:12px;background:#fff;color:#202124;font-size:13px;line-height:1.35;white-space:nowrap;box-shadow:0 1px 3px rgba(60,64,67,.15),0 6px 14px rgba(60,64,67,.16);transform:translate(-50%,calc(-100% - 14px));pointer-events:none}
+.mc-tip>b{display:block;margin-bottom:12px;font-size:14px;font-weight:500;color:#202124}
+.mc-tip>span{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:10px}
+.mc-tip>span i,.mc-legend i{width:10px;height:10px;border-radius:50%;background:#4285f4}
+.mc-tip em{font-style:normal;color:#5f6368;font-size:13px}
+.mc-tip strong{color:#202124;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;padding-left:18px}
+.mc-hit:hover .mc-guide,.mc-hit:hover .mc-dot,.mc-hit:hover .mc-tip{display:block}
+.mc-tip.at-start{transform:translate(0,calc(-100% - 14px))}
+.mc-tip.at-end{transform:translate(-100%,calc(-100% - 14px))}
+/* Подписанный пик — единственное число графика там, где навести нельзя.
+   На мышином экране его нет: подсказка отвечает про ЛЮБУЮ точку, а лишняя
+   плашка поверх линии только спорила бы с ней. */
+.mc-peak{display:none;position:absolute;z-index:1;transform:translate(-50%,-190%);padding:2px 6px;border-radius:7px;background:#4285f4;color:#fff;font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
+@media(pointer:coarse){.mc-peak{display:block}}
+.mc-marks{position:relative;grid-column:2;height:20px;color:#70757a;font-size:12px;font-variant-numeric:tabular-nums}
 .mc-x{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+.mc-x.at-start{transform:none}
+.mc-x.at-end{transform:translateX(-100%)}
+.mc-legend{grid-column:2;display:flex;align-items:center;justify-content:center;gap:9px;padding-top:14px;color:#5f6368;font-size:13px}
+
+/* Карта РФ: слева настоящие контуры субъектов, справа — те же пять строк,
+   числа и синие полосы, что в региональном блоке Google Trends. */
+.ru-map{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(320px,.92fr);align-items:center;gap:38px;min-height:340px}
+.rm-map-stage{position:relative;min-width:0}
+.rm-map-svg{display:block;width:100%;height:auto;overflow:visible}
+.rm-region{fill:#e4e7eb;stroke:#fff;stroke-width:1;vector-effect:non-scaling-stroke;outline:none}
+.rm-region.heat-1{fill:#d2e3fc}.rm-region.heat-2{fill:#a9c7f7}.rm-region.heat-3{fill:#82abf2}.rm-region.heat-4{fill:#669df6}.rm-region.heat-5{fill:#4285f4}
+/* Под курсором субъект ОБВОДИТСЯ, а не заливается тёмным. Заливка перекрашивала
+   его в цвет самой густой ступени — то есть врала о числе ровно там, куда
+   смотрят, и пустой регион под мышью выглядел самым посещаемым. */
+.rm-region:hover{stroke:#202124;stroke-width:1.6}
+.rm-tip{position:absolute;z-index:5;padding:9px 11px;border:1px solid #dadce0;border-radius:3px;background:#fff;color:#3c4043;font-size:11px;box-shadow:0 2px 7px rgba(60,64,67,.2);pointer-events:none;white-space:nowrap}
+.rm-tip b{display:block;margin-bottom:3px;font-size:12px}.rm-tip span{color:#5f6368}
+.rm-ranking{align-self:stretch;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.rm-rank-row{display:grid;grid-template-columns:24px minmax(0,1fr) max-content 100px;align-items:center;gap:8px;min-height:61px;border-bottom:1px solid #e5e7e9;color:#3c4043;font-size:12px}
+.rm-rank-row b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.rm-rank-num{color:#3c4043;text-align:center}.rm-rank-row>span:nth-of-type(2){color:#9aa0a6;font-variant-numeric:tabular-nums;text-align:right}
+.rm-rank-row>i{height:14px;background:#eef0f2}.rm-rank-row>i em{display:block;height:100%;background:#4285f4}
+.rm-rank-foot{margin-top:auto;padding-top:14px;color:#9aa0a6;font-size:10px;text-align:center}
+.rm-empty{max-width:300px;margin:auto;text-align:center;line-height:1.5}
 .metric-bars{display:grid;gap:14px}
 .metric-bar-label{display:grid;grid-template-columns:minmax(0,1fr) max-content max-content;align-items:center;gap:9px;margin-bottom:6px;font-size:12px}
 /* Колонка под значок появляется по классу самого списка, а не по `:has()`:
@@ -2883,7 +2951,7 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .mf-chip.active i,.mf-chip.active b{color:rgba(255,255,255,.6)}
 .mf-chip.active::after{content:"✕";margin-left:1px;font-size:10px;color:rgba(255,255,255,.75)}
 .mf-more{padding:14px 20px 20px;text-align:center}
-.metric-visitors{padding:0}
+.metric-visitors{padding:0;margin-bottom:14px}
 .metric-visitors .metric-panel-head{margin:0;padding:20px 20px 12px}
 .metric-visitors .metric-panel-head .link{white-space:nowrap;font-size:12px}
 /* Источник в строке посетителя — со значком, как и в списках отбора */
@@ -3713,14 +3781,29 @@ details.metric-bots>summary:hover{background:#fffaf0}
      Поэтому не кегль правим, а межстрочный — текст остаётся читаемым, а плитка
      не растёт на десяток пикселей. */
   .metric-card small{font-size:10.5px;line-height:1.35}
-  .metric-grid-main,.metric-grid-secondary,.metric-grid-tertiary{grid-template-columns:1fr;gap:10px;margin-bottom:10px}
+  .metric-grid-secondary{grid-template-columns:1fr;gap:10px;margin-bottom:10px}
   .metric-panel{padding:16px;margin-bottom:0}
+  .trends-panel{margin-bottom:10px;padding:18px 15px;border-radius:16px}
+  .trends-head{align-items:flex-start;gap:10px;margin-bottom:15px}
+  .trends-head h2{font-size:16px}
+  .trends-head>span:not(.trends-scope){max-width:118px;text-align:right;line-height:1.35}
+  .trends-head>.trends-scope{padding:5px 8px;font-size:10.5px}
   /* График не листается вбок и не ужимается в кашу: линия по определению
-     помещается в любую ширину, а подписей оси на телефоне рисуется меньше
-     (их прореживает разметка). Поле ниже — экран телефона выше, чем шире. */
+     помещается в любую ширину, а подписей оси на телефоне рисуется меньше. */
   .metric-chart{gap:5px 8px}
   .mc-axis,.mc-plot{height:168px}
-  .mc-dot{width:26px;height:26px;margin:-13px 0 0 -13px}
+  /* Подписи оси мельче: у годового графика их пять («сентябрь … август»), а
+     полю на телефоне достаётся 283 px — на 12 px соседние названия месяцев
+     касались друг друга. */
+  .mc-axis,.mc-marks{font-size:11px}
+  .mc-tip{min-width:138px;padding:10px 11px}
+  .mc-legend{padding-top:8px}
+  .ru-map{grid-template-columns:1fr;gap:12px;min-height:0}
+  .rm-map-stage{padding:5px 0 0}
+  .rm-ranking{min-height:0}
+  .rm-rank-row{grid-template-columns:21px minmax(0,1fr) max-content 64px;min-height:43px;font-size:11px}
+  .rm-rank-row>i{height:11px}
+  .rm-rank-foot{padding-top:10px}
   .metric-more-link{margin-left:0;justify-content:center;width:100%}
   .mf-form{gap:8px}
   .mf-date,.mf-sort{flex:1;min-width:140px}
@@ -3729,7 +3812,7 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .mf-form .btn{flex:1}
   .mf-chips-title{width:100%}
   .mf-chips{gap:6px;padding-top:9px}
-  .metric-visitors{padding:0}
+  .metric-visitors{padding:0;margin-bottom:10px}
   .metric-bot-grid{grid-template-columns:1fr;gap:20px}
 
   /* ===== «Кто заходил» — карточками, а не таблицей в пять столбцов =====

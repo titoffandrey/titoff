@@ -14,6 +14,7 @@ const dbCore = require('../lib/db');
 const render = require('../lib/render');
 const adminViews = require('../lib/admin-views');
 const analyticsView = require('../lib/analytics-view');
+const RUSSIA_MAP = require('../lib/russia-map-data');
 const variants = require('../lib/variants');
 const search = require('../lib/search');
 const images = require('../lib/images');
@@ -998,23 +999,6 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
 });
 
-test('гладкая линия графика не вылезает за значения точек', () => {
-  /* Ряд «ноль весь день и всплеск к вечеру» — ровно то, как выглядят сегодняшние
-   * сутки. Обычное сглаживание на нём ныряет ниже нуля перед подъёмом и вылетает
-   * за потолок оси после: на графике посещаемости это нарисованное число,
-   * которого не было. Монотонная кубика такого не допускает по построению. */
-  const y = [100, 100, 100, 100, 100, 100, 0, 100];   // 100 — низ поля, 0 — потолок
-  const pts = y.map((v, i) => ({ x: (i / (y.length - 1)) * 100, y: v }));
-  const d = analyticsView.smoothPath(pts);
-  assert.match(d, /^M[\d.]+,[\d.]+ C/, 'линия строится кривыми, а не отрезками');
-  const ys = (d.match(/-?[\d.]+,(-?[\d.]+)/g) || []).map(pair => Number(pair.split(',')[1]));
-  assert.ok(ys.every(v => v >= 0 && v <= 100), 'ни одна опорная точка не выходит за поле графика');
-
-  // Две точки — обычная кривая, одна — просто M, пустой ряд — пустая строка.
-  assert.equal(analyticsView.smoothPath([]), '');
-  assert.match(analyticsView.smoothPath([{ x: 50, y: 10 }]), /^M50\.00,10\.00$/);
-});
-
 test('город в списке — без региона и с одним именем страны', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-place-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -1038,6 +1022,10 @@ test('город в списке — без региона и с одним им
     { label: 'Москва, Россия', value: 3 },
     { label: 'Амстердам, Нидерланды', value: 1 }
   ], 'город и страна, без региона и одним именем страны');
+  assert.deepEqual(report.regions, [
+    { label: 'Москва', value: 2 },
+    { label: 'Московская область', value: 1 }
+  ], 'карта считает только субъекты РФ, а Москва без поля региона остаётся субъектом');
 
   // В строке самого посетителя регион остаётся — там он про одного человека и
   // ничего не дробит, — а страна всё равно называется по коду.
@@ -1058,6 +1046,18 @@ test('отчёт метрики по умолчанию — сегодняшни
   assert.equal(analytics.snapshot({}).days, 1);
   assert.equal(analytics.snapshot({ days: '99' }).days, 1);
   assert.equal(analytics.snapshot({ days: '7' }).days, 7);
+  const year = analytics.snapshot({ days: '365' });
+  assert.equal(year.days, 365);
+  /* Годовой график — по неделям, как в Trends, и недели ТОЛЬКО полные: 365 на 7
+   * не делится, и остаточный столбец из одного дня всегда обрывал бы линию вниз
+   * до седьмой части настоящего уровня — ровно в той точке, на которую смотрят
+   * первым делом. Лишний день отбрасывается с САМОГО СТАРОГО конца. */
+  assert.equal(year.weekly.length, 52, 'годовой график сгруппирован по 52 полным неделям');
+  assert.equal(year.weekly.reduce((sum, week) => sum + week.visitors, 0), 1);
+  assert.equal(year.weekly[year.weekly.length - 1].endDate, year.daily[year.daily.length - 1].date,
+    'последняя неделя кончается сегодняшним днём, а не позавчерашним');
+  const days = date => Math.round((Date.parse(year.weekly[0].endDate) - Date.parse(date)) / 864e5);
+  assert.equal(days(year.weekly[0].date), 6, 'первая неделя тоже полная — семь дней');
 
   const today = analytics.snapshot({});
   assert.equal(today.hourly.length, 24, 'у отчёта «Сегодня» ряд по часам');
@@ -1193,6 +1193,7 @@ test('раздел метрики защищён панелью и показы�
     pages: [{ label: '/product/p1', value: 5 }], sources: [{ label: 'Прямой заход', value: 5 }],
     devices: [{ label: 'Телефон', value: 5 }], browsers: [{ label: 'Safari 18', value: 5 }],
     systems: [{ label: 'iOS 18', value: 5 }], locations: [{ label: 'Москва', value: 3 }],
+    regions: [{ label: 'Москва', value: 3 }, { label: 'Свердловская область', value: 1 }],
     campaigns: [{ label: 'telegram · summer', value: 2 }],
     visitors: [{
       id: 'a'.repeat(32), lastSeen: Date.now() - 6e5, ip: '1.2.3.4', isp: 'Тест',
@@ -1211,6 +1212,23 @@ test('раздел метрики защищён панелью и показы�
   assert.match(html, /Среднее время/);
   assert.match(html, /UTM-кампании/);
   assert.match(html, /Операционные системы/);
+  assert.match(html, /12 мес\./, 'у графика есть годовой диапазон из референса');
+  assert.match(html, /Посетители по регионам/);
+  /* Контуры уезжают ИНЛАЙНОМ, а не ссылкой `<use href="…svg#id">` на внешний
+   * файл: такую ссылку WebKit не поддерживает, и в Safari — то есть на
+   * хозяйском маке и на айфоне — карта осталась бы пустой без единой ошибки в
+   * консоли. Заодно это на один запрос меньше. */
+  assert.doesNotMatch(html, /<use[^>]+\.svg#/, 'карта не ссылается на внешний SVG');
+  assert.equal((html.match(/class="rm-region heat-\d"/g) || []).length, RUSSIA_MAP.regions.length,
+    'на карте нарисован каждый субъект');
+  assert.match(html, /class="rm-region heat-5" d="M[\d,LMZ.]+" data-region="Москва"/,
+    'самый посещаемый субъект получает самый насыщенный синий и свой контур');
+  assert.match(html, /1<\/span><b>Москва<\/b><span>3<\/span>/,
+    'справа от карты есть рейтинг регионов с настоящими числами');
+  /* У Google на месте подписи стоит настоящий выпадающий список; сюда он был
+   * срисован кнопкой, которая ничего не делает. Осталась подпись. */
+  assert.doesNotMatch(html, /trends-select/, 'неработающего выпадающего списка на карте нет');
+  assert.doesNotMatch(html, /Россия · \d/, 'подпись графика не обещает отбор по стране, которого нет');
   // Кнопки «Обновить» и подписи «Обновлено 16:36» здесь больше нет: страница
   // обновляется сама, и кнопка предлагала бы сделать руками уже сделанное.
   assert.doesNotMatch(html, /Обновить|location\.reload/, 'обновление метрики руками снято');
@@ -1301,6 +1319,142 @@ test('раздел метрики защищён панелью и показы�
   assert.match(css, /\.a-live\.is-off \.a-live-on\{display:none\}/);
   assert.match(css, /\.a-live\.is-off \.a-live-off\{display:inline\}/);
   assert.match(css, /\.a-live\.is-off i\{[^}]*animation:none/);
+});
+
+test('панель набрана Roboto, и шрифт лежит у нас, а не у Google', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const fonts = path.join(__dirname, '..', 'public', 'fonts');
+
+  /* Стек снят с живой страницы Trends: у них `body` идёт
+   * `Roboto, RobotoDraft, Helvetica, Arial, sans-serif`. Google Sans, которым
+   * набраны их заголовки, проприетарный и распространению не подлежит. */
+  assert.match(css, /body\.admin\{[^}]*font-family:Roboto,RobotoDraft,/,
+    'тело панели набрано Roboto');
+
+  /* Файлы обязаны лежать у нас: CSP проекта разрешает только свои шрифты
+   * (`font-src 'self'`), а панель, ходящая на каждом открытии к Google,
+   * рассказывала бы ему, когда владелец в неё заходит. */
+  const csp = fs.readFileSync(path.join(__dirname, '..', 'lib', 'server-lib.js'), 'utf8');
+  assert.match(csp, /font-src 'self'/, 'чужие шрифтовые хосты по-прежнему запрещены');
+  /* Смотрим на КОД без комментариев — той же чисткой, что идёт на отдаче:
+   * объяснение «почему не грузим у Google» рядом с правилом это документация,
+   * а не адрес, по которому браузер пойдёт. */
+  assert.doesNotMatch(require('../lib/minify').css(css), /fonts\.googleapis\.com|fonts\.gstatic\.com/,
+    'ни одного адреса Google в самих правилах');
+
+  for (const subset of ['cyrillic', 'latin', 'latin-ext']) {
+    const file = path.join(fonts, 'roboto-' + subset + '.woff2');
+    assert.ok(fs.existsSync(file), 'подмножество ' + subset + ' на месте');
+    assert.equal(fs.readFileSync(file).slice(0, 4).toString('latin1'), 'wOF2',
+      subset + ' — настоящий woff2');
+    assert.match(css, new RegExp('url\\(fonts/roboto-' + subset + '\\.woff2\\)'));
+  }
+  // Apache 2.0 требует прикладывать лицензию к распространяемым файлам.
+  assert.match(fs.readFileSync(path.join(fonts, 'LICENSE.txt'), 'utf8'), /Apache License/);
+
+  /* Знак рубля живёт в подмножестве latin-ext — без него цена в списке заказов
+   * набиралась бы системным шрифтом посреди строки на Roboto. */
+  const ext = css.match(/url\(fonts\/roboto-latin-ext\.woff2\)[^}]*unicode-range:([^}]+)\}/)[1];
+  assert.match(ext, /U\+20AD-20C0/, 'диапазон latin-ext включает ₽ (U+20BD)');
+
+  /* Шрифт ВАРИАТИВНЫЙ: панель пользуется 400, 500, 560, 600, 650 и 700, и одним
+   * файлом закрыты все — тремя статическими начертаниями половина округлялась бы
+   * до соседнего. */
+  assert.equal((css.match(/font-weight:400 700;font-display:swap/g) || []).length, 3);
+
+  /* Витрина этих 80 КБ не качает: семейство назначено только телу панели, а
+   * объявление, которым никто не пользуется, браузер не трогает. */
+  const store = css.slice(0, css.indexOf('/* Панели управления */'));
+  assert.doesNotMatch(store, /font-family:Roboto,/, 'витрина остаётся на своём шрифте');
+});
+
+test('ось графика — шесть целых подписей, как у Trends', () => {
+  /* Делений на оси пять, подписей шесть — 0, 20, 40, 60, 80 и 100% высоты поля:
+   * ровно столько же у Trends. Отсюда же потолок обязан делиться на пять. Пока
+   * он брался из ряда 1/1,5/2/2,5/…, подпись линии выходила «37,5»: дробных
+   * людей не бывает, а округлять подпись, оставив линию на прежнем месте,
+   * значило бы подписать её чужим числом. */
+  const draw = value => analyticsView.dashboard({
+    days: 7, online: 0, unique: value, generatedAt: Date.now(), hourly: [], regions: [],
+    prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    daily: [
+      { date: '2026-08-20', visitors: 1 },
+      { date: '2026-08-21', visitors: value },
+      { date: '2026-08-22', visitors: 1 }
+    ]
+  }, { rangeBase: '/admin/analytics?days=' });
+  for (const value of [1, 3, 5, 12, 47, 50, 130, 233, 1240, 3300]) {
+    const axis = draw(value).match(/<div class="mc-axis">(.*?)<\/div>/s)[1];
+    const labels = [...axis.matchAll(/<span>([^<]*)<\/span>/g)].map(m => m[1]);
+    assert.equal(labels.length, 6, 'подписей столько же, сколько линий сетки');
+    for (const label of labels) {
+      assert.doesNotMatch(label, /[,.]/, `при ${value} посетителях подпись «${label}» дробная`);
+    }
+    const max = Number(labels[0].replace(/\D/g, ''));
+    assert.ok(max >= value, 'пик помещается под потолок оси');
+    assert.equal(max % 5, 0, 'потолок делится на пять — иначе пятые доли оси не целые');
+    assert.equal(labels[labels.length - 1], '0');
+  }
+
+  /* Линия СГЛАЖЕННАЯ — так она и нарисована у Trends (монотонная кубика, у
+   * Google Charts это `curveType:'function'`). Ломаная, которой она однажды
+   * стала «ради сходства с оригиналом», сходство как раз и убирала. Монотонная,
+   * а не «просто сглаженная»: обычное сглаживание на всплеске выносит кривую за
+   * крайние точки, и на графике посещаемости появляется отрицательный провал —
+   * нарисованное число, которого не было. */
+  const spike = analyticsView.dashboard({
+    days: 1, online: 0, unique: 9, generatedAt: Date.now(), regions: [], daily: [], hasHours: true,
+    prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    hourly: [0, 0, 0, 0, 0, 0, 9, 0].map((v, h) => ({ hour: h, visitors: v }))
+  }, { rangeBase: '/admin/analytics?days=' });
+  const d = spike.match(/class="mc-line" d="([^"]+)"/)[1];
+  assert.match(d, /^M[\d.]+,[\d.]+ C/, 'линия строится кривыми, а не отрезками');
+  const ys = (d.match(/-?[\d.]+,(-?[\d.]+)/g) || []).map(pair => Number(pair.split(',')[1]));
+  assert.ok(ys.every(v => v >= 0 && v <= 100), 'ни одна опорная точка не выходит за поле графика');
+
+  /* Подписанный пик — единственное число графика там, где навести нельзя:
+   * на сенсорном экране подсказки не будет вовсе, и телефон получал голую линию.
+   * На мышином экране его нет — про любую точку отвечает подсказка. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(draw(42), /<span class="mc-peak" style="left:[\d.]+%;top:[\d.]+%">42<\/span>/);
+  assert.match(css, /\.mc-peak\{display:none/, 'на мышином экране пик не подписан');
+  assert.match(css, /@media\(pointer:coarse\)\{\.mc-peak\{display:block\}\}/);
+});
+
+test('каждое название субъекта из геобазы ложится на контур карты', () => {
+  /* Карта красит субъект по СОВПАДЕНИЮ НАЗВАНИЯ, а название приходит из
+   * `lib/geoip.js`, где оно записано так, как принято в панели («Якутия»,
+   * «Ханты-Мансийский АО»), а не так, как в открытых картографических данных
+   * («Республика Саха (Якутия)»). Разъедутся эти два списка — карта не сломается
+   * и не пожалуется: она просто останется серой, и заметить это можно будет
+   * только глазами. Поэтому названия сверяются здесь, а не на боевой витрине.
+   *
+   * Читаем таблицу геобазы ИСХОДНИКОМ, той же чисткой, что и утверждения про
+   * вёрстку: расширять ради теста экспорт модуля незачем. */
+  const geo = fs.readFileSync(path.join(__dirname, '..', 'lib', 'geoip.js'), 'utf8');
+  const at = geo.indexOf('const REGION_CORE = {');
+  const table = geo.slice(at, geo.indexOf('};', at));
+  const names = [...new Set([...table.matchAll(/:\s*'([А-ЯЁ][^']*)'/g)].map(m => m[1]))];
+  assert.ok(names.length > 80, 'таблица регионов геобазы прочиталась');
+
+  // Крым и Севастополь — единственное известное исключение: свободные контуры
+  // Click That 'Hood собраны до 2014 года, и этих субъектов в них нет вовсе.
+  // Посетители оттуда остаются в рейтинге справа, но на карте не рисуются.
+  const noShape = ['Крым', 'Севастополь'];
+  const html = analyticsView.dashboard({
+    days: 30, online: 0, unique: names.length, generatedAt: Date.now(), hourly: [], daily: [],
+    prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    regions: names.map(label => ({ label, value: 1 }))
+  }, { rangeBase: '/admin/analytics?days=' });
+  const painted = (html.match(/class="rm-region heat-[1-5]"/g) || []).length;
+  assert.equal(painted, names.length - noShape.length,
+    'каждое название геобазы, кроме Крыма и Севастополя, нашло свой контур: ' +
+    'разошлось — сверь REGION_MAP_ALIASES в lib/analytics-view.js');
+  for (const name of noShape) {
+    assert.ok(names.includes(name), name + ' по-прежнему приходит из геобазы — исключение не устарело');
+  }
+  assert.match(html, new RegExp('Субъекты: 1–5 из ' + names.length),
+    'рейтинг справа считает ВСЕ субъекты, включая те, для которых контура нет');
 });
 
 test('город по IP запрашивается один раз и затем берётся из кэша', async t => {
