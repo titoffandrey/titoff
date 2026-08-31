@@ -7153,6 +7153,15 @@ test('срок доставки виден на оформлении рядом 
     SETTINGS, { page: '/checkout' });
   assert.ok(prompt.includes(DAYS.summary()), 'сроки в промпте — из той же сетки, что на витрине');
   assert.match(prompt, /не экспресс/, 'обещаем обычную доставку, а не экспресс-тариф');
+  assert.match(prompt, /Город отправки — Москва/,
+    'пустая настройка сохраняет прежний безопасный город отправки');
+  const movedPrompt = require('../lib/chat-prompt').systemPrompt(
+    { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] },
+    Object.assign({}, SETTINGS, { shipFromCity: 'г. Новосибирск' }), { page: '/checkout' });
+  assert.match(movedPrompt, /Город отправки — Новосибирск/,
+    'консультант берёт новый город из настроек и очищает служебное «г.»');
+  assert.doesNotMatch(movedPrompt, /Город отправки — Москва|из Москвы/,
+    'после переезда консультант не продолжает называть прежний город');
   // Зона «регион не опознан» — наша тарифная страховка, а не место на карте:
   // в перечне сроков ей делать нечего.
   assert.doesNotMatch(DAYS.summary(), /Россия/);
