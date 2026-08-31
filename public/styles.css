@@ -97,7 +97,12 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
   .pay-remind-go-full{display:none}
   .pay-remind-go-short{display:inline}
 }
-.logo{font-size:23px;font-weight:600;letter-spacing:-.02em;margin-right:auto}
+/* Надпись логотипа — СТРОЧНЫМИ. Вордмарк магазина техники набирают строчными
+   геометрическим гротеском: круглые овалы читаются знаком, а не строкой текста,
+   и в шапке он узнаётся раньше, чем прочитывается. Регистр задаётся здесь, а не
+   в самой настройке: имя магазина уезжает ещё в <title>, в alt логотипа и в
+   разметку для поисковика, где «iStore» обязан остаться собой. */
+.logo{font-size:23px;font-weight:600;letter-spacing:-.02em;text-transform:lowercase;margin-right:auto}
 .icon-btn{background:none;border:none;color:var(--text);padding:6px;cursor:pointer;display:inline-flex;position:relative;border-radius:10px}
 .icon-btn:hover{background:var(--bg2)}
 .menu-toggle{display:none}
@@ -747,13 +752,29 @@ body.admin{background:var(--bg2)}
 .pill.off{border-color:#e4c9c9;background:#fdf5f5;color:#b42318}
 
 /* брендинг: логотип и шрифт */
-.logo{font-family:var(--brand-font)}
+/* Вордмарк набирается ГЕОМЕТРИЧЕСКИМ гротеском — круглыми овалами и почти
+   монолинейным штрихом: строчная надпись такими буквами читается знаком, а не
+   строкой текста. Файлов не тянем (у проекта `font-src 'self'`, и панель уже не
+   ходит к Google за Roboto): Futura стоит в macOS и iOS, Century Gothic — в
+   Windows, URW Gothic — в дистрибутивах Linux.
+
+   КИРИЛЛИЦЫ НЕТ НИ У ОДНОГО ИЗ НИХ, и это решает, где стек кончается: за ними
+   идёт брендовый шрифт владельца (`--brand-font`), а не общий `sans-serif`.
+   Русское название магазина тогда набирается тем, что он выбрал, а не случайным
+   запасным. По той же причине геометрического начертания НЕТ в списке
+   «Шрифт названия и заголовков»: тот шрифт берёт ещё и слоган первого экрана —
+   русская строка в нём уехала бы в запасной шрифт, а слово «Apple» посреди неё
+   осталось бы геометрическим, и строка читалась бы набранной вперемешку. */
+.logo,.bp-logo{font-family:Futura,"Century Gothic","URW Gothic",Poppins,var(--brand-font)}
 .hero h1{font-family:var(--brand-font)}
 .logo-txt{display:inline-block}
-/* Акцентная буква логотипа медленно проворачивается (лёгкая GPU-анимация, без нагрузки) */
-.logo-accent{color:var(--accent);display:inline-block;transform-origin:50% 55%;animation:logoSpin 5s ease-in-out infinite;will-change:transform}
-@keyframes logoSpin{0%,14%{transform:rotate(0)}62%,100%{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.logo-accent{animation:none}}
+/* Выделенная буква КРАСИТСЯ, но не движется. Раньше она медленно
+   проворачивалась (`logoSpin`), и это было единственное, что отличало нашу
+   надпись от обычного вордмарка: знак магазина стоит в липкой шапке на каждой
+   странице, и деталь, крутящаяся перед глазами всё время, читается как баннер,
+   а не как логотип. Сам акцент остаётся настройкой владельца — буквы в
+   {фигурных скобках} у `logoText`; скобок нет — надпись сплошная. */
+.logo-accent{color:var(--accent);display:inline-block}
 .logo-img{height:34px;width:auto;max-width:200px;display:block;object-fit:contain}
 .logo-chip{display:inline-flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg2)}
 .logo-chip img{height:40px;max-width:160px;object-fit:contain;background:#fff;border-radius:6px}
@@ -1188,7 +1209,12 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    она две трети роста поисковой строки на пустом месте. Высоты внутри связаны —
    поле 38, кнопка Telegram ровно столько же, корзина на 8 px больше поля. */
 .header-row{height:58px;gap:12px;transition:height .28s cubic-bezier(.22,.75,.25,1),min-height .28s,padding .28s,gap .28s}
-.logo{margin-right:auto;font-size:23px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}
+/* Кегль считается от высоты ряда, а не подбирается на глаз: у строчной надписи
+   заметный рост — от верха выносной «t» до базовой линии, примерно .74 кегля, —
+   и в шапке этот рост обязан занимать около трети ряда. 27px в ряду 58px дают
+   20px знака (34%); мельче логотип теряется между поиском и корзиной, крупнее
+   начинает спорить с ними за место. Правишь высоту ряда — пересчитай и кегль. */
+.logo{margin-right:auto;font-size:27px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}
 .logo-img{max-height:32px;transition:max-height .28s ease}
 .icon-btn{min-width:42px;min-height:42px;padding:9px;align-items:center;justify-content:center;border-radius:13px;transition:background .16s ease,transform .12s ease}
 .icon-btn:hover{background:var(--bg2)}
@@ -1235,7 +1261,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    ровно обратное — при прокрутке шапка становилась плотнее, чем в покое. */
 .site-header.header-compact{background:rgba(255,255,255,.7);box-shadow:0 2px 6px rgba(0,0,0,.06)}
 .site-header.header-compact .header-row{height:50px}
-.site-header.header-compact .logo{font-size:20px;transform:translateY(-1px)}
+.site-header.header-compact .logo{font-size:23px;transform:translateY(-1px)}
 .site-header.header-compact .logo-img{max-height:28px}
 .site-header.header-compact .search{flex-basis:0;max-width:0;opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition-delay:0s,0s,0s,0s,0s,.24s}
 .site-header.header-compact .site-nav{max-height:0;border-color:transparent;opacity:0;visibility:hidden;transform:translateY(-8px);pointer-events:none;transition-delay:0s,0s,0s,0s,.28s}
@@ -3422,7 +3448,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .brand-preview{margin:2px 0 18px;border:1px solid var(--border-soft);border-radius:14px;overflow:hidden;
   background:linear-gradient(180deg,#fff,#fbfbfd);font-family:var(--brand-font)}
 .bp-bar{display:flex;align-items:center;gap:14px;padding:11px 15px;border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.9)}
-.bp-logo{font-size:21px;font-weight:700;letter-spacing:-.045em;line-height:1.1;color:var(--text);overflow:hidden}
+/* Предпросмотр обязан показывать ровно то, что увидит покупатель, — значит и
+   строчные, и тот же трекинг. Кегль мельче витринного: полоса предпросмотра
+   ниже настоящей шапки, и 27px в ней задели бы соседние строки. */
+.bp-logo{font-size:24px;font-weight:700;letter-spacing:-.045em;text-transform:lowercase;line-height:1.1;color:var(--text);overflow:hidden}
 .bp-logo .logo-img{height:26px;max-width:150px}
 .bp-link{font-size:13px;color:var(--muted)}
 .bp-cart{margin-left:auto;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;
@@ -3498,7 +3527,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
      стоит во втором ряду и по умолчанию свёрнута, а row-gap держал бы под ней
      8px пустоты даже при нулевой высоте. */
   .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;height:auto;min-height:54px;padding-top:6px;padding-bottom:8px;column-gap:8px;row-gap:0}
-  .header-row .logo{margin:0;font-size:21px}
+  /* Ряд на телефоне 54px — та же треть роста надписи, что и на десктопе (24 ×
+     .74 ≈ 18px). Выше кегль брать нельзя: рядом три кнопки по 42–46px, и
+     длинное имя магазина упрётся в лупу. */
+  .header-row .logo{margin:0;font-size:24px}
   .header-row .search-toggle{display:inline-flex;grid-column:2;min-width:42px;min-height:42px}
   .header-row .tg-header{grid-column:3;min-width:42px;min-height:42px;padding:0 9px}
   .header-row .tg-header-txt{display:none}
