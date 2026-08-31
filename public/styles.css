@@ -2949,7 +2949,14 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .rm-rank-row b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .rm-rank-num{color:#3c4043;text-align:center}.rm-rank-row>span:nth-of-type(2){color:#9aa0a6;font-variant-numeric:tabular-nums;text-align:right}
 .rm-rank-row>i{height:14px;background:#eef0f2}.rm-rank-row>i em{display:block;height:100%;background:#4285f4}
-.rm-rank-foot{margin-top:auto;padding-top:14px;color:#9aa0a6;font-size:10px;text-align:center}
+/* Подвал рейтинга: подпись между двумя стрелками. Стрелка на краю не исчезает,
+   а гаснет — иначе ряд прыгал бы на первой и последней странице (то же правило,
+   что у листалки отзывов на витрине). */
+.rm-rank-foot{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:auto;padding-top:14px;color:#9aa0a6;font-size:10px;text-align:center}
+.rm-page{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:99px;color:#5f6368}
+.rm-page svg{width:13px;height:13px}
+.rm-page:hover{background:rgba(31,31,31,.08)}
+.rm-page-off{opacity:.28;pointer-events:none}
 .rm-empty{max-width:300px;margin:auto;text-align:center;line-height:1.5}
 .metric-bars{display:grid;gap:14px}
 .metric-bar-label{display:grid;grid-template-columns:minmax(0,1fr) max-content max-content;align-items:center;gap:9px;margin-bottom:6px;font-size:12px}

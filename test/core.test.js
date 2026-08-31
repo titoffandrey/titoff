@@ -1457,6 +1457,75 @@ test('каждое название субъекта из геобазы лож�
     'рейтинг справа считает ВСЕ субъекты, включая те, для которых контура нет');
 });
 
+test('рейтинг субъектов листается страницами по пять', () => {
+  /* Подпись «Субъекты: 1–5 из 64» честно называла число, а добраться до
+   * шестого было нельзя вовсе. Листалка — настоящие ссылки с якорем на карту:
+   * ни строчки скрипта, как и всё в отчёте. */
+  const draw = regionPage => analyticsView.dashboard({
+    days: 30, online: 0, unique: 12, generatedAt: Date.now(), hourly: [], daily: [],
+    prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    regions: Array.from({ length: 12 }, (_, i) => ({ label: 'Регион ' + (i + 1), value: 100 - i }))
+  }, { rangeBase: '/admin/analytics?days=', regionPage });
+
+  const first = draw(undefined);
+  assert.match(first, /Субъекты: 1–5 из 12/);
+  assert.match(first, /<b>Регион 1<\/b>/);
+  assert.doesNotMatch(first, /<b>Регион 6<\/b>/, 'на первой странице ровно пять строк');
+  assert.match(first, /href="\/admin\/analytics\?days=30&amp;reg=2#regions"/,
+    'ссылка листания несёт выбранный период и якорь на саму карту');
+  assert.match(first, /class="rm-page rm-page-off"[^>]*>[\s\S]*?<span>Субъекты/,
+    'стрелка назад на первой странице гаснет, а не пропадает: ряд не должен прыгать');
+
+  const third = draw(3);
+  assert.match(third, /Субъекты: 11–12 из 12/);
+  assert.match(third, /<span class="rm-rank-num">11<\/span><b>Регион 11<\/b>/,
+    'нумерация продолжается, а не начинается заново на каждой странице');
+  assert.match(third, /href="\/admin\/analytics\?days=30&amp;reg=2#regions"/, 'назад — на вторую');
+  assert.doesNotMatch(third, /reg=4#regions/, 'вперёд с последней страницы вести некуда');
+
+  // Адрес правят руками — номер зажимается, а не показывает пустоту.
+  assert.match(draw(99), /Субъекты: 11–12 из 12/, 'номер сверх последней страницы даёт последнюю');
+  assert.match(draw('abc'), /Субъекты: 1–5 из 12/, 'мусор в адресе — первая страница');
+
+  // Все субъекты уместились на одну страницу: листать нечего, и стрелок нет
+  // вовсе — кнопке, которая ничего не делает, на экране не место.
+  const short = analyticsView.dashboard({
+    days: 7, online: 0, unique: 3, generatedAt: Date.now(), hourly: [], daily: [],
+    prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    regions: [{ label: 'Москва', value: 3 }, { label: 'Чувашия', value: 2 }]
+  }, { rangeBase: '/admin/analytics?days=' });
+  assert.match(short, /Субъекты: 1–2 из 2/);
+  assert.doesNotMatch(short, /rm-page/, 'одна страница — листалки нет');
+});
+
+test('карта нарисована конической проекцией, а не плоской сеткой', () => {
+  /* Контуры лежали верные, а Россия на них была не похожа: плоская сетка не
+   * сводит меридианы к полюсу, поэтому северное побережье выходило прямой
+   * линией, Таймыр с Чукоткой раздувались вдвое, а страна читалась ровным
+   * прямоугольником. Узнают её как раз по дуге севера и задранному Дальнему
+   * Востоку — их даёт коническая проекция Альберса.
+   *
+   * Проверяется её собственное свойство, которого у плоской сетки нет и быть
+   * не может: у конуса высота точки зависит не только от широты, но и от
+   * удаления по долготе от центрального меридиана. Приморье севернее Дагестана
+   * на полтора градуса, но стоит к меридиану 100° куда ближе — и на конусе
+   * уходит НИЖЕ него. На плоской сетке оно было выше, как и положено по
+   * широте. */
+  const south = name => {
+    const region = RUSSIA_MAP.regions.find(r => r.name === name);
+    assert.ok(region, name + ' есть в контурах');
+    return Math.max(...[...region.d.matchAll(/[ML](-?\d+),(-?\d+)/g)].map(m => Number(m[2])));
+  };
+  assert.ok(south('Приморский край') > south('Дагестан') + 50,
+    'Приморье уходит заметно ниже Дагестана — карта построена конусом');
+  assert.ok(south('Калининградская область') < south('Москва'),
+    'западный край задран вверх — второй признак того же конуса');
+
+  const build = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-russia-map.js'), 'utf8');
+  assert.match(build, /coneRadius/, 'сборка контуров считает радиус конуса');
+  assert.doesNotMatch(build, /82\.5 - lat/, 'прежней плоской формулы в скрипте не осталось');
+});
+
 test('город по IP запрашивается один раз и затем берётся из кэша', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-geo-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -3293,7 +3293,9 @@ app.get('/admin/live', (req, res) => {
 app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db, metrics.pulse())); });
 app.get('/admin/analytics', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  res.send(A.analyticsPage(settings(), db, metrics.snapshot({ days: req.query.days })));
+  // `reg` — страница рейтинга регионов рядом с картой. Проверять её здесь нечем:
+  // сколько там страниц, знает только само представление, оно и зажимает номер.
+  res.send(A.analyticsPage(settings(), db, metrics.snapshot({ days: req.query.days }), req.query.reg));
 });
 
 /* «Кто заходил»: вся история посещений за год с отбором по датам, технике и
