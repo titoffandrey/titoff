@@ -1085,52 +1085,62 @@
   });
 })();
 
-/* ===================== Карта посетителей по субъектам РФ ====================
+/* ======================= Карта посетителей: мир и страны ====================
  *
  * Контуры, цвета и числа рисует сервер — они лежат в `data-*` у самого контура.
- * Скрипт делает одно, чего разметка не умеет: показывает подсказку у курсора,
- * как на карте Google Trends. Обработчики делегированы документу, поэтому
- * переживают живую подмену всей метрики (`admin-live.js`) без переинициализации.
+ * Скрипт делает то, чего разметка не умеет: подсказку у курсора, приближение
+ * (колесом, щипком, кнопками и двойным нажатием) и переход внутрь страны по
+ * нажатию на неё. Обработчики делегированы документу, поэтому переживают живую
+ * подмену всей метрики (`admin-live.js`) без переинициализации.
  *
- * Клавиатурных обработчиков здесь нет намеренно: контуров восемьдесят три, и
- * фокус на каждом дал бы восемьдесят три остановки табуляции посреди отчёта.
- * Числа читаются из рейтинга справа — обычным текстом.
+ * Клавиатурных обработчиков у контуров нет намеренно: их до ста семидесяти
+ * четырёх, и фокус на каждом дал бы столько же остановок табуляции посреди
+ * отчёта. Числа читаются из рейтинга справа — обычным текстом, а страна там же
+ * открывается настоящей ссылкой.
  */
 (function () {
   'use strict';
   var active = null;
   var sticky = false;   // подсказку открыли пальцем: сама она не уходит
 
-  function tipOf(region) {
-    var map = region && region.closest ? region.closest('.ru-map') : null;
-    return map ? map.querySelector('.rm-tip') : null;
+  function stageOf(el) { return el && el.closest ? el.closest('.gm-stage') : null; }
+  function tipOf(shape) {
+    var stage = stageOf(shape);
+    return stage ? stage.querySelector('.gm-tip') : null;
   }
+  function shapeAt(target) { return target && target.closest ? target.closest('.gm-shape') : null; }
 
-  function place(region, event) {
-    var tip = tipOf(region);
-    var stage = region && region.closest ? region.closest('.rm-map-stage') : null;
+  function place(shape, event) {
+    var tip = tipOf(shape);
+    var stage = stageOf(shape);
     if (!tip || !stage || !event) return;
     var box = stage.getBoundingClientRect();
-    var x = event.clientX - box.left + 13;
-    var y = event.clientY - box.top - 13;
+    var x = event.clientX - box.left + 14;
+    var y = event.clientY - box.top - 14;
     // Подсказка не вылезает за карту: у края она встаёт слева от пальца, а не
     // наполовину за границей панели.
-    x = Math.max(5, Math.min(box.width - (tip.offsetWidth || 150) - 5, x));
-    y = Math.max(5, Math.min(box.height - (tip.offsetHeight || 42) - 5, y));
+    x = Math.max(5, Math.min(box.width - (tip.offsetWidth || 170) - 5, x));
+    y = Math.max(5, Math.min(box.height - (tip.offsetHeight || 70) - 5, y));
     tip.style.left = x + 'px';
     tip.style.top = y + 'px';
   }
 
-  function show(region, event) {
-    var tip = tipOf(region);
+  function show(shape, event) {
+    var tip = tipOf(shape);
     if (!tip) return;
-    active = region;
+    active = shape;
     var name = tip.querySelector('b');
-    var value = tip.querySelector('span');
-    if (name) name.textContent = region.getAttribute('data-region') || '';
-    if (value) value.textContent = (region.getAttribute('data-value') || '0') + ' ' + (region.getAttribute('data-unit') || 'посетителей');
+    var unit = tip.querySelector('em');
+    var value = tip.querySelector('strong');
+    if (name) name.textContent = shape.getAttribute('data-name') || '';
+    /* Подпись приезжает готовой, вместе со склонением («посетитель» —
+     * «посетителя» — «посетителей»): все слова отчёта живут на сервере, и своя
+     * запасная строка здесь была бы второй таблицей склонений. Скрипт пишет в
+     * подсказку ровно то, что уже лежит в разметке. */
+    if (unit) unit.textContent = shape.getAttribute('data-unit') || '';
+    if (value) value.textContent = shape.getAttribute('data-value') || '';
     tip.hidden = false;
-    place(region, event);
+    place(shape, event);
   }
 
   function hide() {
@@ -1140,29 +1150,345 @@
     sticky = false;
   }
 
-  function regionAt(target) {
-    return target && target.closest ? target.closest('.rm-region') : null;
-  }
-
   document.addEventListener('pointerover', function (event) {
-    var region = regionAt(event.target);
-    if (!region) return;
+    var shape = shapeAt(event.target);
+    if (!shape) return;
     /* Касание тоже даёт `pointerover`, но сразу за ним приходит `pointerout` —
      * подсказка успевала бы только мигнуть. Поэтому у пальца она остаётся до
-     * следующего касания мимо: субъекты мелкие, и попадание в них — уже работа,
-     * которую не хочется делать дважды. */
+     * следующего касания мимо: места на карте мелкие, и попадание в них — уже
+     * работа, которую не хочется делать дважды. */
     sticky = event.pointerType === 'touch';
-    show(region, event);
+    show(shape, event);
   });
   document.addEventListener('pointermove', function (event) {
     if (active && !sticky && document.documentElement.contains(active)) place(active, event);
   });
   document.addEventListener('pointerout', function (event) {
     if (sticky) return;
-    if (active && regionAt(event.target) === active && !regionAt(event.relatedTarget)) hide();
+    if (active && shapeAt(event.target) === active && !shapeAt(event.relatedTarget)) hide();
   });
   // Касание мимо карты убирает залипшую подсказку — как закрывается меню разделов.
   document.addEventListener('pointerdown', function (event) {
-    if (sticky && !regionAt(event.target)) hide();
+    if (sticky && !shapeAt(event.target)) hide();
+  });
+
+  /* --------------------------- Приближение карты ---------------------------
+   *
+   * Кадр живёт в `viewBox`: там его правит и сервер (у каждой карты свой), и
+   * этот скрипт. Второго места хранения нет намеренно — исходный кадр лежит
+   * рядом в `data-home`, и кнопка сброса возвращает именно его.
+   *
+   * На телефоне это не украшение, а единственный способ вообще попасть в
+   * область: Свердловская область на карте России занимает там десяток
+   * пикселей. Поэтому жесты те же, что у любой карты, — щипок и перетаскивание.
+   */
+  var MIN_SCALE = 1;
+  var MAX_SCALE = 12;
+
+  function parseBox(value) {
+    var parts = String(value || '').trim().split(/[\s,]+/).map(Number);
+    return parts.length === 4 && parts.every(function (n) { return isFinite(n); }) ? parts : null;
+  }
+  function svgOf(stage) { return stage ? stage.querySelector('.gm-svg') : null; }
+  function homeBox(stage) { return parseBox(stage.getAttribute('data-home')); }
+  function currentBox(stage) {
+    var svg = svgOf(stage);
+    return svg ? parseBox(svg.getAttribute('viewBox')) : null;
+  }
+
+  function applyBox(stage, box) {
+    var svg = svgOf(stage);
+    var home = homeBox(stage);
+    if (!svg || !home) return;
+    // Ближе MAX_SCALE смотреть не на что: контуры упрощены под ширину панели, и
+    // дальше видно уже не географию, а ломаную из отрезков.
+    var minW = home[2] / MAX_SCALE;
+    var maxW = home[2] / MIN_SCALE;
+    var width = Math.min(maxW, Math.max(minW, box[2]));
+    var height = width * (home[3] / home[2]);
+    // Карта не уезжает за собственные края: гулять можно внутри исходного кадра.
+    var x = Math.min(home[0] + home[2] - width, Math.max(home[0], box[0]));
+    var y = Math.min(home[1] + home[3] - height, Math.max(home[1], box[1]));
+    svg.setAttribute('viewBox', round(x) + ' ' + round(y) + ' ' + round(width) + ' ' + round(height));
+    /* Отметка говорит живому обновлению, что кадр теперь принадлежит человеку:
+     * без неё подмена разметки возвращала бы карту к общему виду по нескольку
+     * раз в минуту, прямо под рукой (см. `ownedByUser` в admin-live.js). */
+    if (width < home[2] - 0.5) svg.setAttribute('data-zoomed', '1');
+    else svg.removeAttribute('data-zoomed');
+    syncButtons(stage);
+  }
+  function round(value) { return Math.round(value * 100) / 100; }
+
+  function zoomAt(stage, factor, point) {
+    var box = currentBox(stage);
+    var home = homeBox(stage);
+    if (!box || !home) return;
+    var rect = stage.getBoundingClientRect();
+    // Точка под курсором обязана остаться на месте — иначе карта «уплывает»
+    // из-под пальца, и приближать её приходится наугад.
+    var ratioX = point ? Math.min(1, Math.max(0, (point.x - rect.left) / rect.width)) : 0.5;
+    var ratioY = point ? Math.min(1, Math.max(0, (point.y - rect.top) / rect.height)) : 0.5;
+    var anchorX = box[0] + box[2] * ratioX;
+    var anchorY = box[1] + box[3] * ratioY;
+    var width = box[2] / factor;
+    var height = box[3] / factor;
+    applyBox(stage, [anchorX - width * ratioX, anchorY - height * ratioY, width, height]);
+  }
+
+  function syncButtons(stage) {
+    var box = currentBox(stage);
+    var home = homeBox(stage);
+    if (!box || !home) return;
+    var zoom = stage.querySelector('.gm-zoom');
+    if (!zoom) return;
+    var at = home[2] / box[2];
+    var out = zoom.querySelector('[data-zoom="out"]');
+    var into = zoom.querySelector('[data-zoom="in"]');
+    var reset = zoom.querySelector('[data-zoom="reset"]');
+    if (out) out.disabled = at <= MIN_SCALE + 0.001;
+    if (into) into.disabled = at >= MAX_SCALE - 0.001;
+    if (reset) reset.hidden = at <= MIN_SCALE + 0.001;
+  }
+
+  var ZOOM_ICONS = {
+    in: ['M12 5.5v13M5.5 12h13'],
+    out: ['M5.5 12h13'],
+    reset: ['M4.6 9.4A8 8 0 1 1 4 12', 'M4.2 4.6v5h5']
+  };
+  var ZOOM_TITLES = { in: 'Приблизить', out: 'Отдалить', reset: 'Показать целиком' };
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // Значок собирается узлами, а не присваиванием строки разметки: исключение
+  // «здесь-то строка своя» рано или поздно переползает туда, где строка чужая,
+  // а в панели рядом лежит текст владельца и текст покупателя.
+  function zoomIcon(kind) {
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    ZOOM_ICONS[kind].forEach(function (d) {
+      var path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+    });
+    return svg;
+  }
+
+  /* Кнопки создаёт скрипт, а не сервер: без него они ничего не делают, а
+   * кнопке, которая ничего не делает, на экране не место — то же правило, по
+   * которому готовые акценты в настройках появляются только со скриптом. */
+  function addButtons(stage) {
+    if (stage.querySelector('.gm-zoom')) return;
+    var box = document.createElement('div');
+    box.className = 'gm-zoom';
+    ['in', 'out', 'reset'].forEach(function (kind) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('data-zoom', kind);
+      button.title = ZOOM_TITLES[kind];
+      button.setAttribute('aria-label', ZOOM_TITLES[kind]);
+      button.appendChild(zoomIcon(kind));
+      box.appendChild(button);
+    });
+    stage.appendChild(box);
+    syncButtons(stage);
+  }
+
+  function setupStages() {
+    var list = document.querySelectorAll('.gm-stage');
+    for (var i = 0; i < list.length; i++) addButtons(list[i]);
+  }
+  document.addEventListener('DOMContentLoaded', setupStages);
+  setupStages();
+  /* Живое обновление подменяет разметку отчёта целиком и уносит кнопки вместе с
+   * ней — после него их надо вернуть. Ждать наведения мыши для этого нельзя: на
+   * телефоне `pointerover` не приходит вовсе, и карта осталась бы без
+   * приближения именно там, где оно нужнее всего. */
+  document.addEventListener('admin-live:updated', setupStages);
+
+  document.addEventListener('click', function (event) {
+    var button = event.target.closest ? event.target.closest('.gm-zoom [data-zoom]') : null;
+    if (!button) return;
+    var stage = stageOf(button);
+    if (!stage) return;
+    var kind = button.getAttribute('data-zoom');
+    if (kind === 'reset') applyBox(stage, homeBox(stage));
+    else zoomAt(stage, kind === 'in' ? 1.6 : 1 / 1.6, null);
+  });
+
+  /* Колесо приближает только с Ctrl (на трекпаде это и есть щипок — браузер
+   * присылает его как `wheel` с `ctrlKey`). Без этого условия отчёт переставал
+   * бы прокручиваться, стоило курсору проехать над картой: страница застревала
+   * бы посреди чтения, а зум случался бы сам собой. */
+  document.addEventListener('wheel', function (event) {
+    var stage = stageOf(event.target);
+    if (!stage || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    zoomAt(stage, event.deltaY < 0 ? 1.18 : 1 / 1.18, { x: event.clientX, y: event.clientY });
+  }, { passive: false });
+
+  document.addEventListener('dblclick', function (event) {
+    var stage = stageOf(event.target);
+    if (!stage) return;
+    zoomAt(stage, 1.9, { x: event.clientX, y: event.clientY });
+  });
+
+  /* Перетаскивание и щипок. Свой учёт указателей, а не готовый жест браузера:
+   * `touch-action:none` у карты отключает прокрутку внутри неё, и всё, что
+   * приходит, — это наши же `pointer`-события. */
+  var drag = null;
+  var points = new Map();
+
+  document.addEventListener('pointerdown', function (event) {
+    var stage = stageOf(event.target);
+    if (!stage || event.button > 0) return;
+    points.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (points.size === 1) {
+      drag = { stage: stage, x: event.clientX, y: event.clientY, box: currentBox(stage), moved: 0 };
+    } else if (points.size === 2) {
+      drag = null;
+      var pair = Array.from(points.values());
+      stage.__pinch = { distance: distanceOf(pair), box: currentBox(stage) };
+    }
+  });
+
+  function distanceOf(pair) {
+    return Math.hypot(pair[0].x - pair[1].x, pair[0].y - pair[1].y) || 1;
+  }
+
+  document.addEventListener('pointermove', function (event) {
+    if (!points.has(event.pointerId)) return;
+    points.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    var stage = drag ? drag.stage : stageOf(event.target);
+    if (!stage) return;
+    if (points.size >= 2 && stage.__pinch) {
+      var pair = Array.from(points.values());
+      var factor = distanceOf(pair) / stage.__pinch.distance;
+      var rect = stage.getBoundingClientRect();
+      var center = { x: (pair[0].x + pair[1].x) / 2, y: (pair[0].y + pair[1].y) / 2 };
+      var base = stage.__pinch.box;
+      if (!base) return;
+      var width = base[2] / factor;
+      var ratioX = Math.min(1, Math.max(0, (center.x - rect.left) / rect.width));
+      var ratioY = Math.min(1, Math.max(0, (center.y - rect.top) / rect.height));
+      var anchorX = base[0] + base[2] * ratioX;
+      var anchorY = base[1] + base[3] * ratioY;
+      var height = width * (base[3] / base[2]);
+      applyBox(stage, [anchorX - width * ratioX, anchorY - height * ratioY, width, height]);
+      return;
+    }
+    if (!drag || !drag.box) return;
+    var box = drag.box;
+    var rectDrag = drag.stage.getBoundingClientRect();
+    var dx = (event.clientX - drag.x) * (box[2] / rectDrag.width);
+    var dy = (event.clientY - drag.y) * (box[3] / rectDrag.height);
+    drag.moved = Math.max(drag.moved, Math.hypot(event.clientX - drag.x, event.clientY - drag.y));
+    // Пока карта показана целиком, таскать нечего — иначе кадр «дрожал» бы под
+    // рукой у того, кто просто ведёт мышью по стране.
+    var home = homeBox(drag.stage);
+    if (!home || box[2] >= home[2] - 0.5) return;
+    drag.stage.classList.add('is-drag');
+    applyBox(drag.stage, [box[0] - dx, box[1] - dy, box[2], box[3]]);
+  });
+
+  function endPointer(event) {
+    points.delete(event.pointerId);
+    if (points.size < 2) {
+      var stages = document.querySelectorAll('.gm-stage');
+      for (var i = 0; i < stages.length; i++) stages[i].__pinch = null;
+    }
+    if (drag) drag.stage.classList.remove('is-drag');
+    if (points.size === 0) drag = null;
+  }
+  document.addEventListener('pointerup', endPointer);
+  document.addEventListener('pointercancel', endPointer);
+
+  /* Нажатие на страну открывает её карту. Ссылку в разметке для этого не
+   * завести: `<a>` вокруг каждого контура дал бы сто семьдесят четыре остановки
+   * табуляции, а путь без скриптов и так есть — рейтинг справа состоит из
+   * настоящих ссылок. Перетаскивание при этом переходом не считается: карту
+   * возят пальцем, и уехать с неё от каждого движения было бы издевательством. */
+  var touchArmed = null;   // страна, подсказку которой уже открыли пальцем
+
+  document.addEventListener('click', function (event) {
+    var shape = shapeAt(event.target);
+    if (!shape) return;
+    var go = shape.getAttribute('data-go');
+    if (!go || (drag && drag.moved > 6)) return;
+    /* На телефоне первое касание ПОКАЗЫВАЕТ подсказку, и уводить с него внутрь
+     * страны нельзя: посмотреть число, не провалившись, было бы невозможно.
+     * Переход делает второе касание той же страны — так же ведут себя карты в
+     * мобильных приложениях. Мышью переход происходит сразу: там подсказка уже
+     * висит под курсором. */
+    if (sticky && touchArmed !== shape) { touchArmed = shape; return; }
+    window.location.href = go;
+  });
+})();
+
+/* ===================== Кнопки-меню метрики (период и место) =================
+ *
+ * Само меню держит `<details>` — открывается и закрывается оно и без скриптов.
+ * Здесь только то, чего разметка не умеет: закрытие по нажатию мимо и по Esc,
+ * поиск по длинному списку стран и фокус в поле поиска при открытии.
+ */
+(function () {
+  'use strict';
+  function menus() { return document.querySelectorAll('details[data-menu][open]'); }
+
+  function closeAll(except) {
+    var open = menus();
+    for (var i = 0; i < open.length; i++) if (open[i] !== except) open[i].removeAttribute('open');
+  }
+
+  document.addEventListener('click', function (event) {
+    var inside = event.target.closest ? event.target.closest('details[data-menu]') : null;
+    closeAll(inside);
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    var open = menus();
+    if (!open.length) return;
+    // Меню закрывается первым: у панели свой Esc (он снимает выделение реплики
+    // и закрывает боковое меню), и уводить фокус разом отовсюду не нужно.
+    event.stopPropagation();
+    closeAll(null);
+  }, true);
+
+  document.addEventListener('toggle', function (event) {
+    var box = event.target;
+    if (!box.matches || !box.matches('details[data-menu]')) return;
+    if (!box.open) return;
+    closeAll(box);
+    var search = box.querySelector('[data-menu-search]');
+    // Курсор ставится сам: список стран открывают, чтобы найти в нём страну, и
+    // целиться в поле вторым нажатием незачем — то же правило, что у лупы в
+    // шапке витрины. На телефоне фокуса не даём: клавиатура закрыла бы список.
+    if (search && !window.matchMedia('(pointer:coarse)').matches) search.focus();
+  }, true);
+
+  document.addEventListener('input', function (event) {
+    var field = event.target;
+    if (!field.matches || !field.matches('[data-menu-search]')) return;
+    var menu = field.closest('.g-menu');
+    if (!menu) return;
+    var query = field.value.trim().toLowerCase();
+    var items = menu.querySelectorAll('[data-menu-item]');
+    var shown = 0;
+    for (var i = 0; i < items.length; i++) {
+      var hit = !query || items[i].getAttribute('data-menu-item').indexOf(query) >= 0;
+      items[i].hidden = !hit;
+      if (hit) shown++;
+    }
+    // Заголовки групп и разделители у пустой группы прячутся вместе с ней:
+    // «Откуда заходили» над пустотой читается как потерянный список.
+    var groups = menu.querySelectorAll('.g-menu-list');
+    for (var g = 0; g < groups.length; g++) {
+      var empty = !groups[g].querySelector('[data-menu-item]:not([hidden])');
+      groups[g].hidden = empty;
+      var title = groups[g].previousElementSibling;
+      if (title && title.classList.contains('g-menu-title')) title.hidden = empty;
+    }
+    var note = menu.querySelector('.g-menu-empty');
+    if (note) note.hidden = shown > 0;
   });
 })();

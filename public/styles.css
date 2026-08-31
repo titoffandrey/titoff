@@ -562,9 +562,9 @@ body.admin{background:var(--bg2)}
 /* Постраничная навигация в панелях: списки отзывов и заказов длинные, целиком их не отдаём */
 .a-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:14px 10px 4px;border-top:1px solid var(--border);margin-top:4px}
 .a-page{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:34px;height:34px;padding:0 8px;
-  border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-size:14px;text-decoration:none}
+  border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-size:14px;text-decoration:none}
 .a-page:hover{background:var(--bg2)}
-.a-page-cur{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:600}
+.a-page-cur{background:var(--text);border-color:var(--text);color:#fff;font-weight:600}
 .a-page-off{opacity:.35;pointer-events:none}
 .a-page-gap{padding:0 2px;color:var(--muted)}
 .a-pager-info{margin-left:auto;padding:14px 10px 4px}
@@ -2974,24 +2974,62 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .mc-x.at-end{transform:translateX(-100%)}
 .mc-legend{grid-column:2;display:flex;align-items:center;justify-content:center;gap:9px;padding-top:14px;color:#5f6368;font-size:13px}
 
-/* Карта РФ: слева настоящие контуры субъектов, справа — те же пять строк,
-   числа и синие полосы, что в региональном блоке Google Trends. */
-.ru-map{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(320px,.92fr);align-items:center;gap:38px;min-height:340px}
-.rm-map-stage{position:relative;min-width:0}
-.rm-map-svg{display:block;width:100%;height:auto;overflow:visible}
-.rm-region{fill:#e4e7eb;stroke:#fff;stroke-width:1;vector-effect:non-scaling-stroke;outline:none}
-.rm-region.heat-1{fill:#d2e3fc}.rm-region.heat-2{fill:#a9c7f7}.rm-region.heat-3{fill:#82abf2}.rm-region.heat-4{fill:#669df6}.rm-region.heat-5{fill:#4285f4}
-/* Под курсором субъект ОБВОДИТСЯ, а не заливается тёмным. Заливка перекрашивала
-   его в цвет самой густой ступени — то есть врала о числе ровно там, куда
-   смотрят, и пустой регион под мышью выглядел самым посещаемым. */
-.rm-region:hover{stroke:#202124;stroke-width:1.6}
-.rm-tip{position:absolute;z-index:5;padding:9px 11px;border:1px solid #dadce0;border-radius:3px;background:#fff;color:#3c4043;font-size:11px;box-shadow:0 2px 7px rgba(60,64,67,.2);pointer-events:none;white-space:nowrap}
-.rm-tip b{display:block;margin-bottom:3px;font-size:12px}.rm-tip span{color:#5f6368}
+/* ===================== Карта посетителей: мир и страны =====================
+   Слева контуры, справа те же пять строк, числа и синие полосы, что в
+   географическом блоке Google Trends. Цвета заливки сняты с их карты: серый
+   у стран без данных и пять ступеней синего — от бледного к почти чернильному.
+   Акцент магазина здесь не годится (он у каждого свой, а на пяти ступенях
+   должен читаться), поэтому цвет взят снаружи — второй такой случай в панели
+   после палитры бокового меню. */
+.ru-map{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(310px,.88fr);align-items:center;gap:34px;min-height:340px}
+.gm-stage{position:relative;min-width:0;overflow:hidden;border-radius:10px;background:#fff;
+  touch-action:none;cursor:grab;-webkit-user-select:none;user-select:none}
+.gm-stage.is-drag{cursor:grabbing}
+/* Кадр карты не выше своей полосы: у вытянутых стран (Чили, Норвегия) высота
+   при полной ширине уходила бы за экран, а `preserveAspectRatio` по умолчанию
+   впишет контуры внутрь без искажений — по бокам просто останется поле. */
+.gm-svg{display:block;width:100%;height:auto;max-height:min(58vh,470px)}
+.gm-shape{fill:#c9cdd2;stroke:#fff;stroke-width:.9;vector-effect:non-scaling-stroke;outline:none}
+.gm-shape.heat-1{fill:#cfdefa}.gm-shape.heat-2{fill:#a3c0f0}.gm-shape.heat-3{fill:#6f93df}
+.gm-shape.heat-4{fill:#3f66c9}.gm-shape.heat-5{fill:#1c3f96}
+/* Под курсором страна ОБВОДИТСЯ, а не заливается тёмным: заливка перекрашивала
+   бы её в цвет самой густой ступени — то есть врала о числе ровно там, куда
+   смотрят, и пустое место под мышью выглядело бы самым посещаемым. */
+.gm-shape:hover{stroke:#202124;stroke-width:1.6}
+.gm-shape[data-go]{cursor:pointer}
+.gm-shape.is-current{stroke:#202124;stroke-width:1.5}
+/* Подсказка — белая карточка Trends: имя сверху, ниже точка, подпись и число.
+   Ровно та же раскладка, что у подсказки графика, и это не совпадение: обе
+   отвечают на один вопрос «сколько здесь». */
+.gm-tip{position:absolute;z-index:5;min-width:170px;padding:14px 16px;border-radius:12px;background:#fff;
+  color:#202124;font-size:13px;line-height:1.35;white-space:nowrap;pointer-events:none;
+  box-shadow:0 1px 3px rgba(60,64,67,.15),0 6px 14px rgba(60,64,67,.16)}
+.gm-tip>b{display:block;margin-bottom:11px;font-size:14px;font-weight:500}
+.gm-tip>span{display:grid;grid-template-columns:10px 1fr auto;align-items:center;gap:10px}
+.gm-tip>span i{width:10px;height:10px;border-radius:50%;background:#1c3f96}
+.gm-tip em{font-style:normal;color:#5f6368}
+.gm-tip strong{padding-left:18px;font-weight:500;font-variant-numeric:tabular-nums}
+/* Кнопки приближения. Их рисует `public/admin-ui.js`: без скриптов они ничего
+   не делают, а кнопке, которая ничего не делает, на экране не место. */
+.gm-zoom{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:7px}
+.gm-zoom button{display:flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;
+  border:1px solid #dadce0;border-radius:50%;background:#fff;color:#5f6368;cursor:pointer;
+  box-shadow:0 1px 2px rgba(60,64,67,.2)}
+.gm-zoom button:hover{background:#f1f3f4;color:#202124}
+.gm-zoom button:disabled{opacity:.4;cursor:default}
+.gm-zoom svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .rm-ranking{align-self:stretch;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .rm-rank-row{display:grid;grid-template-columns:24px minmax(0,1fr) max-content 100px;align-items:center;gap:8px;min-height:61px;border-bottom:1px solid #e5e7e9;color:#3c4043;font-size:12px}
-.rm-rank-row b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.rm-rank-row b{display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+/* Строка страны ведёт внутрь неё — это и есть путь с мировой карты в регионы
+   там, где скриптов нет. Подчёркивания у неё нет: строк пять, и пять
+   подчёркнутых названий читались бы как список ссылок, а не как рейтинг. */
+.rm-rank-row.is-link{color:#3c4043;text-decoration:none}
+.rm-rank-row.is-link:hover{background:rgba(31,31,31,.04)}
+.rm-rank-row.is-link:hover b{color:#1967d2}
+.rm-flag{flex:none;font-size:14px;line-height:1}
 .rm-rank-num{color:#3c4043;text-align:center}.rm-rank-row>span:nth-of-type(2){color:#9aa0a6;font-variant-numeric:tabular-nums;text-align:right}
-.rm-rank-row>i{height:14px;background:#eef0f2}.rm-rank-row>i em{display:block;height:100%;background:#4285f4}
+.rm-rank-row>i{height:14px;background:#eef0f2}.rm-rank-row>i em{display:block;height:100%;background:#1c3f96}
 /* Подвал рейтинга: подпись между двумя стрелками. Стрелка на краю не исчезает,
    а гаснет — иначе ряд прыгал бы на первой и последней странице (то же правило,
    что у листалки отзывов на витрине). */
@@ -3001,6 +3039,57 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .rm-page:hover{background:rgba(31,31,31,.08)}
 .rm-page-off{opacity:.28;pointer-events:none}
 .rm-empty{max-width:300px;margin:auto;text-align:center;line-height:1.5}
+
+/* ------------------- Кнопка с выпадающим меню, как у Trends -----------------
+   Белая пилюля 40 px с волосяной рамкой, значок слева, стрелка справа;
+   открытая подсвечена голубым. В меню выбранный пункт лежит на зелёной плашке
+   с галочкой — числа и цвета сняты с их живой страницы.
+
+   Держит всё это `<details>`: панель обновляется подменой серверной разметки, и
+   второе состояние в браузере разъехалось бы с ней, а `open` живое обновление
+   не трогает вовсе. Без скриптов меню тоже работает — пункты обычные ссылки. */
+.g-select{position:relative}
+.g-pill{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px 0 16px;box-sizing:border-box;
+  border:1px solid #dadce0;border-radius:100px;background:#fff;color:#1f1f1f;font-size:14px;line-height:1;
+  cursor:pointer;white-space:nowrap;list-style:none}
+.g-pill::-webkit-details-marker{display:none}
+.g-pill:hover{background:#f8f9fa}
+.g-pill-ico{display:inline-flex;color:#5f6368}
+.g-pill-ico svg{width:18px;height:18px}
+.g-chev{width:18px;height:18px;color:#5f6368;transition:transform .18s cubic-bezier(.4,0,.2,1)}
+.g-select[open]>.g-pill{background:#e8f0fe;border-color:transparent;color:#1f1f1f}
+.g-select[open]>.g-pill .g-pill-ico,.g-select[open]>.g-pill .g-chev{color:#1967d2}
+.g-select[open]>.g-pill .g-chev{transform:rotate(180deg)}
+.g-menu{position:absolute;z-index:30;top:calc(100% + 8px);left:0;min-width:264px;max-width:min(92vw,360px);
+  padding:8px 0;border-radius:16px;background:#fff;
+  box-shadow:0 2px 6px rgba(60,64,67,.15),0 8px 24px rgba(60,64,67,.15);
+  animation:g-menu-in .16s cubic-bezier(.4,0,.2,1)}
+/* Меню у правого края панели раскрывается влево: у карты кнопка стоит справа в
+   шапке, и меню, начатое от её левого края, вылезало бы за границу панели. */
+.g-menu-right>.g-menu{left:auto;right:0}
+@keyframes g-menu-in{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+.g-menu-head{padding:10px 20px 8px;color:#5f6368;font-size:14px}
+.g-menu-title{padding:10px 20px 6px;color:#80868b;font-size:12px}
+.g-menu-line{height:1px;margin:8px 16px;background:#e0e0e0}
+.g-menu-body{max-height:min(58vh,420px);overflow:auto;overscroll-behavior:contain}
+.g-menu-search{display:flex;align-items:center;gap:8px;margin:4px 12px 8px;padding:0 14px;height:40px;
+  border-radius:100px;box-shadow:inset 0 0 0 1px #dadce0;color:#5f6368}
+.g-menu-search:focus-within{box-shadow:inset 0 0 0 2px #1a73e8}
+.g-menu-search svg{width:18px;height:18px;flex:none}
+.g-menu-search input{flex:1;min-width:0;height:100%;border:0;background:none;outline:none;color:#1f1f1f;font-size:14px}
+.g-opt{display:flex;align-items:center;gap:10px;min-height:44px;margin:0 8px;padding:6px 18px 6px 12px;
+  border-radius:100px;color:#1f1f1f;font-size:14px;text-decoration:none}
+.g-opt:hover{background:rgba(31,31,31,.06)}
+/* Галочка стоит у всех пунктов и лишь гаснет у невыбранных: убери её из потока —
+   и подписи встанут на разном отступе, а выбор поедет вбок на каждое нажатие. */
+.g-check{width:18px;height:18px;flex:none;visibility:hidden}
+.g-opt>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-opt>b{flex:none;color:#80868b;font-size:13px;font-weight:400;font-variant-numeric:tabular-nums}
+.g-opt.is-on{background:#ceead6;color:#188038}
+.g-opt.is-on .g-check{visibility:visible}
+.g-opt.is-on>b{color:#188038}
+.g-menu-empty{margin:0;padding:12px 20px 14px;color:#80868b;font-size:13px}
+
 .metric-bars{display:grid;gap:14px}
 .metric-bar-label{display:grid;grid-template-columns:minmax(0,1fr) max-content max-content;align-items:center;gap:9px;margin-bottom:6px;font-size:12px}
 /* Колонка под значок появляется по классу самого списка, а не по `:has()`:
@@ -3944,6 +4033,13 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .img-chip img{width:82px;height:82px}
   .metric-toolbar{align-items:stretch;flex-wrap:wrap}
   .metric-ranges{order:1;flex:1}
+  /* Кнопка периода и кнопка местоположения на телефоне занимают ряд поровну, а
+     меню под ними раскрывается во всю ширину экрана: 264 px от края кнопки
+     уезжали бы за границу панели. */
+  .metric-toolbar .g-select{flex:1}
+  .metric-toolbar .g-pill{width:100%;justify-content:center}
+  .g-menu{min-width:0;width:max(240px,100%);max-width:none}
+  .trends-head .g-menu{width:min(300px,78vw)}
   /* Кегль и поля ужаты, а перенос запрещён: у «Кто заходил» диапазонов четыре
      («Всё время» в их числе), и на переносе кнопка становилась вдвое выше
      соседних — ряд читался как поломка, а не как выбор. */
@@ -3980,7 +4076,15 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .mc-tip{min-width:138px;padding:10px 11px}
   .mc-legend{padding-top:8px}
   .ru-map{grid-template-columns:1fr;gap:12px;min-height:0}
-  .rm-map-stage{padding:5px 0 0}
+  /* На телефоне карта — главное, ради чего блок открывают, и её показываем
+     крупнее: без приближения субъект пальцем не поймать вовсе. Кнопки
+     приближения там же становятся 40 px — размер, в который попадают пальцем. */
+  .gm-stage{margin-top:5px}
+  /* Кнопки встают в ряд: карта на телефоне низкая (у России это 175 px), и три
+     кнопки столбиком занимали почти всю её высоту, закрывая Дальний Восток. */
+  .gm-zoom{right:8px;bottom:8px;gap:8px;flex-direction:row}
+  .gm-zoom button{width:40px;height:40px}
+  .gm-zoom svg{width:20px;height:20px}
   .rm-ranking{min-height:0}
   .rm-rank-row{grid-template-columns:21px minmax(0,1fr) max-content 64px;min-height:43px;font-size:11px}
   .rm-rank-row>i{height:11px}
@@ -5396,7 +5500,8 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .chat-row-top{display:flex;align-items:center;gap:7px;min-width:0}
 .chat-row-name{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chat-row-when{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;flex:none}
+.chat-row-side{flex:none;align-self:stretch;min-width:48px;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.chat-row-when{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 /* Последняя реплика обрезается двумя строками: в списке диалог надо узнать, а
    не прочесть целиком — то же правило, что у строки отзыва. */
 .chat-row-last{font-size:13px;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
@@ -5414,7 +5519,7 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .chat-row.is-unread:hover{background:var(--bg2)}
 .chat-row.is-unread .chat-row-name{font-weight:700}
 .chat-row.is-unread .chat-row-last{color:var(--text);font-weight:500}
-.chat-row-unread{flex:none;align-self:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;
+.chat-row-unread{flex:none;margin-top:auto;min-width:20px;height:20px;padding:0 6px;border-radius:10px;
   background:var(--accent);color:#fff;font-size:11.5px;font-weight:700;line-height:20px;text-align:center;
   font-variant-numeric:tabular-nums}
 

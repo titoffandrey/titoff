@@ -78,6 +78,12 @@
   // Что человек уже решил сам: раскрыл свёртку, отметил галочку, выбрал пункт.
   function ownedByUser(el, name) {
     if (name === 'open' && el.tagName === 'DETAILS') return true;
+    /* Приближённая карта — тоже его решение. Кадр живёт в `viewBox`, а метрика
+     * перерисовывается на каждое движение на витрине: без этой строки карта
+     * возвращалась бы к общему виду по нескольку раз в минуту, прямо под рукой.
+     * Отметку `data-zoomed` ставит сам зум, поэтому нетронутая карта обновляется
+     * как обычно — вместе с новым кадром от сервера. */
+    if (name === 'viewBox' && el.hasAttribute && el.hasAttribute('data-zoomed')) return true;
     return FIELDS[el.tagName] && (name === 'value' || name === 'checked' || name === 'selected');
   }
 
@@ -158,7 +164,14 @@
       morph(parts[i], fresh);
       changed = true;
     }
-    if (changed) flash();
+    if (changed) {
+      flash();
+      /* Подмена разметки уносит и то, что дорисовал скрипт панели: кнопки
+       * приближения у карты рисует `admin-ui.js`, и после обновления их надо
+       * вернуть. Событие вместо прямого вызова — чтобы этот файл по-прежнему не
+       * знал ни об одном разделе панели: кому нужно, тот и подписывается. */
+      document.dispatchEvent(new CustomEvent('admin-live:updated'));
+    }
   }
 
   function pull() {

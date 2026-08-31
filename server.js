@@ -7,6 +7,10 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+// Оригинальный favicon Apple, который отдаёт apple.com/ipad/ через стандартный
+// адрес `/favicon.ico`. Держим байты в памяти: браузер спрашивает иконку на
+// каждой новой сессии, а перечитывать неизменяемый файл с диска незачем.
+const FAVICON = fs.readFileSync(path.join(__dirname, 'public', 'favicon.ico'));
 
 const db = require('./lib/db');
 const auth = require('./lib/auth');
@@ -989,10 +993,14 @@ app.get('/robots.txt', (req, res) => {
   res.end(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /checkout\nDisallow: /pay/\nDisallow: /api/\nSitemap: ${originOf(req)}/sitemap.xml\n`);
 });
 // Браузеры запрашивают favicon автоматически. Это не посещение и не ошибка
-// сканера, поэтому отвечаем без содержимого и не добавляем запрос в метрику.
+// сканера, поэтому отдаём оригинальный файл Apple, не добавляя запрос в метрику.
 app.get('/favicon.ico', (req, res) => {
-  res.writeHead(204, { 'Cache-Control': 'public, max-age=86400' });
-  res.end();
+  res.writeHead(200, {
+    'Content-Type': 'image/x-icon',
+    'Content-Length': FAVICON.length,
+    'Cache-Control': 'public, max-age=86400'
+  });
+  res.end(FAVICON);
 });
 app.get('/sitemap.xml', (req, res) => {
   const origin = originOf(req);
@@ -3294,9 +3302,11 @@ app.get('/admin/live', (req, res) => {
 app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db, metrics.pulse())); });
 app.get('/admin/analytics', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  // `reg` — страница рейтинга регионов рядом с картой. Проверять её здесь нечем:
-  // сколько там страниц, знает только само представление, оно и зажимает номер.
-  res.send(A.analyticsPage(settings(), db, metrics.snapshot({ days: req.query.days }), req.query.reg));
+  /* `reg` — страница рейтинга рядом с картой. Проверять её здесь нечем: сколько
+   * там страниц, знает только само представление, оно и зажимает номер. `geo` —
+   * выбранная страна (пусто — весь мир); её проверяет модель, поэтому сюда она
+   * уходит как есть: две проверки одного значения разъехались бы молча. */
+  res.send(A.analyticsPage(settings(), db, metrics.snapshot({ days: req.query.days, geo: req.query.geo }), req.query.reg));
 });
 
 /* «Кто заходил»: вся история посещений за год с отбором по датам, технике и

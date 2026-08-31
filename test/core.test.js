@@ -15,6 +15,8 @@ const render = require('../lib/render');
 const adminViews = require('../lib/admin-views');
 const analyticsView = require('../lib/analytics-view');
 const RUSSIA_MAP = require('../lib/russia-map-data');
+const WORLD_MAP = require('../lib/world-map-data');
+const geoMaps = require('../lib/geo-maps');
 const variants = require('../lib/variants');
 const search = require('../lib/search');
 const images = require('../lib/images');
@@ -1022,10 +1024,26 @@ test('город в списке — без региона и с одним им
     { label: 'Москва, Россия', value: 3 },
     { label: 'Амстердам, Нидерланды', value: 1 }
   ], 'город и страна, без региона и одним именем страны');
-  assert.deepEqual(report.regions, [
+  /* Без выбранной страны считаются СТРАНЫ — по ним рисуется мир и собирается
+   * меню местоположения. Регионы и города при этом пусты: рядом с картой мира
+   * стоит рейтинг стран, а не чьи-то области. */
+  assert.deepEqual(report.countries, [{ code: 'RU', value: 3 }, { code: 'NL', value: 1 }]);
+  assert.deepEqual(report.regions, [], 'регионы считаются только у выбранной страны');
+  assert.deepEqual(report.cities, []);
+
+  const russia = analytics.snapshot({ days: 1, geo: 'RU' });
+  assert.deepEqual(russia.regions, [
     { label: 'Москва', value: 2 },
     { label: 'Московская область', value: 1 }
-  ], 'карта считает только субъекты РФ, а Москва без поля региона остаётся субъектом');
+  ], 'у России считаются её субъекты, а Москва без поля региона остаётся субъектом');
+  assert.deepEqual(russia.cities, [{ label: 'Москва', value: 3 }],
+    'города выбранной страны — запасной рейтинг там, где регион не определился');
+  // Голландский регион уезжает в отчёт только вместе со своей страной.
+  assert.deepEqual(analytics.snapshot({ days: 1, geo: 'NL' }).regions, [{ label: 'Северная Голландия', value: 1 }]);
+  // Мусор в адресе — это «весь мир», а не повод упасть: проверяет его модель,
+  // и второй такой проверки в маршруте нет.
+  assert.equal(analytics.snapshot({ days: 1, geo: 'мусор' }).geo, '');
+  assert.equal(analytics.snapshot({ days: 1, geo: 'ru' }).geo, 'RU', 'код приводится к верхнему регистру');
 
   // В строке самого посетителя регион остаётся — там он про одного человека и
   // ничего не дробит, — а страна всё равно называется по коду.
@@ -1072,7 +1090,13 @@ test('отчёт метрики по умолчанию — сегодняшни
 
   const fakeDb = { getProducts: () => [], pendingReviewCount: () => 0 };
   const html = adminViews.analyticsPage(SETTINGS, fakeDb, today);
-  assert.match(html, /class="metric-range active">Сегодня</, 'по умолчанию выбран сегодняшний отчёт');
+  /* Период выбирается кнопкой с выпадающим меню — той же, что у Trends: пилюля
+   * со значком календаря, а в меню выбранный пункт помечен галочкой. Ряда
+   * кнопок-диапазонов в отчёте больше нет. */
+  assert.match(html, /class="g-pill-text">Сегодня</, 'на кнопке стоит выбранный период');
+  assert.match(html, /class="g-opt is-on"[^>]*aria-current="true"[^>]*>[\s\S]*?<span>Сегодня<\/span>/,
+    'в меню выбранный период помечен, а не просто подписан');
+  assert.doesNotMatch(html, /class="metric-range/, 'ряда кнопок периода в отчёте больше нет');
 
   /* График — линия с точкой на каждом делении, а не столбцы: столбец отвечает
    * «сколько было в этот день», а у посещаемости вопрос «куда идёт». Точек
@@ -1207,6 +1231,7 @@ test('раздел метрики защищён панелью и показы�
     pages: [{ label: '/product/p1', value: 5 }], sources: [{ label: 'Прямой заход', value: 5 }],
     devices: [{ label: 'Телефон', value: 5 }], browsers: [{ label: 'Safari 18', value: 5 }],
     systems: [{ label: 'iOS 18', value: 5 }], locations: [{ label: 'Москва', value: 3 }],
+    countries: [{ code: 'RU', value: 9 }, { code: 'NL', value: 2 }, { code: '', value: 1 }],
     regions: [{ label: 'Москва', value: 3 }, { label: 'Свердловская область', value: 1 }],
     campaigns: [{ label: 'telegram · summer', value: 2 }],
     visitors: [{
@@ -1226,22 +1251,29 @@ test('раздел метрики защищён панелью и показы�
   assert.match(html, /Среднее время/);
   assert.match(html, /UTM-кампании/);
   assert.match(html, /Операционные системы/);
-  assert.match(html, /12 мес\./, 'у графика есть годовой диапазон из референса');
-  assert.match(html, /Посетители по регионам/);
+  assert.match(html, /Последние 12 месяцев/, 'у отчёта есть годовой диапазон из референса');
+  /* По умолчанию открыт ВЕСЬ МИР — как `geo=Worldwide` у Trends: карта красит
+   * страны, а нажатие на страну проваливается в её регионы. */
+  assert.match(html, /Посетители по странам/);
+  assert.match(html, /class="g-pill-text">Весь мир</);
   /* Контуры уезжают ИНЛАЙНОМ, а не ссылкой `<use href="…svg#id">` на внешний
    * файл: такую ссылку WebKit не поддерживает, и в Safari — то есть на
    * хозяйском маке и на айфоне — карта осталась бы пустой без единой ошибки в
    * консоли. Заодно это на один запрос меньше. */
   assert.doesNotMatch(html, /<use[^>]+\.svg#/, 'карта не ссылается на внешний SVG');
-  assert.equal((html.match(/class="rm-region heat-\d"/g) || []).length, RUSSIA_MAP.regions.length,
-    'на карте нарисован каждый субъект');
-  assert.match(html, /class="rm-region heat-5" d="M[\d,LMZ.]+" data-region="Москва"/,
-    'самый посещаемый субъект получает самый насыщенный синий и свой контур');
-  assert.match(html, /1<\/span><b>Москва<\/b><span>3<\/span>/,
-    'справа от карты есть рейтинг регионов с настоящими числами');
+  assert.equal((html.match(/class="gm-shape heat-\d"/g) || []).length, WORLD_MAP.countries.length,
+    'на карте мира нарисована каждая страна');
+  assert.match(html, /class="gm-shape heat-5"[^>]*data-name="Россия"[^>]*data-go="\/admin\/analytics\?days=7&amp;geo=RU"/,
+    'самая посещаемая страна закрашена насыщенным синим и ведёт внутрь себя');
+  assert.match(html, /class="gm-shape heat-0"[^>]*data-name="Бразилия"/,
+    'страна без посетителей остаётся серой');
+  assert.match(html, /1<\/span><b><span class="rm-flag">[^<]+<\/span>Россия<\/b><span>9<\/span>/,
+    'справа от карты рейтинг стран с флагом и настоящим числом');
   /* У Google на месте подписи стоит настоящий выпадающий список; сюда он был
-   * срисован кнопкой, которая ничего не делает. Осталась подпись. */
-  assert.doesNotMatch(html, /trends-select/, 'неработающего выпадающего списка на карте нет');
+   * срисован кнопкой, которая ничего не делает, — и теперь это настоящее меню
+   * со всеми странами, откуда заходили. */
+  assert.match(html, /class="g-select gs-geo g-menu-right" data-menu/);
+  assert.match(html, /data-menu-item="нидерланды"/, 'страна с посетителями есть в меню');
   assert.doesNotMatch(html, /Россия · \d/, 'подпись графика не обещает отбор по стране, которого нет');
   // Кнопки «Обновить» и подписи «Обновлено 16:36» здесь больше нет: страница
   // обновляется сама, и кнопка предлагала бы сделать руками уже сделанное.
@@ -1456,18 +1488,19 @@ test('каждое название субъекта из геобазы лож�
   // Посетители оттуда остаются в рейтинге справа, но на карте не рисуются.
   const noShape = ['Крым', 'Севастополь'];
   const html = analyticsView.dashboard({
-    days: 30, online: 0, unique: names.length, generatedAt: Date.now(), hourly: [], daily: [],
+    days: 30, geo: 'RU', online: 0, unique: names.length, generatedAt: Date.now(), hourly: [], daily: [],
     prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    countries: [{ code: 'RU', value: names.length }],
     regions: names.map(label => ({ label, value: 1 }))
-  }, { rangeBase: '/admin/analytics?days=' });
-  const painted = (html.match(/class="rm-region heat-[1-5]"/g) || []).length;
+  }, { base: '/admin/analytics' });
+  const painted = (html.match(/class="gm-shape heat-[1-5]"/g) || []).length;
   assert.equal(painted, names.length - noShape.length,
     'каждое название геобазы, кроме Крыма и Севастополя, нашло свой контур: ' +
     'разошлось — сверь REGION_MAP_ALIASES в lib/analytics-view.js');
   for (const name of noShape) {
     assert.ok(names.includes(name), name + ' по-прежнему приходит из геобазы — исключение не устарело');
   }
-  assert.match(html, new RegExp('Субъекты: 1–5 из ' + names.length),
+  assert.match(html, new RegExp('Регионы: 1–5 из ' + names.length),
     'рейтинг справа считает ВСЕ субъекты, включая те, для которых контура нет');
 });
 
@@ -1476,39 +1509,41 @@ test('рейтинг субъектов листается страницами 
    * шестого было нельзя вовсе. Листалка — настоящие ссылки с якорем на карту:
    * ни строчки скрипта, как и всё в отчёте. */
   const draw = regionPage => analyticsView.dashboard({
-    days: 30, online: 0, unique: 12, generatedAt: Date.now(), hourly: [], daily: [],
+    days: 30, geo: 'RU', online: 0, unique: 12, generatedAt: Date.now(), hourly: [], daily: [],
     prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    countries: [{ code: 'RU', value: 12 }],
     regions: Array.from({ length: 12 }, (_, i) => ({ label: 'Регион ' + (i + 1), value: 100 - i }))
-  }, { rangeBase: '/admin/analytics?days=', regionPage });
+  }, { base: '/admin/analytics', regionPage });
 
   const first = draw(undefined);
-  assert.match(first, /Субъекты: 1–5 из 12/);
+  assert.match(first, /Регионы: 1–5 из 12/);
   assert.match(first, /<b>Регион 1<\/b>/);
   assert.doesNotMatch(first, /<b>Регион 6<\/b>/, 'на первой странице ровно пять строк');
-  assert.match(first, /href="\/admin\/analytics\?days=30&amp;reg=2#regions"/,
-    'ссылка листания несёт выбранный период и якорь на саму карту');
-  assert.match(first, /class="rm-page rm-page-off"[^>]*>[\s\S]*?<span>Субъекты/,
+  assert.match(first, /href="\/admin\/analytics\?days=30&amp;geo=RU&amp;reg=2#regions"/,
+    'ссылка листания несёт период, выбранную страну и якорь на саму карту');
+  assert.match(first, /class="rm-page rm-page-off"[^>]*>[\s\S]*?<span>Регионы/,
     'стрелка назад на первой странице гаснет, а не пропадает: ряд не должен прыгать');
 
   const third = draw(3);
-  assert.match(third, /Субъекты: 11–12 из 12/);
+  assert.match(third, /Регионы: 11–12 из 12/);
   assert.match(third, /<span class="rm-rank-num">11<\/span><b>Регион 11<\/b>/,
     'нумерация продолжается, а не начинается заново на каждой странице');
-  assert.match(third, /href="\/admin\/analytics\?days=30&amp;reg=2#regions"/, 'назад — на вторую');
+  assert.match(third, /href="\/admin\/analytics\?days=30&amp;geo=RU&amp;reg=2#regions"/, 'назад — на вторую');
   assert.doesNotMatch(third, /reg=4#regions/, 'вперёд с последней страницы вести некуда');
 
   // Адрес правят руками — номер зажимается, а не показывает пустоту.
-  assert.match(draw(99), /Субъекты: 11–12 из 12/, 'номер сверх последней страницы даёт последнюю');
-  assert.match(draw('abc'), /Субъекты: 1–5 из 12/, 'мусор в адресе — первая страница');
+  assert.match(draw(99), /Регионы: 11–12 из 12/, 'номер сверх последней страницы даёт последнюю');
+  assert.match(draw('abc'), /Регионы: 1–5 из 12/, 'мусор в адресе — первая страница');
 
   // Все субъекты уместились на одну страницу: листать нечего, и стрелок нет
   // вовсе — кнопке, которая ничего не делает, на экране не место.
   const short = analyticsView.dashboard({
-    days: 7, online: 0, unique: 3, generatedAt: Date.now(), hourly: [], daily: [],
+    days: 7, geo: 'RU', online: 0, unique: 3, generatedAt: Date.now(), hourly: [], daily: [],
     prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+    countries: [{ code: 'RU', value: 3 }],
     regions: [{ label: 'Москва', value: 3 }, { label: 'Чувашия', value: 2 }]
-  }, { rangeBase: '/admin/analytics?days=' });
-  assert.match(short, /Субъекты: 1–2 из 2/);
+  }, { base: '/admin/analytics' });
+  assert.match(short, /Регионы: 1–2 из 2/);
   assert.doesNotMatch(short, /rm-page/, 'одна страница — листалки нет');
 });
 
@@ -1538,6 +1573,183 @@ test('карта нарисована конической проекцией, �
   const build = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-russia-map.js'), 'utf8');
   assert.match(build, /coneRadius/, 'сборка контуров считает радиус конуса');
   assert.doesNotMatch(build, /82\.5 - lat/, 'прежней плоской формулы в скрипте не осталось');
+});
+
+/* ============================ Карта мира и стран ===========================
+ * Карта перестала быть только российской: «Весь мир» показывает страны, выбор
+ * страны — её регионы. Проверяется здесь всё, что иначе замечается только
+ * глазами: что режимов ровно три, что строка данных не пропадает ни в одном из
+ * них и что кадром карты владеет человек, а не живое обновление.
+ */
+const geoSnapshot = extra => Object.assign({
+  days: 7, online: 0, unique: 40, generatedAt: Date.now(), hourly: [], daily: [],
+  prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
+  countries: [{ code: 'RU', value: 30 }, { code: 'NL', value: 8 }, { code: '', value: 2 }],
+  regions: [], cities: []
+}, extra || {});
+
+test('весь мир — карта стран, и нажатие на страну открывает её регионы', () => {
+  const html = analyticsView.dashboard(geoSnapshot(), { base: '/admin/analytics' });
+  assert.match(html, /Посетители по странам/);
+  assert.equal((html.match(/class="gm-shape/g) || []).length, WORLD_MAP.countries.length,
+    'нарисована каждая страна мира, а не только те, откуда заходили');
+
+  /* Провалиться внутрь можно только туда, где есть что показать: у страны без
+   * единого посетителя внутри пусто, и уводить туда незачем. */
+  assert.match(html, /data-name="Россия"[^>]*data-go="\/admin\/analytics\?days=7&amp;geo=RU"/);
+  assert.doesNotMatch(html, /data-name="Бразилия"[^>]*data-go=/, 'пустая страна никуда не ведёт');
+  // Адрес экранируется РОВНО ОДИН раз: второй проход дал бы `&amp;amp;`,
+  // то есть ссылку на параметр с амперсандом в имени.
+  assert.doesNotMatch(html, /&amp;amp;/, 'двойного экранирования в адресах карты нет');
+
+  /* Рейтинг справа — настоящие ссылки: это единственный путь с мировой карты в
+   * регионы там, где скрипты не загрузились. Посетитель с неопознанной страной
+   * из рейтинга не пропадает, но ссылкой не становится — вести его некуда. */
+  assert.match(html, /<a class="rm-rank-row is-link" href="\/admin\/analytics\?days=7&amp;geo=RU">/);
+  assert.match(html, /<b><span class="rm-flag">[^<]+<\/span>Россия<\/b>/, 'у страны в рейтинге есть флаг');
+  assert.match(html, /<div class="rm-rank-row">[\s\S]*?Страна не определена/);
+  assert.match(html, /Страны: 1–3 из 3/);
+});
+
+test('выбранная страна показывает свои регионы, а без них — города', () => {
+  // Регионы приходят из геобазы по-английски, а показываются по-русски: карта
+  // сводит написания сама (`GEO.matchKey`), и панель остаётся русской.
+  const regions = analyticsView.dashboard(geoSnapshot({
+    geo: 'NL', regions: [{ label: 'North Holland', value: 5 }, { label: 'Utrecht', value: 3 }]
+  }), { base: '/admin/analytics' });
+  assert.match(regions, /Посетители по регионам/);
+  assert.match(regions, /<b>Северная Голландия<\/b><span>5<\/span>/, 'английское имя легло на русский контур');
+  assert.match(regions, /class="g-pill-text">Нидерланды</);
+  assert.equal((regions.match(/class="gm-shape/g) || []).length, geoMaps.regionsOf('NL').regions.length);
+
+  /* Регионы не определились — карта страны остаётся на месте (серая), а рейтинг
+   * собирается по городам: пустое место читалось бы как поломка отчёта. */
+  const cities = analyticsView.dashboard(geoSnapshot({
+    geo: 'NL', regions: [], cities: [{ label: 'Amsterdam', value: 8 }]
+  }), { base: '/admin/analytics' });
+  assert.match(cities, /Посетители по городам/);
+  assert.match(cities, /<b>Amsterdam<\/b><span>8<\/span>/);
+  assert.equal((cities.match(/class="gm-shape heat-0"/g) || []).length, geoMaps.regionsOf('NL').regions.length,
+    'контуры страны нарисованы, но серые — регионы неизвестны');
+
+  /* Своей карты регионов у страны нет вовсе — показываем её саму на мировой
+   * карте, приближением. Кадр при этом не мировой, а вокруг страны. */
+  const zoomed = analyticsView.dashboard(geoSnapshot({
+    geo: 'SN', countries: [{ code: 'SN', value: 4 }], cities: [{ label: 'Dakar', value: 4 }]
+  }), { base: '/admin/analytics' });
+  assert.match(zoomed, /class="gm-shape heat-5 is-current"[^>]*data-name="Сенегал"/);
+  const frame = (zoomed.match(/class="gm-svg" viewBox="([^"]+)"/) || [])[1];
+  assert.notEqual(frame, WORLD_MAP.viewBox, 'карта приближена к стране, а не показывает весь мир');
+  assert.ok(Number(frame.split(' ')[2]) < Number(WORLD_MAP.viewBox.split(' ')[2]) / 3, 'кадр правда узкий');
+});
+
+test('меню местоположения перечисляет страны, откуда заходили', () => {
+  const html = analyticsView.dashboard(geoSnapshot(), { base: '/admin/analytics' });
+  assert.match(html, /class="g-select gs-geo g-menu-right" data-menu/);
+  assert.match(html, /<div class="g-menu-head">Местоположение<\/div>/);
+  assert.match(html, /class="g-opt is-on"[^>]*>[\s\S]*?<span>Весь мир<\/span><b>40<\/b>/,
+    'по умолчанию выбран весь мир, и рядом стоит число посетителей');
+  assert.match(html, /<span>Нидерланды<\/span><b>8<\/b>/);
+  assert.doesNotMatch(html, /<span>Бразилия<\/span>/, 'страна без посетителей в меню не нужна');
+  // Коротким списком поиск не нужен: поле над тремя строками — лишний шаг.
+  assert.doesNotMatch(html, /data-menu-search/);
+
+  const many = analyticsView.dashboard(geoSnapshot({
+    countries: 'RU NL DE US BY KZ BR TR FR JP'.split(' ').map((code, i) => ({ code, value: 20 - i }))
+  }), { base: '/admin/analytics' });
+  assert.match(many, /data-menu-search/, 'длинный список стран получает поиск');
+
+  // Выбранная страна помечена в меню, а список остаётся полным: из страны надо
+  // уметь вернуться и в мир, и к соседям.
+  const inside = analyticsView.dashboard(geoSnapshot({ geo: 'NL' }), { base: '/admin/analytics' });
+  assert.match(inside, /class="g-opt is-on"[^>]*>[\s\S]*?<span>Нидерланды<\/span>/);
+  assert.match(inside, /href="\/admin\/analytics\?days=7"[^>]*>[\s\S]*?<span>Весь мир<\/span>/);
+});
+
+test('карта мира собрана Меркатором и не тащит Антарктиду', () => {
+  const codes = WORLD_MAP.countries.map(c => c.code);
+  assert.ok(codes.length > 150, 'в карте мира есть все заметные страны');
+  assert.equal(new Set(codes).size, codes.length, 'коды стран не повторяются');
+  assert.ok(!codes.includes('AQ'), 'Антарктиды на карте нет: посетителей оттуда не бывает, а места она занимает больше всех');
+  for (const country of WORLD_MAP.countries) {
+    assert.equal(country.box.length, 4, country.code + ': у страны есть рамка для приближения');
+    assert.ok(country.d.startsWith('M'), country.code + ': контур — настоящий путь');
+  }
+
+  /* Признак Меркатора — растяжение к полюсам: тринадцать градусов широты у
+   * Норвегии занимают на карте заметно больше, чем те же тринадцать у
+   * Мадагаскара. На плоской сетке они были бы одинаковыми, и это ровно та
+   * ошибка, из-за которой карта России однажды перестала быть похожей на себя. */
+  const boxOf = code => WORLD_MAP.countries.find(c => c.code === code).box;
+  assert.ok(boxOf('NO')[3] > boxOf('MG')[3] * 1.4, 'северная страна вытянута сильнее южной');
+  // Ось X линейна по долготе: Япония правее Германии ровно потому, что восточнее.
+  assert.ok(boxOf('JP')[0] > boxOf('DE')[0] && boxOf('DE')[0] > boxOf('US')[0]);
+});
+
+test('регионы стран лежат по файлу на страну и подключаются по одному', () => {
+  assert.ok(geoMaps.hasRegions('RU') && geoMaps.hasRegions('NL') && geoMaps.hasRegions('BR'));
+  assert.ok(!geoMaps.hasRegions('ZZ') && !geoMaps.hasRegions('мусор'));
+  const nl = geoMaps.regionsOf('NL');
+  assert.ok(nl.regions.length >= 10 && /^0 0 \d+ \d+$/.test(nl.viewBox));
+  assert.equal(geoMaps.regionsOf('ZZ'), null, 'неизвестной страны нет — и это не падение');
+  // Россия отдаётся из своего файла: её контуры собраны другим скриптом и
+  // сверены с геобазой поимённо (тест выше).
+  assert.equal(geoMaps.regionsOf('RU').regions.length, RUSSIA_MAP.regions.length);
+
+  /* Названия сводятся по ядру: геобаза отдаёт «Gomel Region», Natural Earth
+   * хранит «Gomel», а показывается русское имя карты. `\b` для этого не годится
+   * — с кириллицей граница слова в JS не работает вовсе. */
+  assert.equal(geoMaps.matchKey('Gomel Region'), geoMaps.matchKey('Gomel'));
+  assert.equal(geoMaps.matchKey('Гомельская область'), 'гомельская');
+  assert.equal(geoMaps.matchKey('Île-de-France'), 'ile de france');
+
+  // Имя страны ОДНО на всю панель: сначала своя таблица с флагами, и только
+  // потом — имя из контуров карты.
+  assert.equal(geoMaps.countryName('RU'), 'Россия');
+  assert.equal(geoMaps.countryName('SN'), 'Сенегал');
+
+  /* Код в адресе правят руками. Неизвестная страна — это «весь мир»: показать
+   * про неё нечего, а пустая карта рядом с пустым рейтингом читалась бы как
+   * поломка отчёта. */
+  assert.ok(geoMaps.known('RU') && geoMaps.known('SN'));
+  assert.ok(!geoMaps.known('ZZ') && !geoMaps.known(''));
+  const nowhere = analyticsView.dashboard(geoSnapshot({ geo: 'ZZ' }), { base: '/admin/analytics' });
+  assert.match(nowhere, /Посетители по странам/);
+  assert.match(nowhere, /class="g-pill-text">Весь мир</);
+});
+
+test('приближением карты владеет человек, а кнопки рисует скрипт', () => {
+  const html = analyticsView.dashboard(geoSnapshot(), { base: '/admin/analytics' });
+  const stage = (html.match(/<div class="gm-stage" data-map data-home="([^"]+)"/) || [])[1];
+  assert.equal(stage, WORLD_MAP.viewBox, 'исходный кадр лежит рядом с картой — по нему работает сброс');
+  assert.doesNotMatch(html, /gm-zoom/, 'кнопки приближения в серверной разметке не нужны: без скрипта они ничего не делают');
+  assert.doesNotMatch(html, /<use[^>]+\.svg#/, 'карта не ссылается на внешний SVG');
+
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /className = 'gm-zoom'/, 'кнопки создаёт скрипт панели');
+  assert.match(ui, /setAttribute\('data-zoomed'/, 'приближённая карта помечает себя');
+  /* Все слова отчёта живут на сервере: скрипт пишет в подсказку только то, что
+   * уже лежит в разметке, — иначе в браузере завелась бы вторая таблица
+   * склонений (то же правило, что у отсчёта срока счёта). */
+  assert.doesNotMatch(ui.slice(ui.indexOf('Карта посетителей')), /Посетител/,
+    'подписи карты в скрипте быть не должно');
+
+  /* Живое обновление метрики приходит по нескольку раз в минуту. Кадр, который
+   * человек приблизил, оно не трогает, а снесённые подменой кнопки возвращает
+   * событием — ждать наведения мыши нельзя: на телефоне его не бывает. */
+  const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  assert.match(live, /name === 'viewBox' && el\.hasAttribute && el\.hasAttribute\('data-zoomed'\)/);
+  assert.match(live, /admin-live:updated/);
+  assert.match(ui, /addEventListener\('admin-live:updated', setupStages\)/);
+
+  // Заливка и подсказка — цвета Trends: серый у мест без данных и пять ступеней
+  // синего. Порознь эти правила разъезжаются, и увидеть это можно только глазами.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.gm-shape\{fill:#c9cdd2/);
+  assert.match(css, /\.gm-shape\.heat-5\{fill:#1c3f96\}/);
+  assert.match(css, /\.g-opt\.is-on\{background:#ceead6;color:#188038\}/, 'выбранный пункт меню — зелёная плашка Google');
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
+  assert.match(mobile, /\.gm-zoom button\{width:40px;height:40px\}/, 'на телефоне в кнопку надо попадать пальцем');
 });
 
 test('город по IP запрашивается один раз и затем берётся из кэша', async t => {
@@ -3696,7 +3908,9 @@ test('домен нигде не выбирается приложением —
   assert.equal(fs.existsSync(path.join(__dirname, '..', 'lib', 'site-views.js')), false);
   // Ни один файл проекта больше не читает список сайтов.
   const files = ['server.js', 'seed-data.js', 'seed.js', 'sync-prices.js', 'merge-products.js', 'add-novinki.js']
-    .concat(fs.readdirSync(path.join(__dirname, '..', 'lib')).map(f => path.join('lib', f)));
+    // Только файлы: в `lib/maps` лежат карты стран, и попытка прочитать папку
+    // как исходник роняла бы проверку на ровном месте.
+    .concat(fs.readdirSync(path.join(__dirname, '..', 'lib')).filter(f => f.endsWith('.js')).map(f => path.join('lib', f)));
   for (const file of files) {
     const text = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     assert.equal(/db\.getSites\(|db\.getSite\(|saveSites\(/.test(text), false, 'список сайтов ещё читается: ' + file);
@@ -4014,6 +4228,13 @@ test('списки заказов в панелях листаются, а не 
   const first = adminViews.ordersList(SETTINGS, db, null, 1);
   assert.equal(rows(first), per, 'на странице ровно один срез');
   assert.match(first, /href="\/admin\/orders\?page=2"/);
+  assert.match(first, /class="a-page a-page-cur" aria-current="page">1<\/span>/,
+    'текущая страница подписана своим номером');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.a-page-cur\{[^}]*background:var\(--text\)[^}]*color:#fff/,
+    'номер текущей страницы контрастен на тёмной плашке');
+  assert.doesNotMatch(css, /\.a-page(?:-cur)?\{[^}]*var\(--ink\)/,
+    'пагинация не ссылается на несуществующую переменную цвета');
   assert.equal(rows(adminViews.ordersList(SETTINGS, db, null, 4)), 7, 'на последней странице остаток');
 
   // Номер страницы приходит из адреса — мусор и выход за край не должны падать.
@@ -7491,7 +7712,8 @@ test('координаты для поиска пунктов приходят �
   assert.match(dadata, /GEO_EXACT = new Set\(\['0', '1', '2'\]\)/);
   assert.match(dadata, /GEO_EXACT\.has\(String\(d\.qc_geo\)\)/);
   // Своего геокодера в проекте нет и заводить его не нужно.
-  const files = fs.readdirSync(path.join(__dirname, '..', 'lib')).map(f => fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8')).join('\n');
+  const files = fs.readdirSync(path.join(__dirname, '..', 'lib')).filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8')).join('\n');
   // Геокодера нет ни своего, ни чужого: координаты приходят вместе с подсказкой
   // адреса. OpenStreetMap в проекте есть, но не как геокодер — оттуда берутся
   // сами пункты выдачи OZON (lib/pickup-osm.js).
@@ -10752,7 +10974,20 @@ test('непрочитанное видно в списке диалогов, а
   const marked = (html.match(/class="chat-row is-unread"/g) || []).length;
   assert.equal(marked, chatStore.unreadCount(), 'помеченных строк ровно столько, сколько обещает шапка');
   assert.match(html, /class="chat-row-unread"[^>]*>2</, 'у строки стоит то же число, что и у storeUnread');
+  assert.match(html, /class="chat-row-side">\s*<span class="chat-row-when">[^<]+<\/span>\s*<span class="chat-row-unread"/,
+    'время и счётчик делят одну правую колонку и не сдвигают соседние строки');
   assert.ok(!html.includes(empty.id), 'одно открытие виджета не засоряет список пустым диалогом');
+
+  // Старые диалоги уже сохранили названия из DB-IP латиницей. Переводить их
+  // только при новых визитах поздно — список локализует сохранённую строку.
+  const foreign = chatStore.create({
+    client: { city: 'Amsterdam', country: 'Netherlands', countryCode: 'NL' }
+  });
+  chatStore.addMessage(foreign, 'user', 'доставка');
+  chatStore.markManager(foreign);
+  const localized = adminViews.chatList(SETTINGS, db, '', 1);
+  assert.match(localized, /chat-row-name">Амстердам</);
+  assert.doesNotMatch(localized, /chat-row-name">Amsterdam</);
 
   /* Старые записи отдельной отметки не имеют. Берём прежний `storeRead`, иначе
    * после деплоя вся 90-дневная история разом загорелась бы непрочитанной. */
@@ -13807,6 +14042,9 @@ test('город по IP берётся из своей базы, а дыры в
   assert.equal(geoip.cityRu("Gus'-Khrustal'nyy"), 'Гусь-Хрустальный');
   assert.equal(geoip.cityRu('Moscow (Tsentralnyy administrativnyy okrug)'), 'Москва');
   assert.equal(geoip.cityRu('St.-Petersburg'), 'Санкт-Петербург');
+  assert.equal(geoip.cityRu('Amsterdam'), 'Амстердам');
+  assert.equal(geoip.cityRu('Tsuen Wan'), 'Чхюньвань');
+  assert.equal(geoip.cityRu('Sadovyy'), 'Садовый');
   assert.equal(geoip.regionRu('Mariy-El Republic', 'RU'), 'Марий Эл');
   assert.equal(geoip.regionRu('Vologda Oblast', 'RU'), 'Вологодская область');
   // Незнакомое название остаётся как есть: выдумать перевод нельзя.
@@ -14519,4 +14757,22 @@ test('заказ по id ищется индексом, а не переборо
   assert.match(source, /function orderIndex\(\)/);
   assert.match(source, /if \(_orderIndex\.src === list\) return _orderIndex\.byId/);
   assert.match(source, /function getOrder\(id\) \{\s*\n\s*return orderIndex\(\)\.get\(/);
+});
+
+test('favicon совпадает с оригиналом Apple и подключён на всех страницах', () => {
+  const favicon = fs.readFileSync(path.join(__dirname, '..', 'public', 'favicon.ico'));
+  // Контроль и размера, и SHA-256 не даёт случайно заменить официальный
+  // многослойный ICO похожим SVG или пережатой картинкой.
+  assert.equal(favicon.length, 22382);
+  assert.equal(require('crypto').createHash('sha256').update(favicon).digest('hex'),
+    '5493c61cf725cf3a1d63cd9d07de75b0d6faa5564e772f7d0a6074f341442938');
+  assert.equal(favicon.subarray(0, 4).toString('hex'), '00000100');
+
+  const storefront = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  const admin = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(storefront, /rel="icon" href="\/static\/favicon\.ico\?v=\$\{assetV\('favicon\.ico'\)\}"/);
+  assert.doesNotMatch(storefront, /rel="icon" href="data:image\/svg\+xml/);
+  assert.equal((admin.match(/rel="icon" href="\/static\/favicon\.ico/g) || []).length, 2);
+  assert.match(server, /app\.get\('\/favicon\.ico'[\s\S]*?'Content-Type': 'image\/x-icon'[\s\S]*?res\.end\(FAVICON\)/);
 });
