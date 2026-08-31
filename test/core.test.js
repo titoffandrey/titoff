@@ -1696,6 +1696,21 @@ test('регионы стран лежат по файлу на страну и 
   // сверены с геобазой поимённо (тест выше).
   assert.equal(geoMaps.regionsOf('RU').regions.length, RUSSIA_MAP.regions.length);
 
+  /* Строка отчёта ложится на контур и тогда, когда регион записан ЛАТИНИЦЕЙ:
+   * карточки, сделанные до того, как геобаза выучила очередное написание,
+   * хранят «Chuvashia» и «Primorskiy (Maritime) Kray», а у карты России
+   * латинских имён нет вовсе — её контуры подписаны по-русски. Сводит их тот же
+   * переводчик, что пишет регион в карточку посетителя; на боевых данных мимо
+   * карты так проходило шесть субъектов. */
+  const latin = ['Chuvashia', 'Primorskiy (Maritime) Kray', 'Jaroslavl', 'North Ossetia–Alania'];
+  const ruMap = analyticsView.dashboard(geoSnapshot({
+    geo: 'RU', countries: [{ code: 'RU', value: 40 }],
+    regions: latin.map((label, i) => ({ label, value: 10 - i }))
+  }), { base: '/admin/analytics' });
+  assert.equal((ruMap.match(/gm-shape heat-[1-5]/g) || []).length, latin.length,
+    'каждое латинское написание нашло свой контур');
+  assert.match(ruMap, /<b>Приморский край<\/b>/, 'а показывается русское имя карты');
+
   /* Названия сводятся по ядру: геобаза отдаёт «Gomel Region», Natural Earth
    * хранит «Gomel», а показывается русское имя карты. `\b` для этого не годится
    * — с кириллицей граница слова в JS не работает вовсе. */
@@ -14043,6 +14058,15 @@ test('город по IP берётся из своей базы, а дыры в
   assert.equal(geoip.cityRu('Moscow (Tsentralnyy administrativnyy okrug)'), 'Москва');
   assert.equal(geoip.cityRu('St.-Petersburg'), 'Санкт-Петербург');
   assert.equal(geoip.cityRu('Amsterdam'), 'Амстердам');
+  /* Написания, которые приходят из DB-IP и раньше оставались латиницей: без них
+   * регион не попадал ни в подпись посетителя, ни на карту. «Altai» в таблицу
+   * не кладём намеренно — по нему не различить Республику Алтай и Алтайский
+   * край, а выдуманный перевод хуже честной латиницы. */
+  assert.equal(geoip.regionRu('Chuvashia', 'RU'), 'Чувашия');
+  assert.equal(geoip.regionRu('Primorskiy (Maritime) Kray', 'RU'), 'Приморский край');
+  assert.equal(geoip.regionRu('North Ossetia–Alania', 'RU'), 'Северная Осетия');
+  assert.equal(geoip.regionRu('Sebastopol City', 'RU'), 'Севастополь');
+  assert.equal(geoip.regionRu('Altai', 'RU'), 'Altai');
   assert.equal(geoip.cityRu('Tsuen Wan'), 'Чхюньвань');
   assert.equal(geoip.cityRu('Sadovyy'), 'Садовый');
   assert.equal(geoip.regionRu('Mariy-El Republic', 'RU'), 'Марий Эл');
