@@ -1106,4 +1106,38 @@ const NOVELTY_IDS = [
   'apple-tv-4k', 'homepod-mini', 'vision-pro-m5'
 ];
 
-module.exports = { products, NOVELTY_IDS, colors: C, DAY, now };
+/* ЦЕНЫ ВЫШЕ ЗАПИСАНЫ ТАК, КАК ИХ ДАЁТ ПРАЙС ПОСТАВЩИКА, — то есть то, за что
+ * товар продаётся при работающей промоакции. Модель хранит другое: `price` —
+ * цена БЕЗ скидки, а процент срезает промокод (см. lib/discount.js). Перевод и
+ * делается здесь, обратным ходом «цена ÷ (1 − процент)», — вместе с доплатами
+ * за память, ремешки и доп. характеристики: иначе дорогая сборка после скидки
+ * стоила бы дешевле, чем в прайсе.
+ *
+ * Почему перевод, а не переписанные числа: наборы `ST`, `OPT` и `BANDS` ОБЩИЕ у
+ * нескольких товаров, а скидка у каждого своя — подняв доплату в самом наборе,
+ * мы подняли бы её и у товара без скидки. Поэтому наборы клонируются на каждый
+ * товар, а числа в файле остаются прайсовыми: их и сверяют с прайсом.
+ */
+const DISCOUNT = require('./lib/discount');
+
+function fullPriced(p) {
+  const pct = Number(p && p.discountPercent) || 0;
+  if (!(pct > 0)) return p;
+  const up = (n) => DISCOUNT.compareFor(Number(n) || 0, pct) || 0;
+  const out = Object.assign({}, p, { price: up(p.price) });
+  if (p.storages) out.storages = p.storages.map(s => Object.assign({}, s, { add: up(s.add) }));
+  if (p.options) {
+    out.options = p.options.map(g => Object.assign({}, g, {
+      values: (g.values || []).map(v => Object.assign({}, v, { add: up(v.add) }))
+    }));
+  }
+  if (p.bands) {
+    out.bands = p.bands.map(g => Object.assign({}, g, {
+      sizes: (g.sizes || []).map(x => Object.assign({}, x, { add: up(x.add) })),
+      options: (g.options || []).map(o => Object.assign({}, o, { add: up(o.add) }))
+    }));
+  }
+  return out;
+}
+
+module.exports = { products: products.map(fullPriced), NOVELTY_IDS, colors: C, DAY, now };

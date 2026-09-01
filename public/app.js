@@ -2510,6 +2510,14 @@
       || document.getElementById('bands') || document.getElementById('options'))) {
       var basePrice = Number(addBtn.dataset.basePrice) || 0;
       var discountPct = Number(addBtn.dataset.discountPct) || 0; // 0 — скидки нет, зачёркивать нечего
+      /* Цена со скидкой от ПОЛНОЙ суммы сборки — тем же способом, что на сервере
+       * (`saleFor` в lib/discount.js): до десятки, чтобы ценник остался круглым.
+       * Скидку даёт промоакция, и при выключенной процент приезжает нулевым —
+       * тогда покупатель платит полную цену, и считать нечего. */
+      var salePrice = function (full) {
+        if (!(discountPct > 0)) return full;
+        return Math.round(full * (1 - discountPct / 100) / 10) * 10;
+      };
       var baseName = addBtn.dataset.baseName || '';
       var vstate = { color: '', storageLabel: '', storageAdd: 0, band: '', bandAdd: 0, bandSize: '', bandSizeAdd: 0,
         options: [], optionsAdd: 0 };
@@ -2543,7 +2551,10 @@
       // актуальной цены сборки, поэтому дорогой чип гасит старшую память сам.
       var markLimits = function (total) {
         if (!ORDER_MAX) return;
-        var over = function (candidate) { return candidate > ORDER_MAX; };
+        /* `total` и кандидаты — ПОЛНЫЕ суммы сборок, а касса проводит ту, что
+         * платит покупатель: сравниваем с потолком уже со скидкой, иначе при
+         * включённой промоакции гасли бы варианты, которые касса примет. */
+        var over = function (candidate) { return salePrice(candidate) > ORDER_MAX; };
         document.querySelectorAll('#storages .storage-opt').forEach(function (b) {
           setLimitOut(b, over(total - vstate.storageAdd + (Number(b.dataset.add) || 0)));
         });
@@ -2571,21 +2582,18 @@
       var fs = document.querySelector('#storages .storage-opt.active') || document.querySelector('#storages .storage-opt');
       if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
       function applyVariant() {
-        var total = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd + vstate.optionsAdd;
+        /* ПОЛНАЯ цена сборки: база товара плюс доплаты выбранного. Скидки в ней
+         * нет — её срезает промоакция, ровно как на сервере (`saleFor` в
+         * lib/discount.js): цена = полная × (1 − процент), до десятки. Процент
+         * у товара один, поэтому при смене памяти или ремешка он не меняется —
+         * меняются обе суммы и выгода в рублях. */
+        var full = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd + vstate.optionsAdd;
+        var total = salePrice(full);
         var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
         addBtn.dataset.price = total;
-        /* Зачёркнутая цена выводится из процента для ВЫБРАННОЙ сборки — тем
-         * же способом, что и на сервере (`compareFor` в lib/discount.js).
-         * Скидка у товара одна и в процентах, поэтому сам процент при смене
-         * памяти или ремешка не меняется: меняется зачёркнутая сумма и выгода
-         * в рублях. Раньше зачёркнутая цена была «база сравнения + те же
-         * доплаты», и процент таял с каждой доплатой — дорогая сборка выглядела
-         * менее выгодной, чем базовая.
-         */
         if (discountPct > 0) {
-          var cmpTotal = Math.round(total / (1 - discountPct / 100) / 10) * 10;
           var oe = document.getElementById('product-old-price');
-          if (oe) oe.textContent = money(cmpTotal);
+          if (oe) oe.textContent = money(full);
           var se = document.getElementById('product-save');
           if (se) se.textContent = '−' + discountPct + '%';
         }
@@ -2599,7 +2607,8 @@
         addBtn.dataset.options = JSON.stringify(vstate.options);
         // Что теперь не влезает в один заказ: сначала гасим варианты, потом
         // пересчитываем потолок количества — он считается от новой цены сборки.
-        markLimits(total);
+        // В `markLimits` уходит ПОЛНАЯ сумма: скидку он применит сам, как сервер.
+        markLimits(full);
         refreshQtyCap();
         syncCartButtons(); // подпись кнопки зависит от выбранного варианта
       }

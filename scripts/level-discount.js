@@ -48,9 +48,12 @@ for (const p of db.getProducts()) {
   if (!pct) { without++; continue; }
   if (pct === target) { already++; continue; }
 
+  /* Цена в карточке — БЕЗ скидки, её скрипт не трогает; меняется то, что платит
+   * покупатель при работающей промоакции. Раньше было наоборот: `price` хранил
+   * цену со скидкой, и правка процента двигала лишь зачёркнутую сумму. */
   console.log(`✓ ${p.name}: скидка −${pct}% → −${target}%`
-    + `, цена ${rub(D.effectivePrice(p))} (не меняется)`
-    + `, зачёркнутая ${rub(D.comparePrice(p))} → ${rub(D.compareFor(D.effectivePrice(p), target))}`);
+    + `, цена без скидки ${rub(D.basePrice(p))} (не меняется)`
+    + `, с промоакцией ${rub(D.salePrice(p))} → ${rub(D.saleFor(D.basePrice(p), target))}`);
 
   // Только процент: partial-обновление цену и всё остальное не затрагивает.
   if (apply) db.updateProduct(p.id, { discountPercent: target });

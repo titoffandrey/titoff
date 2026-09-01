@@ -18,10 +18,10 @@
 
   /* ===== Цена: живой предпросмотр того, что увидит покупатель =====
    *
-   * Поля два — цена и процент скидки. Зачёркнутой цены среди них нет и быть не
-   * может: она выводится из этой пары («цена ÷ (1 − процент)», округление до
-   * десятки — см. compareFor в lib/discount.js) и потому показывается здесь
-   * только как предпросмотр, а не как ещё одно поле ввода.
+   * Поля два — цена БЕЗ скидки и процент промоакции. Цены со скидкой среди них
+   * нет и быть не может: она выводится из этой пары («цена × (1 − процент)»,
+   * округление до десятки — см. saleFor в lib/discount.js) и потому показывается
+   * здесь только предпросмотром, а не ещё одним полем ввода.
    */
   var priceInput = form.querySelector('input[name="price"]');
   var pctInput = form.querySelector('input[name="discountPercent"]');
@@ -35,13 +35,19 @@
     var base = num(priceInput);
     if (!base) { preview.hidden = true; return; }
     var pct = Math.round(num(pctInput));
-    var html = 'Покупатель увидит: <b>' + money(base) + '</b>';
-    if (pct > 0 && pct <= 90) {
-      var cmp = Math.round(base / (1 - pct / 100) / 10) * 10;
-      html += '<span class="pp-old">' + money(cmp) + '</span><span class="pp-pct">−' + pct + '%</span>';
-      html += ' — выгода ' + money(cmp - base) + '. У дорогих сборок она больше: процент один на все.';
-    } else if (pct > 90) {
-      html += ' — <span class="pp-pct">скидка больше 90% не бывает</span>';
+    if (pct > 90) {
+      preview.innerHTML = 'Покупатель увидит: <b>' + money(base) + '</b> — <span class="pp-pct">скидка больше 90% не бывает</span>';
+      preview.hidden = false;
+      return;
+    }
+    /* Скидку даёт промоакция: пока она включена, покупатель платит цену со
+     * скидкой, а зачёркнутой стоит та, что в поле выше. Выключат — платить
+     * будут её же, поэтому предпросмотр называет оба случая. */
+    var sale = pct > 0 ? Math.round(base * (1 - pct / 100) / 10) * 10 : base;
+    var html = 'Покупатель увидит: <b>' + money(sale) + '</b>';
+    if (pct > 0) {
+      html += '<span class="pp-old">' + money(base) + '</span><span class="pp-pct">−' + pct + '%</span>';
+      html += ' — выгода ' + money(base - sale) + '. Без промоакции цена будет ' + money(base) + '.';
     }
     preview.innerHTML = html;
     preview.hidden = false;

@@ -156,8 +156,11 @@ test('карточка товара для поисковика полна, а �
   assert.equal(card.offers.itemCondition, 'https://schema.org/NewCondition');
   assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(card.offers.priceValidUntil), 'нет срока действия цены');
   assert.ok(new Date(card.offers.priceValidUntil) > new Date(), 'срок действия цены уже истёк');
-  // Цена — та же, что видит покупатель, открыв страницу.
-  assert.equal(card.offers.price, render.startPrice(product, settings));
+  /* Цена — та же, что видит покупатель, открыв страницу: полная сумма сборки со
+   * скидкой промоакции. Обещать выдаче цену без скидки, когда акция работает,
+   * значило бы позвать по одной цене и показать другую. */
+  const shown = require('../lib/promo').shopPrice(render.startPrice(product, settings), product, settings);
+  assert.equal(card.offers.price, shown.price);
 
   const crumbs = blocks.find(b => b['@type'] === 'BreadcrumbList');
   assert.ok(crumbs, 'нет блока BreadcrumbList');
@@ -390,8 +393,8 @@ test('плавающая цена одна на каталог, карточку
    * заказа быть не должно — иначе покупатель увидит одну цену в каталоге и
    * другую в корзине. */
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.doesNotMatch(server, /D\.effectivePrice/, 'цену на витрине спрашивают у lib/price-float.js');
-  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8'), /D\.effectivePrice/);
+  assert.doesNotMatch(server, /D\.basePrice/, 'цену на витрине спрашивают у lib/price-float.js');
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8'), /D\.basePrice/);
   /* Спрашивают её обе денежные двери через ОДИН разбор позиции — lib/pricing.js.
    * Раньше цену собирали два отдельных куска кода по полсотни строк, и согласие
    * между ними держалось на внимательности того, кто правит оба места разом. */
@@ -426,21 +429,30 @@ test('плавающая цена одна на каталог, карточку
   assert.ok(!list.includes(money), 'цена периода в панель не уезжает');
 });
 
-test('скидка — один процент на все сборки, а старая цена из него выводится', () => {
-  // Скидка задаётся процентом, и зачёркнутая цена считается от ЛЮБОЙ суммы
-  // сборки. Поэтому «−13%» одинаковы и у базовой сборки, и у старшей — раньше
-  // зачёркивалась «старая цена базы + те же доплаты», и процент таял.
-  const p = { price: 66990, discountPercent: 13 };
-  assert.equal(deals.discountPct(p), 13);
-  assert.equal(deals.effectivePrice(p), 66990);
-  const back = (sum) => Math.round((1 - sum / deals.compareFor(sum, 13)) * 100);
-  for (const add of [0, 11500, 25000, 120000]) assert.equal(back(66990 + add), 13, 'процент не зависит от доплат');
-  // Округление старой цены до десятки: без него она выходит с копейками.
-  assert.equal(deals.compareFor(66990, 13) % 10, 0);
-  // Скидки нет — зачёркивать нечего.
-  assert.equal(deals.comparePrice({ price: 100 }), 0);
+test('цена товара — БЕЗ скидки, а скидка считается от неё одним процентом', () => {
+  /* В карточке товара лежит полная цена, а процент от неё срезает промоакция.
+   * Процент один на все сборки, поэтому «−20%» одинаковы и у базовой, и у
+   * старшей: раньше `price` хранил цену СО скидкой, зачёркнутая выводилась
+   * обратным ходом, и выключенная акция оставляла скидку внутри ценника. */
+  const p = { price: 84990, discountPercent: 20 };
+  assert.equal(deals.discountPct(p), 20);
+  assert.equal(deals.basePrice(p), 84990, 'basePrice — цена без скидки');
+  assert.equal(deals.saleFor(84990, 20), 67990);
+  assert.equal(deals.salePrice(p), 67990);
+  const back = (sum) => Math.round((1 - deals.saleFor(sum, 20) / sum) * 100);
+  for (const add of [0, 11500, 25000, 120000]) assert.equal(back(84990 + add), 20, 'процент не зависит от доплат');
+  // Округление до десятки: ценник обязан остаться круглым.
+  assert.equal(deals.saleFor(84990, 20) % 10, 0);
+  // Скидки нет — платят полную цену, и «цена со скидкой» равна ей же.
+  assert.equal(deals.salePrice({ price: 100 }), 100);
+  assert.equal(deals.saleFor(100, 0), 100);
+  assert.equal(deals.saleFor(100, 95), 100, 'больше 90% — опечатка, а не скидка');
+  /* Обратный ход остался ради перевода старых данных, где в `price` стояла цена
+   * СО скидкой: им работают `scripts/full-price.js` и переезд с мультидоменной
+   * версии. Пара функций сходится в обе стороны. */
+  assert.equal(deals.compareFor(67990, 20), 84990);
+  assert.equal(deals.saleFor(deals.compareFor(67990, 20), 20), 67990);
   assert.equal(deals.compareFor(100, 0), 0);
-  assert.equal(deals.compareFor(100, 95), 0, 'больше 90% — опечатка, а не скидка');
 
   // Старые данные знают только пару цен: процент выводится из неё, иначе
   // витрина потеряла бы скидку у товара, который ещё не пересохраняли.
@@ -2282,9 +2294,11 @@ test('зачёркнутая цена пересчитывается вмест�
   assert.match(html, /data-discount-pct="17"/);
   assert.match(js, /getElementById\('product-old-price'\)/);
   assert.match(js, /getElementById\('product-save'\)/);
-  // Старая цена выводится из процента для ВЫБРАННОЙ сборки — тем же способом,
-  // что и на сервере (compareFor в lib/discount.js).
-  assert.match(js, /Math\.round\(total \/ \(1 - discountPct \/ 100\) \/ 10\) \* 10/);
+  /* Цена сборки считается тем же способом, что на сервере (`saleFor` в
+   * lib/discount.js): полная сумма минус процент, до десятки. Зачёркнута сама
+   * полная сумма — обратный ход «цена ÷ (1 − процент)» здесь больше не нужен. */
+  assert.match(js, /Math\.round\(full \* \(1 - discountPct \/ 100\) \/ 10\) \* 10/);
+  assert.doesNotMatch(js, /1 - discountPct \/ 100\)\s*\)/, 'обратного хода в скрипте быть не должно');
   // Процент при смене варианта не меняется: скидка у товара одна.
   assert.match(js, /se\.textContent = '−' \+ discountPct \+ '%'/);
   assert.doesNotMatch(js, /1 - total \/ cmpTotal/, 'процент больше не пересчитывается от суммы');
@@ -2438,9 +2452,10 @@ test('карточка каталога: строка отзывов, розов
   assert.match(rule('\\.rt-star'), /color:#ffa800/);
 });
 
-test('выключенная промоакция убирает плашку и зачёркнутую цену, а цену не трогает', () => {
+test('выключенная промоакция убирает скидку целиком: цена становится полной', () => {
+  // В карточке товара — цена БЕЗ скидки. Промоакция срезает от неё процент.
   const product = {
-    id: 'p1', name: 'Товар', category: 'Категория', price: 67990, discountPercent: 20, inStock: true,
+    id: 'p1', name: 'Товар', category: 'Категория', price: 84990, discountPercent: 20, inStock: true,
     images: [], colors: [], storages: []
   };
   const db = {
@@ -2449,40 +2464,44 @@ test('выключенная промоакция убирает плашку и
   };
   const base = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const price = html => (html.match(/class="price-now"[^>]*>([^<]+)</) || [])[1] || '';
+  const rub = v => String(v).replace(/\s/g, ' ');
 
-  // Акция работает: плашка на снимке, зачёркнутая цена и процент выгоды.
+  // Акция работает: цена со скидкой, плашка на снимке, зачёркнута полная цена.
   const on = render.homePage(withPromo(base), db, { category: '', q: '', origin: '' });
   assert.match(on, /class="card-sale">.*?Промоакция<\/span>/, 'плашка называется «Промоакция»');
-  assert.match(on, /class="old-price">/);
+  assert.equal(rub(price(on)), '67 990 ₽');
+  assert.match(rub(on), /class="old-price">84 990 ₽/);
   assert.match(on, /class="save">−20%<\/span>/);
 
-  /* Выключили — с витрины уходит ВЕСЬ язык скидки разом: плашка, зачёркнутая
-   * цена и процент. Скидка витрины и есть скидка кода по умолчанию, и обещать
-   * её от имени выключенной акции нельзя. */
-  const off = render.homePage(Object.assign({}, base, { promoOn: false }), db, { category: '', q: '', origin: '' });
+  /* ВЫКЛЮЧИЛИ — СКИДКИ НЕТ НИ У КОГО: покупатель платит цену из карточки, а с
+   * витрины уходят плашка, зачёркнутая цена и процент. Скидку даёт код, и
+   * обещать её от имени выключенной акции не от чьего имени. */
+  const offSettings = Object.assign({}, base, { promoOn: false });
+  const off = render.homePage(offSettings, db, { category: '', q: '', origin: '' });
+  assert.equal(rub(price(off)), '84 990 ₽', 'платит полную цену товара');
   assert.doesNotMatch(off, /card-sale/, 'плашка осталась при выключенной промоакции');
   assert.doesNotMatch(off, /old-price/, 'зачёркнутая цена осталась при выключенной промоакции');
   assert.doesNotMatch(off, /class="save"/, 'процент выгоды остался при выключенной промоакции');
-  // ЦЕНА ПРОДАЖИ при этом та же: `price` — уже цена со скидкой, и поднимать её
-  // из-за снятой галочки значило бы подорожать для всех разом.
-  assert.equal(price(off).replace(/\s/g, ' '), price(on).replace(/\s/g, ' '));
-  assert.equal(price(off).replace(/\s/g, ' '), '67 990 ₽');
 
   // Страница товара — то же самое, включая нулевой процент для скрипта.
-  const page = render.productPage(Object.assign({}, base, { promoOn: false }), db, product, { origin: '' });
+  const page = render.productPage(offSettings, db, product, { origin: '' });
+  assert.equal(rub(price(page)), '84 990 ₽');
   assert.doesNotMatch(page, /id="product-old-price"/);
   assert.match(page, /data-discount-pct="0"/);
-  assert.match(page, /data-base-price="67990"/);
+  assert.match(page, /data-base-price="84990"/, 'скрипту уезжает цена без скидки: он сам её срежет');
+  // С акцией на той же странице стоит цена со скидкой и живой процент.
+  const pageOn = render.productPage(withPromo(base), db, product, { origin: '' });
+  assert.equal(rub(price(pageOn)), '67 990 ₽');
+  assert.match(pageOn, /data-discount-pct="20"/);
+  assert.match(pageOn, /data-base-price="84990"/);
 
-  /* Корзина и заказ считают тем же процентом: иначе зачёркнутая цена пропала бы
-   * с карточки, но осталась жить в корзине. */
+  /* Корзина и заказ идут через тот же расчёт: иначе цена карточки разошлась бы
+   * с ценой корзины на первом же округлении. */
   const PRICING = require('../lib/pricing');
   const PROMO = require('../lib/promo');
-  const offSettings = Object.assign({}, base, { promoOn: false });
   const row = PRICING.resolve(product, { id: 'p1', qty: 1 }, offSettings, PROMO.stateOf(offSettings, null));
-  assert.equal(row.price, 67990);
+  assert.equal(row.price, 84990);
   assert.equal(row.compare, 0);
-  // При работающей акции всё как было.
   const live = withPromo(base);
   const rowOn = PRICING.resolve(product, { id: 'p1', qty: 1 }, live, PROMO.stateOf(live, null));
   assert.equal(rowOn.price, 67990);
@@ -2497,11 +2516,65 @@ test('выключенная промоакция убирает плашку и
   assert.doesNotMatch(strip('pricing.js'), /D\.discountPct/);
   assert.match(strip('admin-views.js'), /D\.discountPct/);
   // Скидка товара в панели видна и при выключенной акции: её правят там же.
-  const panel = adminViews.productForm(Object.assign({}, base, { promoOn: false }), {
+  const panel = adminViews.productForm(offSettings, {
     categories: () => ['Категория'], getProducts: () => [], ratingFor: () => ({ avg: 0, count: 0 }),
     isVisible: () => true, pendingReviewCount: () => 0
   }, product);
   assert.match(panel, /name="discountPercent"[^>]*value="20"/);
+  assert.match(panel, /name="price"[^>]*value="84990"/, 'в поле цены — сумма без скидки');
+});
+
+test('перевод каталога на цены без скидки сохраняет цены сборок и не идёт дважды', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-fullprice-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  /* Товар записан в СТАРОЙ модели: `price` — цена со скидкой, доплаты тоже.
+   * После перевода цена и доплаты становятся полными, а покупатель при
+   * работающей акции платит ровно столько же, сколько платил вчера. */
+  const before = {
+    id: 'ph', name: 'Телефон', category: 'iPhone', price: 67990, discountPercent: 20, inStock: true,
+    images: [], colors: [{ name: 'Чёрный', hex: '#111' }],
+    storages: [{ label: '256 ГБ', add: 0 }, { label: '1 ТБ', add: 22500 }],
+    options: [{ name: 'SIM-карта', values: [{ label: 'Только eSIM', add: 0 }, { label: 'eSIM + SIM', add: 8500 }] }]
+  };
+  const plain = { id: 'tag', name: 'Метка', category: 'Аксессуары', price: 3490, inStock: true, images: [], colors: [], storages: [] };
+  fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify([before, plain]));
+  fs.writeFileSync(path.join(dir, 'reviews.json'), '[]');
+
+  const script = path.join(__dirname, '..', 'scripts', 'full-price.js');
+  const run = (args) => execFileSync(process.execPath, [script].concat(args || []), {
+    encoding: 'utf8', env: Object.assign({}, process.env, { STORE_DATA_DIR: dir })
+  });
+  run(['--apply']);
+
+  const after = JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8'));
+  const ph = after.find(x => x.id === 'ph');
+  assert.equal(ph.price, 84990, 'цена стала полной');
+  assert.equal(ph.discountPercent, 20, 'процент не тронут');
+  // Цены всех сборок остаются прежними — с точностью до десятки округления.
+  const combos = [[0, 0], [22500, 0], [0, 8500], [22500, 8500]];
+  combos.forEach(([st, opt], i) => {
+    const was = before.price + st + opt;
+    const now = deals.saleFor(ph.price + ph.storages[i > 1 ? i - 2 : i].add * 0 + (st ? ph.storages[1].add : 0) + (opt ? ph.options[0].values[1].add : 0), 20);
+    assert.ok(Math.abs(now - was) <= 10, `сборка ${was} уехала в ${now}`);
+  });
+  // Товар без скидки не тронут вовсе: у него цена и была полной.
+  assert.equal(after.find(x => x.id === 'tag').price, 3490);
+
+  /* Второй прогон поднял бы цены ещё раз, поэтому скрипт помечает каталог и
+   * отказывается работать повторно: отличить переведённый от старого по самим
+   * числам нельзя. */
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+  assert.ok(settings.fullPriceAt > 0, 'метка перевода не поставлена');
+  assert.throws(() => run(['--apply']), /уже переведён/i);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8')).find(x => x.id === 'ph').price, 84990);
+
+  // Свежая установка получает метку сразу: catalog.js уже отдаёт полные цены.
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'store-fullprice-new-'));
+  t.after(() => fs.rmSync(fresh, { recursive: true, force: true }));
+  execFileSync(process.execPath, ['-e', 'require(process.argv[1]).ensureSeeded()', path.join(__dirname, '..', 'lib', 'db.js')], {
+    encoding: 'utf8', env: Object.assign({}, process.env, { STORE_DATA_DIR: fresh })
+  });
+  assert.ok(JSON.parse(fs.readFileSync(path.join(fresh, 'settings.json'), 'utf8')).fullPriceAt > 0);
 });
 
 test('страница товара: строка отзывов как в карточке, белый текст в выбранной кнопке', () => {
@@ -3500,12 +3573,17 @@ test('переезд на один магазин переносит домен 
   // Товар «a» продавался по горящей акции за 900 при базовой 1000 — значит на
   // витрине стояло 900 и «−10%». После переезда это 1350 (множитель 1.5) и тот
   // же процент: скидка переехала процентом, а не суммой.
-  assert.equal(byId.a.price, 1350, 'множитель вбит в цену продажи');
+  /* Множитель вбит в цену, а сама цена хранится БЕЗ скидки: 900 × 1.5 = 1350
+   * платили на прежней витрине, значит без −10% это 1500. Покупатель после
+   * переезда платит те же 1350, пока промоакция работает. */
+  assert.equal(byId.a.price, 1500, 'множитель вбит в цену, а скидка вынута из неё');
+  assert.equal(deals.saleFor(byId.a.price, byId.a.discountPercent), 1350, 'цена продажи не изменилась');
   assert.equal(byId.a.discountPercent, 10);
   assert.equal(byId.a.oldPrice, undefined, 'сумма старой цены снята вместе со старой моделью');
   assert.equal(byId.a.hotDealPrice, undefined);
-  assert.equal(byId.a.storages[0].add, 150, 'доплата за память масштабируется так же');
-  assert.equal(byId.a.options[0].values[1].add, 300);
+  // Доплаты едут тем же путём: множитель, а следом обратный ход по проценту.
+  assert.equal(byId.a.storages[0].add, deals.compareFor(150, 10), 'доплата за память масштабируется так же');
+  assert.equal(byId.a.options[0].values[1].add, deals.compareFor(300, 10));
   assert.equal(byId.a.options[0].hint, 'подсказка', 'остальные поля не теряются');
   assert.equal(byId.b.price, 444, 'ручная цена домена становится базовой');
   assert.equal(byId.b.discountPercent, 0, 'у ручной цены скидки не было и не появится');
@@ -3522,7 +3600,7 @@ test('переезд на один магазин переносит домен 
   assert.ok(!fs.existsSync(path.join(dir, 'sites.json')));
   // Повторный запуск ничего не пересчитывает второй раз.
   assert.equal(freshDb(dir).ensureSeeded(), null);
-  assert.equal(freshDb(dir).getProducts().find(p => p.id === 'a').price, 1350);
+  assert.equal(freshDb(dir).getProducts().find(p => p.id === 'a').price, 1500);
 });
 
 test('страница товара показывает доп. характеристики и прячет несовместимые значения', () => {
@@ -3782,28 +3860,29 @@ test('карточка каталога показывает цену самой
   const price = html => (html.match(/class="price-now"[^>]*>([^<]+)</) || [])[1] || '';
   const nbsp = s => s.replace(/\s/g, ' ');
 
-  // Всё в наличии — цена та же, что и раньше: базовая.
-  assert.equal(nbsp(price(render.homePage(ss, db, {}))), '60 000 ₽');
+  /* Всё в наличии — цена базовой сборки со скидкой промоакции: 60 000 в
+   * карточке товара это цена БЕЗ скидки, и −20% от неё дают 48 000. */
+  assert.equal(nbsp(price(render.homePage(ss, db, {}))), '48 000 ₽');
 
   /* Дешёвая конфигурация кончилась — карточка обязана показать следующую
    * доступную, а не обещать цену, которой на странице товара уже нет: страница
    * открывается с первого ДОСТУПНОГО варианта. */
   phone.storages[0].inStock = false;
   const out = render.homePage(ss, db, {});
-  assert.equal(nbsp(price(out)), '68 000 ₽');
-  // Зачёркнутая цена считается от той же суммы: процент у товара один на все
-  // сборки, а рубли выгоды у дорогой сборки свои.
-  assert.match(nbsp(out), /class="old-price">85 000 ₽/);
-  assert.equal(render.startPrice(phone), 68000);
+  assert.equal(nbsp(price(out)), '54 400 ₽');
+  // Зачёркнута полная цена той же сборки: процент у товара один на все сборки,
+  // а рубли выгоды у дорогой сборки свои.
+  assert.match(nbsp(out), /class="old-price">68 000 ₽/);
+  assert.equal(render.startPrice(phone), 68000, 'startPrice считает ПОЛНУЮ сумму сборки');
 
   // То же число стоит и на самой странице товара: раньше сервер рисовал базовую
   // цену, а скрипт тут же исправлял её — сумма дёргалась на глазах.
-  assert.equal(nbsp(price(render.productPage(ss, db, phone, {}))), '68 000 ₽');
+  assert.equal(nbsp(price(render.productPage(ss, db, phone, {}))), '54 400 ₽');
 
   // Распроданное значение доп. характеристики двигает цену так же.
   phone.storages[0].inStock = true;
   phone.options[0].values[0].inStock = false;
-  assert.equal(nbsp(price(render.homePage(ss, db, {}))), '63 000 ₽');
+  assert.equal(nbsp(price(render.homePage(ss, db, {}))), '50 400 ₽');
 
   // Порядок прайса не является сортировкой: у складских остатков старший объём
   // иногда дешевле среднего. Берём реальный минимум, а не первую строку.
@@ -6597,7 +6676,10 @@ test('сборка дороже потолка недоступна, а коли
   // Потолок количества считается от АКТУАЛЬНОЙ цены сборки, а не от базовой.
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(js, /Math\.floor\(ORDER_MAX \/ unit\)/);
-  assert.match(js, /markLimits\(total\);\s*\n\s*refreshQtyCap\(\);/, 'после смены варианта пересчитываются и варианты, и количество');
+  assert.match(js, /markLimits\(full\);\s*\n\s*refreshQtyCap\(\);/, 'после смены варианта пересчитываются и варианты, и количество');
+  // В `markLimits` уходит ПОЛНАЯ сумма, а с потолком сравнивается цена со
+  // скидкой: касса проводит именно её.
+  assert.match(js, /return salePrice\(candidate\) > ORDER_MAX/);
   // Корзина упирается в тот же потолок: «+» гаснет, а не даёт собрать заказ,
   // который потом не оформить.
   assert.match(js, /fits: function \(item\)/);
@@ -14547,57 +14629,57 @@ test('метрика берёт город из своей базы и не хо
  * Главное правило: скидка товара — она же скидка кода по умолчанию, и ценник
  * витрины от промокодов не меняется НИ НА РУБЛЬ. Всё остальное — следствия.
  */
-test('промокод: выключенная система оставляет витрину такой, какой она была', () => {
+test('промокод: выключенная система оставляет цену без скидки', () => {
   const promo = require('../lib/promo');
   const off = { promoOn: false, promoCodes: [{ code: 'SALE', percent: 0 }], promoDefault: 'SALE' };
   assert.equal(promo.enabled(off), false);
   const state = promo.stateOf(off, null);
-  assert.deepEqual(promo.priceFor(67990, 6, state), { price: 67990, compare: 72330, full: 72330 },
-    'без промокодов цена и зачёркнутая — ровно те же, что считал D.compareFor');
-  // Даже присланное «снять» ничего не поднимает: снимать нечего.
-  assert.equal(promo.priceFor(67990, 6, promo.stateOf(off, { off: true })).price, 67990);
+  /* Скидку даёт КОД: нет кода — покупатель платит цену из карточки товара, и
+   * зачёркивать нечего. Раньше скидка была зашита в сам ценник, и выключенная
+   * акция ничего не меняла — то есть продолжала действовать. */
+  assert.deepEqual(promo.priceFor(84990, 20, state), { price: 84990, compare: 0, full: 84990 });
+  // Присланное «снять» ничего не меняет: снимать нечего, цена и так полная.
+  assert.equal(promo.priceFor(84990, 20, promo.stateOf(off, { off: true })).price, 84990);
   // Включённая система без единого работающего кода — та же выключенная: поле на
   // оформлении спрашивало бы то, чего у магазина нет.
   assert.equal(promo.enabled({ promoOn: true, promoCodes: [{ code: 'SALE', percent: 0, on: false }] }), false);
   assert.equal(promo.enabled({ promoOn: true, promoCodes: [] }), false);
 });
 
-test('промокод по умолчанию даёт цену ценника ЧИСЛО В ЧИСЛО', () => {
+test('промокод по умолчанию срезает процент товара с полной цены', () => {
   const promo = require('../lib/promo');
   const s = { promoOn: true, promoCodes: [{ code: 'SALE', percent: 0 }], promoDefault: 'SALE' };
   const state = promo.stateOf(s, null);
   assert.equal(state.promo.code, 'SALE');
-  /* Обратный ход через проценты тут и нельзя: `compareFor` округляет до
-   * десятки, и 7 500 ₽ при 13% вернулись бы как 7 499 ₽ — расхождение с
-   * карточкой на ровном месте. Поэтому «скидка товара» не пересчитывается
-   * вовсе, а берётся как есть. */
-  for (const [sum, pct] of [[7500, 13], [67990, 6], [3490, 0], [239990, 25]]) {
+  // «Скидка товара» — процент из карточки, и считается он от полной суммы
+  // сборки: зачёркнута всегда она сама, а цена округляется до десятки.
+  for (const [sum, pct] of [[7500, 13], [84990, 20], [3490, 0], [239990, 25]]) {
     const got = promo.priceFor(sum, pct, state);
-    assert.equal(got.price, sum, `цена сборки ${sum} обязана остаться собой`);
-    assert.equal(got.compare, deals.compareFor(sum, pct));
+    assert.equal(got.price, deals.saleFor(sum, pct), `цена сборки ${sum} со скидкой ${pct}%`);
+    assert.equal(got.compare, pct ? sum : 0, 'зачёркнута полная цена, а у товара без скидки — ничего');
+    assert.equal(got.price % 10, 0);
   }
   // Полей в запросе нет вовсе (старая вкладка) — это «как по умолчанию», а не
   // «снят»: иначе покупатель со старой вкладкой платил бы полную цену.
   assert.equal(promo.choiceFrom({}), null);
-  assert.equal(promo.priceFor(67990, 6, promo.stateOf(s, promo.choiceFrom({}))).price, 67990);
+  assert.equal(promo.priceFor(84990, 20, promo.stateOf(s, promo.choiceFrom({}))).price, 67990);
 });
 
 test('снятый промокод поднимает цену до полной, и только он', () => {
   const promo = require('../lib/promo');
   const s = { promoOn: true, promoCodes: [{ code: 'SALE', percent: 0 }], promoDefault: 'SALE' };
-  const gone = promo.priceFor(67990, 6, promo.stateOf(s, { off: true }));
-  assert.equal(gone.price, 72330, 'платит полную цену — ту самую, что была зачёркнута');
+  const gone = promo.priceFor(84990, 20, promo.stateOf(s, { off: true }));
+  assert.equal(gone.price, 84990, 'платит полную цену — ту самую, что была зачёркнута');
   assert.equal(gone.compare, 0, 'зачёркивать больше нечего');
   // У товара без скидки снимать нечего, и цена остаётся прежней.
   assert.equal(promo.priceFor(27990, 0, promo.stateOf(s, { off: true })).price, 27990);
 
-  /* Кода по умолчанию может не быть вовсе — владелец выбрал «не применять».
-   * Это НЕ то же самое, что снятый код: цены на витрине прежние, а поднять их
-   * всем разом из-за непрожатого селекта было бы худшим, что может сделать
-   * этот раздел. */
+  /* Кода по умолчанию нет — владелец выбрал «не применять». Скидку даёт код,
+   * поэтому и здесь покупатель платит цену из карточки: обещать её от имени
+   * кода, который никому не выдан, было бы неправдой. */
   const none = Object.assign({}, s, { promoDefault: '' });
   assert.equal(promo.defaultCode(none), null);
-  assert.equal(promo.priceFor(67990, 6, promo.stateOf(none, null)).price, 67990);
+  assert.equal(promo.priceFor(84990, 20, promo.stateOf(none, null)).price, 84990);
 });
 
 test('промокод со своим процентом считает скидку от цены без скидки', () => {
@@ -14606,16 +14688,16 @@ test('промокод со своим процентом считает ски�
     promoOn: true, promoDefault: 'SALE',
     promoCodes: [{ code: 'SALE', percent: 0 }, { code: 'VIP20', percent: 20 }, { code: 'MELOCH', percent: 2 }]
   };
-  const vip = promo.priceFor(67990, 6, promo.stateOf(s, { code: 'vip20' }));
-  assert.equal(vip.compare, 72330, 'зачёркнута полная цена, а не цена ценника');
-  assert.equal(vip.price, 57860, '72 330 − 20% и до десятки: ценник обязан остаться круглым');
+  const vip = promo.priceFor(84990, 6, promo.stateOf(s, { code: 'vip20' }));
+  assert.equal(vip.compare, 84990, 'зачёркнута полная цена товара');
+  assert.equal(vip.price, 67990, '84 990 − 20% и до десятки: ценник обязан остаться круглым');
   assert.equal(vip.price % 10, 0);
 
   /* Код со своим процентом МЕНЬШЕ скидки товара не поднимает цену: покупатель,
    * применивший законный код и увидевший итог больше прежнего, читает это как
    * обман. Такой код просто ничего не меняет. */
-  const bad = promo.priceFor(67990, 6, promo.stateOf(s, { code: 'MELOCH' }));
-  assert.equal(bad.price, 67990);
+  const bad = promo.priceFor(84990, 20, promo.stateOf(s, { code: 'MELOCH' }));
+  assert.equal(bad.price, deals.saleFor(84990, 20));
 
   // Регистр и пробелы кода не значат ничего: «sale» с телефона и «SALE» из
   // панели — один и тот же код.
@@ -14627,7 +14709,7 @@ test('промокод со своим процентом считает ски�
    * цены нельзя. */
   const lost = promo.stateOf(s, { code: 'NOPE' });
   assert.equal(lost.promo.code, 'SALE');
-  assert.equal(promo.priceFor(67990, 6, lost).price, 67990);
+  assert.equal(promo.priceFor(84990, 20, lost).price, deals.saleFor(84990, 20));
 });
 
 test('кодом по умолчанию может быть только «скидка товара»', () => {
@@ -14641,11 +14723,12 @@ test('кодом по умолчанию может быть только «ск
     promoCodes: [{ code: 'SALE', percent: 0 }, { code: 'VIP20', percent: 20 }]
   };
   assert.equal(promo.defaultCode(s), null, 'процентный код по умолчанию не применяется');
-  assert.equal(promo.priceFor(67990, 6, promo.stateOf(s, null)).price, 67990, 'цены остаются как в каталоге');
-  // Выключенный код по умолчанию тоже не применяется — и не поднимает цены.
+  // Скидку даёт применённый код, а его нет — значит платят цену из каталога.
+  assert.equal(promo.priceFor(84990, 20, promo.stateOf(s, null)).price, 84990, 'цены остаются как в каталоге');
+  // Выключенный код по умолчанию не применяется тоже.
   const dead = { promoOn: true, promoDefault: 'SALE', promoCodes: [{ code: 'SALE', percent: 0, on: false }, { code: 'X', percent: 5 }] };
   assert.equal(promo.defaultCode(dead), null);
-  assert.equal(promo.priceFor(67990, 6, promo.stateOf(dead, null)).price, 67990);
+  assert.equal(promo.priceFor(84990, 20, promo.stateOf(dead, null)).price, 84990);
   // Панель об этом говорит вслух, а не сохраняет молча.
   const route = server.slice(server.indexOf("app.post('/admin/promo'"), server.indexOf("app.post('/admin/promo/add'"));
   assert.match(route, /if \(entry\.percent\)/);
@@ -14692,10 +14775,11 @@ test('корзина и заказ считают позицию одним ра
    * ремешок и его размер. Ровно её видят и корзина, и заявка. */
   const row = PRICING.resolve(view, item(), s, on);
   assert.equal(row.adds, 3000 + 8000 + 0 + 500);
-  assert.equal(row.sum, 51500);
-  assert.equal(row.price, 51500);
-  // Зачёркнутая цена выводится из процента товара, а не хранится: 20% от сборки.
-  assert.equal(row.compare, 64380);
+  assert.equal(row.sum, 51500, 'сумма сборки — ПОЛНАЯ: база и доплаты без скидки');
+  // Платит покупатель её же за вычетом процента промоакции, а зачёркнута сама сумма.
+  assert.equal(row.price, deals.saleFor(51500, 20));
+  assert.equal(row.price, 41200);
+  assert.equal(row.compare, 51500);
   assert.equal(row.name, 'Часы 46 мм, Титан, Ткань · Синяя M/L, Cellular');
   assert.equal(row.problem, null);
 
@@ -14715,13 +14799,13 @@ test('корзина и заказ считают позицию одним ра
   /* Цена считается ДО КОНЦА даже у негодной позиции: корзина показывает её
    * рядом с «нет в наличии», и пустая цена читалась бы как ошибка. */
   const gone = PRICING.resolve(view, item({ color: 'Чёрный' }), s, on);
-  assert.equal(gone.price, 51500);
+  assert.equal(gone.price, deals.saleFor(51500, 20));
 
   // Промокод со своим процентом считает скидку от ПОЛНОЙ цены сборки, и цену
   // ценника он не поднимает никогда.
   const vip = { promoOn: true, promoCodes: [{ code: 'VIP', percent: 30, on: true }] };
   const priced = PRICING.resolve(view, item(), Object.assign({}, s, vip), PROMO.stateOf(vip, { code: 'VIP' }));
-  assert.equal(priced.price, Math.round(64380 * 0.7 / 10) * 10);
+  assert.equal(priced.price, deals.saleFor(51500, 30), 'свой процент — от полной цены сборки');
   assert.ok(priced.price < row.price, 'код со своим процентом обязан быть выгоднее скидки товара');
 
   // Прошлый период считается только по просьбе: он нужен заказу, а не корзине.
