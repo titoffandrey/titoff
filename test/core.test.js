@@ -25,6 +25,13 @@ const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer,
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
 
+/* Скидку витрина показывает, только пока работает промоакция: её процент и есть
+ * скидка кода по умолчанию (см. lib/promo.js). Тестам, которые проверяют ценник
+ * со скидкой, нужны настройки с включённой акцией — собираются они здесь, чтобы
+ * список кодов не переписывал каждый заново. */
+const PROMO_ON = { promoOn: true, promoDefault: 'SALE', promoCodes: [{ code: 'SALE', percent: 0, on: true }] };
+const withPromo = (settings) => Object.assign({}, settings || {}, PROMO_ON);
+
 function request(url, options) {
   options = options || {};
   const body = options.body || Buffer.alloc(0);
@@ -2260,7 +2267,7 @@ test('добавление в корзину сразу уводит в корз
 });
 
 test('зачёркнутая цена пересчитывается вместе с вариантом', () => {
-  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const settings = withPromo({ storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' });
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const product = {
     id: 'p1', name: 'Товар', category: 'Категория', price: 50000, discountPercent: 17,
@@ -2322,7 +2329,7 @@ test('старую цену видно, а стрелки галереи не л
 });
 
 test('в форме товара задаётся процент, а старой цены и горящей скидки нет', () => {
-  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const settings = withPromo({ storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' });
   const db = { categories: () => ['iPhone'], getProducts: () => [], ratingFor: () => ({ avg: 0, count: 0 }), isVisible: () => true, pendingReviewCount: () => 0 };
   const product = { id: 'p1', name: 'Товар', category: 'iPhone', price: 66990, discountPercent: 13, inStock: true, images: [], colors: [], storages: [], bands: [], options: [] };
   const form = adminViews.productForm(settings, db, product);
@@ -2391,9 +2398,9 @@ test('в форме товара задаётся процент, а старо�
   assert.equal(/deals-band|deal-timer|deal-banner|card-hot|deal-box/.test(css), false, 'остатки горящих скидок в стилях');
 });
 
-test('карточка каталога: строка отзывов, розовая цена и плашка «Распродажа»', () => {
+test('карточка каталога: строка отзывов, розовая цена и плашка «Промоакция»', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const settings = withPromo({ storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' });
   const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 67990, discountPercent: 6, inStock: true, images: [] };
   const db = {
     getProducts: () => [product], visibleProducts: () => [product],
@@ -2410,7 +2417,7 @@ test('карточка каталога: строка отзывов, розов
   // Звёзды остаются там, где их читают как оценку, а не как значок
   assert.match(render.stars(4.7), /class="stars"/);
 
-  // Плашка «Распродажа» лежит на снимке и только у того, что можно купить
+  // Плашка «Промоакция» лежит на снимке и только у того, что можно купить
   assert.match(html, /<div class="card-media">[\s\S]*?<span class="card-sale">/);
   const sold = { ...product, inStock: false };
   const soldHtml = render.homePage(settings, { ...db, getProducts: () => [sold], visibleProducts: () => [sold] }, {});
@@ -2429,6 +2436,72 @@ test('карточка каталога: строка отзывов, розов
   // Черта старой цены — наклонный псевдоэлемент, а не text-decoration
   assert.match(rule('\\.card-price \\.old-price::before'), /transform:rotate\(-3deg\)/);
   assert.match(rule('\\.rt-star'), /color:#ffa800/);
+});
+
+test('выключенная промоакция убирает плашку и зачёркнутую цену, а цену не трогает', () => {
+  const product = {
+    id: 'p1', name: 'Товар', category: 'Категория', price: 67990, discountPercent: 20, inStock: true,
+    images: [], colors: [], storages: []
+  };
+  const db = {
+    getProducts: () => [product], visibleProducts: () => [product], reviewsForProduct: () => [],
+    categories: () => ['Категория'], visibleCategories: () => ['Категория'], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  const base = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const price = html => (html.match(/class="price-now"[^>]*>([^<]+)</) || [])[1] || '';
+
+  // Акция работает: плашка на снимке, зачёркнутая цена и процент выгоды.
+  const on = render.homePage(withPromo(base), db, { category: '', q: '', origin: '' });
+  assert.match(on, /class="card-sale">.*?Промоакция<\/span>/, 'плашка называется «Промоакция»');
+  assert.match(on, /class="old-price">/);
+  assert.match(on, /class="save">−20%<\/span>/);
+
+  /* Выключили — с витрины уходит ВЕСЬ язык скидки разом: плашка, зачёркнутая
+   * цена и процент. Скидка витрины и есть скидка кода по умолчанию, и обещать
+   * её от имени выключенной акции нельзя. */
+  const off = render.homePage(Object.assign({}, base, { promoOn: false }), db, { category: '', q: '', origin: '' });
+  assert.doesNotMatch(off, /card-sale/, 'плашка осталась при выключенной промоакции');
+  assert.doesNotMatch(off, /old-price/, 'зачёркнутая цена осталась при выключенной промоакции');
+  assert.doesNotMatch(off, /class="save"/, 'процент выгоды остался при выключенной промоакции');
+  // ЦЕНА ПРОДАЖИ при этом та же: `price` — уже цена со скидкой, и поднимать её
+  // из-за снятой галочки значило бы подорожать для всех разом.
+  assert.equal(price(off).replace(/\s/g, ' '), price(on).replace(/\s/g, ' '));
+  assert.equal(price(off).replace(/\s/g, ' '), '67 990 ₽');
+
+  // Страница товара — то же самое, включая нулевой процент для скрипта.
+  const page = render.productPage(Object.assign({}, base, { promoOn: false }), db, product, { origin: '' });
+  assert.doesNotMatch(page, /id="product-old-price"/);
+  assert.match(page, /data-discount-pct="0"/);
+  assert.match(page, /data-base-price="67990"/);
+
+  /* Корзина и заказ считают тем же процентом: иначе зачёркнутая цена пропала бы
+   * с карточки, но осталась жить в корзине. */
+  const PRICING = require('../lib/pricing');
+  const PROMO = require('../lib/promo');
+  const offSettings = Object.assign({}, base, { promoOn: false });
+  const row = PRICING.resolve(product, { id: 'p1', qty: 1 }, offSettings, PROMO.stateOf(offSettings, null));
+  assert.equal(row.price, 67990);
+  assert.equal(row.compare, 0);
+  // При работающей акции всё как было.
+  const live = withPromo(base);
+  const rowOn = PRICING.resolve(product, { id: 'p1', qty: 1 }, live, PROMO.stateOf(live, null));
+  assert.equal(rowOn.price, 67990);
+  assert.equal(rowOn.compare, 84990);
+
+  /* Процент витрина спрашивает В ОДНОМ месте — у промокодов. Свой `D.discountPct`
+   * в рендере или в разборе позиции означал бы, что выключенная акция пропала с
+   * карточки, но осталась в корзине. Панель — другое дело: там владелец правит
+   * скидку самого товара и видит её всегда. */
+  const strip = f => require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8'));
+  assert.doesNotMatch(strip('render.js'), /D\.discountPct/);
+  assert.doesNotMatch(strip('pricing.js'), /D\.discountPct/);
+  assert.match(strip('admin-views.js'), /D\.discountPct/);
+  // Скидка товара в панели видна и при выключенной акции: её правят там же.
+  const panel = adminViews.productForm(Object.assign({}, base, { promoOn: false }), {
+    categories: () => ['Категория'], getProducts: () => [], ratingFor: () => ({ avg: 0, count: 0 }),
+    isVisible: () => true, pendingReviewCount: () => 0
+  }, product);
+  assert.match(panel, /name="discountPercent"[^>]*value="20"/);
 });
 
 test('страница товара: строка отзывов как в карточке, белый текст в выбранной кнопке', () => {
@@ -3695,7 +3768,7 @@ test('наличие учитывает совместимость ремешк�
 });
 
 test('карточка каталога показывает цену самой дешёвой ДОСТУПНОЙ сборки', () => {
-  const ss = { storeName: 'Тест', tagline: '', currency: '₽' };
+  const ss = withPromo({ storeName: 'Тест', tagline: '', currency: '₽' });
   const phone = {
     id: 'ph', name: 'Телефон', category: 'iPhone', price: 60000, discountPercent: 20, inStock: true, images: [],
     colors: [{ name: 'Чёрный', hex: '#111' }],
@@ -7773,7 +7846,7 @@ test('скидка на оформлении показана тем же язы
   // У распроданной позиции процента нет: обещать выгоду на том, что не попадёт
   // в заказ, незачем — то же правило, что и в карточке каталога.
   assert.match(js, /out \? '' : '<span class="save">/);
-  // И плашки «Распродажа» здесь нет: миниатюра 80 px, слово в неё не влезает.
+  // И плашки «Промоакция» здесь нет: миниатюра 80 px, слово в неё не влезает.
   assert.doesNotMatch(js, /card-sale/);
 
   // Выгода считается по тем же позициям, что и сумма: у распроданной цены в
@@ -14598,7 +14671,9 @@ test('вид промокода проверяется, а справочник 
 test('корзина и заказ считают позицию одним разбором', () => {
   const PRICING = require('../lib/pricing');
   const PROMO = require('../lib/promo');
-  const s = { currency: '₽' };
+  // Настройки с работающей промоакцией: без неё витрина не показывает ни
+  // зачёркнутой цены, ни процента — это проверяется отдельным тестом ниже.
+  const s = withPromo({ currency: '₽' });
   const view = {
     id: 'w', name: 'Часы', price: 40000, discountPercent: 20, inStock: true,
     colors: [{ name: 'Титан' }, { name: 'Чёрный', inStock: false }],
@@ -14610,11 +14685,12 @@ test('корзина и заказ считают позицию одним ра
     id: 'w', qty: 1, color: 'Титан', storage: '46 мм', band: 'Ткань · Синяя', bandSize: 'M/L',
     options: [{ name: 'Связь', value: 'Cellular' }]
   }, extra || {});
-  const off = PROMO.stateOf({}, null);
+  // Состояние промокода того же магазина: применён код по умолчанию.
+  const on = PROMO.stateOf(s, null);
 
   /* Сумма сборки — база плюс ВСЕ доплаты: конфигурация, значение группы,
    * ремешок и его размер. Ровно её видят и корзина, и заявка. */
-  const row = PRICING.resolve(view, item(), s, off);
+  const row = PRICING.resolve(view, item(), s, on);
   assert.equal(row.adds, 3000 + 8000 + 0 + 500);
   assert.equal(row.sum, 51500);
   assert.equal(row.price, 51500);
@@ -14625,20 +14701,20 @@ test('корзина и заказ считают позицию одним ра
 
   /* Причина беды называется так же, как её показывает заказ, и у наличия она
    * называет ИМЕННО распроданный вариант, а не товар целиком. */
-  assert.deepEqual(PRICING.resolve(view, item({ color: 'Чёрный' }), s, off).problem,
+  assert.deepEqual(PRICING.resolve(view, item({ color: 'Чёрный' }), s, on).problem,
     { reason: 'out_of_stock', label: 'Часы, Чёрный' });
-  assert.deepEqual(PRICING.resolve(view, item({ band: 'Ткань · Красная' }), s, off).problem,
+  assert.deepEqual(PRICING.resolve(view, item({ band: 'Ткань · Красная' }), s, on).problem,
     { reason: 'out_of_stock', label: 'Часы, Красная' });
-  assert.equal(PRICING.resolve(view, item({ storage: 'нет такого' }), s, off).problem.reason, 'variant_changed');
-  assert.equal(PRICING.resolve(view, item({ options: [] }), s, off).problem.reason, 'variant_changed');
-  assert.equal(PRICING.resolve(view, Object.assign(item(), { bandSize: '' }), s, off).problem.reason, 'variant_changed');
+  assert.equal(PRICING.resolve(view, item({ storage: 'нет такого' }), s, on).problem.reason, 'variant_changed');
+  assert.equal(PRICING.resolve(view, item({ options: [] }), s, on).problem.reason, 'variant_changed');
+  assert.equal(PRICING.resolve(view, Object.assign(item(), { bandSize: '' }), s, on).problem.reason, 'variant_changed');
   // Товар целиком снят с продажи — про это говорим его именем.
-  assert.deepEqual(PRICING.resolve(Object.assign({}, view, { inStock: false }), item(), s, off).problem,
+  assert.deepEqual(PRICING.resolve(Object.assign({}, view, { inStock: false }), item(), s, on).problem,
     { reason: 'out_of_stock', label: 'Часы' });
 
   /* Цена считается ДО КОНЦА даже у негодной позиции: корзина показывает её
    * рядом с «нет в наличии», и пустая цена читалась бы как ошибка. */
-  const gone = PRICING.resolve(view, item({ color: 'Чёрный' }), s, off);
+  const gone = PRICING.resolve(view, item({ color: 'Чёрный' }), s, on);
   assert.equal(gone.price, 51500);
 
   // Промокод со своим процентом считает скидку от ПОЛНОЙ цены сборки, и цену
@@ -14649,7 +14725,7 @@ test('корзина и заказ считают позицию одним ра
   assert.ok(priced.price < row.price, 'код со своим процентом обязан быть выгоднее скидки товара');
 
   // Прошлый период считается только по просьбе: он нужен заказу, а не корзине.
-  assert.equal(PRICING.resolve(view, item(), s, off).previous, null);
+  assert.equal(PRICING.resolve(view, item(), s, on).previous, null);
 });
 
 test('промокод считают в одном месте, а витрина своей скидки не знает', () => {
@@ -14704,9 +14780,15 @@ test('раздел промокодов есть в панели и говори
   assert.ok(render.adminIcon('promo').length > 40);
   assert.match(css, /\.promo-row\{/);
 
-  // Выключенные промокоды раздел называет прямо: скидки товаров остаются.
+  /* Выключенная промоакция раздел называет прямо: витрина остаётся с базовыми
+   * ценами — без плашек и зачёркнутых сумм. Прежняя строка обещала, что «скидки
+   * товаров остаются», и после того, как выключатель стал общим, это было бы
+   * неправдой ровно в том месте, где владелец принимает решение. */
   const offHtml = adminViews.promoPage(Object.assign({}, settings, { promoOn: false }), db, {});
-  assert.match(offHtml, /скидки товаров остаются/);
+  assert.match(offHtml, /на витрине базовые цены/);
+  assert.doesNotMatch(offHtml, /скидки товаров остаются/);
+  // Галочка называет оба следствия разом, а не одни промокоды.
+  assert.match(html, /name="promoOn"[^>]*><span>Промоакция работает: скидки на витрине и промокоды на оформлении<\/span>/);
 
   /* Промокод виден в строке заказа — подписью под суммой, там же, где он на неё
    * и повлиял. Заказ помнит код сам, а не выводится из настроек. */
