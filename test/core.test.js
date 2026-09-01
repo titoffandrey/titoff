@@ -14712,6 +14712,34 @@ test('промокод со своим процентом считает ски�
   assert.equal(promo.priceFor(84990, 20, lost).price, deals.saleFor(84990, 20));
 });
 
+test('выбор кода по умолчанию переживает выключенную промоакцию', () => {
+  const promo = require('../lib/promo');
+  /* На боевом магазине настройка пропала именно так: пока промоакция выключена,
+   * применённого кода нет, панель показывала в селекте «Не применять» — и
+   * первое же сохранение формы стирало выбор. Включённая обратно акция не дала
+   * бы после этого ни одной скидки. */
+  const off = {
+    promoOn: false, promoDefault: 'SALE',
+    promoCodes: [{ code: 'SALE', percent: 0, on: true }]
+  };
+  assert.equal(promo.defaultCode(off), null, 'выключенная акция ничего не применяет');
+  assert.equal((promo.savedDefault(off) || {}).code, 'SALE', 'но выбор владельца остаётся');
+
+  const html = adminViews.promoPage(Object.assign(dbCore.defaultSettings(), off, { storeName: 'Тест' }), {
+    visibleOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0
+  }, {});
+  assert.match(html, /<option value="SALE" selected>/, 'в селекте стоит сохранённый код');
+  assert.match(html, /promo-tag">по умолчанию/, 'строка кода помечена и при выключенной акции');
+
+  // Включили — тот же код применяется, ничего перевыбирать не нужно.
+  const on = Object.assign({}, off, { promoOn: true });
+  assert.equal((promo.defaultCode(on) || {}).code, 'SALE');
+  // Выключенный сам код по умолчанию не применяется, но из настроек не исчезает.
+  const dead = Object.assign({}, on, { promoCodes: [{ code: 'SALE', percent: 0, on: false }, { code: 'X', percent: 5, on: true }] });
+  assert.equal(promo.defaultCode(dead), null);
+  assert.equal((promo.savedDefault(dead) || {}).code, 'SALE');
+});
+
 test('кодом по умолчанию может быть только «скидка товара»', () => {
   const promo = require('../lib/promo');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
