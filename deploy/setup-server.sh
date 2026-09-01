@@ -62,10 +62,17 @@ fi
 say "Код в $PROJECT"
 if [ -n "$REPO" ] && [ ! -d "$PROJECT/.git" ]; then
   sudo -u "$USER_NAME" -H git clone "$REPO" "$PROJECT"
-elif [ -d "$PROJECT/.git" ]; then
+elif [ -n "$REPO" ] && [ -d "$PROJECT/.git" ]; then
   # Репозиторий принадлежит приложению, и от root git с ним работать отказывается.
   sudo -u "$USER_NAME" -H bash -lc "cd '$PROJECT' && git pull --ff-only"
 fi
+# БЕЗ `REPO` КОД УЖЕ ЗАЛИТ RSYNC'ом (install.sh без git-url — обычный путь
+# выкатки правки, которой ещё нет в удалённом репозитории), и `git pull` здесь
+# не просто лишний, а вредный: залитые файлы для git — «локальные изменения», и
+# `--ff-only` падает на них с «your local changes would be overwritten», обрывая
+# скрипт до перезапуска pm2. Витрина при этом остаётся на старом коде, а выкатка
+# выглядит прошедшей наполовину. Тянуть из репозитория имеет смысл ровно тогда,
+# когда его и просили — то есть при заданном `REPO`.
 [ -f "$PROJECT/server.js" ] || { echo "В $PROJECT нет server.js — укажите REPO=<git-url>"; exit 1; }
 
 # Данные живут ВНЕ проекта: git pull их не трогает, а бэкап делается одной папкой.
