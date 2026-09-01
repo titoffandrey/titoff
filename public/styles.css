@@ -164,6 +164,17 @@ body.storefront{--nav-top:58px}
 .nav-item{display:flex;align-items:center;flex:none;min-height:56px;padding:8px 24px 8px 16px;
   border-radius:9999px;color:#444746;font-size:16px;font-weight:400;line-height:1.25;transition:background .12s}
 .nav-item:hover{background:rgba(31,31,31,.08)}
+/* Строки мессенджеров под волосяной линией — единственные со значком: у
+   категорий каталога глиф пришлось бы выдумывать, а знак сервиса существует.
+   Ведут они себя как в подвале — цвет строки в покое, фирменный на наведении
+   (переменную несут те же `msg-tg`/`msg-wa`). Подложку наведения строка при
+   этом сохраняет: она про ряд меню, а не про сервис. Два класса в селекторе
+   нужны ради специфичности — у `.nav-item:hover` она такая же, и порядок
+   правил в файле решал бы молча. Деталь знака вырезается белым — цветом самой
+   панели. */
+.nav-msg{gap:12px}
+.nav-msg .msg-ico{width:20px;height:20px}
+.nav-item.nav-msg:hover{color:var(--msg-brand)}
 .nav-item.active{background:#dbe7fb;color:#1b4bb8;font-weight:500}
 @supports (background:color-mix(in srgb,red 50%,#fff)){
   .nav-item.active{background:color-mix(in srgb,var(--accent) 26%,#fff);color:var(--accent-deep)}
@@ -431,7 +442,10 @@ body.lb-open{overflow:hidden}
    — тот же приём, что у обводки знаков оплаты (.pay-mc): силуэт остаётся
    плотным, а под курсором получается ровно логотип сервиса. */
 .msg-ico{flex:none;display:block;width:18px;height:18px;fill:currentColor}
-.msg-cut{fill:var(--footer-bg)}
+/* Вырез — цвет ПОВЕРХНОСТИ, на которой лежит знак, а не подвала: те же марки
+   стоят строками меню разделов, а панель там белая. По умолчанию белый, и
+   подвал перебивает его своим фоном у себя (`--msg-cut` ниже). */
+.msg-cut{fill:var(--msg-cut,#fff)}
 .foot-legal{margin-top:14px;font-size:12px}
 
 /* ===== Корзина ===== */
@@ -1643,7 +1657,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    ниже) — двумя числами они разъехались бы молча. */
 :root{--footer-bg:#e9eef6;--footer-ink:rgba(0,0,0,.87);--footer-link:#444746}
 .site-footer{margin-top:30px;padding:44px 0 calc(34px + env(safe-area-inset-bottom));
-  border-color:var(--border-soft);background:var(--footer-bg);color:var(--footer-ink);text-align:left}
+  border-color:var(--border-soft);background:var(--footer-bg);color:var(--footer-ink);text-align:left;--msg-cut:var(--footer-bg)}
 .footer-grid{display:grid;gap:34px}
 /* Колонки — flex с переносом, а не сетка с четырьмя дорожками: колонки
    «Каталог» у магазина без категорий не будет вовсе, и пустая дорожка оставила

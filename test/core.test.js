@@ -2479,7 +2479,7 @@ test('в подвале Telegram — компактная кнопка с кор
   /* В шапке кнопки больше нет — Telegram стал обычной строкой меню под
    * волосяной линией. Подпись там ТА ЖЕ, что у кнопки в подвале: адрес у них
    * один, и обещать по нему разное нельзя. */
-  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item" href="https:\/\/t\.me\/adc_apple"[^>]*>Telegram<\/a>/);
+  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item nav-msg msg-tg" href="https:\/\/t\.me\/adc_apple"[^>]*><svg class="msg-ico"[\s\S]*?<span>Telegram<\/span><\/a>/);
   assert.doesNotMatch(html, /Канал в Telegram/);
   assert.doesNotMatch(html, /tg-header/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
@@ -2503,7 +2503,7 @@ test('WhatsApp открывает чат с готовым сообщением 
   // wa.me принимает только цифры; одна и та же ссылка стоит в меню и подвале.
   assert.equal((html.match(new RegExp('href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g')) || []).length, 2);
   assert.doesNotMatch(html, /wa\.me\/\+7|wa\.me\/7[\s(]/);
-  assert.match(html, /class="nav-item"[^>]*>WhatsApp<\/a>/);
+  assert.match(html, /class="nav-item nav-msg msg-wa"[^>]*><svg class="msg-ico"[\s\S]*?<span>WhatsApp<\/span><\/a>/);
   /* Строки — ПАРА С ОДНОЙ разметкой: полный свой класс на сервис означал бы,
    * что Telegram и WhatsApp разъедутся по виду на первой правке. Приставка
    * (msg-tg/msg-wa) несёт ровно одно — фирменный цвет наведения. */
@@ -2555,8 +2555,17 @@ test('WhatsApp открывает чат с готовым сообщением 
   /* Значок одноцветный и берёт цвет подписи, поэтому перекрашивается вместе с
    * ней; деталь внутри вырезана цветом подвала — тот же приём, что у обводки
    * знаков оплаты. */
-  assert.match((css.match(/\.msg-ico\{([^}]*)\}/) || [])[1] || '', /fill:currentColor/);
-  assert.match(css, /\.msg-cut\{fill:var\(--footer-bg\)\}/);
+  assert.match((css.match(/\n\.msg-ico\{([^}]*)\}/) || [])[1] || '', /fill:currentColor/);
+  /* Вырез знака — цвет ПОВЕРХНОСТИ, на которой он лежит: те же марки стоят
+   * строками меню разделов, а панель там белая. Поэтому цвет приезжает
+   * переменной, а не числом. */
+  assert.match(css, /\.msg-cut\{fill:var\(--msg-cut,#fff\)\}/);
+  assert.match(css, /\.site-footer\{[^}]*--msg-cut:var\(--footer-bg\)/);
+  /* В меню знак ведёт себя так же — цвет строки в покое, фирменный на
+   * наведении. Два класса в селекторе нужны ради специфичности: у
+   * `.nav-item:hover` она такая же, и порядок правил в файле решал бы молча. */
+  assert.match(css, /\.nav-item\.nav-msg:hover\{color:var\(--msg-brand\)\}/);
+  assert.match(css, /\.nav-msg \.msg-ico\{width:20px;height:20px\}/);
   /* Контуры — настоящие логотипы сервисов, а не похожие фигуры своего рисунка.
    * `viewBox` у обоих обрезан по самому знаку: в исходнике WhatsApp вокруг
    * пузыря оставлено поле под тень, и без обрезки он выглядел бы мельче
@@ -2564,7 +2573,7 @@ test('WhatsApp открывает чат с готовым сообщением 
   assert.match(html, /<svg class="msg-ico" viewBox="0 0 240 240"[^>]*><circle cx="120" cy="120" r="120"\/><path class="msg-cut"/);
   assert.match(html, /<svg class="msg-ico" viewBox="26\.01 25\.23 122\.31 122\.32"[^>]*><path d="M87\.184 25\.227/);
   const icons = html.match(/<svg class="msg-ico"[\s\S]*?<\/svg>/g) || [];
-  assert.equal(icons.length, 2);
+  assert.equal(icons.length, 4, 'знаки стоят двумя парами — в меню разделов и в подвале');
   for (const ico of icons) {
     assert.doesNotMatch(ico, /linearGradient|id="|fill="#/, 'знак обязан быть одноцветным и брать цвет строки');
   }
@@ -2691,6 +2700,9 @@ test('разделы уехали в панель меню, как в админ
   assert.doesNotMatch(html, /site-nav|nav-cat|nav-inner/);
   assert.match(html, /<a href="\/" class="nav-item active" aria-current="page">Все<\/a>/);
   assert.match(html, /<a href="\/\?category=iPhone" class="nav-item">iPhone<\/a>/);
+  /* Значок есть ТОЛЬКО у мессенджеров под волосяной линией: у категорий его
+   * пришлось бы выдумывать, а у сервиса он существует. */
+  assert.doesNotMatch(html, /<a href="\/\?category=[^"]*" class="nav-item">\s*<svg/);
 
   /* Числа сняты с живой страницы Google Trends и совпадают с меню панели
    * управления: панель 320px, строка 56px с полями `8px 24px 8px 16px` и
