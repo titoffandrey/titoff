@@ -2479,7 +2479,9 @@ test('в подвале Telegram — компактная кнопка с кор
   /* В шапке кнопки больше нет — Telegram стал обычной строкой меню под
    * волосяной линией. Подпись там ТА ЖЕ, что у кнопки в подвале: адрес у них
    * один, и обещать по нему разное нельзя. */
-  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item nav-msg msg-tg" href="https:\/\/t\.me\/adc_apple"[^>]*><svg class="msg-ico"[\s\S]*?<span>Telegram<\/span><\/a>/);
+  /* Под волосяной линией — своя группа: «О компании» первой (это страница
+   * магазина), за ней мессенджеры (они уводят наружу). */
+  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item nav-ico" href="\/about"><svg class="nav-glyph"[\s\S]*?<span>О компании<\/span><\/a><a class="nav-item nav-ico nav-msg msg-tg" href="https:\/\/t\.me\/adc_apple"[^>]*><svg class="msg-ico"[\s\S]*?<span>Telegram<\/span><\/a>/);
   assert.doesNotMatch(html, /Канал в Telegram/);
   assert.doesNotMatch(html, /tg-header/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
@@ -2503,7 +2505,7 @@ test('WhatsApp открывает чат с готовым сообщением 
   // wa.me принимает только цифры; одна и та же ссылка стоит в меню и подвале.
   assert.equal((html.match(new RegExp('href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g')) || []).length, 2);
   assert.doesNotMatch(html, /wa\.me\/\+7|wa\.me\/7[\s(]/);
-  assert.match(html, /class="nav-item nav-msg msg-wa"[^>]*><svg class="msg-ico"[\s\S]*?<span>WhatsApp<\/span><\/a>/);
+  assert.match(html, /class="nav-item nav-ico nav-msg msg-wa"[^>]*><svg class="msg-ico"[\s\S]*?<span>WhatsApp<\/span><\/a>/);
   /* Строки — ПАРА С ОДНОЙ разметкой: полный свой класс на сервис означал бы,
    * что Telegram и WhatsApp разъедутся по виду на первой правке. Приставка
    * (msg-tg/msg-wa) несёт ровно одно — фирменный цвет наведения. */
@@ -2565,7 +2567,7 @@ test('WhatsApp открывает чат с готовым сообщением 
    * наведении. Два класса в селекторе нужны ради специфичности: у
    * `.nav-item:hover` она такая же, и порядок правил в файле решал бы молча. */
   assert.match(css, /\.nav-item\.nav-msg:hover\{color:var\(--msg-brand\)\}/);
-  assert.match(css, /\.nav-msg \.msg-ico\{width:20px;height:20px\}/);
+  assert.match(css, /\.nav-ico>svg\{flex:none;width:20px;height:20px\}/);
   /* Контуры — настоящие логотипы сервисов, а не похожие фигуры своего рисунка.
    * `viewBox` у обоих обрезан по самому знаку: в исходнике WhatsApp вокруг
    * пузыря оставлено поле под тень, и без обрезки он выглядел бы мельче
@@ -2708,7 +2710,11 @@ test('разделы уехали в панель меню, как в админ
    * управления: панель 320px, строка 56px с полями `8px 24px 8px 16px` и
    * радиусом 9999px, шрифт 16/400, подпись #444746, разделитель #c4c7c5,
    * затемнение 40%, движение .25s. Порознь они разъехались бы молча. */
-  assert.match(css, /\.nav-item\{[^}]*min-height:56px;padding:8px 24px 8px 16px;/);
+  /* 56 px — теперь БАЗИС строки, а не минимум: меню обязано помещаться целиком,
+   * поэтому строки жмутся, когда их много (`flex:0 1`), и не растут, когда их
+   * мало (`flex-grow:0`). На просторном экране вид тот же, что был. */
+  assert.match(css, /\.nav-item\{[^}]*flex:0 1 56px;padding:8px 24px 8px 16px;/);
+  assert.doesNotMatch(css, /\.nav-item\{[^}]*min-height/, 'минимум высоты не даёт строке ужаться, и меню начинает прокручиваться');
   assert.match(css, /\.nav-item\{[^}]*border-radius:9999px;color:#444746;font-size:16px;font-weight:400/);
   assert.match(css, /\.nav-list\{width:min\(320px,calc\(100vw - 56px\)\)/);
   assert.match(css, /\.nav-check:checked~\.nav-wrap \.nav-scrim\{opacity:\.4\}/);
