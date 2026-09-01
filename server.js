@@ -553,8 +553,18 @@ function brandFields(body) {
     storeAddress: short(body.storeAddress, 300).trim(),
     storeGeo: short(body.storeGeo, 60).trim(),
     footerNote: short(body.footerNote, 500),
-    legalOperator: short(body.legalOperator, 240).trim(), legalDetails: short(body.legalDetails, 240).trim(),
+    /* Реквизиты продавца. Прежнее `legalDetails` («ИНН/ОГРН» одной строкой)
+     * форма больше не пишет: подвалу нужны отдельные строки с подписями, а
+     * разбирать одну строку обратно значило бы гадать, где там какой номер.
+     * Сохранённое значение остаётся лежать в settings.json и читается запасным
+     * путём, пока новые поля пустые (см. `operatorDetails` в lib/render.js).
+     * Цифровые поля приводятся к одной форме ниже, вместе с проверкой длины. */
+    legalOperator: short(body.legalOperator, 240).trim(),
+    legalInn: short(body.legalInn, 40).trim(), legalOgrn: short(body.legalOgrn, 40).trim(),
     legalAddress: short(body.legalAddress, 400).trim(), privacyEmail: short(body.privacyEmail, 160).trim(),
+    bankName: short(body.bankName, 160).trim(), bankAccount: short(body.bankAccount, 40).trim(),
+    bankBik: short(body.bankBik, 40).trim(), bankCorr: short(body.bankCorr, 40).trim(),
+    bankInn: short(body.bankInn, 40).trim(), bankKpp: short(body.bankKpp, 40).trim(),
     telegramBotToken: short(body.telegramBotToken, 240).trim(), telegramChatId: short(body.telegramChatId, 100).trim(),
     notifyReviews: body.notifyReviews !== undefined,
     logoText: short(body.logoText, 120), logoFont: BRAND_FONTS.has(body.logoFont) ? body.logoFont : 'system'
@@ -4333,6 +4343,34 @@ app.post('/admin/settings', async (req, res) => {
     // Проверка нарочно грубая: адрес должен выглядеть адресом, а не быть
     // доказанно существующим — ложный отказ здесь дороже пропущенной опечатки.
     if (value && !/^[^\s@]+@[^\s@.]+\.[^\s@]{2,}$/.test(value)) return fail(`${label} — адрес вида mail@example.ru`);
+  }
+  /* Реквизиты продавца проверяются ДО записи, как и всё в этой форме, и цена
+   * промаха здесь выше обычной опечатки: ИНН и ОГРНИП стоят в подвале КАЖДОЙ
+   * страницы — по ним покупатель проверяет, кому платит вперёд. Длины взяты по
+   * самим форматам: ИНН 12 цифр у предпринимателя и 10 у организации, ОГРНИП
+   * 15 против ОГРН 13, счёт и корсчёт по 20, БИК и КПП по 9. Пустое поле
+   * законно и означает «не заполнено».
+   *
+   * Храним одной формой — только цифры: вписанный с пробелами и вписанный без
+   * них номер иначе читались бы как два разных (то же правило, что у телефона
+   * магазина). Разделители — дело показа, а не хранения. */
+  for (const [field, label, lengths] of [
+    ['legalInn', 'ИНН', [10, 12]],
+    ['legalOgrn', 'ОГРНИП или ОГРН', [13, 15]],
+    ['bankAccount', 'Расчётный счёт', [20]],
+    ['bankBik', 'БИК банка', [9]],
+    ['bankCorr', 'Корреспондентский счёт', [20]],
+    ['bankInn', 'ИНН банка', [10, 12]],
+    ['bankKpp', 'КПП банка', [9]]
+  ]) {
+    if (req.body[field] === undefined) continue;
+    const raw = String(req.body[field]).trim();
+    const value = R.reqDigits(raw);
+    if (raw && !value) return fail(`${label} — только цифры`);
+    if (value && !lengths.includes(value.length)) {
+      return fail(`${label} — ${lengths.join(' или ')} цифр, а введено ${value.length}`);
+    }
+    patch[field] = value;
   }
   // Галочка фото в отзывах: снятая приходит отсутствием поля, а скрытое
   // `reviewsForm` говорит, что секция вообще пришла — без него снятие было бы

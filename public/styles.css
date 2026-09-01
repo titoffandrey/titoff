@@ -1733,6 +1733,16 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .pay-sbp svg:first-child{height:21px;stroke:var(--footer-bg);stroke-width:1.6}
 .footer-meta{display:grid;gap:5px}
 .foot-legal{margin:0;font-size:12px;color:var(--footer-link)}
+/* Реквизиты продавца в подвале: «ИП», «ИНН», «ОГРНИП» по строке на каждый.
+   Двоеточие рисует CSS — это оформление подписи, а не часть текста, и в
+   разметке ему делать нечего (то же правило, что у точки между именем и
+   контактом в строке заказа). Цифры табличные: три номера разной длины,
+   стоящие столбиком, иначе выглядят рваными. */
+.foot-req{display:grid;gap:3px;margin:12px 0 0;font-size:12px;line-height:1.5;color:var(--footer-link)}
+.foot-req>div{display:flex;flex-wrap:wrap;gap:0 5px}
+.foot-req dt{flex:none}
+.foot-req dt::after{content:":"}
+.foot-req dd{margin:0;font-variant-numeric:tabular-nums}
 
 /* Юридические страницы */
 .legal-page{max-width:980px;padding-bottom:28px}
@@ -3734,6 +3744,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .footer-pay{justify-content:center;gap:8px 14px}
   .footer-meta{justify-items:center;gap:6px}
   .foot-legal{line-height:1.5;text-wrap:balance}
+  /* Подвал на телефоне центрируется целиком, значит и пары «подпись — номер»
+     обязаны собраться вокруг той же оси: прижатые к левому краю, они читались
+     бы как съехавшая вёрстка рядом с центрованным слоганом. */
+  .foot-req>div{justify-content:center}
 
   .legal-page{padding-inline:20px}
   .legal-hero{padding:34px 0 24px}

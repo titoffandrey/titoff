@@ -950,6 +950,63 @@ test('подвал и юридические страницы содержат �
   assert.doesNotMatch(privacy, /Редакция от|дата редакции/);
 });
 
+test('реквизиты продавца: имя, ИНН и ОГРНИП в подвале, банк — только у «О компании»', () => {
+  const base = {
+    storeName: 'iStore', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    legalOperator: 'Индивидуальный предприниматель Хаснутдинов Никита Сергеевич',
+    legalInn: '503406898232', legalOgrn: '326508100510216', legalAddress: 'Москва', privacyEmail: 'privacy@example.test',
+    bankAccount: '40802810040070061910', bankName: 'ПАО Сбербанк', bankBik: '044525225',
+    bankCorr: '30101810400000000225', bankInn: '7707083893', bankKpp: '773643002'
+  };
+  const foot = (render.layout(base, { body: '' }).match(/<dl class="foot-req">[\s\S]*?<\/dl>/) || [''])[0];
+  assert.match(foot, /<dt>ИП<\/dt><dd>Хаснутдинов Никита Сергеевич<\/dd>/, 'приставка «ИП» стоит подписью строки, а не дважды');
+  assert.match(foot, /<dt>ИНН<\/dt><dd>503406898232<\/dd>/);
+  assert.match(foot, /<dt>ОГРНИП<\/dt><dd>326508100510216<\/dd>/);
+  // Банковские реквизиты в подвале каждой страницы читались бы как приглашение
+  // перевести деньги мимо оформления — их место в разделе «Реквизиты продавца».
+  assert.doesNotMatch(foot, /40802810040070061910|044525225/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.doesNotMatch(foot, /:</, 'двоеточие после подписи рисует CSS, а не разметка');
+  assert.match(css, /\.foot-req dt::after\{content:":"\}/);
+
+  const db = { visibleCategories: () => [], visibleProducts: () => [] };
+  const about = render.aboutPage(base, db, { origin: 'https://example.test' });
+  for (const value of ['40802810040070061910', 'ПАО Сбербанк', '044525225', '30101810400000000225', '7707083893', '773643002']) {
+    assert.ok(about.includes(value), 'в «Реквизитах продавца» обязан быть ' + value);
+  }
+  const privacy = render.privacyPage(base, { origin: 'https://example.test' });
+  assert.match(privacy, /503406898232/);
+  assert.doesNotMatch(privacy, /40802810040070061910/, 'расчётный счёт в политике персональных данных ни к чему');
+
+  // ОГРН у организации — 13 цифр, и подпись выводится из длины, а не из отдельной настройки.
+  const ooo = Object.assign({}, base, { legalOperator: 'ООО «Ромашка»', legalInn: '7707083893', legalOgrn: '1027700132195' });
+  assert.match(render.layout(ooo, { body: '' }), /<dt>ОГРН<\/dt><dd>1027700132195<\/dd>/);
+  assert.match(render.layout(ooo, { body: '' }), /<dt>Продавец<\/dt><dd>ООО «Ромашка»<\/dd>/);
+
+  // Старое поле «ИНН/ОГРН одной строкой» читается, пока новые пустые: магазин,
+  // который ещё не пересохраняли, не должен остаться без реквизитов вовсе.
+  const old = Object.assign({}, base, { legalInn: '', legalOgrn: '', legalDetails: 'ИНН 7707083893' });
+  assert.match(render.layout(old, { body: '' }), /<dt>Реквизиты<\/dt><dd>ИНН 7707083893<\/dd>/);
+  const both = Object.assign({}, base, { legalDetails: 'ИНН 7707083893' });
+  assert.equal(render.operatorDetails(both).registration, '', 'заполненные поля отменяют старую строку');
+
+  // Проверка идёт ДО записи и говорит, что именно не так, а хранится одна форма номера.
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  const route = server.slice(server.indexOf("app.post('/admin/settings'"));
+  const check = route.indexOf('ОГРНИП или ОГРН');
+  assert.ok(check > 0 && check < route.indexOf('db.saveSettings'), 'реквизиты проверяются до сохранения');
+  assert.match(route.slice(0, check + 2000), /R\.reqDigits\(raw\)/);
+  assert.equal(render.reqDigits('4080 2810-0400 7006 1910'), '40802810040070061910');
+
+  // Форма настроек: поля новые, прежнего однострочного больше нет.
+  const panel = adminViews.settingsPage(base, { pendingReviewCount: () => 0, getOrders: () => [] }, null);
+  for (const name of ['legalInn', 'legalOgrn', 'bankAccount', 'bankName', 'bankBik', 'bankCorr', 'bankInn', 'bankKpp']) {
+    assert.match(panel, new RegExp('name="' + name + '"'), 'в форме нет поля ' + name);
+  }
+  assert.doesNotMatch(panel, /name="legalDetails"/);
+});
+
 test('метрика считает визиты пакетно, различает устройства и связывает заказ', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
