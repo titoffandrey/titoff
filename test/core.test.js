@@ -2550,8 +2550,22 @@ test('WhatsApp открывает чат с готовым сообщением 
   /* Цвет несёт только значок, и заливка задана ВНУТРИ svg: `fill` снаружи
    * перекрасил бы логотип в один цвет и тот перестал бы узнаваться. */
   assert.doesNotMatch((css.match(/\.msg-ico\{([^}]*)\}/) || [])[1] || '', /fill/);
-  assert.match(html, /<svg class="msg-ico"[^>]*><circle[^>]*fill="#229ED9"/);
-  assert.match(html, /<svg class="msg-ico"[^>]*><path fill="#25D366"/);
+  /* Значки — настоящие логотипы сервисов с их градиентами, а не похожие фигуры
+   * своего рисунка. `viewBox` у обоих обрезан по самому знаку: в исходнике
+   * WhatsApp вокруг пузыря оставлено поле под тень, и без обрезки он выглядел
+   * бы мельче Telegram при одинаковой высоте. */
+  assert.match(html, /<svg class="msg-ico" viewBox="0 0 240 240"[^>]*><defs><linearGradient id="msg-tg"/);
+  assert.match(html, /<svg class="msg-ico" viewBox="26\.01 25\.23 122\.31 122\.32"[^>]*><defs><linearGradient id="msg-wa"/);
+  assert.match(html, /<circle cx="120" cy="120" r="120" fill="url\(#msg-tg\)"/);
+  assert.match(html, /<path fill="url\(#msg-wa\)"/);
+  /* Тень WhatsApp и подложка под неё отброшены: в 22 px тени не видно, а
+   * `feGaussianBlur` — отдельный проход отрисовки на каждой странице витрины. */
+  assert.doesNotMatch(html, /feGaussianBlur|filter="url\(#/);
+  /* id в брендбуках зовутся `a`, `b`, `linear-gradient`; без приставки два
+   * логотипа на странице красились бы градиентом друг друга. */
+  const ids = (html.match(/ id="[^"]+"/g) || []).map(s => s.slice(5, -1));
+  assert.equal(ids.length, new Set(ids).size, 'id в разметке обязаны быть уникальными');
+  assert.ok(!ids.includes('a') && !ids.includes('b') && !ids.includes('linear-gradient'));
   /* Контакты — четвёртая колонка ряда, и нижней границы ширины у неё быть не
    * должно: `min-width` запрещает колонке сжиматься, и на ноутбуке ряд перестаёт
    * помещаться — контакты уезжают под блок магазина, а справа остаётся полоса
