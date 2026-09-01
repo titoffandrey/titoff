@@ -410,18 +410,26 @@ body.lb-open{overflow:hidden}
    вопрос «а сейчас ответят?», который задают, уже глядя на телефон. */
 .foot-hours{margin-top:6px;font-size:13px;color:var(--muted)}
 
-/* ===== Telegram — всегда фирменный цвет, независимо от темы магазина =====
-   Фирменный #229ED9 даёт на белом 3.02:1 — и белая подпись на кнопке в подвале,
-   и синее слово «Telegram» в шапке этого порога не проходят. Здесь тот же
-   оттенок, притемнённый до 4.6:1: узнаётся так же, а подпись наконец читается.
-   Полупрозрачные rgba(34,158,217,…) ниже — рамка и тень, они оформление, и на
-   читаемость текста не влияют. */
-:root{--tg:#1b7dab;--tg-dark:#156b93}
-.tg-ico{fill:currentColor;display:block}
-.foot-tg{margin-top:14px}
-.tg-cta{display:inline-flex;align-items:center;gap:8px;color:var(--tg);font-weight:600;font-size:16px;line-height:1}
-.tg-cta:hover{color:var(--tg-dark)}
-.tg-cta .tg-ico{width:20px;height:20px;flex:none}
+/* ===== Мессенджеры в контактах — пара одинаковых кнопок =====
+   Правило одно на оба сервиса: белая пилюля, НЕЙТРАЛЬНАЯ волосяная рамка и
+   тёмная подпись, а цвет несёт только фирменный значок. Цветной текст с цветной
+   рамкой у каждой кнопки своего тона читались двумя разными по важности
+   предложениями и спорили друг с другом на сером подвале; заодно тёмная подпись
+   снимает вопрос контраста — фирменные синий и зелёный его на белом не проходят
+   (3.0:1 и 1.9:1), а значок текстом не является. Ширина по содержимому: слова
+   «Telegram» и «WhatsApp» почти одной длины, и подгонять их под общее число
+   пикселей значило бы дать им разные внутренние поля. */
+.msg-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.msg-link{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 14px 0 11px;border:1px solid rgba(0,0,0,.09);border-radius:980px;
+  background:#fff;color:var(--footer-ink);font-size:14px;font-weight:600;letter-spacing:-.012em;line-height:1;white-space:nowrap;
+  transition:border-color .16s ease,box-shadow .18s ease,transform .12s ease}
+.msg-link:hover{color:var(--footer-ink);border-color:rgba(0,0,0,.2);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.msg-link:active{transform:scale(.98)}
+/* Значок самодостаточен: белые детали нарисованы поверх фирменной заливки,
+   поэтому он не зависит от фона кнопки. Заливка задана внутри самого SVG, и
+   `fill` отсюда ему не назначается — иначе логотип перекрасился бы в один цвет
+   и перестал узнаваться. */
+.msg-ico{flex:none;display:block;width:18px;height:18px}
 .foot-legal{margin-top:14px;font-size:12px}
 
 /* ===== Корзина ===== */
@@ -1639,39 +1647,42 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Колонки — flex с переносом, а не сетка с четырьмя дорожками: колонки
    «Каталог» у магазина без категорий не будет вовсе, и пустая дорожка оставила
    бы у правого края дыру шириной в зазор. */
-.footer-cols{display:flex;flex-wrap:wrap;gap:32px 56px}
-.footer-about{flex:1 1 260px;max-width:340px}
-.footer-col{flex:0 1 auto;min-width:150px}
+/* Числа ряда подобраны так, чтобы ЧЕТЫРЕ колонки помещались в одну строку уже
+   на ноутбуке (контейнер 952 px при окне 1000): 240 + 130 + содержимое ссылок +
+   250 и три зазора по 32. Прежние 56 px зазора и базис 260 давали 1092 px —
+   контакты уезжали под блок магазина, а справа оставалась полоса пустоты во всю
+   ширину экрана. Остаток широкого экрана распределяется зазорами
+   (space-between), а не отдаётся первой колонке: иначе правый край подвала
+   обрывался бы, не дойдя до края страницы. */
+.footer-cols{display:flex;flex-wrap:wrap;justify-content:space-between;gap:30px 32px}
+.footer-about{flex:1 1 240px;max-width:340px}
+.footer-col{flex:0 1 auto;min-width:130px}
 .footer-col-head{margin-bottom:13px;color:var(--footer-ink);font-size:17px;font-weight:650;letter-spacing:-.015em}
 .footer-col-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}
 .footer-col-list a{color:var(--footer-link);font-size:14px}
 .footer-col-list a:hover{color:var(--footer-ink)}
 .foot-brand{font-size:20px;color:var(--footer-ink)}
 .foot-note{max-width:340px;margin-top:9px;line-height:1.55;color:var(--footer-link)}
-.footer-contacts{display:grid;align-content:start;justify-items:start;gap:11px;flex:0 1 300px}
-.foot-tg,.foot-contact,.foot-hours,.foot-address{margin:0}
+/* Контакты — ЧЕТВЁРТАЯ КОЛОНКА РЯДА, поэтому им нельзя задавать нижнюю границу
+   ширины: `min-width` запрещает колонке сжиматься, и на ноутбуке (контейнер
+   1152 px и уже) ряд перестаёт помещаться — контакты уезжают под блок магазина,
+   оставляя справа полосу пустоты во всю ширину. Базис 300 px со сжатием: адрес
+   внутри переносится сам, поэтому колонка честно ужимается вместе с остальными. */
+.footer-contacts{display:grid;align-content:start;justify-items:start;gap:10px;flex:0 1 250px}
+.msg-links,.foot-contact,.foot-hours,.foot-address{margin:0}
 /* Вместо подписи «Офлайн-магазин» над адресом — булавка: слово повторяло то,
    что и так говорит сам адрес, и занимало отдельную строку. Глиф ЗАЛИТЫЙ и тот
    же, что у подписи «Адрес» на оформлении (NOTE_ICONS.pin в public/app.js): на
    16 px контурный не читается. Озвучить значок нечем, поэтому имя строке даёт
    спрятанное слово рядом. */
-.foot-address{display:flex;align-items:flex-start;gap:8px;max-width:300px;line-height:1.45;color:var(--footer-ink);font-size:14px}
+.foot-address{display:flex;align-items:flex-start;gap:8px;max-width:260px;line-height:1.45;color:var(--footer-ink);font-size:14px;text-wrap:balance}
 .foot-pin{flex:none;width:16px;height:16px;margin-top:2px;fill:currentColor}
 .foot-contact a,.foot-hours{color:var(--footer-link)}
 .foot-contact a:hover{color:var(--footer-ink)}
-/* Связь с магазином — не голый ник строчкой, а кнопка с понятным действием:
-   «@adc_apple» само по себе не говорит, что по нему пишут, и нажимать его
-   тоже никто не догадывался. Ника под кнопкой тоже нет: она ведёт в тот же
-   диалог, а строка под ней читалась как второй, недействующий контакт. */
-.foot-tg{display:grid;justify-items:start}
-.tg-cta{min-height:40px;padding:0 18px;border-radius:980px;background:var(--tg);color:#fff;font-size:14.5px;font-weight:650;letter-spacing:-.012em;
-  transition:background .16s ease,transform .12s ease,box-shadow .18s ease}
-.tg-cta:hover{background:var(--tg-dark);color:#fff;box-shadow:0 6px 18px rgba(34,158,217,.28)}
-.tg-cta:active{transform:scale(.98)}
-/* Глиф самолётика нарисован с воздухом внутри своего квадрата, поэтому рядом с
-   текстом он казался отставшим на пробел: отрицательные поля съедают ровно эту
-   пустоту, и подпись встаёт вплотную к фигуре, а не к краю холста. */
-.tg-cta .tg-ico{width:18px;height:18px;margin:0 -2px 0 -3px}
+/* Ряд мессенджеров отбит от почты чуть больше обычного зазора колонки: это
+   действие, а не ещё одна строка контактов. Сами кнопки описаны один раз
+   (.msg-link выше по файлу) — здесь только место ряда в колонке. */
+.msg-links{margin-top:4px}
 /* Нижняя полоса — знаки оплаты и копирайт. Вторая колонка тут была под ряд
    правовых ссылок; ссылки переехали в раздел «Покупателю», и пустая дорожка
    оставляла бы у правого края мёртвый зазор. */
@@ -3688,13 +3699,17 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .foot-note{max-width:none;margin:8px auto 0;white-space:nowrap;font-size:min(14px,calc((100vw - 40px)/var(--fit,21)))}
   .footer-contacts{gap:10px;width:100%}
   .foot-contact,.foot-address{margin:0}
-  /* Булавка стоит перед адресом, поэтому по центру равняется вся строка целиком */
-  .foot-address{justify-content:center;max-width:none}
-  /* Телеграм — основной способ связи с телефона, поэтому кнопка крупнее и с
-     запасом под палец, а блок собирается по центру, как весь подвал. */
-  .foot-tg{justify-items:center}
-  .tg-cta{min-height:46px;padding:0 24px;font-size:15px}
-  .tg-cta .tg-ico{width:19px;height:19px}
+  /* На телефоне адрес идёт обычной строкой с булавкой ВНУТРИ текста, а не
+     колонкой из значка и абзаца: у flex-строки во всю ширину экрана текст
+     центрируется внутри своей ячейки, а булавка остаётся прижатой к левому
+     краю — значком, оторванным от того, что он подписывает. */
+  .foot-address{display:block;max-width:320px;margin-inline:auto}
+  .foot-address .foot-pin{display:inline-block;margin:0 5px -2px 0}
+  /* Мессенджеры — главный способ связи с телефона, поэтому зона под палец выше
+     десктопной; сам вид пары не меняется. */
+  .msg-links{justify-content:center;margin-top:6px}
+  .msg-link{min-height:44px;padding:0 18px 0 14px;font-size:15px}
+  .msg-ico{width:22px;height:22px}
   /* Одна колонка: без сброса сетка осталась бы двухколоночной, как на десктопе,
      и копирайт по центру уезжал бы за левый край экрана */
   .footer-bottom{grid-column:auto;display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;gap:12px;width:100%;padding-top:18px}

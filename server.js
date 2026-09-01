@@ -545,7 +545,10 @@ function brandFields(body) {
     accentColor: safeHex(body.accentColor, '#0071e3'), currency: short(body.currency, 12).replace(/[<>&]/g, '') || '₽',
     currencyPosition: body.currencyPosition === 'before' ? 'before' : 'after',
     metaDescription: short(body.metaDescription, 300).trim(),
-    contactTelegram: short(body.contactTelegram, 100), contactPhone: short(body.contactPhone, 100),
+    contactTelegram: short(body.contactTelegram, 100),
+    contactWhatsApp: short(body.contactWhatsApp, 100),
+    contactWhatsAppMessage: short(body.contactWhatsAppMessage, 500).trim(),
+    contactPhone: short(body.contactPhone, 100),
     contactEmail: short(body.contactEmail, 160).trim(), contactHours: short(body.contactHours, 120).trim(),
     storeAddress: short(body.storeAddress, 300).trim(),
     storeGeo: short(body.storeGeo, 60).trim(),
@@ -4307,6 +4310,16 @@ app.post('/admin/settings', async (req, res) => {
     const stored = PHONE.store(raw);
     if (raw && !stored) return fail('Телефон магазина введён с ошибкой — например: +7 999 123-45-67');
     patch.contactPhone = stored;
+  }
+  /* WhatsApp принимает в `wa.me` только международный номер без знака `+`.
+   * Проверяем его тем же справочником стран, что обычный телефон, и храним в
+   * E.164; цифры для ссылки снимет рендер. Так поле не сможет сохранить адрес,
+   * который выглядит кнопкой, но после нажатия ведёт в никуда. */
+  if (req.body.contactWhatsApp !== undefined) {
+    const raw = String(req.body.contactWhatsApp).trim();
+    const stored = PHONE.store(raw);
+    if (raw && !stored) return fail('Номер WhatsApp введён с ошибкой — например: +7 999 123-45-67');
+    patch.contactWhatsApp = stored;
   }
   /* Координаты офлайн-точки. Проверяются до записи, как и всё в этой форме:
    * мусор в поле не сломает витрину (карта тогда ищет по адресу), но и молча

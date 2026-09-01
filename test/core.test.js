@@ -2466,33 +2466,115 @@ test('шапка сворачивается при прокрутке и ост�
   assert.ok(num('.header-row', 'height') >= cartH + 8, 'ряд шапки ужат так, что корзине не хватает полей');
 
   /* Кнопки Telegram и ряда вкладок в шапке больше нет вовсе: и то и другое
-   * уехало в меню разделов. Оставшийся `.tg-cta` — кнопка в ПОДВАЛЕ, у неё свой
-   * класс, и путать их нельзя. */
+   * уехало в меню разделов. Оставшиеся `.msg-link` — кнопки в ПОДВАЛЕ. */
   assert.doesNotMatch(css, /\.tg-header/);
   assert.doesNotMatch(css, /\.site-nav|\.nav-cat|\.nav-inner/);
 });
 
-test('в подвале Telegram — одна кнопка с действием, без ника строкой', () => {
+test('в подвале Telegram — компактная кнопка с коротким названием', () => {
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple' }, fakeDb, {});
   // Голый ник не говорит, куда ведёт, и нажимать его никто не догадывался.
-  assert.match(html, /<a class="tg-cta" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Канал в Telegram<\/span><\/a>/);
+  assert.match(html, /<a class="msg-link" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Telegram<\/span><\/a>/);
   /* В шапке кнопки больше нет — Telegram стал обычной строкой меню под
    * волосяной линией. Подпись там ТА ЖЕ, что у кнопки в подвале: адрес у них
    * один, и обещать по нему разное нельзя. */
-  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item" href="https:\/\/t\.me\/adc_apple"[^>]*>Канал в Telegram<\/a>/);
+  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item" href="https:\/\/t\.me\/adc_apple"[^>]*>Telegram<\/a>/);
+  assert.doesNotMatch(html, /Канал в Telegram/);
   assert.doesNotMatch(html, /tg-header/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
   // как второй, недействующий контакт.
   assert.doesNotMatch(html, /foot-tg-user/);
   assert.doesNotMatch(html, /class="tg-link"/);
   // Без Telegram в настройках блока нет вовсе — пустая кнопка в подвале не нужна.
-  assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /tg-cta/);
+  assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /msg-link|msg-links/);
+});
+
+test('WhatsApp открывает чат с готовым сообщением из настроек', () => {
+  const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const message = 'Здравствуйте! Хочу iPhone 17 Pro & чехол.\nЕсть в наличии?';
+  const settings = Object.assign(dbCore.defaultSettings(), {
+    storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple',
+    contactWhatsApp: '+79991234567', contactWhatsAppMessage: message
+  });
+  const html = render.homePage(settings, fakeDb, {});
+  const href = 'https://wa.me/79991234567?text=' + encodeURIComponent(message);
+
+  // wa.me принимает только цифры; одна и та же ссылка стоит в меню и подвале.
+  assert.equal((html.match(new RegExp('href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g')) || []).length, 2);
+  assert.doesNotMatch(html, /wa\.me\/\+7|wa\.me\/7[\s(]/);
+  assert.match(html, /class="nav-item"[^>]*>WhatsApp<\/a>/);
+  /* Кнопки — ПАРА С ОДНОЙ разметкой: свой класс на сервис означал бы, что
+   * Telegram и WhatsApp разъедутся по виду на первой правке. */
+  assert.match(html, /class="msg-links">[\s\S]*<span>Telegram<\/span>[\s\S]*<span>WhatsApp<\/span>/);
+  assert.equal((html.match(/class="msg-link"/g) || []).length, 2);
+  assert.doesNotMatch(html, /tg-cta|wa-cta/);
+
+  // Тот же адрес показывается среди контактов страницы «О компании».
+  const about = render.aboutPage(settings, { categories: [] });
+  assert.ok(about.includes(`href="${href}"`));
+  assert.match(about, /<dt>WhatsApp<\/dt>[\s\S]*\+7 999 123-45-67/);
+
+  // Без корректного номера нет ни мёртвой кнопки, ни строки меню.
+  const none = render.homePage(Object.assign({}, settings, { contactWhatsApp: '+7 900' }), fakeDb, {});
+  assert.doesNotMatch(none, /wa\.me/);
+  assert.equal((none.match(/class="msg-link"/g) || []).length, 1);
+
+  const panel = adminViews.settingsPage(settings, { pendingReviewCount: () => 0, getOrders: () => [] }, null);
+  assert.match(panel, /name="contactWhatsApp"[^>]*value="\+7 999 123-45-67"/);
+  assert.match(panel, /name="contactWhatsAppMessage"[^>]*maxlength="500"[^>]*>Здравствуйте!/);
+  assert.equal(dbCore.defaultSettings().contactWhatsApp, '');
+  assert.equal(dbCore.defaultSettings().contactWhatsAppMessage, '');
+
+  // Оба номера проверяются до записи одним телефонным модулем.
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  const route = server.slice(server.indexOf("app.post('/admin/settings'"));
+  const check = route.indexOf('Номер WhatsApp введён с ошибкой');
+  assert.ok(check > 0 && check < route.indexOf('db.saveSettings'));
+  assert.match(route.slice(0, 4000), /req\.body\.contactWhatsApp[\s\S]*PHONE\.store\(raw\)/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  // Глиф самолётика нарисован с воздухом внутри холста, поэтому рядом с текстом
-  // он казался отставшим на пробел: пустоту съедают отрицательные поля.
-  assert.match(css, /\.tg-cta \.tg-ico\{[^}]*margin:0 -\d+px 0 -\d+px/);
+  assert.match(css, /\.msg-links\{[^}]*display:flex[^}]*flex-wrap:wrap/);
+  /* Правило у обеих кнопок ОДНО, подпись тёмная, фон белый, рамка нейтральная:
+   * цветной текст с цветной рамкой своего тона у каждой кнопки читался двумя
+   * разными по важности предложениями, а фирменные синий и зелёный на белом не
+   * проходят порог контраста для текста (3.0:1 и 1.9:1). */
+  const btn = (css.match(/\.msg-link\{([^}]*)\}/) || [])[1] || '';
+  assert.match(btn, /background:#fff/);
+  assert.match(btn, /border:1px solid rgba\(0,0,0,/);
+  assert.match(btn, /color:var\(--footer-ink\)/);
+  assert.doesNotMatch(btn, /width:\d/, 'ширина кнопок — по содержимому, иначе у слов разные поля');
+  const hover = (css.match(/\.msg-link:hover\{([^}]*)\}/) || [])[1] || '';
+  assert.match(hover, /color:var\(--footer-ink\)/, 'подпись на наведении не должна перекрашиваться в цвет бренда');
+  assert.doesNotMatch(hover, /background/, 'фон белый и на наведении: белые детали значка нарисованы поверх заливки');
+  /* Цвет несёт только значок, и заливка задана ВНУТРИ svg: `fill` снаружи
+   * перекрасил бы логотип в один цвет и тот перестал бы узнаваться. */
+  assert.doesNotMatch((css.match(/\.msg-ico\{([^}]*)\}/) || [])[1] || '', /fill/);
+  assert.match(html, /<svg class="msg-ico"[^>]*><circle[^>]*fill="#229ED9"/);
+  assert.match(html, /<svg class="msg-ico"[^>]*><path fill="#25D366"/);
+  /* Контакты — четвёртая колонка ряда, и нижней границы ширины у неё быть не
+   * должно: `min-width` запрещает колонке сжиматься, и на ноутбуке ряд перестаёт
+   * помещаться — контакты уезжают под блок магазина, а справа остаётся полоса
+   * пустоты во всю ширину экрана. */
+  const contacts = (css.match(/\.footer-contacts\{([^}]*)\}/) || [])[1] || '';
+  assert.match(contacts, /flex:0 1 250px/);
+  assert.doesNotMatch(contacts, /min-width/);
+  /* Числа ряда подобраны замером: базисы 240 и 250, минимум колонки ссылок 130
+   * и три зазора по 32 умещают ЧЕТЫРЕ колонки в 952 px — контейнер ноутбука с
+   * окном в 1000 px. Прежние 56 px зазора и базис 260 давали 1092 px, и ряд
+   * рассыпался. Тест сторожит именно арифметику: увидеть перенос можно только
+   * глазами и только на достаточно узком экране. */
+  const gapX = Number((css.match(/\.footer-cols\{[^}]*gap:\d+px (\d+)px/) || [])[1]);
+  const aboutW = Number((css.match(/\.footer-about\{[^}]*flex:1 1 (\d+)px/) || [])[1]);
+  const colMin = Number((css.match(/\.footer-col\{[^}]*min-width:(\d+)px/) || [])[1]);
+  const links = 214; // «Политика конфиденциальности» — самый длинный пункт колонки «Покупателю»
+  assert.ok(aboutW + colMin + links + 250 + gapX * 3 <= 952,
+    'четыре колонки подвала обязаны помещаться в один ряд на ноутбуке');
+  assert.match(css, /\.foot-address\{[^}]*max-width:260px[^}]*font-size:14px/);
+
+  const promptDb = { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] };
+  const prompt = require('../lib/chat-prompt').build(promptDb, settings, null, {})[0].content;
+  assert.match(prompt, /WhatsApp магазина: \+7 999 123-45-67/);
 });
 
 test('адрес единственной офлайн-точки виден в подвале и настройках', () => {
@@ -2735,10 +2817,10 @@ test('ряд ввода в чате: поле и обе кнопки одной 
   assert.match(path4, /^M5\.5 12h13M13 6\.5l5\.5 5\.5L13 17\.5$/);
 });
 
-test('цвета витрины читаются: скидка, зачёркнутая цена и Telegram', () => {
+test('цвета витрины читаются: скидка и зачёркнутая цена', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   // Порог 4.5:1 на белом. Цена и процент — это текст про деньги, а не оформление,
-  // и прежние #f1117e (4.10), #99a3ae (2.55) и #229ed9 (3.02) его не проходили.
+  // и прежние #f1117e (4.10) и #99a3ae (2.55) его не проходили.
   const luminance = hex => {
     const parts = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
       .map(c => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
@@ -2747,11 +2829,16 @@ test('цвета витрины читаются: скидка, зачёркну
   const onWhite = hex => 1.05 / (luminance(hex) + 0.05);
   const value = name => (css.match(new RegExp('--' + name + ':(#[0-9a-f]{6})')) || [])[1];
 
-  for (const name of ['sale', 'price-was', 'tg']) {
+  for (const name of ['sale', 'price-was']) {
     const hex = value(name);
     assert.ok(hex, 'переменная --' + name + ' пропала');
     assert.ok(onWhite(hex) >= 4.5, '--' + name + ' даёт на белом ' + onWhite(hex).toFixed(2) + ' — текст не прочесть');
   }
+  /* Притемнённого фирменного #1b7dab (--tg) больше нет и быть не должно:
+   * цветной подписи Telegram на витрине не осталось вовсе, цвет живёт внутри
+   * значка, а он не текст. Мёртвая переменная рядом с работающими читалась бы
+   * как настройка, которой можно пользоваться. */
+  assert.doesNotMatch(css, /--tg(-dark)?:/);
 });
 
 test('минификатор снимает отступы, но не трогает переводы строк', () => {
@@ -14797,7 +14884,7 @@ test('знак adc повторяет контуры референса, а те
 
 test('контакты магазина собраны в одном месте и работают ссылками', () => {
   /* Телефон лежал среди валюты, цвета и текста подвала — то есть там, где его
-   * не ищут. Контактов стало четыре, и у них свой раздел; в подвале витрины они
+   * не ищут. Способов связи несколько, и у них свой раздел; в подвале витрины они
    * ссылки, а не строки текста: выделять номер пальцем, чтобы позвонить, — то
    * же самое, что не дать его вовсе. */
   const settings = Object.assign(dbCore.defaultSettings(), {
