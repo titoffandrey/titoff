@@ -2475,7 +2475,7 @@ test('в подвале Telegram — компактная кнопка с кор
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple' }, fakeDb, {});
   // Голый ник не говорит, куда ведёт, и нажимать его никто не догадывался.
-  assert.match(html, /<a class="msg-link" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Telegram<\/span><\/a>/);
+  assert.match(html, /<a class="msg-link msg-tg" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Telegram<\/span><\/a>/);
   /* В шапке кнопки больше нет — Telegram стал обычной строкой меню под
    * волосяной линией. Подпись там ТА ЖЕ, что у кнопки в подвале: адрес у них
    * один, и обещать по нему разное нельзя. */
@@ -2504,10 +2504,11 @@ test('WhatsApp открывает чат с готовым сообщением 
   assert.equal((html.match(new RegExp('href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g')) || []).length, 2);
   assert.doesNotMatch(html, /wa\.me\/\+7|wa\.me\/7[\s(]/);
   assert.match(html, /class="nav-item"[^>]*>WhatsApp<\/a>/);
-  /* Кнопки — ПАРА С ОДНОЙ разметкой: свой класс на сервис означал бы, что
-   * Telegram и WhatsApp разъедутся по виду на первой правке. */
+  /* Строки — ПАРА С ОДНОЙ разметкой: полный свой класс на сервис означал бы,
+   * что Telegram и WhatsApp разъедутся по виду на первой правке. Приставка
+   * (msg-tg/msg-wa) несёт ровно одно — фирменный цвет наведения. */
   assert.match(html, /class="msg-links">[\s\S]*<span>Telegram<\/span>[\s\S]*<span>WhatsApp<\/span>/);
-  assert.equal((html.match(/class="msg-link"/g) || []).length, 2);
+  assert.equal((html.match(/class="msg-link /g) || []).length, 2);
   assert.doesNotMatch(html, /tg-cta|wa-cta/);
 
   // Тот же адрес показывается среди контактов страницы «О компании».
@@ -2518,7 +2519,7 @@ test('WhatsApp открывает чат с готовым сообщением 
   // Без корректного номера нет ни мёртвой кнопки, ни строки меню.
   const none = render.homePage(Object.assign({}, settings, { contactWhatsApp: '+7 900' }), fakeDb, {});
   assert.doesNotMatch(none, /wa\.me/);
-  assert.equal((none.match(/class="msg-link"/g) || []).length, 1);
+  assert.equal((none.match(/class="msg-link /g) || []).length, 1);
 
   const panel = adminViews.settingsPage(settings, { pendingReviewCount: () => 0, getOrders: () => [] }, null);
   assert.match(panel, /name="contactWhatsApp"[^>]*value="\+7 999 123-45-67"/);
@@ -2534,30 +2535,39 @@ test('WhatsApp открывает чат с готовым сообщением 
   assert.match(route.slice(0, 4000), /req\.body\.contactWhatsApp[\s\S]*PHONE\.store\(raw\)/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(css, /\.msg-links\{[^}]*display:flex[^}]*flex-wrap:wrap/);
-  /* Правило у обеих кнопок ОДНО, подпись тёмная, фон белый, рамка нейтральная:
-   * цветной текст с цветной рамкой своего тона у каждой кнопки читался двумя
-   * разными по важности предложениями, а фирменные синий и зелёный на белом не
-   * проходят порог контраста для текста (3.0:1 и 1.9:1). */
+  /* Строки идут ОДНА ПОД ДРУГОЙ, а не рядом: это два способа связи в колонке
+   * контактов, и в ряд они вставали бы вторым «блоком действий» под почтой. */
+  assert.match(css, /\.msg-links\{[^}]*display:grid/);
+  assert.doesNotMatch((css.match(/\.msg-links\{([^}]*)\}/) || [])[1] || '', /flex/);
+  /* Правило у обеих строк ОДНО: цвет и кегль текста подвала, ни пилюли, ни
+   * рамки, ни фона — рядом с телефоном и почтой две белые кнопки читались
+   * рекламой сервисов, а не контактами. */
   const btn = (css.match(/\.msg-link\{([^}]*)\}/) || [])[1] || '';
-  assert.match(btn, /background:#fff/);
-  assert.match(btn, /border:1px solid rgba\(0,0,0,/);
-  assert.match(btn, /color:var\(--footer-ink\)/);
-  assert.doesNotMatch(btn, /width:\d/, 'ширина кнопок — по содержимому, иначе у слов разные поля');
+  assert.match(btn, /color:var\(--footer-link\)/);
+  assert.doesNotMatch(btn, /background|border|min-height/, 'пилюли и рамки у строки быть не должно');
+  assert.doesNotMatch(btn, /width:\d/, 'ширина строки — по содержимому');
+  /* Фирменный цвет остался, но только на наведении и приезжает ОДНОЙ
+   * переменной: сама она задаётся приставкой сервиса, всё остальное общее. */
   const hover = (css.match(/\.msg-link:hover\{([^}]*)\}/) || [])[1] || '';
-  assert.match(hover, /color:var\(--footer-ink\)/, 'подпись на наведении не должна перекрашиваться в цвет бренда');
-  assert.doesNotMatch(hover, /background/, 'фон белый и на наведении: белые детали значка нарисованы поверх заливки');
-  /* Цвет несёт только значок, и заливка задана ВНУТРИ svg: `fill` снаружи
-   * перекрасил бы логотип в один цвет и тот перестал бы узнаваться. */
-  assert.doesNotMatch((css.match(/\.msg-ico\{([^}]*)\}/) || [])[1] || '', /fill/);
-  /* Значки — настоящие логотипы сервисов с их градиентами, а не похожие фигуры
-   * своего рисунка. `viewBox` у обоих обрезан по самому знаку: в исходнике
-   * WhatsApp вокруг пузыря оставлено поле под тень, и без обрезки он выглядел
-   * бы мельче Telegram при одинаковой высоте. */
-  assert.match(html, /<svg class="msg-ico" viewBox="0 0 240 240"[^>]*><defs><linearGradient id="msg-tg"/);
-  assert.match(html, /<svg class="msg-ico" viewBox="26\.01 25\.23 122\.31 122\.32"[^>]*><defs><linearGradient id="msg-wa"/);
-  assert.match(html, /<circle cx="120" cy="120" r="120" fill="url\(#msg-tg\)"/);
-  assert.match(html, /<path fill="url\(#msg-wa\)"/);
+  assert.match(hover, /^color:var\(--msg-brand\)$/);
+  assert.match(css, /\.msg-tg\{--msg-brand:#229ED9\}/);
+  assert.match(css, /\.msg-wa\{--msg-brand:#25D366\}/);
+  /* Значок одноцветный и берёт цвет подписи, поэтому перекрашивается вместе с
+   * ней; деталь внутри вырезана цветом подвала — тот же приём, что у обводки
+   * знаков оплаты. */
+  assert.match((css.match(/\.msg-ico\{([^}]*)\}/) || [])[1] || '', /fill:currentColor/);
+  assert.match(css, /\.msg-cut\{fill:var\(--footer-bg\)\}/);
+  /* Контуры — настоящие логотипы сервисов, а не похожие фигуры своего рисунка.
+   * `viewBox` у обоих обрезан по самому знаку: в исходнике WhatsApp вокруг
+   * пузыря оставлено поле под тень, и без обрезки он выглядел бы мельче
+   * Telegram при одинаковой высоте. Градиентов у одноцветных знаков нет вовсе. */
+  assert.match(html, /<svg class="msg-ico" viewBox="0 0 240 240"[^>]*><circle cx="120" cy="120" r="120"\/><path class="msg-cut"/);
+  assert.match(html, /<svg class="msg-ico" viewBox="26\.01 25\.23 122\.31 122\.32"[^>]*><path d="M87\.184 25\.227/);
+  const icons = html.match(/<svg class="msg-ico"[\s\S]*?<\/svg>/g) || [];
+  assert.equal(icons.length, 2);
+  for (const ico of icons) {
+    assert.doesNotMatch(ico, /linearGradient|id="|fill="#/, 'знак обязан быть одноцветным и брать цвет строки');
+  }
   /* Тень WhatsApp и подложка под неё отброшены: в 22 px тени не видно, а
    * `feGaussianBlur` — отдельный проход отрисовки на каждой странице витрины. */
   assert.doesNotMatch(html, /feGaussianBlur|filter="url\(#/);
@@ -2581,7 +2591,7 @@ test('WhatsApp открывает чат с готовым сообщением 
   const gapX = Number((css.match(/\.footer-cols\{[^}]*gap:\d+px (\d+)px/) || [])[1]);
   const aboutW = Number((css.match(/\.footer-about\{[^}]*flex:1 1 (\d+)px/) || [])[1]);
   const colMin = Number((css.match(/\.footer-col\{[^}]*min-width:(\d+)px/) || [])[1]);
-  const links = 214; // «Политика конфиденциальности» — самый длинный пункт колонки «Покупателю»
+  const links = 214; // «Политика конфиденциальности» — самый длинный пункт колонки «Информация»
   assert.ok(aboutW + colMin + links + 250 + gapX * 3 <= 952,
     'четыре колонки подвала обязаны помещаться в один ряд на ноутбуке');
   assert.match(css, /\.foot-address\{[^}]*max-width:260px[^}]*font-size:14px/);
@@ -2719,31 +2729,38 @@ test('разделы уехали в панель меню, как в админ
   assert.doesNotMatch(fn, /addEventListener\('click'/);
 });
 
-test('поиск на телефоне уезжает в меню, а на десктопе остаётся в шапке', () => {
+test('поиск раскрывается по лупе рядом с корзиной и остаётся одной формой', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽' };
   const html = render.homePage(settings, fakeDb, {});
 
-  // Форм две: строка в шапке и та же строка первым рядом меню.
+  // Форма одна: закрытая панель шапки, а не отдельные копии для разных экранов.
   assert.match(html, /<form class="search" action="\/" method="get" role="search">/);
-  assert.match(html, /<form class="nav-search" action="\/" method="get" role="search">/);
-  // Набранное возвращается в обе — покупатель обязан видеть, что именно искал.
+  assert.equal((html.match(/role="search"/g) || []).length, 1);
+  assert.doesNotMatch(html, /nav-search|search-menu/);
+  // Набранное возвращается в единственное поле.
   const found = render.homePage(settings, fakeDb, { q: 'айфон' });
-  assert.equal((found.match(/value="айфон"/g) || []).length, 2);
+  assert.equal((found.match(/value="айфон"/g) || []).length, 1);
 
-  /* Одновременно видна ровно одна, и спрятанная убирается `display:none`, а не
-   * прозрачностью: иначе скринридер нашёл бы на странице два одинаковых поля
-   * поиска. Прежней лупы, выдвигавшей второй ряд шапки, нет вовсе. */
-  assert.match(css, /\.nav-search\{display:none/);
+  /* Лупа стоит перед корзиной в общем правом блоке. Закрытая панель вынута из
+   * Tab через inert, а скрипт синхронно меняет и его, и aria-expanded. */
+  assert.match(html, /class="header-actions">[\s\S]*?class="icon-btn search-toggle"[\s\S]*?class="icon-btn cart-btn"/);
+  assert.match(html, /class="header-search" id="header-search" aria-hidden="true" inert/);
+  assert.match(html, /class="icon-btn search-toggle"[^>]*aria-expanded="false"[^>]*aria-controls="header-search"/);
+  const fn = app.slice(app.indexOf('function initHeaderSearch'), app.indexOf('function initHeroTicker'));
+  assert.match(fn, /panel\.removeAttribute\('inert'\)/);
+  assert.match(fn, /panel\.setAttribute\('inert', ''\)/);
+  assert.match(fn, /input\.focus\(\)/);
+  assert.match(fn, /e\.key === 'Escape'/);
+  assert.match(css, /\.header-search\{max-height:0[^}]*visibility:hidden/);
+  assert.match(css, /\.site-header\.search-open \.header-search\{max-height:64px/);
+
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.search\{display:none\}/);
-  assert.match(mobile, /\.nav-search\{display:block\}/);
-  assert.doesNotMatch(html, /search-toggle|search-switch|id="search-open"/);
-
   /* 16 px — единственный кегль, при котором Safari не приближает страницу на
    * фокусе и обратно не отъезжает (см. «Подводные камни»). */
-  assert.match(mobile, /\.nav-search input\{[^}]*font-size:16px/);
+  assert.match(mobile, /\.search input\{[^}]*font-size:16px/);
 });
 
 test('шапка и корзина читаются с клавиатуры и вслух', () => {
@@ -2759,8 +2776,10 @@ test('шапка и корзина читаются с клавиатуры и �
   assert.doesNotMatch(html, /id="nav-menu"[^>]*\shidden/);
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.nav-check\{position:absolute[^}]*clip-path:inset\(50%\)/);
-  // У обоих полей поиска своё имя — плейсхолдер именем не считается.
-  assert.equal((html.match(/aria-label="Поиск товаров"/g) || []).length, 2);
+  // Единственное поле поиска имеет имя, а закрытая панель вынута из Tab.
+  assert.equal((html.match(/aria-label="Поиск товаров"/g) || []).length, 1);
+  assert.match(html, /id="header-search"[^>]*aria-hidden="true" inert/);
+  assert.match(html, /class="icon-btn search-toggle"[^>]*aria-label="Открыть поиск"/);
 
   // Счётчик корзины спрятан от скринридера, а число уезжает в имя кнопки:
   // видимый текст «3» и доступное имя «Корзина» — разные вещи.
@@ -2849,9 +2868,10 @@ test('цвета витрины читаются: скидка и зачёркн
     assert.ok(onWhite(hex) >= 4.5, '--' + name + ' даёт на белом ' + onWhite(hex).toFixed(2) + ' — текст не прочесть');
   }
   /* Притемнённого фирменного #1b7dab (--tg) больше нет и быть не должно:
-   * цветной подписи Telegram на витрине не осталось вовсе, цвет живёт внутри
-   * значка, а он не текст. Мёртвая переменная рядом с работающими читалась бы
-   * как настройка, которой можно пользоваться. */
+   * спокойное состояние строк мессенджеров набрано цветом подвала, а фирменный
+   * тон живёт в `--msg-brand` и появляется только под курсором. Мёртвая
+   * переменная рядом с работающими читалась бы как настройка, которой можно
+   * пользоваться. */
   assert.doesNotMatch(css, /--tg(-dark)?:/);
 });
 
@@ -2891,15 +2911,18 @@ test('подвал — разделы: каталог, страницы поку
   // длинный список ссылок.
   assert.match(html, /<nav class="footer-col" aria-label="Каталог">[\s\S]*?<div class="footer-col-head">Каталог<\/div>/);
   assert.match(html, /<li><a href="\/\?category=iPhone">iPhone<\/a><\/li>/);
-  assert.match(html, /<nav class="footer-col" aria-label="Покупателю">/);
+  assert.match(html, /<nav class="footer-col" aria-label="Информация">[\s\S]*?<div class="footer-col-head">Информация<\/div>/);
   assert.match(html, /<div class="footer-col-head">Контакты<\/div>/);
 
   // Правовые страницы и отслеживание переехали из мелкого ряда под копирайтом в
-  // раздел «Покупателю» — одной строкой на ссылку, как в подвале любого
+  // раздел «Информация» — одной строкой на ссылку, как в подвале любого
   // магазина. Прежней сетки 2×2 с кеглем от ширины экрана больше нет.
-  for (const t of ['Отследить заказ', 'Гарантия', 'Возврат и обмен', 'Политика конфиденциальности', 'Согласие на обработку данных']) {
+  for (const t of ['О компании', 'Отследить заказ', 'Гарантия', 'Возврат и обмен', 'Политика конфиденциальности', 'Согласие на обработку данных']) {
     assert.match(html, new RegExp('<li><a href="/[a-z-]+">' + t + '</a></li>'));
   }
+  /* «О компании» — ПЕРВАЯ строка списка: с неё начинают, решая, доверять ли
+   * продавцу, а остальное открывают, когда заказ уже сделан. */
+  assert.ok(html.indexOf('>О компании<') < html.indexOf('>Отследить заказ<'));
   assert.doesNotMatch(html, /footer-links/);
   assert.doesNotMatch(css, /\.footer-links/);
 
@@ -3071,6 +3094,9 @@ test('бегущая строка преимуществ едет ровно н�
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: 'Оригинальная техника', currency: '₽' }, fakeDb, {});
+
+  assert.doesNotMatch(html, /class="apple-mark"/,
+    'перед подписью «Оригинальная техника…» не должно быть второго яблока');
 
   // Сдвиг в CSS обязан совпадать с числом копий: при -50 % на четырёх копиях
   // (или наоборот) в конце цикла у края экрана появляется пустота.
@@ -14817,12 +14843,10 @@ test('оформление показывает, как это выглядит,
   assert.doesNotMatch(ui, /M5\.63721|M101\.4682/, 'контуры живут только на сервере');
 });
 
-test('логотип — строчный геометрический вордмарк, а не строка текста', () => {
+test('настройка прежнего вордмарка остаётся точной в предпросмотре панели', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
-  /* Геометрический стек стоит у САМОГО вордмарка — и на витрине, и в
-   * предпросмотре панели: разъехавшись, они показывали бы владельцу не тот
-   * знак, который увидит покупатель. */
+  /* Геометрический стек остаётся у предпросмотра сохранённого оформления. */
   const mark = css.match(/\.logo,\.bp-logo\{font-family:([^}]+)\}/);
   assert.ok(mark, 'у надписи логотипа свой набор начертаний');
   assert.match(mark[1], /^Futura,/, 'первым идёт геометрическое начертание');
@@ -14839,24 +14863,48 @@ test('логотип — строчный геометрический ворд�
   const fonts = render.brandFields({ accentColor: '#0071e3', storeName: 'iStore' });
   assert.doesNotMatch(fonts, /Futura/, 'геометрическое начертание не предлагается для заголовков');
 
-  // Строчными — и на витрине, и в предпросмотре.
+  // Прежняя надпись в предпросмотре остаётся строчной.
   assert.match(css, /\.logo\{[^}]*text-transform:lowercase/);
   assert.match(css, /\.bp-logo\{[^}]*text-transform:lowercase/);
 
-  /* Выделенная буква КРАСИТСЯ, но не движется: знак стоит в липкой шапке на
-   * каждой странице, и крутящаяся деталь читается баннером, а не логотипом. */
+  /* Выделенная буква красится, но не движется. */
   assert.match(css, /\.logo-accent\{color:var\(--accent\)/);
   /* Смотрим код БЕЗ комментариев — той же чисткой, что идёт на отдаче: про
    * снятую анимацию в комментарии сказано намеренно, и ловить собственную
    * документацию тест не должен. */
   assert.doesNotMatch(require('../lib/minify').css(css), /logoSpin/);
+});
 
-  /* Кегль считается от высоты ряда: рост строчной надписи ≈ .74 кегля и обязан
-   * занимать около трети шапки. Правишь одно — пересчитай второе. */
-  const rowH = Number(css.match(/\.header-row\{height:(\d+)px/)[1]);
-  const logoSize = Number(css.match(/\.logo\{margin-right:auto;font-size:(\d+)px/)[1]);
-  const share = logoSize * 0.74 / rowH;
-  assert.ok(share > 0.3 && share < 0.4, `надпись занимает ${(share * 100).toFixed(0)}% ряда`);
+test('витрина использует официальный знак Apple и держит его по центру шапки', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const svg = fs.readFileSync(path.join(__dirname, '..', 'public', 'apple-logo.svg'), 'utf8');
+  const fakeDb = { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
+  const html = render.homePage({
+    storeName: 'adcApple', tagline: 'Слоган', currency: '₽',
+    logoText: 'adc', logoImage: 'old-logo.webp'
+  }, fakeDb, {});
+
+  // Контур скопирован из текущей глобальной навигации apple.com без перерисовки.
+  assert.match(svg, /viewBox="0 12 14 17"/);
+  assert.match(svg, /m13\.0729 17\.6825a3\.61 3\.61/);
+  assert.match(svg, /m-3\.7284-2\.8918a3\.5615/);
+
+  const header = html.slice(html.indexOf('<header class="site-header">'), html.indexOf('<div class="nav-wrap">'));
+  assert.match(header, /<a class="apple-logo" href="\/" aria-label="На главную"><img class="apple-logo-mark" src="\/static\/apple-logo\.svg\?v=[^"]+" alt=""><\/a>/);
+  assert.doesNotMatch(header, /class="logo-mark|logo-txt|old-logo\.webp/,
+    'настройка прежнего логотипа не должна возвращать его в шапку');
+  assert.equal((html.match(/\/static\/apple-logo\.svg\?v=/g) || []).length, 1,
+    'официальный знак Apple стоит только в шапке');
+  const footer = html.slice(html.indexOf('<footer class="site-footer">'));
+  assert.match(footer, /<div class="foot-brand"><a class="logo" href="\/">[\s\S]*?class="logo-img"[^>]*old-logo\.webp/,
+    'в подвал возвращается прежний логотип магазина');
+
+  // Средняя дорожка имеет одинаково гибкие края, поэтому знак — ровно в центре,
+  // даже когда справа две кнопки, а слева одна.
+  assert.match(css, /\.header-row\{display:grid;grid-template-columns:minmax\(0,1fr\) auto minmax\(0,1fr\)/);
+  assert.match(css, /\.apple-logo\{grid-column:2;[^}]*justify-self:center/);
+  assert.match(css, /\.header-actions\{grid-column:3;[^}]*justify-self:end/);
+  assert.match(css, /\.apple-logo-mark\{height:29px/);
 });
 
 test('знак adc повторяет контуры референса, а текст остаётся запасным путём', () => {

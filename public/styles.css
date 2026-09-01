@@ -73,7 +73,7 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 
 /* ===== Шапка ===== */
 .site-header{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.7);-webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%);border-bottom:1px solid var(--border)}
-.header-row{display:flex;align-items:center;gap:12px;height:56px}
+.header-row{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:12px;height:56px}
 /* Полоса «заказ ждёт оплаты» — сразу под шапкой, на всех страницах витрины.
    Не липкая: заказ ждёт минуты, а не вечность, и держать полосу перед глазами
    всю прокрутку значило бы отнимать первый экран у товара. Тёплый фон, а не
@@ -103,6 +103,9 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
    в самой настройке: имя магазина уезжает ещё в <title>, в alt логотипа и в
    разметку для поисковика, где «iStore» обязан остаться собой. */
 .logo{font-size:23px;font-weight:600;letter-spacing:-.02em;text-transform:lowercase;margin-right:auto}
+.apple-logo{grid-column:2;display:inline-flex;align-items:center;justify-content:center;justify-self:center;color:var(--text)}
+.apple-logo-mark{display:block;width:auto;height:28px;fill:currentColor}
+.header-actions{grid-column:3;display:flex;align-items:center;justify-self:end;gap:2px}
 .icon-btn{background:none;border:none;color:var(--text);padding:6px;cursor:pointer;display:inline-flex;position:relative;border-radius:10px}
 .icon-btn:hover{background:var(--bg2)}
 .search{flex:0 1 260px}
@@ -169,10 +172,6 @@ body.storefront{--nav-top:58px}
    «Отправить отзыв» у них. Отступы по 28 px внутри списка с его полями в 8 px
    дают те самые 36 px от края панели. */
 .nav-sep{height:1px;flex:none;margin:8px 28px;background:#c4c7c5}
-/* Поиск в меню — только на телефоне (в шапке там места нет). Спрятанная
-   половина убирается `display:none`, а не прозрачностью: иначе скринридер нашёл
-   бы на странице два одинаковых поля поиска. */
-.nav-search{display:none;flex:none;padding:0 8px 8px}
 @media (prefers-reduced-motion:reduce){
   .nav-wrap,.nav-scrim,.nav-panel{transition:none}
 }
@@ -410,26 +409,29 @@ body.lb-open{overflow:hidden}
    вопрос «а сейчас ответят?», который задают, уже глядя на телефон. */
 .foot-hours{margin-top:6px;font-size:13px;color:var(--muted)}
 
-/* ===== Мессенджеры в контактах — пара одинаковых кнопок =====
-   Правило одно на оба сервиса: белая пилюля, НЕЙТРАЛЬНАЯ волосяная рамка и
-   тёмная подпись, а цвет несёт только фирменный значок. Цветной текст с цветной
-   рамкой у каждой кнопки своего тона читались двумя разными по важности
-   предложениями и спорили друг с другом на сером подвале; заодно тёмная подпись
-   снимает вопрос контраста — фирменные синий и зелёный его на белом не проходят
-   (3.0:1 и 1.9:1), а значок текстом не является. Ширина по содержимому: слова
-   «Telegram» и «WhatsApp» почти одной длины, и подгонять их под общее число
-   пикселей значило бы дать им разные внутренние поля. */
-.msg-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
-.msg-link{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 14px 0 11px;border:1px solid rgba(0,0,0,.09);border-radius:980px;
-  background:#fff;color:var(--footer-ink);font-size:14px;font-weight:600;letter-spacing:-.012em;line-height:1;white-space:nowrap;
-  transition:border-color .16s ease,box-shadow .18s ease,transform .12s ease}
-.msg-link:hover{color:var(--footer-ink);border-color:rgba(0,0,0,.2);box-shadow:0 4px 12px rgba(0,0,0,.08)}
-.msg-link:active{transform:scale(.98)}
-/* Значок самодостаточен: белые детали нарисованы поверх фирменной заливки,
-   поэтому он не зависит от фона кнопки. Заливка задана внутри самого SVG, и
-   `fill` отсюда ему не назначается — иначе логотип перекрасился бы в один цвет
-   и перестал узнаваться. */
-.msg-ico{flex:none;display:block;width:18px;height:18px}
+/* ===== Мессенджеры в контактах — две обычные строки =====
+   Каждая на своей строке, тем же цветом и кеглем, что телефон и почта рядом:
+   это способы связи, а не два предложения. Прежде это была пара белых пилюль с
+   рамкой и фирменными значками — на сером подвале они забирали внимание у
+   остальных контактов и читались рекламой сервисов.
+
+   ЦВЕТ БРЕНДА ОСТАЁТСЯ, но только на наведении — и у подписи, и у значка разом
+   (значок берёт `currentColor`). Вид у обеих строк ОДИН и описан здесь один
+   раз; различаются они ровно одной переменной `--msg-brand`, которую задают
+   классы-приставки ниже. Порог контраста 4.5:1 держит спокойное состояние —
+   именно в нём строку читают; наведение мышью прицельное и короткое. */
+.msg-links{display:grid;justify-items:start;gap:7px}
+.msg-link{display:inline-flex;align-items:center;gap:8px;color:var(--footer-link);font-size:14px;line-height:1.45;
+  transition:color .16s ease}
+.msg-link:hover{color:var(--msg-brand)}
+.msg-tg{--msg-brand:#229ED9}
+.msg-wa{--msg-brand:#25D366}
+/* Знак одноцветный и берёт цвет строки, поэтому на наведении перекрашивается
+   вместе с подписью. Деталь внутри (самолётик, трубка) вырезана цветом подвала
+   — тот же приём, что у обводки знаков оплаты (.pay-mc): силуэт остаётся
+   плотным, а под курсором получается ровно логотип сервиса. */
+.msg-ico{flex:none;display:block;width:18px;height:18px;fill:currentColor}
+.msg-cut{fill:var(--footer-bg)}
 .foot-legal{margin-top:14px;font-size:12px}
 
 /* ===== Корзина ===== */
@@ -482,10 +484,6 @@ body.cart-open .cart-drawer{transform:translateX(0)}
   .product{grid-template-columns:1fr 1fr;gap:40px;align-items:start}
   .product-gallery{position:sticky;top:80px}
 }
-@media(max-width:720px){
-  .search{display:none}
-}
-
 /* =========================================================
    АДМИНКА
    ========================================================= */
@@ -1232,23 +1230,29 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 }
 /* Кому важнее плавность прокрутки, чем анимация: сворачиваем мгновенно. */
 @media(prefers-reduced-motion:reduce){
-  .site-header,.header-row,.logo,.logo-img,.search{transition:none!important}
+  .site-header,.header-row,.apple-logo-mark,.header-search{transition:none!important}
 }
 /* Ряд ужат до 58 px: шапка липкая и стоит перед глазами всё время, а держала
    она две трети роста поисковой строки на пустом месте. Высоты внутри связаны —
    поле 38, кнопка Telegram ровно столько же, корзина на 8 px больше поля. */
 .header-row{height:58px;gap:12px;transition:height .28s cubic-bezier(.22,.75,.25,1),min-height .28s,padding .28s,gap .28s}
-/* Кегль считается от высоты ряда, а не подбирается на глаз: у строчной надписи
-   заметный рост — от верха выносной «t» до базовой линии, примерно .74 кегля, —
-   и в шапке этот рост обязан занимать около трети ряда. 27px в ряду 58px дают
-   20px знака (34%); мельче логотип теряется между поиском и корзиной, крупнее
-   начинает спорить с ними за место. Правишь высоту ряда — пересчитай и кегль. */
-.logo{margin-right:auto;font-size:27px;font-weight:700;letter-spacing:-.045em;line-height:1;transition:font-size .28s ease,transform .28s ease}
-.logo-img{max-height:32px;transition:max-height .28s ease}
+/* Точный знак Apple стоит в СРЕДНЕЙ дорожке симметричной сетки. Левый блок
+   меню и правый блок действий могут иметь разную ширину — это не сдвигает
+   знак с геометрического центра окна. */
+.apple-logo-mark{height:29px;transition:height .28s ease,transform .28s ease}
 .icon-btn{min-width:42px;min-height:42px;padding:9px;align-items:center;justify-content:center;border-radius:13px;transition:background .16s ease,transform .12s ease}
 .icon-btn:hover{background:var(--bg2)}
 .icon-btn:active{transform:scale(.94)}
-.search{position:relative;flex:0 1 300px;max-width:300px;overflow:hidden;opacity:1;transform:translateY(0);transition:flex-basis .28s cubic-bezier(.22,.75,.25,1),max-width .28s cubic-bezier(.22,.75,.25,1),max-height .28s ease,opacity .18s ease,transform .28s ease,visibility 0s linear}
+.search-toggle{min-width:42px;min-height:42px;border:1px solid transparent}
+.search-toggle svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.search-toggle[aria-expanded="true"]{background:var(--bg2);border-color:var(--border-soft)}
+/* Поиск раскрывается ВТОРЫМ рядом шапки. В закрытом состоянии он не занимает
+   места, а inert в разметке убирает поле из порядка Tab. */
+.header-search{max-height:0;overflow:hidden;opacity:0;visibility:hidden;transform:translateY(-5px);
+  transition:max-height .26s cubic-bezier(.22,.75,.25,1),opacity .16s ease,transform .26s ease,visibility 0s .26s}
+.site-header.search-open .header-search{max-height:64px;opacity:1;visibility:visible;transform:translateY(0);transition-delay:0s}
+.header-search-inner{padding-bottom:12px}
+.search{position:relative;width:100%;max-width:640px;margin-inline:auto}
 .search::before{content:"";position:absolute;left:14px;top:50%;width:13px;height:13px;border:1.7px solid #8e8e93;border-radius:50%;transform:translateY(-58%);pointer-events:none}
 /* Ручка лупы — от середины поля, а не числом от его верха: с числом она
    разъезжалась с кружком на каждой смене высоты поля. */
@@ -1267,9 +1271,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    ровно обратное — при прокрутке шапка становилась плотнее, чем в покое. */
 .site-header.header-compact{background:rgba(255,255,255,.7);box-shadow:0 2px 6px rgba(0,0,0,.06)}
 .site-header.header-compact .header-row{height:50px}
-.site-header.header-compact .logo{font-size:23px;transform:translateY(-1px)}
-.site-header.header-compact .logo-img{max-height:28px}
-.site-header.header-compact .search{flex-basis:0;max-width:0;opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition-delay:0s,0s,0s,0s,0s,.24s}
+.site-header.header-compact .apple-logo-mark{height:26px;transform:translateY(-1px)}
 .site-header.header-compact .cart-btn{min-width:42px;min-height:42px}
 .site-header.header-compact .cart-btn svg{width:24px;height:24px}
 
@@ -1297,7 +1299,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Яблоко — часть строки: inline и размер в em, как у буквы. Сидит не на базовой
    линии, а по центру прописных: у логотипа нет ни выносных элементов, ни
    плоского низа, поэтому «на базовой линии» читается как приклеенное к строке. */
-.apple-mark{display:inline-block;width:.6em;height:.732em;margin-right:.26em;vertical-align:.045em;overflow:visible;fill:currentColor}
 /* Бегущая строка преимуществ. Едет во всю ширину экрана, а не по контейнеру,
    поэтому подписи выходят из-за края — маска гасит их, чтобы не обрубались.
    Анимация одна на всю ленту и только по transform: считает композитор.
@@ -1679,10 +1680,9 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .foot-pin{flex:none;width:16px;height:16px;margin-top:2px;fill:currentColor}
 .foot-contact a,.foot-hours{color:var(--footer-link)}
 .foot-contact a:hover{color:var(--footer-ink)}
-/* Ряд мессенджеров отбит от почты чуть больше обычного зазора колонки: это
-   действие, а не ещё одна строка контактов. Сами кнопки описаны один раз
-   (.msg-link выше по файлу) — здесь только место ряда в колонке. */
-.msg-links{margin-top:4px}
+/* Мессенджеры идут обычными строками колонки, поэтому своего отступа у них
+   больше нет: зазор им даёт сама колонка, как телефону и почте. Сами строки
+   описаны один раз (.msg-link выше по файлу). */
 /* Нижняя полоса — знаки оплаты и копирайт. Вторая колонка тут была под ряд
    правовых ссылок; ссылки переехали в раздел «Покупателю», и пустая дорожка
    оставляла бы у правого края мёртвый зазор. */
@@ -3526,27 +3526,16 @@ details.metric-bots>summary:hover{background:#fffaf0}
      край экрана: сетка идёт во всю ширину, и весь её воздух — эти поля. */
   .container{padding-inline:20px}
 
-  /* Тот же ряд, что и на десктопе, только строка поиска уезжает под него.
-     Кнопки в первом ряду одного размера — 42 у Telegram и 46 у корзины: она
-     и здесь остаётся заметнее прочего. */
-  /* Ряд на телефоне — кнопка меню, знак и корзина, больше ничего. Поиск уехал
-     в меню, кнопка Telegram стала там же обычной строкой, а ряда вкладок под
-     шапкой нет вовсе: липкая шапка стоит перед глазами всё время, и место в
-     ней самое дорогое на витрине. */
+  /* Ряд на телефоне — меню, знак Apple по центру и справа лупа с корзиной. */
   .header-row{height:54px;gap:8px}
-  .header-row .logo{margin-right:auto;font-size:24px}
+  .header-row .apple-logo-mark{height:27px}
   body.storefront{--nav-top:54px}
-  /* Строку поиска на телефоне показывает меню, а не шапка. `display:none`, а не
-     прозрачность: иначе скринридер нашёл бы на странице два одинаковых поля. */
-  .search{display:none}
-  .nav-search{display:block}
   /* 16 px — единственный кегль, при котором Safari не приближает страницу на
      фокусе (см. «Подводные камни»). */
-  .nav-search input{width:100%;height:44px;padding:8px 14px;border:1px solid var(--border);
-    border-radius:12px;background:#f1f1f4;font-size:16px;outline:none}
-  .nav-search input:focus{border-color:var(--accent);background:#fff}
+  .search input{height:44px;font-size:16px}
+  .site-header.search-open .header-search{max-height:60px}
+  .header-search-inner{padding-bottom:10px}
   .site-header.header-compact .header-row{height:50px;min-height:50px;padding-top:4px;padding-bottom:4px;row-gap:0}
-  .site-header.header-compact .search{max-width:0;max-height:0}
 
   /* 20px сверху и снизу вокруг ОДНОЙ строки — почти по её собственной высоте:
      на первом экране телефона слоган выглядел висящим в пустой полосе. */
@@ -3705,11 +3694,11 @@ details.metric-bots>summary:hover{background:#fffaf0}
      краю — значком, оторванным от того, что он подписывает. */
   .foot-address{display:block;max-width:320px;margin-inline:auto}
   .foot-address .foot-pin{display:inline-block;margin:0 5px -2px 0}
-  /* Мессенджеры — главный способ связи с телефона, поэтому зона под палец выше
-     десктопной; сам вид пары не меняется. */
-  .msg-links{justify-content:center;margin-top:6px}
-  .msg-link{min-height:44px;padding:0 18px 0 14px;font-size:15px}
-  .msg-ico{width:22px;height:22px}
+  /* Мессенджеры — главный способ связи с телефона, поэтому строка получает
+     зону под палец и кегль чуть крупнее; сам вид пары не меняется. */
+  .msg-links{justify-items:center;gap:4px}
+  .msg-link{min-height:34px;font-size:15px}
+  .msg-ico{width:20px;height:20px}
   /* Одна колонка: без сброса сетка осталась бы двухколоночной, как на десктопе,
      и копирайт по центру уезжал бы за левый край экрана */
   .footer-bottom{grid-column:auto;display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;gap:12px;width:100%;padding-top:18px}

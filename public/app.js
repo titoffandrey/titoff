@@ -2092,7 +2092,7 @@
       // сверху ровно на её высоту, и сворачивание оставило бы над разделами
       // лишнюю полосу прямо под рукой.
       var navOpen = document.getElementById('nav-menu');
-      var headerInUse = headerFieldFocused || !!(navOpen && navOpen.checked);
+      var headerInUse = headerFieldFocused || header.classList.contains('search-open') || !!(navOpen && navOpen.checked);
       if (y < 48 || headerInUse) { setCompact(false); lockedUntil = 0; }   // у самого верха — всегда развёрнутая
       else if (delta > 10 && y > 140) setCompactOnce(true);
       else if (delta < -24) setCompactOnce(false);
@@ -2107,6 +2107,48 @@
       requestAnimationFrame(update);
     }, { passive: true });
     header.addEventListener('focusin', function () { setCompact(false); });
+  }
+
+  /* Поиск занимает второй ряд шапки только после нажатия на лупу. Класс нужен
+     для плавного раскрытия, а aria-hidden + inert — чтобы закрытое поле не
+     читалось и не получало Tab. Логотип при этом остаётся в отдельной средней
+     дорожке и никуда не движется. */
+  function initHeaderSearch() {
+    var header = document.querySelector('.site-header');
+    var toggle = header && header.querySelector('.search-toggle');
+    var panel = document.getElementById('header-search');
+    var input = panel && panel.querySelector('input[type="search"]');
+    if (!header || !toggle || !panel || !input) return;
+
+    function opened() { return header.classList.contains('search-open'); }
+    function setOpen(on, restoreFocus) {
+      header.classList.toggle('search-open', on);
+      toggle.setAttribute('aria-expanded', on ? 'true' : 'false');
+      toggle.setAttribute('aria-label', on ? 'Закрыть поиск' : 'Открыть поиск');
+      panel.setAttribute('aria-hidden', on ? 'false' : 'true');
+      if (on) {
+        panel.removeAttribute('inert');
+        header.classList.remove('header-compact');
+        var menu = document.getElementById('nav-menu');
+        if (menu) menu.checked = false;
+        requestAnimationFrame(function () { input.focus(); });
+      } else {
+        panel.setAttribute('inert', '');
+        if (restoreFocus && panel.contains(document.activeElement)) toggle.focus();
+      }
+    }
+
+    toggle.addEventListener('click', function () { setOpen(!opened(), true); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && opened()) { e.preventDefault(); setOpen(false, true); }
+    });
+    document.addEventListener('click', function (e) {
+      if (opened() && !header.contains(e.target)) setOpen(false, false);
+    });
+    var menu = document.getElementById('nav-menu');
+    if (menu) menu.addEventListener('change', function () {
+      if (menu.checked && opened()) setOpen(false, false);
+    });
   }
 
   // Бегущая строка преимуществ крутится анимацией CSS. Пока она за экраном,
@@ -2234,6 +2276,7 @@
     startAnalytics(true);
     initAnalyticsControls();
     initCompactHeader();
+    initHeaderSearch();
     initHeroTicker();
     initMediaGuard();
     initNavMenu();
