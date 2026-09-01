@@ -951,6 +951,15 @@
   var text = document.querySelector('[data-brand-text]');
   var name = document.querySelector('input[name="storeName"]');
   var logo = document.querySelector('[data-brand-logo]');
+  var markTemplate = document.querySelector('template[data-brand-mark]');
+  /* Сохранённый `adc` уже нарисован внутри logo; при другой сохранённой
+   * надписи тот же серверный SVG лежит в inert-<template>. Клонируем один раз
+   * до первой правки поля, иначе переход `adc` → текст → `adc` потеряет знак. */
+  var markSource = logo && logo.querySelector('.logo-mark');
+  if (markSource) markSource = markSource.cloneNode(true);
+  else if (markTemplate && markTemplate.content && markTemplate.content.firstElementChild) {
+    markSource = markTemplate.content.firstElementChild.cloneNode(true);
+  }
   var HEX = /^#[0-9a-fA-F]{6}$/;
   var dots = [];
 
@@ -985,6 +994,14 @@
   function paintText() {
     if (!logo || !text || logo.querySelector('img')) return;
     var raw = (text.value || '').trim() || (name ? String(name.value || '').trim() : '');
+    if (raw.toLowerCase() === 'adc' && markSource) {
+      var wordmark = markSource.cloneNode(true);
+      var accessible = name ? String(name.value || '').trim() : '';
+      wordmark.setAttribute('aria-label', accessible || raw);
+      logo.textContent = '';
+      logo.appendChild(wordmark);
+      return;
+    }
     var box = document.createElement('span');
     box.className = 'logo-txt';
     var re = /\{([^}]*)\}/g, last = 0, m;

@@ -105,7 +105,6 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .logo{font-size:23px;font-weight:600;letter-spacing:-.02em;text-transform:lowercase;margin-right:auto}
 .icon-btn{background:none;border:none;color:var(--text);padding:6px;cursor:pointer;display:inline-flex;position:relative;border-radius:10px}
 .icon-btn:hover{background:var(--bg2)}
-.menu-toggle{display:none}
 .search{flex:0 1 260px}
 .search input{width:100%;border:1px solid var(--border);background:var(--bg2);border-radius:980px;padding:8px 14px;font-size:14px;outline:none}
 .search input:focus{border-color:var(--accent);background:#fff}
@@ -114,12 +113,69 @@ h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
    слабее правила по классу выше, и на пустой корзине висел кружок с нулём —
    скрипт его прятал, а CSS показывал обратно. Та же грабля, что у `.rv-thumb`. */
 .cart-badge[hidden]{display:none}
-.site-nav{border-top:1px solid var(--border);background:rgba(255,255,255,.7)}
-.nav-inner{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;scrollbar-width:none}
-.nav-inner::-webkit-scrollbar{display:none}
-.nav-cat{font-size:14px;color:var(--muted);padding:6px 12px;border-radius:980px;white-space:nowrap}
-.nav-cat:hover{background:var(--bg2);color:var(--text)}
-.nav-cat.active{background:var(--text);color:#fff}
+/* ===== Меню разделов: кнопка в шапке, панель слева =====
+
+   Раскладка снята с бокового меню Google Trends и СВЕРЕНА С ИХ ЖИВОЙ СТРАНИЦЕЙ:
+   панель 320 px, строка 56 px с полями `8px 24px 8px 16px` и радиусом 9999px,
+   шрифт 16/400, обычная подпись `#444746`, выбранная — заливка светлым тоном,
+   разделитель — волосяная `#c4c7c5`, затемнение — чистый чёрный под 40 %,
+   движение `.25s cubic-bezier(.4,0,.2,1)`. Те же числа стоят в панели
+   управления (`.a-menu-*`); порознь они разъехались бы молча, а увидеть это
+   можно только глазами. Правишь меню — сверяйся с их страницей, а не с памятью.
+
+   ЦВЕТ ВЫБРАННОЙ СТРОКИ — тон акцента магазина, а не гугловский `#c2e7ff`:
+   акцент у витрины свой, и жёстко зашитая голубая пилюля рядом с красным
+   брендом читалась бы деталью из чужого интерфейса. У синего акцента разницы с
+   образцом на глаз нет. `color-mix` поддерживают не все версии Safari,
+   доходящие до витрины, поэтому под `@supports` лежит уточнение, а не основа. */
+body.storefront{--nav-top:58px}
+.nav-check{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.nav-btn{display:inline-flex;flex:none;align-items:center;justify-content:center;width:40px;height:40px;
+  margin-left:-8px;border-radius:50%;color:#444746;cursor:pointer;transition:background .12s}
+.nav-btn svg{width:24px;height:24px}
+.nav-btn:hover{background:rgba(31,31,31,.08)}
+/* Фокус получает сам чекбокс — он и есть кнопка для клавиатуры, — а рамку
+   рисуем на видимой подписи: тот же приём, что у меню в панели. */
+.nav-check:focus-visible~.site-header .nav-btn{outline:2px solid var(--accent);outline-offset:2px}
+/* `visibility` переключается ступенькой, поэтому длительности у неё нет — есть
+   ЗАДЕРЖКА, и только на закрытие: панель обязана исчезнуть из потока фокуса и
+   мыши, но лишь после того, как уедет за край. Задай ей длительность — и
+   открытое меню оставалось бы невидимым всю четверть секунды движения, то есть
+   кнопка выглядела бы сломанной. */
+.nav-wrap{position:fixed;inset:0;z-index:39;visibility:hidden;transition:visibility 0s .25s}
+.nav-scrim{position:absolute;inset:0;background:#000;opacity:0;cursor:default;
+  transition:opacity .25s cubic-bezier(.4,0,.2,1)}
+/* Панель РАСКРЫВАЕТСЯ ШИРИНОЙ, а не съезжает `transform`, — так это сделано и у
+   них. Ширина списка при этом фиксирована и от движения не зависит:
+   пересобирать раскладку текста на каждом кадре — то же самое, что
+   анимировать её `width`. Сверху — высота шапки: панель уходит под неё, а
+   кнопка меню всё время остаётся на виду (`z-index` у шапки выше). */
+.nav-panel{position:absolute;top:0;bottom:0;left:0;width:0;overflow:hidden;background:#fff;
+  border-radius:0 16px 16px 0;transition:width .25s cubic-bezier(.4,0,.2,1)}
+.nav-list{width:min(320px,calc(100vw - 56px));height:100%;overflow-y:auto;
+  padding:calc(var(--nav-top) + env(safe-area-inset-top) + 8px) 8px 8px;display:flex;flex-direction:column}
+.nav-check:checked~.nav-wrap{visibility:visible;transition:visibility 0s}
+.nav-check:checked~.nav-wrap .nav-scrim{opacity:.4}
+.nav-check:checked~.nav-wrap .nav-panel{width:min(320px,calc(100vw - 56px))}
+.nav-item{display:flex;align-items:center;flex:none;min-height:56px;padding:8px 24px 8px 16px;
+  border-radius:9999px;color:#444746;font-size:16px;font-weight:400;line-height:1.25;transition:background .12s}
+.nav-item:hover{background:rgba(31,31,31,.08)}
+.nav-item.active{background:#dbe7fb;color:#1b4bb8;font-weight:500}
+@supports (background:color-mix(in srgb,red 50%,#fff)){
+  .nav-item.active{background:color-mix(in srgb,var(--accent) 26%,#fff);color:var(--accent-deep)}
+}
+/* Волосяная линия отделяет служебное от разделов — ровно как «Справка» и
+   «Отправить отзыв» у них. Отступы по 28 px внутри списка с его полями в 8 px
+   дают те самые 36 px от края панели. */
+.nav-sep{height:1px;flex:none;margin:8px 28px;background:#c4c7c5}
+/* Поиск в меню — только на телефоне (в шапке там места нет). Спрятанная
+   половина убирается `display:none`, а не прозрачностью: иначе скринридер нашёл
+   бы на странице два одинаковых поля поиска. */
+.nav-search{display:none;flex:none;padding:0 8px 8px}
+@media (prefers-reduced-motion:reduce){
+  .nav-wrap,.nav-scrim,.nav-panel{transition:none}
+}
 
 /* ===== Hero ===== */
 .hero{background:linear-gradient(180deg,var(--bg2),#fff);text-align:center;padding:52px 0 40px}
@@ -366,14 +422,6 @@ body.lb-open{overflow:hidden}
 .tg-cta{display:inline-flex;align-items:center;gap:8px;color:var(--tg);font-weight:600;font-size:16px;line-height:1}
 .tg-cta:hover{color:var(--tg-dark)}
 .tg-cta .tg-ico{width:20px;height:20px;flex:none}
-.tg-header{display:inline-flex;align-items:center;gap:7px;background:var(--tg);color:#fff;padding:9px 15px;border-radius:980px;font-weight:600;font-size:14.5px;line-height:1;white-space:nowrap;transition:filter .15s,transform .06s}
-.tg-header:hover{filter:brightness(1.06)}
-.tg-header:active{transform:scale(.96)}
-.tg-header .tg-ico{width:18px;height:18px;flex:none}
-@media(max-width:720px){
-  .tg-header{padding:9px}
-  .tg-header-txt{display:none}
-}
 .foot-legal{margin-top:14px;font-size:12px}
 
 /* ===== Корзина ===== */
@@ -427,11 +475,7 @@ body.cart-open .cart-drawer{transform:translateX(0)}
   .product-gallery{position:sticky;top:80px}
 }
 @media(max-width:720px){
-  .menu-toggle{display:inline-flex}
   .search{display:none}
-  .site-nav{position:fixed;inset:56px 0 auto 0;background:#fff;border-bottom:1px solid var(--border);transform:translateY(-120%);transition:transform .2s;z-index:30}
-  body.nav-open .site-nav{transform:translateY(0)}
-  .nav-inner{flex-wrap:wrap}
 }
 
 /* =========================================================
@@ -775,12 +819,12 @@ body.admin{background:var(--bg2)}
    а не как логотип. Сам акцент остаётся настройкой владельца — буквы в
    {фигурных скобках} у `logoText`; скобок нет — надпись сплошная. */
 .logo-accent{color:var(--accent);display:inline-block}
-/* Нарисованный знак меряется в `em` от кегля надписи — того же, что уже ужимается
-   в свёрнутой шапке и на телефоне. Так у размера остаётся ОДНО место правки:
-   заведи знаку свои пиксели, и он разъедется с текстовым запасным вариантом на
-   первой же смене высоты ряда. .74em — рост выносной у строчной надписи, то
-   есть ровно та высота, которую занимал бы набранный текст. */
-.logo-mark{height:.74em;width:auto;display:block}
+/* У референсного SVG собственный холст 100×57: это уже готовый знак, а не
+   строчные глифы внутри кегля. Прежние .74em повторно ужимали его до 18–20px,
+   поэтому в мобильной шапке он выглядел почти вдвое меньше оригинала. 1.15em
+   дают ему около 28px на телефоне и 31px на десктопе, сохраняя единый масштаб
+   при сворачивании шапки и в живом предпросмотре. */
+.logo-mark{height:1.15em;width:auto;display:block}
 .logo-img{height:34px;width:auto;max-width:200px;display:block;object-fit:contain}
 .logo-chip{display:inline-flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg2)}
 .logo-chip img{height:40px;max-width:160px;object-fit:contain;background:#fff;border-radius:6px}
@@ -807,11 +851,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .icon-btn{border-radius:12px;transition:background .15s}
 .icon-btn:active{background:var(--bg2)}
 
-/* категории — премиальные пилюли */
-.nav-cat{background:var(--bg2);color:var(--text);font-weight:500;font-size:13.5px;padding:7px 14px;transition:transform .12s, background .15s, color .15s}
-.nav-cat:active{transform:scale(.94)}
-.nav-cat.active{background:var(--text);color:#fff}
-
 /* заголовки */
 .hero h1{letter-spacing:-.035em;font-weight:660}
 .hero p{color:var(--muted)}
@@ -836,12 +875,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .product-price{letter-spacing:-.02em}
 
 @media(max-width:720px){
-  /* категории — чистая горизонтальная лента, гамбургер не нужен */
-  .menu-toggle{display:none !important}
-  .site-nav{position:static;transform:none;background:transparent;border-top:1px solid var(--border)}
-  body.nav-open .site-nav{transform:none}
-  .nav-inner{flex-wrap:nowrap;overflow-x:auto;padding:10px 16px;gap:8px;-webkit-overflow-scrolling:touch}
-
   .header-row{height:56px;gap:10px}
   .container{padding:0 16px}
   .hero{padding:30px 0 24px}
@@ -1059,24 +1092,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   .g-arrow svg{width:14px;height:14px}
 }
 
-/* ===== Меню категорий — минималистичные текст-табы с акцентным индикатором =====
-   Заменяет прежние «пилюли»: без заливки, без обводки, только текст + тонкая
-   акцентная черта под активным разделом. Один общий разделитель — низ шапки. */
-.site-nav{border-top:none;background:transparent}
-.nav-inner{display:flex;gap:2px;overflow-x:auto;padding:3px 16px 7px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-.nav-inner::-webkit-scrollbar{display:none}
-.nav-cat{position:relative;background:none;border:none;border-radius:0;color:var(--muted);font-weight:500;font-size:14px;letter-spacing:-.01em;padding:9px 13px;white-space:nowrap;transition:color .18s ease}
-.nav-cat:hover{background:none;color:var(--text)}
-.nav-cat.active{background:none;color:var(--text);font-weight:600}
-.nav-cat.active::after{content:"";position:absolute;left:13px;right:13px;bottom:1px;height:2px;border-radius:2px;background:var(--accent)}
-@media(max-width:720px){
-  .site-nav{position:static;transform:none;border-top:none;background:transparent}
-  body.nav-open .site-nav{transform:none}
-  .nav-inner{flex-wrap:nowrap;overflow-x:auto;padding:3px 12px 7px;gap:0}
-  .nav-cat{font-size:14px;padding:9px 12px}
-  .nav-cat.active::after{left:12px;right:12px}
-}
-
 /* ===== Кнопки «В корзину / Оформить заказ» — премиальный вид ===== */
 .add-to-cart{position:relative;overflow:hidden;border-radius:14px;
   background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.06));
@@ -1143,7 +1158,7 @@ body{min-width:320px;overflow-x:hidden;overscroll-behavior-x:none;touch-action:m
   text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}
 /* Долгое нажатие по кнопке в приложении не выделяет её подпись. Текст товара,
    цены и реквизиты выделяются как раньше — их копируют руками. */
-button,.btn,summary,.nav-cat,.chat-fab{-webkit-user-select:none;user-select:none}
+button,.btn,summary,.nav-item,.nav-btn,.chat-fab{-webkit-user-select:none;user-select:none}
 body.cart-open{overflow:hidden}
 button,input,textarea,select{font:inherit}
 button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}
@@ -1209,7 +1224,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 }
 /* Кому важнее плавность прокрутки, чем анимация: сворачиваем мгновенно. */
 @media(prefers-reduced-motion:reduce){
-  .site-header,.header-row,.logo,.logo-img,.search,.site-nav,.tg-header,.tg-header-txt{transition:none!important}
+  .site-header,.header-row,.logo,.logo-img,.search{transition:none!important}
 }
 /* Ряд ужат до 58 px: шапка липкая и стоит перед глазами всё время, а держала
    она две трети роста поисковой строки на пустом месте. Высоты внутри связаны —
@@ -1232,34 +1247,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .search::after{content:"";position:absolute;left:25px;top:calc(50% + 6px);width:6px;height:1.7px;border-radius:2px;background:#8e8e93;transform:rotate(45deg);pointer-events:none}
 .search input{height:38px;padding:8px 14px 8px 38px;border-color:transparent;background:#f1f1f4;font-size:14px;transition:background .18s,border-color .18s,box-shadow .18s}
 .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,110,115,.12)}
-/* Лупа-переключатель поля поиска. На десктопе её нет вовсе: место под строку
-   там есть, и прятать поиск за нажатием значило бы отнимать шаг. Появляется она
-   только ниже 800px (см. медиазапрос), а здесь снимается с раскладки.
-   Устройство — скрытый чекбокс и подпись-кнопка, тот же приём, что у режима
-   правки списка заказов: ни строчки скрипта, поэтому поиск открывается и там,
-   где скрипты витрины не загрузились. Чекбокс спрятан ВИЗУАЛЬНО, а не hidden:
-   так он остаётся в потоке фокуса и кнопка получает рамку с клавиатуры. */
-.search-switch{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
-.search-toggle{display:none}
-.search-switch:focus-visible+.search-toggle{outline:2px solid var(--accent);outline-offset:2px}
 /* Корзина — единственная кнопка, которую ищут глазами на каждой странице,
    поэтому она крупнее прочих значков и глиф в ней тоже больше. */
 .cart-btn{min-width:46px;min-height:46px;border:1px solid transparent;border-radius:14px}
 .cart-btn svg{width:25px;height:25px}
 .cart-badge{top:2px;right:2px;box-shadow:0 0 0 2px #fff}
-.tg-header{min-height:38px;padding:0 14px;border:1px solid rgba(34,158,217,.5);border-radius:12px;background:transparent;color:var(--tg);font-size:14px;box-shadow:none;transition:min-height .24s ease,padding .24s ease,border-color .18s ease,background .18s ease,color .18s ease,transform .12s ease}
-.tg-header:hover{border-color:var(--tg);background:rgba(34,158,217,.08);color:var(--tg-dark);filter:none}
-/* line-height здесь обязателен: у «Telegram» есть выносная «g», а строка с
-   overflow:hidden высотой ровно в кегль обрезала ей хвост. Ширина анимируется,
-   поэтому убрать overflow нельзя — вместо этого строке дана своя высота. */
-.tg-header-txt{display:inline-block;max-width:84px;overflow:hidden;line-height:1.45;opacity:1;transition:max-width .24s ease,opacity .16s ease}
-.site-nav{max-height:58px;overflow:hidden;border-top:1px solid var(--border-soft);background:transparent;opacity:1;visibility:visible;transform:translateY(0);transform-origin:top;transition:max-height .3s cubic-bezier(.22,.75,.25,1),opacity .2s ease,transform .3s cubic-bezier(.22,.75,.25,1),border-color .2s ease,visibility 0s linear}
-.nav-inner{gap:2px;padding:2px 24px 7px}
-.nav-cat{position:relative;padding:9px 13px 8px;border-radius:0;background:transparent;color:var(--muted);font-size:14px;font-weight:500;letter-spacing:-.012em;transition:color .18s ease}
-.nav-cat:hover{background:transparent;color:var(--text)}
-.nav-cat.active{background:transparent;color:var(--text);font-weight:650}
-.nav-cat.active::after{content:"";position:absolute;left:13px;right:13px;bottom:0;height:2px;border-radius:3px;background:var(--accent)}
-.menu-toggle{display:none!important}
 
 /* При прокрутке вниз оставляем только действия, нужные в любой момент. */
 /* Свёрнутая шапка остаётся такой же прозрачной, меняется только тень: она и
@@ -1270,11 +1262,8 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .site-header.header-compact .logo{font-size:23px;transform:translateY(-1px)}
 .site-header.header-compact .logo-img{max-height:28px}
 .site-header.header-compact .search{flex-basis:0;max-width:0;opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition-delay:0s,0s,0s,0s,0s,.24s}
-.site-header.header-compact .site-nav{max-height:0;border-color:transparent;opacity:0;visibility:hidden;transform:translateY(-8px);pointer-events:none;transition-delay:0s,0s,0s,0s,.28s}
-.site-header.header-compact .tg-header{min-height:34px;padding:0 9px;gap:0}
 .site-header.header-compact .cart-btn{min-width:42px;min-height:42px}
 .site-header.header-compact .cart-btn svg{width:24px;height:24px}
-.site-header.header-compact .tg-header-txt{max-width:0;opacity:0}
 
 /* Первый экран */
 .store-hero{position:relative;overflow:hidden;background:#f4f4f6;border-bottom:1px solid var(--border-soft)}
@@ -3529,31 +3518,22 @@ details.metric-bots>summary:hover{background:#fffaf0}
   /* Тот же ряд, что и на десктопе, только строка поиска уезжает под него.
      Кнопки в первом ряду одного размера — 42 у Telegram и 46 у корзины: она
      и здесь остаётся заметнее прочего. */
-  /* Четвёртая колонка — под лупу. Зазор только по горизонтали: строка поиска
-     стоит во втором ряду и по умолчанию свёрнута, а row-gap держал бы под ней
-     8px пустоты даже при нулевой высоте. */
-  .header-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;height:auto;min-height:54px;padding-top:6px;padding-bottom:8px;column-gap:8px;row-gap:0}
-  /* Ряд на телефоне 54px — та же треть роста надписи, что и на десктопе (24 ×
-     .74 ≈ 18px). Выше кегль брать нельзя: рядом три кнопки по 42–46px, и
-     длинное имя магазина упрётся в лупу. */
-  .header-row .logo{margin:0;font-size:24px}
-  .header-row .search-toggle{display:inline-flex;grid-column:2;min-width:42px;min-height:42px}
-  .header-row .tg-header{grid-column:3;min-width:42px;min-height:42px;padding:0 9px}
-  .header-row .tg-header-txt{display:none}
-  .header-row .cart-btn{grid-column:4}
-  /* Поле поиска на телефоне занимало отдельную строку под шапкой — 50px
-     постоянно на виду ради того, чем пользуются раз в несколько заходов, а
-     липкая шапка стоит перед глазами всё время. Теперь вместо него лупа в ряду
-     значков, а поле выезжает по нажатию. С непустым запросом сервер ставит
-     чекбоксу checked — иначе после поиска строка с набранным закрылась бы. */
-  .search{display:block;grid-column:1/-1;grid-row:2;width:100%;max-width:none;max-height:0}
-  .search-switch:checked~.search{max-height:52px;margin-top:8px}
+  /* Ряд на телефоне — кнопка меню, знак и корзина, больше ничего. Поиск уехал
+     в меню, кнопка Telegram стала там же обычной строкой, а ряда вкладок под
+     шапкой нет вовсе: липкая шапка стоит перед глазами всё время, и место в
+     ней самое дорогое на витрине. */
+  .header-row{height:54px;gap:8px}
+  .header-row .logo{margin-right:auto;font-size:24px}
+  body.storefront{--nav-top:54px}
+  /* Строку поиска на телефоне показывает меню, а не шапка. `display:none`, а не
+     прозрачность: иначе скринридер нашёл бы на странице два одинаковых поля. */
+  .search{display:none}
+  .nav-search{display:block}
   /* 16 px — единственный кегль, при котором Safari не приближает страницу на
-     фокусе (см. «Подводные камни»), поэтому поле здесь выше десктопного. */
-  .search input{height:42px;font-size:16px}
-  .nav-inner{padding:1px 20px 7px;gap:0}
-  .nav-cat{padding:9px 12px 8px;font-size:13px}
-  .nav-cat.active::after{left:12px;right:12px}
+     фокусе (см. «Подводные камни»). */
+  .nav-search input{width:100%;height:44px;padding:8px 14px;border:1px solid var(--border);
+    border-radius:12px;background:#f1f1f4;font-size:16px;outline:none}
+  .nav-search input:focus{border-color:var(--accent);background:#fff}
   .site-header.header-compact .header-row{height:50px;min-height:50px;padding-top:4px;padding-bottom:4px;row-gap:0}
   .site-header.header-compact .search{max-width:0;max-height:0}
 
@@ -4212,7 +4192,6 @@ details.metric-bots>summary:hover{background:#fffaf0}
      впритык: 13px читались как обрезанная по краю вёрстка. */
   .container{padding-inline:16px}
   .header-row{padding-inline:16px}
-  .nav-inner{padding-inline:16px}
   .store-hero-inner{padding:9px 16px}
   /* Поля контейнера здесь 16px, поэтому строке достаётся на 32px меньше */
   .store-hero h1{font-size:min(23px,calc((100vw - 32px)/var(--fit,21)))}

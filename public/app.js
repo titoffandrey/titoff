@@ -2088,7 +2088,11 @@
       // После закрытия корзины фокус возвращается на её кнопку. Это не должно
       // блокировать сворачивание шапки; развёрнутой оставляем только активную строку поиска.
       var headerFieldFocused = !!(active && header.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
-      var headerInUse = headerFieldFocused || document.body.classList.contains('nav-open');
+      // Открытое меню тоже держит шапку развёрнутой: список панели отступает
+      // сверху ровно на её высоту, и сворачивание оставило бы над разделами
+      // лишнюю полосу прямо под рукой.
+      var navOpen = document.getElementById('nav-menu');
+      var headerInUse = headerFieldFocused || !!(navOpen && navOpen.checked);
       if (y < 48 || headerInUse) { setCompact(false); lockedUntil = 0; }   // у самого верха — всегда развёрнутая
       else if (delta > 10 && y > 140) setCompactOnce(true);
       else if (delta < -24) setCompactOnce(false);
@@ -2115,22 +2119,22 @@
     }, { rootMargin: '100px' }).observe(ticker);
   }
 
-  /* Лупа в шапке открывает строку поиска сама по себе — это скрытый чекбокс и
-     подпись-кнопка, без единой строчки скрипта. Скрипту остаётся то, чего CSS
-     не умеет: поставить курсор в поле, иначе после нажатия лупы приходится
-     целиться в поле вторым касанием, и Esc — закрыть открытое поле, не уводя
-     руку к лупе. Ничего не нашлось (десктоп, старая разметка) — молча выходим. */
-  function initSearchToggle() {
-    var sw = document.getElementById('search-open');
-    var input = document.querySelector('.search input');
-    if (!sw || !input) return;
-    sw.addEventListener('change', function () {
-      // Поле выезжает с переходом: фокус до конца анимации Safari отматывает
-      // страницу к ещё нулевой высоте поля, поэтому ждём кадр.
-      if (sw.checked) requestAnimationFrame(function () { input.focus(); });
-    });
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && sw.checked) { sw.checked = false; input.blur(); }
+  /* Меню разделов открывается и закрывается САМО: это скрытый чекбокс, подпись-
+     кнопка и подпись-затемнение, без единой строчки скрипта, — поэтому оно
+     работает и там, где скрипты витрины не загрузились. Скрипту остаётся один
+     Esc: закрыть меню, не уводя руку к затемнению.
+
+     Нажатие мимо здесь НЕ обрабатывается намеренно: затемнение — подпись к тому
+     же чекбоксу, и второй обработчик снимал бы галочку перед тем, как её вернёт
+     действие подписи, то есть меню не закрывалось бы вовсе. Та же грабля и то
+     же решение, что в панели управления. */
+  function initNavMenu() {
+    var menu = document.getElementById('nav-menu');
+    if (!menu) return;
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !menu.checked) return;
+      menu.checked = false;
+      menu.focus();
     });
   }
 
@@ -2232,16 +2236,11 @@
     initCompactHeader();
     initHeroTicker();
     initMediaGuard();
-    initSearchToggle();
+    initNavMenu();
     initStoreMap();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
-      if (e.key === 'Escape' && document.body.classList.contains('nav-open')) {
-        document.body.classList.remove('nav-open');
-        var menu = document.querySelector('.menu-toggle');
-        if (menu) { menu.setAttribute('aria-expanded', 'false'); menu.focus(); }
-      }
       // Фокус не выходит за пределы модальной корзины по Tab/Shift+Tab.
       if (e.key === 'Tab' && document.body.classList.contains('cart-open')) {
         var drawer = document.getElementById('cart-drawer');
@@ -2252,19 +2251,6 @@
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     });
-    var menuToggle = document.querySelector('.menu-toggle');
-    if (menuToggle) menuToggle.addEventListener('click', function () {
-      var open = !document.body.classList.contains('nav-open');
-      document.body.classList.toggle('nav-open', open);
-      menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    });
-    document.querySelectorAll('.nav-cat').forEach(function (link) {
-      link.addEventListener('click', function () {
-        document.body.classList.remove('nav-open');
-        if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
-      });
-    });
-
     // Кнопки "в корзину"
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.add-to-cart');

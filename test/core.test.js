@@ -2441,43 +2441,35 @@ test('после заказа показывается понятное адап
   assert.match(css, /\.cart-items\.cart-items-success\{/);
 });
 
-test('шапка сворачивается при прокрутке, а Telegram остаётся контурным', () => {
+test('шапка сворачивается при прокрутке и остаётся прозрачной', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(css, /\.site-header\.header-compact/);
-  assert.match(css, /\.site-header\.header-compact \.site-nav\{max-height:0/);
   // Прозрачность и размытие сняты с липкой шапки ads-store.ru: 70 % белого в
   // ОБОИХ состояниях. Прежние 96 % у свёрнутой делали ровно обратное — при
   // прокрутке шапка становилась плотнее, чем в покое, и превращалась в сплошную
   // белую полосу поверх товара.
   assert.match(css, /\.site-header\{[^}]*background:rgba\(255,255,255,\.7\)[^}]*backdrop-filter:blur\(16px\) saturate\(140%\)/);
   assert.match(css, /\.site-header\.header-compact\{background:rgba\(255,255,255,\.7\);box-shadow:0 2px 6px rgba\(0,0,0,\.06\)\}/);
-  assert.match(css, /\.tg-header\{[^}]*border:1px solid[^}]*background:transparent/);
   assert.match(js, /function initCompactHeader\(\)/);
   assert.match(js, /initCompactHeader\(\);/);
   assert.match(js, /var headerFieldFocused/);
   assert.doesNotMatch(js, /header\.contains\(document\.activeElement\)/);
 
-  // Высоты в шапке связаны: поле поиска и кнопка Telegram одного роста, корзина
-  // заметно крупнее — её ищут глазами на каждой странице. Числа порознь
-  // разъезжаются молча, увидеть это можно только глазами.
+  /* Высоты в шапке связаны: корзина заметно крупнее прочего — её ищут глазами
+   * на каждой странице, — а ряду обязано хватать полей под неё. Числа порознь
+   * разъезжаются молча, увидеть это можно только глазами. */
   const num = (rule, prop) => Number((css.match(new RegExp('\\' + rule + '\\{[^}]*' + prop + ':(\\d+)px'))
     || [])[1]);
-  const searchH = num('.search input', 'height');
-  const tgH = num('.tg-header', 'min-height');
   const cartH = num('.cart-btn', 'min-height');
-  assert.equal(searchH, tgH, 'поле поиска и кнопка Telegram обязаны быть одного роста');
-  assert.ok(cartH > tgH, 'корзина должна оставаться крупнее остальных кнопок шапки');
+  assert.ok(cartH > num('.nav-btn', 'width'), 'корзина должна оставаться крупнее кнопки меню');
   assert.ok(num('.header-row', 'height') >= cartH + 8, 'ряд шапки ужат так, что корзине не хватает полей');
 
-  // У подписи «Telegram» есть выносная «g», а ширина строки анимируется, то есть
-  // overflow:hidden снять нельзя — значит строке обязана быть задана своя высота,
-  // иначе хвост буквы срезается ровно по кеглю.
-  // Берём то правило подписи, где задан overflow, а не свёрнутое состояние
-  // (`.header-compact .tg-header-txt{max-width:0}` совпадает с тем же куском).
-  const txt = (css.match(/\.tg-header-txt\{[^}]*\}/g) || []).find(r => r.includes('overflow')) || '';
-  assert.match(txt, /overflow:hidden/);
-  assert.match(txt, /line-height:1\.[1-9]/, 'подпись кнопки Telegram снова режет выносные буквы');
+  /* Кнопки Telegram и ряда вкладок в шапке больше нет вовсе: и то и другое
+   * уехало в меню разделов. Оставшийся `.tg-cta` — кнопка в ПОДВАЛЕ, у неё свой
+   * класс, и путать их нельзя. */
+  assert.doesNotMatch(css, /\.tg-header/);
+  assert.doesNotMatch(css, /\.site-nav|\.nav-cat|\.nav-inner/);
 });
 
 test('в подвале Telegram — одна кнопка с действием, без ника строкой', () => {
@@ -2485,9 +2477,11 @@ test('в подвале Telegram — одна кнопка с действием
   const html = render.homePage({ storeName: 'Тест', tagline: '', currency: '₽', contactTelegram: '@adc_apple' }, fakeDb, {});
   // Голый ник не говорит, куда ведёт, и нажимать его никто не догадывался.
   assert.match(html, /<a class="tg-cta" href="https:\/\/t\.me\/adc_apple"[^>]*>.*?<span>Канал в Telegram<\/span><\/a>/);
-  // У ссылки в шапке имя то же: адрес у них один, и обещать по нему разное
-  // («канал» глазами, «написать» голосом) нельзя.
-  assert.match(html, /class="tg-header"[^>]*aria-label="Канал в Telegram"/);
+  /* В шапке кнопки больше нет — Telegram стал обычной строкой меню под
+   * волосяной линией. Подпись там ТА ЖЕ, что у кнопки в подвале: адрес у них
+   * один, и обещать по нему разное нельзя. */
+  assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item" href="https:\/\/t\.me\/adc_apple"[^>]*>Канал в Telegram<\/a>/);
+  assert.doesNotMatch(html, /tg-header/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
   // как второй, недействующий контакт.
   assert.doesNotMatch(html, /foot-tg-user/);
@@ -2564,42 +2558,96 @@ test('на телефоне слоган стоит в одну строку, а
   assert.ok(Number(render.footFit(tagline + ' и быстрой доставкой')) > Number(render.footFit(tagline)));
 });
 
-test('на телефоне поиск открывается лупой, а на десктопе остаётся строкой', () => {
+test('разделы уехали в панель меню, как в админке и у Google', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const fakeDb = {
+    getProducts: () => [], visibleProducts: () => [], ratingFor: () => ({ avg: 0, count: 0 }),
+    categories: () => ['iPhone', 'Mac'], visibleCategories: () => ['iPhone', 'Mac']
+  };
+  const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽', contactTelegram: '@adc_apple' };
+  const html = render.homePage(settings, fakeDb, {});
+
+  /* Чекбокс обязан стоять ПЕРЕД шапкой и панелью: и кнопка, и панель находятся
+   * селектором соседа (~), и перестановка в разметке молча оставила бы кнопку
+   * без действия. Лежит он СНАРУЖИ шапки намеренно: у неё `backdrop-filter`, а
+   * он делает элемент опорным для `position:fixed` — панель внутри считала бы
+   * координаты от шапки, а не от окна. */
+  const check = html.indexOf('id="nav-menu"');
+  const header = html.indexOf('<header class="site-header">');
+  const wrap = html.indexOf('<div class="nav-wrap">');
+  assert.ok(check > -1 && check < header && header < wrap, 'чекбокс меню идёт перед шапкой и панелью');
+  assert.match(html, /<label class="nav-btn" for="nav-menu"/);
+  assert.match(html, /<label class="nav-scrim" for="nav-menu"/);
+
+  /* Прежнего ряда вкладок под шапкой нет вовсе — разделы стали строками
+   * панели, а первым идёт «Все». */
+  assert.doesNotMatch(html, /site-nav|nav-cat|nav-inner/);
+  assert.match(html, /<a href="\/" class="nav-item active" aria-current="page">Все<\/a>/);
+  assert.match(html, /<a href="\/\?category=iPhone" class="nav-item">iPhone<\/a>/);
+
+  /* Числа сняты с живой страницы Google Trends и совпадают с меню панели
+   * управления: панель 320px, строка 56px с полями `8px 24px 8px 16px` и
+   * радиусом 9999px, шрифт 16/400, подпись #444746, разделитель #c4c7c5,
+   * затемнение 40%, движение .25s. Порознь они разъехались бы молча. */
+  assert.match(css, /\.nav-item\{[^}]*min-height:56px;padding:8px 24px 8px 16px;/);
+  assert.match(css, /\.nav-item\{[^}]*border-radius:9999px;color:#444746;font-size:16px;font-weight:400/);
+  assert.match(css, /\.nav-list\{width:min\(320px,calc\(100vw - 56px\)\)/);
+  assert.match(css, /\.nav-check:checked~\.nav-wrap \.nav-scrim\{opacity:\.4\}/);
+  assert.match(css, /\.nav-sep\{[^}]*background:#c4c7c5\}/);
+  assert.match(css, /\.nav-panel\{[^}]*transition:width \.25s cubic-bezier\(\.4,0,\.2,1\)\}/);
+
+  /* Панель РАСКРЫВАЕТСЯ ШИРИНОЙ, а не съезжает `transform`: содержимое лежит в
+   * блоке фиксированной ширины, поэтому текст не пересобирается на каждом кадре. */
+  assert.match(css, /\.nav-panel\{[^}]*width:0/);
+  assert.match(css, /\.nav-check:checked~\.nav-wrap \.nav-panel\{width:min\(320px/);
+
+  /* `visibility` переключается ступенькой: длительности у неё нет, есть
+   * ЗАДЕРЖКА и только на закрытие. Дай ей длительность — и открытое меню
+   * оставалось бы невидимым всю четверть секунды движения. */
+  assert.match(css, /\.nav-wrap\{[^}]*visibility:hidden;transition:visibility 0s \.25s\}/);
+  assert.match(css, /\.nav-check:checked~\.nav-wrap\{visibility:visible;transition:visibility 0s\}/);
+
+  // Шапка остаётся НАД затемнением: кнопка меню всё время на виду.
+  const z = r => Number((css.match(new RegExp('\\' + r + '\\{[^}]*z-index:(\\d+)')) || [])[1]);
+  assert.ok(z('.site-header') > z('.nav-wrap'), 'шапка обязана быть выше затемнения');
+
+  /* Скрипта не нужно ни на что: открывает подпись-кнопка, закрывает подпись-
+   * затемнение. Скрипту остаётся один Esc, и клика мимо в нём быть НЕ должно —
+   * второй обработчик снимал бы галочку перед тем, как её вернёт действие
+   * подписи, то есть меню не закрывалось бы вовсе. */
+  const fn = app.slice(app.indexOf('function initNavMenu'), app.indexOf('function initMediaGuard'));
+  assert.ok(fn.length > 0, 'initNavMenu должна существовать');
+  assert.match(fn, /Escape/);
+  assert.doesNotMatch(fn, /innerHTML|createElement|insertAdjacent/);
+  assert.doesNotMatch(fn, /addEventListener\('click'/);
+});
+
+test('поиск на телефоне уезжает в меню, а на десктопе остаётся в шапке', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽' };
   const html = render.homePage(settings, fakeDb, {});
 
-  // Переключатель обязан стоять ПЕРЕД формой: поле открывается селектором
-  // соседа (~), и перестановка в разметке молча оставила бы лупу без действия.
-  const sw = html.indexOf('id="search-open"');
-  const form = html.indexOf('<form class="search"');
-  assert.ok(sw > -1 && form > -1 && sw < form, 'чекбокс поиска должен идти перед формой');
-  assert.match(html, /<label class="icon-btn search-toggle" for="search-open"/);
+  // Форм две: строка в шапке и та же строка первым рядом меню.
+  assert.match(html, /<form class="search" action="\/" method="get" role="search">/);
+  assert.match(html, /<form class="nav-search" action="\/" method="get" role="search">/);
+  // Набранное возвращается в обе — покупатель обязан видеть, что именно искал.
+  const found = render.homePage(settings, fakeDb, { q: 'айфон' });
+  assert.equal((found.match(/value="айфон"/g) || []).length, 2);
 
-  // С непустым запросом поле открыто: иначе строка с набранным закрывалась бы
-  // сразу после поиска, и покупатель не видел бы, что именно он искал.
-  assert.doesNotMatch(html, /id="search-open"[^>]*checked/);
-  assert.match(render.homePage(settings, fakeDb, { q: 'айфон' }), /id="search-open"[^>]*checked/);
-
-  // На десктопе лупы нет вовсе — там поле видно всегда.
-  assert.match(css, /\.search-toggle\{display:none\}/);
+  /* Одновременно видна ровно одна, и спрятанная убирается `display:none`, а не
+   * прозрачностью: иначе скринридер нашёл бы на странице два одинаковых поля
+   * поиска. Прежней лупы, выдвигавшей второй ряд шапки, нет вовсе. */
+  assert.match(css, /\.nav-search\{display:none/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.header-row \.search-toggle\{display:inline-flex/);
-  assert.match(mobile, /\.search\{[^}]*max-height:0\}/);
-  assert.match(mobile, /\.search-switch:checked~\.search\{max-height:\d+px/);
+  assert.match(mobile, /\.search\{display:none\}/);
+  assert.match(mobile, /\.nav-search\{display:block\}/);
+  assert.doesNotMatch(html, /search-toggle|search-switch|id="search-open"/);
 
-  // Чекбокс спрятан визуально, а не hidden: иначе он выпадает из потока фокуса
-  // и лупу нельзя ни навести с клавиатуры, ни увидеть на ней рамку.
-  assert.doesNotMatch(html, /id="search-open"[^>]*\shidden/);
-  assert.match(css, /\.search-switch\{position:absolute[^}]*clip-path:inset\(50%\)/);
-
-  // Разметку рисует сервер, скрипту остаётся только фокус: своя вставка поля в
-  // app.js разъехалась бы с серверной на первой правке шапки.
-  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  const fn = app.slice(app.indexOf('function initSearchToggle'), app.indexOf('function initMediaGuard'));
-  assert.ok(fn.length > 0, 'initSearchToggle должна существовать');
-  assert.doesNotMatch(fn, /innerHTML|createElement|insertAdjacent/);
+  /* 16 px — единственный кегль, при котором Safari не приближает страницу на
+   * фокусе и обратно не отъезжает (см. «Подводные камни»). */
+  assert.match(mobile, /\.nav-search input\{[^}]*font-size:16px/);
 });
 
 test('шапка и корзина читаются с клавиатуры и вслух', () => {
@@ -2607,9 +2655,16 @@ test('шапка и корзина читаются с клавиатуры и �
   const html = render.homePage({ storeName: 'Тест', tagline: 'Слоган', currency: '₽' }, fakeDb, {});
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-  // Имя носит сам чекбокс: внутри подписи одна лупа и ни буквы текста, поэтому
-  // у поля выходило пустое доступное имя — «форма без ярлыка».
-  assert.match(html, /id="search-open"[^>]*aria-label="Поиск"/);
+  /* Имя носит сам чекбокс меню: внутри подписи один глиф и ни буквы текста,
+   * поэтому у него выходило бы пустое доступное имя — «форма без ярлыка».
+   * Спрятан он ВИЗУАЛЬНО, а не `hidden`: иначе выпадает из потока фокуса, и до
+   * кнопки нельзя добраться с клавиатуры. */
+  assert.match(html, /id="nav-menu"[^>]*aria-label="Меню"/);
+  assert.doesNotMatch(html, /id="nav-menu"[^>]*\shidden/);
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.nav-check\{position:absolute[^}]*clip-path:inset\(50%\)/);
+  // У обоих полей поиска своё имя — плейсхолдер именем не считается.
+  assert.equal((html.match(/aria-label="Поиск товаров"/g) || []).length, 2);
 
   // Счётчик корзины спрятан от скринридера, а число уезжает в имя кнопки:
   // видимый текст «3» и доступное имя «Корзина» — разные вещи.
@@ -2645,7 +2700,7 @@ test('главная кнопка залита градиентом от акц�
   /* Заливка задаётся ДВУМЯ свойствами: `background-color` остаётся запасным на
    * случай, когда градиента не будет, иначе кнопка стала бы прозрачной. */
   // Селектор ищем ОТ НАЧАЛА СТРОКИ: `.chat-fab` стоит ещё и в общем перечне
-  // `button,.btn,summary,.nav-cat,.chat-fab{…}`, и без якоря находился бы он.
+  // `button,.btn,summary,.nav-item,.nav-btn,.chat-fab{…}`, и без якоря нашёлся бы он.
   const rule = name => (css.match(new RegExp('\\n\\' + name + '\\{([^}]*)\\}')) || [])[1] || '';
   for (const sel of ['.btn-primary', '.chat-send', '.chat-fab']) {
     assert.match(rule(sel), /background-color:var\(--accent\)/, sel + ' без запасной заливки');
@@ -14654,6 +14709,11 @@ test('оформление показывает, как это выглядит,
   assert.match(ui, /className = 'color-dot'/);
   // Текст владельца остаётся текстом: разметкой он не становится и здесь.
   assert.doesNotMatch(ui.slice(ui.indexOf('Оформление: предпросмотр')), /innerHTML/);
+  /* При вводе `adc` живой предпросмотр берёт готовый знак сервера,
+   * а не показывает обычную строку до сохранения. Контуры в JS не копируются. */
+  assert.match(html, /<template data-brand-mark><svg class="logo-mark"/);
+  assert.match(ui, /raw\.toLowerCase\(\) === 'adc'[\s\S]*markSource\.cloneNode\(true\)/);
+  assert.doesNotMatch(ui, /M5\.63721|M101\.4682/, 'контуры живут только на сервере');
 });
 
 test('логотип — строчный геометрический вордмарк, а не строка текста', () => {
@@ -14698,40 +14758,40 @@ test('логотип — строчный геометрический ворд�
   assert.ok(share > 0.3 && share < 0.4, `надпись занимает ${(share * 100).toFixed(0)}% ряда`);
 });
 
-test('знак магазина рисуется контурами, а шрифт остаётся запасным путём', () => {
+test('знак adc повторяет контуры референса, а текст остаётся запасным путём', () => {
   const base = { accentColor: '#0071e3', storeName: 'adcApple' };
   const drawn = render.brandFields(Object.assign({ logoText: 'adc' }, base));
 
-  /* Нужного веса нет ни в одном системном начертании, а Firefox вдобавок не
-   * отдаёт сайту системные шрифты вовсе — набор установленных шрифтов служит
-   * признаком для отслеживания. Поэтому знак рисуется, а не набирается. */
-  assert.match(drawn, /<svg class="logo-mark" viewBox="0 0 \d+ \d+"/);
+  const logo = drawn.match(/<svg class="logo-mark"[\s\S]*?<\/svg>/)[0];
+  assert.match(logo, /viewBox="0 0 101\.469 57"/);
   assert.doesNotMatch(drawn.slice(drawn.indexOf('bp-logo')), /logo-txt/, 'нарисованный знак не дублируется текстом');
 
-  /* Дырку в кольце пробивает `nonzero` — внешняя окружность по часовой,
-   * внутренняя против. `evenodd` здесь брать нельзя: стойка буквы накладывается
-   * на штрих кольца, и совпавшие области вывернулись бы в пустоту. */
-  assert.doesNotMatch(drawn, /evenodd/);
-  assert.match(drawn, /A50 50 0 1 1[\s\S]*A23 23 0 1 0/, 'окружности кольца идут в разные стороны');
+  /* `a` и `d` — начала путей из переданного SVG, а не новые окружности.
+   * `c` начинается после исходных букв и замыкает овал с раскрытием справа. */
+  assert.equal((logo.match(/<path /g) || []).length, 3, 'три буквы — три контура');
+  assert.match(logo, /d="M5\.63721 45\.6229C5\.63721 47\.4264/);
+  assert.match(logo, /d="M63\.0896 44\.007C61\.7058 46\.1582/);
+  assert.match(logo, /d="M101\.4682 24\.8046C100\.077 22\.604/);
+  assert.doesNotMatch(logo, /A50 50|A23 23/, 'прежние жирные круги убраны');
 
   // Доступное имя — название магазина, а не три буквы знака.
   assert.match(drawn, /<svg class="logo-mark"[^>]*aria-label="adcApple"/);
 
-  /* Буквы без глифа не выдумываем: надпись остаётся текстом, как была. То же и
-   * у {фигурных скобок} — акцентная буква означала бы отдельный контур на цвет,
-   * а знак такого рода одноцветный. */
+  /* Контур нарисован ровно для `adc`; остальные надписи остаются текстом. */
   for (const text of ['istore', '{a}dc', 'adc store']) {
     const fallback = render.brandFields(Object.assign({ logoText: text }, base));
-    assert.doesNotMatch(fallback, /logo-mark/, `«${text}» рисовать нечем — остаётся текстом`);
-    assert.match(fallback, /class="logo-txt"/);
+    const visible = fallback.slice(fallback.indexOf('<span class="bp-logo"'), fallback.indexOf('<span class="bp-link"'));
+    assert.doesNotMatch(visible, /logo-mark/, `«${text}» рисовать нечем — остаётся текстом`);
+    assert.match(visible, /class="logo-txt"/);
   }
 
   /* Размер знака живёт в ОДНОМ месте — в `em` от кегля надписи, который уже
-   * ужимается в свёрнутой шапке и на телефоне. Свои пиксели развели бы знак с
-   * запасным текстовым вариантом на первой же смене высоты ряда. */
+   * ужимается в свёрнутой шапке и на телефоне. Высота 1.15em сохраняет
+   * референсный размер готового SVG: его нельзя повторно ужимать до роста
+   * строчной буквы внутри кегля. */
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const size = css.match(/\.logo-mark\{([^}]*)\}/);
-  assert.ok(size && /height:\.74em/.test(size[1]), 'высота знака задана в em');
+  assert.ok(size && /height:1\.15em/.test(size[1]), 'высота знака повторяет размер референса');
   assert.doesNotMatch(css, /\.logo-mark\{[^}]*height:\d+px/);
 });
 
