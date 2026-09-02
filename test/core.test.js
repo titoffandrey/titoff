@@ -6794,7 +6794,7 @@ test('настройки идут разделами, и свёрнутая ст
   // Разделы — обычные <details>, поэтому раскрываются и без скрипта.
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
-  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'pay', 'price',
+  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'domains', 'pay', 'price',
     'chat', 'telegram', 'reviews', 'dadata', 'legal', 'access']);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
@@ -15465,4 +15465,60 @@ test('favicon совпадает с оригиналом Apple и подключ
   assert.doesNotMatch(storefront, /rel="icon" href="data:image\/svg\+xml/);
   assert.equal((admin.match(/rel="icon" href="\/static\/favicon\.ico/g) || []).length, 2);
   assert.match(server, /app\.get\('\/favicon\.ico'[\s\S]*?'Content-Type': 'image\/x-icon'[\s\S]*?res\.end\(FAVICON\)/);
+});
+
+test('домены магазина привязываются из панели, а прокси спрашивает разрешение', () => {
+  const DOMAINS = require('../lib/domains');
+
+  /* Разбор поля формы: владелец копирует адрес из строки браузера, поэтому
+   * схема, порт, путь и регистр снимаются молча, а `www` не заводится отдельной
+   * записью — он обслуживается вместе с основным именем. */
+  const parsed = DOMAINS.parse('https://WWW.Shop.Example.com/catalog\nadc-apple.com\nshop.example.com:8443\n');
+  assert.deepEqual(parsed.list, ['shop.example.com', 'adc-apple.com'], 'дубли схлопываются, мусор адреса снимается');
+  assert.deepEqual(parsed.bad, []);
+
+  // Негодной считается СТРОКА ЦЕЛИКОМ: иначе форма пожалуется на «не», и
+  // владелец будет искать в поле строку, которой там нет.
+  assert.deepEqual(DOMAINS.parse('не домен!').bad, ['не домен!']);
+  /* IP доменом не считается: сертификат на адрес по этому пути не выпустится
+   * вовсе, а строка «89.125.187.83» в списке читалась бы как рабочая привязка. */
+  assert.equal(DOMAINS.valid('89.125.187.83'), false);
+  assert.equal(DOMAINS.valid('adc-apple.com'), true);
+
+  // Наш ли домен: `www` засчитывается, чужое имя — нет.
+  const settings = { siteDomains: ['shop.example.com'] };
+  assert.equal(DOMAINS.allows(settings, 'WWW.Shop.Example.com'), true);
+  assert.equal(DOMAINS.allows(settings, 'evil.example.org'), false);
+  // Порченое значение в settings.json (правка руками) витрину не роняет.
+  assert.deepEqual(DOMAINS.list({ siteDomains: ['ok.com', 'плохо', 42, 'ok.com'] }), ['ok.com']);
+
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+
+  /* Маршрут, которым прокси спрашивает разрешение на выпуск сертификата.
+   * Отвечать он обязан только своему Caddy: сокета с петли мало (снаружи к
+   * приложению попадают через тот же Caddy, то есть с петли), а вот
+   * `X-Forwarded-For` тот дописывает каждому проксированному запросу и не
+   * ставит вовсе, когда спрашивает сам. Без этой проверки адрес рассказывал бы
+   * всему миру, какие домены привязаны к магазину. */
+  const ask = server.slice(server.indexOf("app.get('/internal/tls-ask'"), server.indexOf("app.get('/robots.txt'"));
+  assert.ok(ask.length > 0, 'маршрут /internal/tls-ask на месте');
+  assert.match(ask, /CLIENT_IP\.isLoopback/);
+  assert.match(ask, /x-forwarded-for'\] === undefined/);
+  assert.match(ask, /DOMAINS\.allows\(settings\(\)/);
+
+  // Проверка в форме идёт ДО записи и называет негодную строку — то же
+  // правило, что у цен вариантов и реквизитов продавца.
+  const route = server.slice(server.indexOf("app.post('/admin/settings'"));
+  const check = route.indexOf('не похож на домен');
+  assert.ok(check > 0 && check < route.indexOf('db.saveSettings'), 'домены проверяются до сохранения');
+
+  // Раздел панели: поле есть, сохранённое показывается, введённое возвращается
+  // вместе с ошибкой (иначе владелец потеряет набранное).
+  const db = { pendingReviewCount: () => 0, getOrders: () => [] };
+  const saved = { storeName: 'Тест', adminUsername: 'admin', siteDomains: ['adc-apple.com'] };
+  const panel = adminViews.settingsPage(saved, db, null);
+  assert.match(panel, /name="siteDomains"/);
+  assert.match(panel, /adc-apple\.com/);
+  const failed = adminViews.settingsPage(saved, db, 'Ошибка', 'err', { draft: { siteDomains: 'не домен!' } });
+  assert.match(failed, /не домен!/, 'введённое возвращается в поле');
 });

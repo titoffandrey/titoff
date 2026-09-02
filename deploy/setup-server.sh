@@ -95,16 +95,40 @@ sudo -u "$USER_NAME" -H bash -lc "
 env PATH="/usr/local/bin:$PATH" pm2 startup systemd -u "$USER_NAME" --hp "/home/$USER_NAME" >/dev/null
 
 say "Caddy: $DOMAIN → 127.0.0.1:$PORT"
-# Сертификат и маршрут есть только у самого домена: без совпадения по имени Caddy
-# не отдаёт сайт вовсе, поэтому по голому IP витрину не найти. Сжатие намеренно
-# не включаем — Brotli/gzip приложение делает само.
+# Свой блок есть только у основного домена: он обязан работать и тогда, когда
+# приложение остановлено. Сжатие намеренно не включаем — Brotli/gzip приложение
+# делает само.
+#
+# Последний блок — дополнительные домены, привязанные в панели («Домены
+# магазина»). Сертификат им выдаётся по требованию, и перед каждым выпуском
+# Caddy спрашивает приложение, своё ли это имя (`/internal/tls-ask`,
+# `lib/domains.js`). Поэтому привязка домена не требует ни правки этого файла,
+# ни перезапуска Caddy.
+#
+# По голому IP витрину по-прежнему не найти: `ask` отвечает отказом всему, чего
+# нет в списке, а IP там не бывает вовсе — приложение не считает адрес доменом.
 cat > /etc/caddy/Caddyfile <<CADDY
+{
+	on_demand_tls {
+		ask http://127.0.0.1:$PORT/internal/tls-ask
+	}
+}
+
 $DOMAIN {
 	reverse_proxy 127.0.0.1:$PORT
 }
 
 www.$DOMAIN {
 	redir https://$DOMAIN{uri} permanent
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	@www header_regexp host Host ^www\.(.+)\$
+	redir @www https://{re.host.1}{uri} permanent
+	reverse_proxy 127.0.0.1:$PORT
 }
 CADDY
 caddy fmt --overwrite /etc/caddy/Caddyfile >/dev/null 2>&1 || true

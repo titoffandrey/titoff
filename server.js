@@ -23,6 +23,7 @@ const CROCO = require('./lib/crocopay');
 const PAYMENTS = require('./lib/payments');
 const MERIDIAN = require('./lib/meridianpay');
 const DELIVERY = require('./lib/delivery');
+const DOMAINS = require('./lib/domains');
 // Маршрут посылки: собирает и проверяет его этот модуль, хранит сам заказ, а
 // показывает `/track/:number` и раздел отправления в панели.
 const TRACK = require('./lib/tracking');
@@ -1001,6 +1002,31 @@ app.post('/api/analytics/withdraw', (req, res) => {
   const secure = originOf(req).startsWith('https://');
   res.setHeader('Set-Cookie', [metrics.clearCookieHeader(secure), metrics.optOutCookieHeader(secure)]);
   res.json({ ok: true });
+});
+
+/* «Это ваш домен?» — вопрос прокси перед выпуском сертификата.
+ *
+ * Caddy умеет выпускать сертификаты по требованию (on-demand TLS) и перед
+ * каждым выпуском зовёт этот адрес: 2xx — выпускать, что угодно другое — нет.
+ * Так привязка домена живёт в настройках магазина, а не в конфиге на диске
+ * сервера (см. `lib/domains.js`).
+ *
+ * Отвечать обязаны только СВОЕМУ прокси, и признаков доверия здесь два.
+ * Сокета с петли мало: снаружи к приложению и так можно попасть только через
+ * Caddy, то есть с той же петли, — а вот `X-Forwarded-For` он дописывает
+ * каждому проксированному запросу и не ставит вовсе, когда спрашивает сам.
+ * Наличие заголовка поэтому и означает «этот запрос пришёл из интернета»:
+ * подделать его отсутствие снаружи нельзя, заголовок ставит сам Caddy.
+ *
+ * Без второй проверки адрес был бы открыт всему миру: он говорит, какие домены
+ * привязаны к магазину, а это ровно та связка «домен → сервер», которую здесь
+ * прячут.
+ */
+app.get('/internal/tls-ask', (req, res) => {
+  const direct = CLIENT_IP.isLoopback(req.socket && req.socket.remoteAddress)
+    && req.headers['x-forwarded-for'] === undefined;
+  if (!direct) return res.send('', 404);
+  res.send('', DOMAINS.allows(settings(), req.query.domain) ? 200 : 403);
 });
 
 app.get('/robots.txt', (req, res) => {
@@ -4382,6 +4408,19 @@ app.post('/admin/settings', async (req, res) => {
   }
   // Ключ «Подсказок» dadata.ru. Пустое поле стирает ключ.
   if (req.body.dadataToken !== undefined) patch.dadataToken = String(req.body.dadataToken).trim().slice(0, 200);
+  /* Дополнительные домены. Проверка идёт ДО записи и НАЗЫВАЕТ негодную строку,
+   * как цена варианта и реквизиты продавца: имя уезжает в ответ прокси, а
+   * оттуда — в запрос сертификата у Let's Encrypt. Молча выбросить строку было
+   * бы хуже отказа — владелец увидел бы «Сохранено» и ждал домен, который
+   * никто не привязывал. */
+  if (req.body.siteDomains !== undefined) {
+    const parsed = DOMAINS.parse(req.body.siteDomains);
+    if (parsed.bad.length) return fail(`«${parsed.bad[0]}» не похож на домен — нужно имя вида shop.example.com`);
+    if (parsed.list.length > DOMAINS.MAX) {
+      return fail(`Доменов можно привязать не больше ${DOMAINS.MAX}, а в поле их ${parsed.list.length}`);
+    }
+    patch.siteDomains = parsed.list;
+  }
   /* Отслеживание: город отправки и через сколько часов стояния покупатель
    * увидит просьбу подождать. Оба поля — значения ПО УМОЛЧАНИЮ для новой
    * отправки: у каждой посылки они свои и правятся в её маршруте.
