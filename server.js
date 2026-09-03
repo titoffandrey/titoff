@@ -1383,7 +1383,33 @@ function rememberOwnOrder(req, order) {
   req.session.myOrders = [order.id].concat(mine.filter(id => id !== order.id)).slice(0, 20);
 }
 
-function orderApiBody(order, reused) {
+/*
+ * Можно ли увести покупателя на оплату СРАЗУ, минуя нашу страницу выбора.
+ *
+ * Страница `/pay/:id` существует ради ВЫБОРА способа и показа реквизитов. Когда
+ * способ ровно один и платят по нему на стороне банка (`hosted` — эквайринг
+ * Альфы), выбирать не из чего, а реквизитов у нас нет вовсе: есть ссылка, по
+ * которой и вводят карту. Промежуточный экран с таймером в этом случае — лишний
+ * шаг между «Оплатить» и оплатой.
+ *
+ * Смотрим ТОЛЬКО настройки владельца, без обращения к кассе: `/api/order` не
+ * должен ждать сеть — это последний шаг покупки. Ошибиться здесь недорого,
+ * потому что решает всё равно `/api/pay/start`: не подойдёт способ — витрина
+ * уйдёт на обычную страницу оплаты.
+ *
+ * ВТОРЫМ СБОРЩИКОМ СПИСКА СПОСОБОВ ЭТО НЕ СТАНОВИТСЯ, и сборщик витрины здесь
+ * намеренно не зовётся: он собирает то, что УВИДИТ покупатель (пересечение
+ * нашего списка, кассы и настроек), и место ему ровно одно — `payContext()`.
+ * Здесь вопрос другой и куда у`же: отмечен ли у владельца ровно один способ и
+ * платят ли по нему на стороне банка.
+ */
+function directPayMethod(s) {
+  if (PAYMENTS.mode(s) !== 'cashbox') return '';
+  const own = Array.isArray(s && s.payMethods) ? s.payMethods : PAY.DEFAULT_IDS;
+  return own.length === 1 && PAY.isHosted(own[0]) ? String(own[0]) : '';
+}
+
+function orderApiBody(order, reused, s) {
   // `pay` — вести ли покупателя на страницу оплаты. Своими реквизитами платят
   // там же, поэтому режим `own` ведёт туда наравне с кассой.
   const pay = !!(order && (order.draft || order.payment || order.payMode === 'own'));
@@ -1393,7 +1419,11 @@ function orderApiBody(order, reused) {
     delivery: { price: order.deliveryPrice, zone: order.deliveryZone },
     // Корзину витрина чистит по этому полю: у ЧЕРНОВИКА товары обязаны
     // остаться (способ ещё не выбран), а у настоящего заказа — уехать.
-    pay, draft: !!(order && order.draft), telegram: reused ? 'already_queued' : 'queued'
+    pay, draft: !!(order && order.draft), telegram: reused ? 'already_queued' : 'queued',
+    /* Способ, которым можно платить не заходя на нашу страницу. У заказа с уже
+     * выставленным счётом его нет: там всё решает существующая попытка, и
+     * второй счёт на те же деньги нам не нужен. */
+    payNow: pay && order && !order.payment ? directPayMethod(s || settings()) : ''
   };
 }
 
@@ -2605,6 +2635,12 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   const terminalAfterCreate = terminalPaymentBody(db.getOrder(id));
   if (terminalAfterCreate) return { done: true, status: 200, body: terminalAfterCreate };
   const body = { ok: true, placed: true, url: '/pay/' + encodeURIComponent(id) };
+  /* Ссылка на страницу банка — для эквайринга это и есть «реквизиты», и вести к
+   * ним через свою промежуточную страницу незачем: покупатель нажал «Оплатить»
+   * и должен оказаться там, где платят. Отдаём адрес отдельным полем, а не
+   * подменяем `url`: тот ведёт на нашу страницу заказа, и она по-прежнему нужна
+   * — на неё банк вернёт покупателя после оплаты. */
+  if (PAY.isHosted(method) && PAY.isPayLink(r.invoice.requisite)) body.hostedUrl = r.invoice.requisite;
   /* Реквизиты НА НАШЕЙ СТРАНИЦЕ лучше ссылки на страницу кассы, поэтому счёт со
    * ссылкой не заканчивает очередь, а откладывается: спрашиваем следующую кассу
    * и берём ссылку, только если обычных реквизитов не дал никто.
@@ -2618,7 +2654,11 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
    * касса выдаст нормальные реквизиты, ссылочный останется в истории заказа
    * неоплаченным и сгорит по своему сроку. Покупателю он не показывается, а
    * значит и заплатить по нему мимо нас нельзя. */
-  if (PAY.isPayLink(r.invoice.requisite) && !lastInChain) {
+  /* Откладываем только ВЫНУЖДЕННУЮ ссылку — ту, что P2P-касса прислала вместо
+   * номера. У эквайринга ссылка штатная и единственно возможная (`hosted`),
+   * и отодвигать её ради «обычных реквизитов» соседней кассы было бы просто
+   * отказом от оплаты картой. */
+  if (PAY.isPayLink(r.invoice.requisite) && !lastInChain && !PAY.isHosted(method)) {
     return { deferred: true, status: 200, body };
   }
   return { done: true, status: 200, body };

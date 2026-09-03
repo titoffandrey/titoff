@@ -6644,9 +6644,20 @@ test('витрина уводит на свою страницу оплаты т
   // теряла бы заявку целиком.
   assert.ok(submit.indexOf("fetch('/api/order'") < submit.indexOf('startPayment(d.id'));
   assert.match(submit, /if \(online && d\.id\) \{ startPayment/);
-  // Способ оплаты выбирается уже на странице оплаты, поэтому оформление в
-  // платёжку не ходит вовсе — оно только уводит на свою страницу.
-  assert.match(js, /function startPayment\(orderId\) \{\s*location\.href = '\/pay\/'/);
+  /* Способ оплаты выбирается на странице оплаты, поэтому по умолчанию
+   * оформление в платёжку не ходит вовсе — оно только уводит на свою страницу.
+   *
+   * Единственное исключение — когда выбирать не из чего и платят на стороне
+   * банка (`payNow` от сервера): там наша страница показала бы одну кнопку и
+   * таймер, то есть лишний экран между «Оплатить» и оплатой. Без `payNow`
+   * поведение прежнее, и это первая строка функции. */
+  assert.match(js, /function startPayment\(orderId, payNow\) \{/);
+  assert.match(js, /if \(!payNow\) \{ location\.href = fallback; return; \}/);
+  // Запрос к кассе с оформления возможен ТОЛЬКО по указанию сервера: своей
+  // догадки о способах у витрины нет и быть не должно.
+  const direct = js.slice(js.indexOf('function startPayment(orderId, payNow)'), js.indexOf('function directRequestId'));
+  assert.ok(direct.indexOf('if (!payNow)') < direct.indexOf("fetch('/api/pay/start'"),
+    'без payNow до платёжки дело не доходит');
   assert.doesNotMatch(js, /crocopay\.tech|client_secret|Client-Secret/);
   // Выбора «оплатить позже» нет: включённая оплата — всегда оплата сразу.
   assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
@@ -7313,6 +7324,65 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
    * каким именем открыт магазин. Собранный внутри кассы, он уводил бы
    * покупателя не туда. */
   assert.match(server, /returnUrl: paymentOrigin\(req\) \+ '\/pay\/'/);
+});
+
+/* Оплата картой открывается сразу, без промежуточной страницы.
+ *
+ * Страница `/pay/:id` существует ради ВЫБОРА способа и показа реквизитов. Когда
+ * способ один и платят на стороне банка, выбирать не из чего, а реквизитов у нас
+ * нет вовсе — есть ссылка. Промежуточный экран с одной кнопкой и таймером в этом
+ * случае лишний: покупатель нажал «Оплатить» и должен оказаться там, где платят.
+ */
+test('при единственном способе с оплатой на стороне банка ведём прямо на его страницу', () => {
+  const PAY = require('../lib/pay-methods');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const P = require('../lib/payments');
+  const alfa = { alfabankEnabled: true, alfabankToken: 'fhojfle6ssav32c6ao42bkcr54' };
+  // Та же арифметика, что у `directPayMethod()` в server.js: сокращаем путь
+  // только когда выбирать правда не из чего.
+  const direct = s => {
+    if (P.mode(s) !== 'cashbox') return '';
+    const list = PAY.allowed(null, s.payMethods);
+    return list.length === 1 && PAY.isHosted(list[0].id) ? list[0].id : '';
+  };
+  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['CARD_ONLINE'] })), 'CARD_ONLINE');
+  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['CARD_ONLINE', 'SBP'] })), '',
+    'способов два — выбор нужен, промежуточную страницу не срезаем');
+  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['SBP'] })), '',
+    'перевод делает сам покупатель — ему нужны реквизиты на нашей странице');
+  assert.equal(direct({ payMethods: ['CARD_ONLINE'] }), '', 'режим заявок');
+  assert.equal(direct({
+    payMethods: ['CARD_ONLINE'], ownPayEnabled: true,
+    ownPayCard: '5599002143815845', ownPayOwner: 'Иван И.'
+  }), '', 'свои реквизиты показываются на нашей странице');
+
+  // Сервер отдаёт адрес банка ОТДЕЛЬНЫМ полем, а не подменяет `url`: тот ведёт
+  // на нашу страницу заказа, и она нужна — на неё банк вернёт покупателя.
+  assert.match(server, /body\.hostedUrl = r\.invoice\.requisite/);
+  assert.match(server, /url: '\/pay\/' \+ encodeURIComponent\(id\)/);
+  assert.match(server, /payNow: pay && order && !order\.payment/,
+    'у заказа с выставленным счётом второго счёта на те же деньги не выпускаем');
+
+  /* Ссылку эквайринга нельзя откладывать ради «обычных реквизитов» соседней
+   * кассы: у P2P ссылка вынужденная (её прислали вместо номера), а здесь она
+   * единственно возможная, и отодвинуть её значило бы отказаться от оплаты
+   * картой вовсе. */
+  assert.match(server, /!lastInChain && !PAY\.isHosted\(method\)/);
+
+  // Витрина: передаёт способ, уходит на банк и всегда имеет запасной путь.
+  assert.match(app, /startPayment\(d\.id, d\.payNow\)/);
+  assert.match(app, /location\.href = d\.hostedUrl/);
+  assert.match(app, /\/\^https:\\\/\\\/\[\^\\s\/\]\+\/i\.test/,
+    'адрес уезжает в location — проверяем его и на витрине, а не верим на слово');
+  // Заминка любой природы — обычная страница оплаты: там покупатель увидит, что
+  // случилось, и повторит. Терять покупку на отказе кассы нельзя.
+  assert.match(app, /\.catch\(function \(\) \{ location\.href = fallback; \}\)/);
+  // Корзину чистим ТОЛЬКО при выставленном счёте — тот же порядок, что в pay.js.
+  assert.match(app, /if \(d && d\.ok && window\.Cart && Cart\.clear\) Cart\.clear\(\)/);
+  // Ключ идемпотентности: повторное нажатие не плодит второй счёт.
+  assert.match(app, /function directRequestId/);
+  assert.match(app, /pay_req_/);
 });
 
 /* Список банков MeridianPay идёт восемь секунд, и это не повод его терять.

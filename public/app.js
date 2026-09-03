@@ -2992,12 +2992,66 @@
     }
   });
 
-  // Заказ уже создан — открываем оплату. Способ покупатель выбирает уже НА
-  // странице оплаты, а не здесь: набор способов зависит от кассы, спрашивать её
-  // на каждом открытии оформления незачем, а так покупатель ещё и может
-  // переключиться на другой способ, не оформляя заказ заново.
-  function startPayment(orderId) {
-    location.href = '/pay/' + encodeURIComponent(orderId);
+  /*
+   * Заказ уже создан — открываем оплату. Способ покупатель выбирает НА странице
+   * оплаты: набор зависит от кассы, спрашивать её на каждом открытии оформления
+   * незачем, а так он ещё и может переключиться, не оформляя заказ заново.
+   *
+   * ИСКЛЮЧЕНИЕ — когда выбирать не из чего и платят на стороне банка (`payNow`
+   * от сервера: способ один и он `hosted`). Тогда наша страница показала бы
+   * ровно одну кнопку «Перейти к оплате» и таймер — то есть лишний экран между
+   * «Оплатить» и оплатой. Выставляем счёт сразу и уводим на страницу банка.
+   *
+   * Любая заминка — обычный путь на `/pay/:id`: там покупатель увидит, что
+   * случилось, и сможет повторить. Терять покупку на отказе кассы нельзя.
+   */
+  function startPayment(orderId, payNow) {
+    var fallback = '/pay/' + encodeURIComponent(orderId);
+    if (!payNow) { location.href = fallback; return; }
+    var requestId = directRequestId(orderId, payNow);
+    if (!requestId) { location.href = fallback; return; }
+    fetch('/api/pay/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: orderId, method: payNow, requestId: requestId })
+    })
+      .then(function (r) { return r.json().catch(function () { return null; }); })
+      .then(function (d) {
+        // Счёт выставлен — товары уехали в заказ, и корзине пора опустеть. Тот
+        // же порядок, что на странице оплаты: чистим ТОЛЬКО при `ok`, иначе
+        // покупатель остался бы и без оплаты, и без корзины.
+        if (d && d.ok && window.Cart && Cart.clear) Cart.clear();
+        // Ссылка банка приходит отдельным полем и уже проверена сервером
+        // (только https и явный хост), но перед переходом смотрим ещё раз:
+        // адрес уезжает в location, и доверять ему на слово нельзя.
+        if (d && d.ok && d.hostedUrl && /^https:\/\/[^\s/]+/i.test(String(d.hostedUrl))) {
+          location.href = d.hostedUrl;
+          return;
+        }
+        location.href = fallback;
+      })
+      .catch(function () { location.href = fallback; });
+  }
+
+  /* Ключ идемпотентности для прямого старта — тот же договор, что у pay.js:
+   * повторное нажатие с тем же ключом не плодит второй счёт на те же деньги.
+   * Живёт он в localStorage под адресом заказа и способа, поэтому «оплатить»
+   * дважды (промахнулся, вернулся назад) попадает в ту же попытку. */
+  function directRequestId(orderId, method) {
+    var key = 'pay_req_' + orderId + '_' + method;
+    var TTL = 30 * 60 * 1000;
+    try {
+      var saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (saved && /^[a-f0-9]{32}$/.test(String(saved.id || ''))
+        && Date.now() - Number(saved.at || 0) >= 0 && Date.now() - Number(saved.at || 0) < TTL) return saved.id;
+    } catch (e) {}
+    var id = '';
+    try {
+      var bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      for (var i = 0; i < bytes.length; i++) id += (bytes[i] + 0x100).toString(16).slice(1);
+    } catch (e) { return ''; }
+    try { localStorage.setItem(key, JSON.stringify({ id: id, at: Date.now() })); } catch (e) {}
+    return id;
   }
 
   // Экран «заказ оформлен» — путь без онлайн-оплаты. При включённой оплате сюда
@@ -3166,7 +3220,7 @@
           if (page) {                       // страница оформления: показываем результат на всю ширину
             // Оплата — отдельный шаг поверх записанной заявки, поэтому уводим на
             // форму только после подтверждения, что заказ создан.
-            if (online && d.id) { startPayment(d.id); return; }
+            if (online && d.id) { startPayment(d.id, d.payNow); return; }
             showOrderDone(d.number || '—');
             return;
           }
