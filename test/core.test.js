@@ -2716,10 +2716,12 @@ test('WhatsApp открывает чат с готовым сообщением 
   assert.equal((html.match(/class="msg-link /g) || []).length, 2);
   assert.doesNotMatch(html, /tg-cta|wa-cta/);
 
-  // Тот же адрес показывается среди контактов страницы «О компании».
+  /* Та же ссылка стоит в контактах «О компании», и нажимают там сам НОМЕР:
+   * строка со знаком WhatsApp открывает ровно тот же диалог с готовой репликой,
+   * что и строка в подвале. */
   const about = render.aboutPage(settings, { categories: [] });
-  assert.ok(about.includes(`href="${href}"`));
-  assert.match(about, /<dt>WhatsApp<\/dt>[\s\S]*\+7 999 123-45-67/);
+  assert.match(about, new RegExp('<a class="msg-link msg-wa" href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    + '"[^>]*><svg class="msg-ico"[\\s\\S]*?<span>\\+7 999 123-45-67</span></a>'));
 
   // Без корректного номера нет ни мёртвой кнопки, ни строки меню.
   const none = render.homePage(Object.assign({}, settings, { contactWhatsApp: '+7 900' }), fakeDb, {});
@@ -3210,7 +3212,7 @@ test('гарантия и возврат — две отдельные стра�
   assert.match(css, /\.warranty-table td:nth-child\(2\)::before/);
 });
 
-test('«О компании» — факты из тех же модулей, что и витрина', () => {
+test('«О компании» — реквизиты, контакты и карта, и ничего сверх', () => {
   const settings = {
     storeName: 'a:Market', tagline: 'Оригинальная техника Apple', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
     contactPhone: '+79991234567', contactEmail: 'shop@example.test', contactTelegram: '@manager', contactHours: 'Ежедневно 10:00–21:00',
@@ -3220,41 +3222,44 @@ test('«О компании» — факты из тех же модулей, ч
   const html = render.aboutPage(settings, { origin: 'https://example.test', categories: ['iPhone', 'Mac'] });
 
   assert.match(html, /<link rel="canonical" href="https:\/\/example\.test\/about"/);
-  // Перевозчики и зоны сроков берутся из тех же модулей, что считают доставку на
-  // оформлении: переписанные словами, они разошлись бы с ним молча.
-  for (const m of require('../lib/delivery').METHODS) assert.ok(html.includes(m.name), 'нет перевозчика ' + m.name);
-  for (const z of require('../lib/delivery-days').summaryRows()) {
-    assert.ok(html.includes(z.name) && html.includes(z.days), 'нет зоны ' + z.name);
-  }
-  // Строка сроков консультанта и таблица страницы считаются одним проходом.
-  assert.equal(require('../lib/delivery-days').summary(),
-    require('../lib/delivery-days').summaryRows().map(r => r.name + ' — ' + r.days).join(', '));
 
-  // Контакты, категории и реквизиты — из настроек, и экранируются так же, как на
-  // правовых страницах.
-  assert.match(html, /href="tel:\+79991234567"/);
-  assert.match(html, /href="mailto:shop@example\.test"/);
-  assert.match(html, /href="https:\/\/t\.me\/manager"/);
-  assert.match(html, /href="\/\?category=iPhone"/);
+  /* Разделов ровно три, и реквизиты продавца стоят ПЕРВЫМИ: страницу открывают,
+   * чтобы проверить продавца перед предоплатой, и листать ради этого не должно
+   * приходиться. */
+  assert.deepEqual((html.match(/<section class="legal-section" id="(\w+)"/g) || []),
+    ['<section class="legal-section" id="seller"', '<section class="legal-section" id="contacts"',
+      '<section class="legal-section" id="address"']);
   assert.match(html, /ИП &lt;Тест&gt;/);
-  // Ссылки на остальные условия — ради них страницу и открывают вторым заходом.
-  for (const href of ['/warranty', '/returns', '/privacy', '/personal-data-consent', '/track']) {
-    assert.ok(html.includes(`href="${href}"`), 'нет ссылки на ' + href);
+
+  /* Пересказа доставки, оплаты, гарантии и порядка покупки здесь нет: витрина
+   * считает эти числа сама, а страница повторяла бы их словами и расходилась с
+   * ней молча. */
+  for (const gone of ['Как проходит покупка', 'Чем мы занимаемся', '<h2>Доставка</h2>', '<h2>Оплата</h2>',
+    'Гарантия, возврат и документы', 'about-cats', 'about-steps', 'legal-table']) {
+    assert.ok(!html.includes(gone), 'на странице осталось лишнее: ' + gone);
   }
-  // Часы работы стоят у контактов и НЕ повторяются под адресом: в двух соседних
-  // разделах одно значение читается как две строки, которые зачем-то сверяют.
-  const address = html.slice(html.indexOf('id="address"'), html.indexOf('id="seller"'));
-  assert.match(html.slice(html.indexOf('id="contacts"'), html.indexOf('id="address"')), /Ежедневно 10:00–21:00/);
-  assert.doesNotMatch(address, /Время работы/);
 
-  // Слоган владельца точкой не заканчивается — иначе он слипается со следующей
-  // фразой в одно предложение.
-  assert.match(html, /Оригинальная техника Apple\. Здесь собрано/);
+  /* Контакты — строки со значком, как в подвале: ни подписей «Телефон» и
+   * «Почта», ни абзаца-подсказки над ними. Значок и значение говорят то же
+   * самое. */
+  assert.match(html, /<ul class="about-contacts">/);
+  assert.match(html, /<a class="msg-link" href="tel:\+79991234567"><svg class="msg-ico"[\s\S]*?<span>\+7 999 123-45-67<\/span><\/a>/);
+  assert.match(html, /<a class="msg-link" href="mailto:shop@example\.test"><svg class="msg-ico"[\s\S]*?<span>shop@example\.test<\/span><\/a>/);
+  assert.match(html, /<a class="msg-link msg-tg" href="https:\/\/t\.me\/manager"[^>]*><svg class="msg-ico"[\s\S]*?<span>@manager<\/span><\/a>/);
+  assert.ok(html.includes('Ежедневно 10:00–21:00'));
+  assert.doesNotMatch(html, /<dt>Телефон<\/dt>|<dt>Почта<\/dt>|Пишите и звоните по любому вопросу/);
 
-  // Магазин без офлайн-точки не обещает адреса вовсе, и карты у него нет.
+  // Под картой — только карта: ни абзаца про офлайн-точку, ни списка с адресом.
+  const address = html.slice(html.indexOf('id="address"'));
+  assert.doesNotMatch(address, /legal-details|Магазин работает и офлайн/);
+  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="about-map"/);
+
+  // Слоган владельца остаётся подзаголовком и ничем не дописывается.
+  assert.match(html, /<h1>a:Market<\/h1>\s*<p>Оригинальная техника Apple<\/p>/);
+
+  // Магазин без офлайн-точки не обещает адреса вовсе, и раздела карты у него нет.
   const online = render.aboutPage({ storeName: 'a:Market', currency: '₽' }, { origin: 'https://example.test' });
-  assert.doesNotMatch(online, /about-map/);
-  assert.match(online, /розничных точек, шоурума и самовывоза нет/);
+  assert.doesNotMatch(online, /about-map|id="address"/);
 });
 
 test('карта «О компании» грузится только по нажатию', () => {
@@ -3276,6 +3281,11 @@ test('карта «О компании» грузится только по на
   assert.match(js, /function initStoreMap\(\)/);
   assert.match(js, /frame\.src = box\.dataset\.map/);
   assert.doesNotMatch(js, /yandex\.ru/);
+  /* Со скриптом в блоке остаётся ОДНА кнопка: запасная ссылка уходит вместе с
+   * прочим, чтобы на её месте была чистая карта, а не карта с рядом подписей
+   * под ней. Подписи «Загрузится с сервера Яндекса» здесь тоже больше нет. */
+  assert.match(js, /box\.textContent = '';\s*box\.appendChild\(btn\)/);
+  assert.doesNotMatch(js, /map-open-note/);
 
   // CSP пускает чужой хост только во фрейм. Ни script-src, ни connect-src, ни
   // img-src о нём не знают — иначе послабление вышло бы за карту.
@@ -7992,6 +8002,8 @@ test('срок доставки виден на оформлении рядом 
   assert.ok(prompt.includes(DAYS.handlingText()), 'консультант не знает про сборку заказа');
   assert.doesNotMatch(prompt, /Сроки доставки из Москвы в пункт выдачи[^:]*: /,
     'дорога перевозчика названа полным сроком доставки');
+  // Строка сроков склеивается из `summaryRows()`, а не считается вторым проходом.
+  assert.equal(DAYS.summary(), DAYS.summaryRows().map(r => r.name + ' — ' + r.days).join(', '));
 
   /* И `summary()`, и фраза про сборку уезжают в ПОСТОЯННУЮ часть промпта,
    * которую кэширует OpenAI. Зависели бы они от «сегодня» — кэш обнулялся бы

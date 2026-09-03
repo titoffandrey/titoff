@@ -2202,13 +2202,14 @@
      Встроенный чужой фрейм — это запрос к Яндексу у каждого, кто открыл
      страницу: адрес посетителя и время визита уезжали бы туда, ничего взамен не
      давая тому, кто пришёл просто почитать про магазин. Поэтому сервер рисует
-     адрес и обычную ссылку «Открыть в Яндекс.Картах» (она работает и без
-     скриптов), а кнопку-заглушку ставит скрипт — кнопке, которая без него
-     ничего не делает, на странице не место.
+     обычную ссылку «Открыть в Яндекс.Картах» (она работает и без скриптов), а
+     кнопку-заглушку ставит скрипт — кнопке, которая без него ничего не делает,
+     на странице не место.
 
-     Подпись под кнопкой называет цену нажатия прямо: карта приедет с чужого
-     сервера. Адрес виджета собирает сервер и отдаёт атрибутом — второй сборщик
-     того же адреса разошёлся бы с ним на первой правке. */
+     Со скриптом ссылка УХОДИТ вместе со всем прочим: в блоке остаётся одна
+     кнопка, на её месте появляется карта, и ничего больше — ни подписей, ни
+     ряда ссылок вокруг. Адрес виджета собирает сервер и отдаёт атрибутом —
+     второй сборщик того же адреса разошёлся бы с ним на первой правке. */
   function initStoreMap() {
     var box = document.querySelector('.about-map[data-map]');
     if (!box || !box.dataset.map) return;
@@ -2218,11 +2219,7 @@
     var label = document.createElement('span');
     label.className = 'map-open-label';
     label.textContent = 'Показать карту';
-    var note = document.createElement('span');
-    note.className = 'map-open-note';
-    note.textContent = 'Загрузится с сервера Яндекса';
     btn.appendChild(label);
-    btn.appendChild(note);
     btn.addEventListener('click', function () {
       var frame = document.createElement('iframe');
       frame.className = 'map-frame';
@@ -2235,7 +2232,8 @@
       frame.setAttribute('referrerpolicy', 'no-referrer');
       box.replaceChild(frame, btn);
     }, { once: true });
-    box.insertBefore(btn, box.firstChild);
+    box.textContent = '';
+    box.appendChild(btn);
   }
 
   // Safari и Firefox могут вернуть /checkout из back-forward cache целиком,
