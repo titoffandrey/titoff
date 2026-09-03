@@ -426,7 +426,9 @@ body.lb-open{overflow:hidden}
 .foot-brand{font-size:18px;font-weight:600;color:var(--text)}
 .foot-note{margin-top:4px}
 .foot-contact{margin-top:8px}
-.foot-contact a{color:var(--accent)}
+/* Значок и подпись одной строкой, тем же зазором, что у строк мессенджеров
+   ниже: колонка контактов читается одним столбиком, а не двумя наборами. */
+.foot-contact a{display:inline-flex;align-items:center;gap:8px;color:var(--accent)}
 /* Часы работы — подпись под контактами, а не третий контакт: они отвечают на
    вопрос «а сейчас ответят?», который задают, уже глядя на телефон. */
 .foot-hours{margin-top:6px;font-size:13px;color:var(--muted)}

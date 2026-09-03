@@ -2685,6 +2685,11 @@ test('в подвале Telegram — компактная кнопка с кор
   /* Под волосяной линией — своя группа: «О компании» первой (это страница
    * магазина), за ней мессенджеры (они уводят наружу). */
   assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item nav-ico" href="\/about"><svg class="nav-glyph"[\s\S]*?<span>О компании<\/span><\/a><a class="nav-item nav-ico nav-msg msg-tg" href="https:\/\/t\.me\/adc_apple"[^>]*><svg class="msg-ico"[\s\S]*?<span>Telegram<\/span><\/a>/);
+  /* Кружок «О компании» одного размера со знаками сервисов рядом: холст у него
+   * обрезан по фигуре вместе с обводкой, а на общих 24×24 он занимал бы четыре
+   * пятых и выглядел мельче соседей по группе. Размер у всех строк один
+   * (`.nav-ico>svg`), поэтому разницу давала бы только рамка. */
+  assert.doesNotMatch(html.match(/<svg class="nav-glyph"[^>]*>/)[0], /viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /Канал в Telegram/);
   assert.doesNotMatch(html, /tg-header/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
@@ -3248,6 +3253,13 @@ test('«О компании» — реквизиты, контакты и кар
   assert.match(html, /<a class="msg-link msg-tg" href="https:\/\/t\.me\/manager"[^>]*><svg class="msg-ico"[\s\S]*?<span>@manager<\/span><\/a>/);
   assert.ok(html.includes('Ежедневно 10:00–21:00'));
   assert.doesNotMatch(html, /<dt>Телефон<\/dt>|<dt>Почта<\/dt>|Пишите и звоните по любому вопросу/);
+  /* Все значки столбика ОДНОГО размера. Размер задан один на всех (`.msg-ico`),
+   * поэтому решает холст: у знаков сервисов фигура заполняет его целиком, а
+   * конверт, телефон и часы на общих 24×24 занимали две трети и выглядели
+   * мельче соседей. Рамка у каждого своя, по его же фигуре. */
+  for (const tag of html.match(/<svg class="msg-ico"[^>]*>/g)) {
+    assert.doesNotMatch(tag, /viewBox="0 0 24 24"/, 'холст значка не обрезан по фигуре: ' + tag);
+  }
 
   // Под картой — только карта: ни абзаца про офлайн-точку, ни списка с адресом.
   const address = html.slice(html.indexOf('id="address"'));
@@ -15538,8 +15550,11 @@ test('контакты магазина собраны в одном месте 
   });
   const db = { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const home = render.homePage(settings, db, {});
-  assert.match(home, /<a href="tel:\+79991234567">\+7 999 123-45-67<\/a>/);
-  assert.match(home, /<a href="mailto:shop@example\.ru">shop@example\.ru<\/a>/);
+  /* Со значком — как строки мессенджеров ниже и адрес с булавкой выше: без него
+   * посреди подписанных значками соседей оставались бы две безымянные строки.
+   * Глифы те же, что в контактах «О компании», и того же размера. */
+  assert.match(home, /<a href="tel:\+79991234567"><svg class="msg-ico"[\s\S]*?<span>\+7 999 123-45-67<\/span><\/a>/);
+  assert.match(home, /<a href="mailto:shop@example\.ru"><svg class="msg-ico"[\s\S]*?<span>shop@example\.ru<\/span><\/a>/);
   assert.match(home, /class="foot-hours">Ежедневно 10:00–21:00</);
 
   // Номер хранится в одном виде (E.164) и показывается в одном — как в заказе:
