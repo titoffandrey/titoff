@@ -3309,41 +3309,86 @@ test('«О компании» — реквизиты, контакты и кар
   assert.doesNotMatch(online, /about-map|id="address"/);
 });
 
-test('карта «О компании» показывается сразу и с меткой на магазине', () => {
+test('карта «О компании» своя, и тайлы к ней отдаёт наш сервер', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const lib = fs.readFileSync(path.join(__dirname, '..', 'lib', 'server-lib.js'), 'utf8');
+  const MAP = require('../lib/map-tiles');
+  const point = { lat: 55.749792, lon: 37.537186 };
   const base = { storeName: 'a:Market', currency: '₽', storeAddress: 'г. Москва, Пресненская наб., 12' };
   const html = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base), { origin: 'https://example.test' });
 
-  /* Фрейм рисует СЕРВЕР: карта видна сразу и работает без скриптов. Цена
-     решения названа в комментарии к MAP_HOST — Яндекс получает адрес каждого,
-     кто открыл страницу, — и смягчена тем, что фрейм не передаёт ему нашу
-     страницу (`no-referrer`) и грузится по подъезду к экрану (`lazy`). */
-  assert.match(html, /<iframe class="map-frame" src="https:\/\/yandex\.ru\/map-widget\/v1\/\?ll=37\.537186%2C55\.749792[^"]*"/);
-  assert.match(html, /title="Карта: г\. Москва, Пресненская наб\., 12"/);
-  assert.match(html, /loading="lazy" allowfullscreen referrerpolicy="no-referrer"/);
-  // Метка — то, ради чего карту и смотрят: с координатами её рисуем мы сами.
-  assert.match(html, /&amp;pt=37\.537186%2C55\.749792%2Cpm2rdm/);
-  // Кнопки «Показать карту» и ссылки под картой больше нет: в разделе одна карта.
-  assert.doesNotMatch(html, /map-open|about-map-link/);
-  assert.doesNotMatch(js, /initStoreMap|yandex\.ru|map-open/);
+  /* ГЛАВНОЕ: в разметке нет ни одного ЧУЖОГО адреса, который браузер загрузил бы
+     сам. Тайлы идут с нашего `/map/tile/...`, поэтому с витрины не уходит ни
+     одного запроса на сторону — то же правило, по которому здесь нет шрифтов
+     Google и внешнего геосервиса в метрике. */
+  assert.doesNotMatch(html, /<iframe|yandex\.ru\/map-widget|tile\.openstreetmap/);
+  const tiles = html.match(/<img class="map-tile" src="\/map\/tile\/\d+\/\d+\/\d+"[^>]*>/g) || [];
+  assert.equal(tiles.length, MAP.COLS * MAP.ROWS, 'слой тайлов собран не целиком');
+  // Метка — то, ради чего карту и смотрят: рисуем её сами, остриём в центр слоя.
+  assert.match(html, /<svg class="map-pin"/);
+  assert.match(html, /class="map-route" href="https:\/\/yandex\.ru\/maps\/\?rtext=/);
+  /* Строку лицензии OSM снимать нельзя — этого требует лицензия данных, и это
+     плата за карту, у которой всё остальное наше. */
+  assert.match(html, /class="map-credit" href="https:\/\/www\.openstreetmap\.org\/copyright"/);
+  // Скрипта у карты нет вовсе: разметку рисует сервер, и она работает без JS.
+  assert.doesNotMatch(js, /initStoreMap|yandex|map-open|map-tile/);
 
-  // CSP пускает чужой хост только во фрейм. Ни script-src, ни connect-src, ни
-  // img-src о нём не знают — иначе послабление вышло бы за карту.
+  /* ЧУЖИХ ХОСТОВ В CSP НЕ ОСТАЛОСЬ. Прежний `frame-src` с яндексовым доменом
+     стоял ради виджета; карта теперь своя, и тайлы проходят обычным
+     `img-src 'self'`. */
   const csp = lib.match(/'Content-Security-Policy': "([^"]+)"/)[1];
-  assert.match(csp, /frame-src https:\/\/yandex\.ru https:\/\/\*\.yandex\.ru/);
-  for (const d of ['script-src', 'connect-src', 'img-src', 'style-src', 'font-src']) {
-    const value = csp.match(new RegExp(d + " ([^;]+)"))[1];
-    assert.doesNotMatch(value, /yandex/, d + ' пускает яндекс');
-  }
+  assert.doesNotMatch(csp, /yandex|frame-src|openstreetmap/);
+  assert.match(csp, /img-src 'self' data: blob:/);
 
-  // Координат нет — метку ставит поиск виджета по самому адресу; мусор в поле
-  // это «координат нет», а не сломанная страница.
-  const byText = render.aboutPage(base, { origin: 'https://example.test' });
-  assert.match(byText, /src="[^"]*text=%D0%B3/);
+  /* Маршрут отдаёт ТОЛЬКО тайлы вокруг самого магазина и только на одном
+     масштабе: без этой рамки через нас качали бы планету, и наш адрес забанили
+     бы у OSM — их правила прямо запрещают массовую выкачку. */
+  const near = MAP.layer(point).tiles[0];
+  assert.ok(MAP.allows(point, near.z, near.x, near.y), 'свой же тайл не отдаётся');
+  assert.ok(!MAP.allows(point, near.z, near.x + 40, near.y), 'отдаётся тайл за рамкой');
+  assert.ok(!MAP.allows(point, near.z + 1, near.x, near.y), 'отдаётся чужой масштаб');
+  assert.ok(!MAP.allows(point, near.z, near.x + 0.5, near.y), 'дробный номер тайла принят');
+  assert.ok(!MAP.allows(null, near.z, near.x, near.y), 'без координат маршрут открыт');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /app\.get\('\/map\/tile\/:z\/:x\/:y'[\s\S]{0,400}MAP\.allows\(point, z, x, y\)/);
+
+  // Без координат карты нет вовсе: нарисовать квартал по строке адреса нечем.
+  const noGeo = render.aboutPage(base, { origin: 'https://example.test' });
+  assert.doesNotMatch(noGeo, /about-map|id="address"/);
   assert.equal(render.storePoint({ storeGeo: 'где-то в Москве' }), null);
   assert.equal(render.storePoint({ storeGeo: '95.1, 37.5' }), null, 'широта больше 90 — не точка');
   assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });
+});
+
+test('слой тайлов встаёт центром на точку магазина', () => {
+  const MAP = require('../lib/map-tiles');
+  /* Проекция та же, что у карты метрики: долгота линейна, широта логарифмична.
+     Проверяем не формулу, а её следствие — на карте это видно только глазами. */
+  const equator = MAP.project(0, 0, MAP.ZOOM);
+  const half = Math.pow(2, MAP.ZOOM) / 2;
+  assert.ok(Math.abs(equator.x - half) < 1e-6 && Math.abs(equator.y - half) < 1e-6,
+    'нулевая точка мира обязана попасть в середину');
+  const north = MAP.project(60, 30, MAP.ZOOM);
+  assert.ok(north.y < half, 'северная широта — выше середины карты');
+
+  /* Центр слоя — ровно точка магазина: смещение внутри своего тайла плюс
+     отступ до него. Разъедется — метка встанет мимо дома, и заметить это можно
+     будет только глазами. */
+  const point = { lat: 63.201, lon: 75.451 };
+  const view = MAP.layer(point);
+  const p = MAP.project(point.lat, point.lon, view.z);
+  const own = view.tiles.find(t => t.x === Math.floor(p.x) && t.y === Math.floor(p.y));
+  assert.ok(own, 'в слое нет тайла с самим магазином');
+  assert.ok(Math.abs((own.left + (p.x - Math.floor(p.x)) * MAP.TILE) - view.cx) < 1e-6);
+  assert.ok(Math.abs((own.top + (p.y - Math.floor(p.y)) * MAP.TILE) - view.cy) < 1e-6);
+  // Слой обязан накрывать самый широкий блок страницы и с запасом.
+  assert.ok(view.width >= 1200 && view.height >= 700, 'слоя не хватит на широкий экран');
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.about-map\{[^}]*position:relative[^}]*overflow:hidden/);
+  assert.match(css, /\.map-layer\{position:absolute;left:50%;top:50%\}/);
+  assert.match(css, /\.map-pin\{[^}]*transform:translate\(-50%,-100%\)/,
+    'остриё метки обязано приходиться на центр блока');
 });
 
 test('«О компании» — своя страница витрины: маршрут, подвал, метрика и карта сайта', () => {
@@ -8608,13 +8653,22 @@ test('координаты для поиска пунктов приходят �
   // — нет: «пункт в 400 м» от центра города означал бы не то, что прочитают.
   assert.match(dadata, /GEO_EXACT = new Set\(\['0', '1', '2'\]\)/);
   assert.match(dadata, /GEO_EXACT\.has\(String\(d\.qc_geo\)\)/);
-  // Своего геокодера в проекте нет и заводить его не нужно.
+  /* У ВИТРИНЫ геокодера нет ни своего, ни чужого: координаты покупателя
+   * приходят вместе с подсказкой адреса. OpenStreetMap в проекте есть, но не
+   * как геокодер — оттуда берутся пункты выдачи OZON (`lib/pickup-osm.js`) и
+   * тайлы карты магазина (`lib/map-tiles.js`).
+   *
+   * Координаты САМОГО МАГАЗИНА ищет `scripts/geocode-store.js` — офлайн-
+   * инструмент, который запускают руками раз в жизни: на открытии страницы
+   * покупателем такой запрос к чужому сервису делать незачем. Смотрим код без
+   * комментариев — иначе проверка ловила бы упоминание скрипта в объяснении. */
   const files = fs.readdirSync(path.join(__dirname, '..', 'lib')).filter(f => f.endsWith('.js'))
-    .map(f => fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8')).join('\n');
-  // Геокодера нет ни своего, ни чужого: координаты приходят вместе с подсказкой
-  // адреса. OpenStreetMap в проекте есть, но не как геокодер — оттуда берутся
-  // сами пункты выдачи OZON (lib/pickup-osm.js).
-  assert.doesNotMatch(files, /nominatim|geocod/i, 'внешний геокодер не нужен: координаты уже приходят с подсказкой');
+    .map(f => require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8'))).join('\n');
+  assert.doesNotMatch(files, /nominatim\.openstreetmap\.org|geocode\s*\(/i,
+    'внешний геокодер не нужен: координаты уже приходят с подсказкой');
+  const script = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'geocode-store.js'), 'utf8');
+  assert.match(script, /nominatim\.openstreetmap\.org/);
+  assert.match(script, /--apply/, 'скрипт обязан показывать найденное до записи');
   assert.equal(typeof suggestAddress, 'function');
 });
 
