@@ -2717,7 +2717,8 @@ test('WhatsApp открывает чат с готовым сообщением 
   /* Строки — ПАРА С ОДНОЙ разметкой: полный свой класс на сервис означал бы,
    * что Telegram и WhatsApp разъедутся по виду на первой правке. Приставка
    * (msg-tg/msg-wa) несёт ровно одно — фирменный цвет наведения. */
-  assert.match(html, /class="msg-links">[\s\S]*<span>Telegram<\/span>[\s\S]*<span>WhatsApp<\/span>/);
+  const footContacts = html.slice(html.indexOf('class="footer-col footer-contacts"'));
+  assert.match(footContacts, /<span>Telegram<\/span>[\s\S]*<span>WhatsApp<\/span>/);
   assert.equal((html.match(/class="msg-link /g) || []).length, 2);
   assert.doesNotMatch(html, /tg-cta|wa-cta/);
 
@@ -2748,9 +2749,14 @@ test('WhatsApp открывает чат с готовым сообщением 
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   /* Строки идут ОДНА ПОД ДРУГОЙ, а не рядом: это два способа связи в колонке
-   * контактов, и в ряд они вставали бы вторым «блоком действий» под почтой. */
-  assert.match(css, /\.msg-links\{[^}]*display:grid/);
-  assert.doesNotMatch((css.match(/\.msg-links\{([^}]*)\}/) || [])[1] || '', /flex/);
+   * контактов, и в ряд они вставали бы вторым «блоком действий» под почтой.
+   * Своей обёртки у них нет вовсе — они прямые дети колонки, и зазор им даёт
+   * она: у прежнего `.msg-links` он был свой, и щель между почтой и Telegram
+   * выходила шире, чем между самими мессенджерами. */
+  // Смотрим на правила БЕЗ комментариев — той же чисткой, что идёт на отдаче:
+  // иначе проверка поймала бы собственное объяснение выше по файлу.
+  assert.doesNotMatch(require('../lib/minify').css(css), /\.msg-links/);
+  assert.match(css, /\.footer-contacts\{[^}]*display:grid/);
   /* Правило у обеих строк ОДНО: цвет и кегль текста подвала, ни пилюли, ни
    * рамки, ни фона — рядом с телефоном и почтой две белые кнопки читались
    * рекламой сервисов, а не контактами. */
@@ -2815,7 +2821,11 @@ test('WhatsApp открывает чат с готовым сообщением 
   const links = 214; // «Политика конфиденциальности» — самый длинный пункт колонки «Информация»
   assert.ok(aboutW + colMin + links + 250 + gapX * 3 <= 952,
     'четыре колонки подвала обязаны помещаться в один ряд на ноутбуке');
-  assert.match(css, /\.foot-address\{[^}]*max-width:260px[^}]*font-size:14px/);
+  /* Адрес живёт в колонке МАГАЗИНА (`flex:1 1 240px; max-width:340px`), поэтому
+   * своя граница у него есть, но шире прежней: в колонке контактов он ужимался
+   * до 260 px. Строка адреса всё равно обязана переноситься сама, иначе колонка
+   * растянется по самому длинному слову. */
+  assert.match(css, /\.foot-address\{[^}]*max-width:300px[^}]*font-size:14px/);
 
   const promptDb = { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] };
   const prompt = require('../lib/chat-prompt').build(promptDb, settings, null, {})[0].content;
@@ -2832,6 +2842,13 @@ test('адрес единственной офлайн-точки виден в 
   // значок озвучить нечем, поэтому имя строке даёт спрятанное слово рядом.
   assert.match(html, /class="foot-address"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/div>/);
   assert.doesNotMatch(html, /Офлайн-магазин/);
+  /* Стоит он в колонке МАГАЗИНА, рядом с ИП, ИНН и ОГРНИП, а не среди контактов:
+   * это не способ связи, а место, и отвечает он на тот же вопрос — кто и откуда
+   * продаёт. Колонка контактов от этого стала ровным столбиком одинаковых
+   * строк, где адрес в две строки был самой высокой. */
+  const about = html.slice(html.indexOf('class="footer-about"'), html.indexOf('class="footer-col"'));
+  assert.match(about, /foot-address/);
+  assert.doesNotMatch(html.slice(html.indexOf('class="footer-col footer-contacts"')), /foot-address/);
 
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { storeAddress: address }), dbCore);
   assert.match(settingsHtml, /name="storeAddress" value="г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»"/);
@@ -3178,6 +3195,17 @@ test('цвета подвала — из подвала Google Trends, и одн
   assert.match(css, /\.pay-mc svg\{[^}]*stroke:var\(--footer-bg\)/);
   assert.match(css, /\.pay-sbp svg:first-child\{[^}]*stroke:var\(--footer-bg\)/);
   assert.doesNotMatch(css, /stroke:var\(--bg2\)/);
+
+  /* НАВЕДЕНИЕ У ВСЕХ ССЫЛОК ПОДВАЛА ОДНО — акцент магазина, тот же цвет, каким
+   * подсвечивается почта в контактах «О компании». Раньше их было три: разделы
+   * и почта уходили в --footer-ink, а мессенджеры — каждый в свой фирменный
+   * цвет, и в одной колонке это читалось как три разных вида ссылок. Логотип
+   * исключён — это знак, а не строка текста. */
+  const clean = require('../lib/minify').css(css);
+  assert.match(clean, /\.site-footer a:not\(\.logo\):hover\{color:var\(--accent\)\}/);
+  for (const gone of ['.footer-col-list a:hover', '.foot-contact']) {
+    assert.ok(!clean.includes(gone + '{'), 'у ссылок подвала осталось своё правило: ' + gone);
+  }
 });
 
 test('гарантия и возврат — две отдельные страницы со своими условиями', () => {
@@ -15550,12 +15578,15 @@ test('контакты магазина собраны в одном месте 
   });
   const db = { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const home = render.homePage(settings, db, {});
-  /* Со значком — как строки мессенджеров ниже и адрес с булавкой выше: без него
-   * посреди подписанных значками соседей оставались бы две безымянные строки.
-   * Глифы те же, что в контактах «О компании», и того же размера. */
-  assert.match(home, /<a href="tel:\+79991234567"><svg class="msg-ico"[\s\S]*?<span>\+7 999 123-45-67<\/span><\/a>/);
-  assert.match(home, /<a href="mailto:shop@example\.ru"><svg class="msg-ico"[\s\S]*?<span>shop@example\.ru<\/span><\/a>/);
-  assert.match(home, /class="foot-hours">Ежедневно 10:00–21:00</);
+  /* Со значком и ТОЙ ЖЕ разметкой, что у мессенджеров ниже (`msg-link`): все
+   * четыре контакта — прямые строки колонки, одного роста и на одном шаге.
+   * Своя обёртка делала строку телефона на пять пикселей выше соседних, и
+   * столбик стоял неровно при одинаковом зазоре. */
+  assert.match(home, /<a class="msg-link" href="tel:\+79991234567"><svg class="msg-ico"[\s\S]*?<span>\+7 999 123-45-67<\/span><\/a>/);
+  assert.match(home, /<a class="msg-link" href="mailto:shop@example\.ru"><svg class="msg-ico"[\s\S]*?<span>shop@example\.ru<\/span><\/a>/);
+  // Часы — такая же строка колонки, со своим значком: единственная строка без
+  // него посреди столбика читалась обрывком.
+  assert.match(home, /class="foot-hours"><svg class="msg-ico"[\s\S]*?<span>Ежедневно 10:00–21:00<\/span><\/div>/);
 
   // Номер хранится в одном виде (E.164) и показывается в одном — как в заказе:
   // два формата одного номера читались бы как два разных номера.

@@ -425,10 +425,6 @@ body.lb-open{overflow:hidden}
 .site-footer{background:var(--bg2);border-top:1px solid var(--border);margin-top:30px;padding:30px 0 40px;text-align:center;font-size:14px;color:var(--muted)}
 .foot-brand{font-size:18px;font-weight:600;color:var(--text)}
 .foot-note{margin-top:4px}
-.foot-contact{margin-top:8px}
-/* Значок и подпись одной строкой, тем же зазором, что у строк мессенджеров
-   ниже: колонка контактов читается одним столбиком, а не двумя наборами. */
-.foot-contact a{display:inline-flex;align-items:center;gap:8px;color:var(--accent)}
 /* Часы работы — подпись под контактами, а не третий контакт: они отвечают на
    вопрос «а сейчас ответят?», который задают, уже глядя на телефон. */
 .foot-hours{margin-top:6px;font-size:13px;color:var(--muted)}
@@ -439,12 +435,16 @@ body.lb-open{overflow:hidden}
    рамкой и фирменными значками — на сером подвале они забирали внимание у
    остальных контактов и читались рекламой сервисов.
 
-   ЦВЕТ БРЕНДА ОСТАЁТСЯ, но только на наведении — и у подписи, и у значка разом
-   (значок берёт `currentColor`). Вид у обеих строк ОДИН и описан здесь один
-   раз; различаются они ровно одной переменной `--msg-brand`, которую задают
-   классы-приставки ниже. Порог контраста 4.5:1 держит спокойное состояние —
-   именно в нём строку читают; наведение мышью прицельное и короткое. */
-.msg-links{display:grid;justify-items:start;gap:7px}
+   Своей обёртки у пары НЕТ: строки лежат прямо в колонке контактов, и зазор им
+   даёт она. Прежний `.msg-links` держал свой (7 px против 10 у колонки), и щель
+   между почтой и Telegram выходила заметно шире, чем между самими
+   мессенджерами, — в столбике из четырёх одинаковых строк это видно сразу.
+
+   Вид у обеих строк ОДИН и описан здесь один раз; различаются они ровно одной
+   переменной `--msg-brand`, которую задают классы-приставки ниже: она красит
+   строку под курсором в меню разделов и в контактах «О компании». В ПОДВАЛЕ
+   наведение у всех ссылок одно (см. `.site-footer a:hover` ниже по файлу) —
+   четыре строки одной колонки не должны подсвечиваться четырьмя способами. */
 /* `--msg-brand` по умолчанию — акцент магазина: теми же строками набраны
    контакты «О компании», где у телефона и почты своего бренда нет вовсе, а
    гаснущее наведение читалось бы как неработающая ссылка. Приставки msg-tg и
@@ -1694,7 +1694,13 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .footer-col-head{margin-bottom:13px;color:var(--footer-ink);font-size:17px;font-weight:650;letter-spacing:-.015em}
 .footer-col-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}
 .footer-col-list a{color:var(--footer-link);font-size:14px}
-.footer-col-list a:hover{color:var(--footer-ink)}
+/* НАВЕДЕНИЕ У ВСЕХ ССЫЛОК ПОДВАЛА ОДНО — акцент магазина, тот же цвет, каким
+   подсвечивается почта в контактах «О компании». Раньше их было три: разделы и
+   почта уходили в --footer-ink, а мессенджеры — каждый в свой фирменный цвет, и
+   в одной колонке это читалось как три разных вида ссылок. Селектор с элементом
+   `a` нужен ради специфичности: у `.msg-link:hover` она такая же, и порядок
+   правил в файле решал бы молча. Логотип исключён — это знак, а не строка. */
+.site-footer a:not(.logo):hover{color:var(--accent)}
 .foot-brand{font-size:20px;color:var(--footer-ink)}
 .foot-note{max-width:340px;margin-top:9px;line-height:1.55;color:var(--footer-link)}
 /* Контакты — ЧЕТВЁРТАЯ КОЛОНКА РЯДА, поэтому им нельзя задавать нижнюю границу
@@ -1703,16 +1709,20 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    оставляя справа полосу пустоты во всю ширину. Базис 300 px со сжатием: адрес
    внутри переносится сам, поэтому колонка честно ужимается вместе с остальными. */
 .footer-contacts{display:grid;align-content:start;justify-items:start;gap:10px;flex:0 1 250px}
-.msg-links,.foot-contact,.foot-hours,.foot-address{margin:0}
-/* Вместо подписи «Офлайн-магазин» над адресом — булавка: слово повторяло то,
-   что и так говорит сам адрес, и занимало отдельную строку. Глиф ЗАЛИТЫЙ и тот
-   же, что у подписи «Адрес» на оформлении (NOTE_ICONS.pin в public/app.js): на
-   16 px контурный не читается. Озвучить значок нечем, поэтому имя строке даёт
+/* Часы работы — такая же строка колонки, как контакты рядом: свой значок, тот
+   же кегль и тот же зазор до него. Единственная строка без значка посреди
+   столбика читалась обрывком, а мельче соседей — приписью неизвестно к чему.
+   Ссылкой она при этом не становится: нажимать тут нечего. */
+.foot-hours{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--footer-link)}
+/* Адрес офлайн-точки живёт в колонке МАГАЗИНА, рядом с ИП, ИНН и ОГРНИП: это не
+   способ связи, а место, и отвечает он на тот же вопрос — кто и откуда продаёт.
+   Вместо подписи «Офлайн-магазин» — булавка: слово повторяло то, что и так
+   говорит сам адрес, и занимало отдельную строку. Глиф ЗАЛИТЫЙ и тот же, что у
+   подписи «Адрес» на оформлении (NOTE_ICONS.pin в public/app.js): на 16 px
+   контурный не читается. Озвучить значок нечем, поэтому имя строке даёт
    спрятанное слово рядом. */
-.foot-address{display:flex;align-items:flex-start;gap:8px;max-width:260px;line-height:1.45;color:var(--footer-ink);font-size:14px;text-wrap:balance}
+.foot-address{display:flex;align-items:flex-start;gap:8px;max-width:300px;margin-top:12px;line-height:1.45;color:var(--footer-ink);font-size:14px;text-wrap:balance}
 .foot-pin{flex:none;width:16px;height:16px;margin-top:2px;fill:currentColor}
-.foot-contact a,.foot-hours{color:var(--footer-link)}
-.foot-contact a:hover{color:var(--footer-ink)}
 /* Мессенджеры идут обычными строками колонки, поэтому своего отступа у них
    больше нет: зазор им даёт сама колонка, как телефону и почте. Сами строки
    описаны один раз (.msg-link выше по файлу). */
@@ -3726,17 +3736,17 @@ details.metric-bots>summary:hover{background:#fffaf0}
      ниже 14px только у слогана, который иначе не помещается. */
   .foot-note{max-width:none;margin:8px auto 0;white-space:nowrap;font-size:min(14px,calc((100vw - 40px)/var(--fit,21)))}
   .footer-contacts{gap:10px;width:100%}
-  .foot-contact,.foot-address{margin:0}
   /* На телефоне адрес идёт обычной строкой с булавкой ВНУТРИ текста, а не
      колонкой из значка и абзаца: у flex-строки во всю ширину экрана текст
      центрируется внутри своей ячейки, а булавка остаётся прижатой к левому
      краю — значком, оторванным от того, что он подписывает. */
-  .foot-address{display:block;max-width:320px;margin-inline:auto}
+  .foot-address{display:block;max-width:320px;margin:10px auto 0}
   .foot-address .foot-pin{display:inline-block;margin:0 5px -2px 0}
   /* Мессенджеры — главный способ связи с телефона, поэтому строка получает
-     зону под палец и кегль чуть крупнее; сам вид пары не меняется. */
-  .msg-links{justify-items:center;gap:4px}
-  .msg-link{min-height:34px;font-size:15px}
+     зону под палец и кегль чуть крупнее. Тот же рост у телефона с почтой:
+     строки одной колонки обязаны стоять на равном шаге, а разная высота
+     раздвигает их сильнее любого зазора. */
+  .msg-link,.foot-hours{min-height:34px;font-size:15px}
   .msg-ico{width:20px;height:20px}
   /* Одна колонка: без сброса сетка осталась бы двухколоночной, как на десктопе,
      и копирайт по центру уезжал бы за левый край экрана */
