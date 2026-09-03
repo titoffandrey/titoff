@@ -3196,13 +3196,20 @@ test('цвета подвала — из подвала Google Trends, и одн
   assert.match(css, /\.pay-sbp svg:first-child\{[^}]*stroke:var\(--footer-bg\)/);
   assert.doesNotMatch(css, /stroke:var\(--bg2\)/);
 
-  /* НАВЕДЕНИЕ У ВСЕХ ССЫЛОК ПОДВАЛА ОДНО — акцент магазина, тот же цвет, каким
-   * подсвечивается почта в контактах «О компании». Раньше их было три: разделы
-   * и почта уходили в --footer-ink, а мессенджеры — каждый в свой фирменный
-   * цвет, и в одной колонке это читалось как три разных вида ссылок. Логотип
-   * исключён — это знак, а не строка текста. */
+  /* Наведение у ссылок подвала — акцент магазина, тот же цвет, каким
+   * подсвечивается почта в контактах «О компании»: разделы и контакты
+   * подсвечивались по-разному, хотя это ссылки одного подвала. Логотип
+   * исключён — это знак, а не строка текста.
+   *
+   * `.msg-link` исключён ТОЖЕ, и это не послабление: у телефона с почтой
+   * `--msg-brand` по умолчанию и есть акцент, то есть цвет там ровно тот же, а
+   * Telegram и WhatsApp сохраняют фирменные цвета — знак сервиса под курсором
+   * узнаётся именно ими. */
   const clean = require('../lib/minify').css(css);
-  assert.match(clean, /\.site-footer a:not\(\.logo\):hover\{color:var\(--accent\)\}/);
+  assert.match(clean, /\.site-footer a:not\(\.logo\):not\(\.msg-link\):hover\{color:var\(--accent\)\}/);
+  assert.match(clean, /\.msg-link:hover\{color:var\(--msg-brand\)\}/);
+  assert.match(clean, /\.msg-tg\{--msg-brand:#229ED9\}/);
+  assert.match(clean, /\.msg-wa\{--msg-brand:#25D366\}/);
   for (const gone of ['.footer-col-list a:hover', '.foot-contact']) {
     assert.ok(!clean.includes(gone + '{'), 'у ссылок подвала осталось своё правило: ' + gone);
   }
