@@ -5467,7 +5467,24 @@ test('способы оплаты — закрытый список, а пока
   // Настройки нет вовсе (установка обновилась со старой версии) — набор по
   // умолчанию, а не «всё»: иначе на витрине разом появились бы трансграничные.
   assert.deepEqual(pay.allowed(null, null).map(m => m.id), pay.DEFAULT_IDS);
-  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD']);
+  /* По умолчанию видны два способа для покупателя из России плюс карта Альфы:
+   * у неё это ЕДИНСТВЕННЫЙ способ, и не окажись он включённым, владелец завёл бы
+   * токен, включил кассу — и получил «оплатить нечем», не догадавшись отметить
+   * галочку в соседнем разделе. Магазину на P2P-кассах он не мешает: список
+   * пересекается с тем, что касса правда умеет, а этого кода она не вернёт. */
+  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE']);
+  // Трансграничные по-прежнему спрятаны: правило «по умолчанию только нужное
+  // покупателю из России» третья касса не отменяет.
+  for (const id of ['TO_CARD_TRANSGRAN', 'SBP_TRANSGRAN', 'TRANSGRANCARD_TJS']) {
+    assert.ok(!pay.DEFAULT_IDS.includes(id), 'трансграничный способ виден по умолчанию: ' + id);
+  }
+  /* `hosted` отличает оплату НА СТРАНИЦЕ БАНКА от перевода, который покупатель
+   * делает сам. От этого зависят подписи страницы оплаты: требовать «точную
+   * сумму» там, где её не вводят, — неправда. */
+  assert.equal(pay.isHosted('CARD_ONLINE'), true);
+  assert.equal(pay.isHosted('TO_CARD'), false);
+  assert.equal(pay.isHosted('SBP'), false);
+  assert.equal(pay.isHosted('ЧУЖОЕ'), false);
   // Касса не ответила — её условие не применяем: без списка покупателю нечем
   // платить вовсе, а несовпадение поймает сама касса при создании счёта.
   assert.equal(pay.allowed(null, ['SBP', 'TO_CARD', 'QR_NSPK']).length, 3);
@@ -5537,8 +5554,9 @@ test('трансграничные способы скрыты по умолча
   const pay = require('../lib/pay-methods');
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
-  // Свежая установка показывает два способа для России, а не все одиннадцать.
-  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD']);
+  // Свежая установка показывает способы для покупателя из России, а не все
+  // двенадцать: два перевода и карта (единственный способ кассы Альфы).
+  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD', 'CARD_ONLINE']);
   assert.ok(pay.METHODS.length > 2, 'остальные способы никуда не делись — они просто скрыты');
   for (const m of pay.METHODS) {
     if (/TRANSGRAN/.test(m.id)) assert.equal(pay.DEFAULT_IDS.includes(m.id), false, 'трансграничный по умолчанию скрыт: ' + m.id);
@@ -7008,9 +7026,14 @@ test('панель говорит состояние касс, а не пере�
     }
   };
   const health = PAYMENTS.health(both, live);
-  assert.deepEqual(health.map(r => r.state), ['ok', 'auth']);
+  // Третья строка — Альфа-Банк: в этих настройках она выключена, и панель
+  // говорит именно это. Строка есть у КАЖДОЙ кассы реестра, включая
+  // выключенную: «почему её нет в очереди» — вопрос, на который отвечает
+  // строка, а не её отсутствие.
+  assert.deepEqual(health.map(r => r.state), ['ok', 'auth', 'off']);
   assert.equal(health[0].live, true);
   assert.equal(health[1].live, false);
+  assert.equal(health[2].id, 'alfabank');
   // Выключенная и ненастроенная кассы разводятся по разным состояниям: «нечего
   // спрашивать» и «спросить нечем» — разные беды с разным лечением.
   assert.equal(PAYMENTS.health(Object.assign({}, both, { meridianpayEnabled: false }), live)[1].state, 'off');
@@ -7088,6 +7111,182 @@ test('панель говорит состояние касс, а не пере�
     ] } }]
   }), null, 'ok', { live });
   assert.match(withHistory, /последний ответ на сделку: мерчант не допущен к сделкам/);
+});
+
+/* Альфа-Банк: ссылка на оплату вместо чужого реквизита, и ключ у неё один.
+ *
+ * Эта касса устроена не как две первые, и тест закрепляет именно отличия.
+ * CrocoPAY и MeridianPay — P2P: выдают чужую карту, покупатель переводит сам,
+ * пул конечен. У Альфы эквайринг: приходит ссылка на её платёжную страницу,
+ * покупатель вводит там свою карту, деньги идут на счёт магазина.
+ *
+ * Ни одна проверка здесь НЕ ХОДИТ В СЕТЬ: тест обязан идти без интернета и не
+ * стучаться в банк на каждом прогоне. Всё, что проверяется, — отказы до
+ * запроса, разбор ответов, разметка и словарь.
+ */
+test('Альфа-Банк выдаёт ссылку на оплату по токену, без логина и пароля', async () => {
+  const ALFA = require('../lib/alfabank');
+  const PAYMENTS = require('../lib/payments');
+  const PAY = require('../lib/pay-methods');
+  const ERR = require('../lib/pay-errors');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'alfabank.js'), 'utf8');
+  const token = 'fhojfle6ssav32c6ao42bkcr54';
+  const on = Object.assign(dbCore.defaultSettings(), { alfabankEnabled: true, alfabankToken: token });
+
+  // Касса в реестре — иначе её не спросит ни очередь, ни панель.
+  assert.ok(PAYMENTS.providerIds().includes('alfabank'));
+  assert.equal(PAYMENTS.nameOf('alfabank'), 'Альфа-Банк');
+
+  /* КЛЮЧ РОВНО ОДИН — платёжный токен из личного кабинета. Ни логина, ни пароля
+   * API этот путь не требует вовсе, и в этом весь смысл: их банк выдаёт
+   * отдельным письмом, а токен лежит в ЛК сразу. */
+  assert.equal(ALFA.configured(on), true);
+  assert.equal(ALFA.configured({ alfabankToken: '' }), false);
+  assert.equal(ALFA.enabled(Object.assign({}, on, { alfabankEnabled: false })), false,
+    'галочка снята — касса молчит, даже когда токен на месте');
+  assert.equal(ALFA.enabled({ alfabankEnabled: true, alfabankToken: '' }), false,
+    'токена нет — кнопка, которая всегда ошибается, покупателю не показывается');
+  // Пустая строка в этом поле роняла бэкенд банка в 502, поэтому вид проверяем.
+  assert.equal(ALFA.validToken(token), true);
+  assert.equal(ALFA.validToken('ко ро ткий'), false);
+  assert.equal(ALFA.validToken('abc'), false);
+
+  // Способ один и валюта одна: виджет-эндпоинт поля валюты не принимает вовсе,
+  // и молча выставить счёт в другой было бы обманом.
+  assert.equal(ALFA.supports('CARD_ONLINE'), true);
+  assert.equal(ALFA.supports('TO_CARD'), false);
+  assert.equal(ALFA.supports(''), false);
+  assert.equal(ALFA.acceptsAmount(67990, 'RUB'), true);
+  assert.equal(ALFA.acceptsAmount(67990, 'USD'), false);
+  assert.equal(ALFA.acceptsAmount(0, 'RUB'), false);
+
+  /* Состояния заказа платёжного шлюза. Деньгами считается только 2 («полная
+   * авторизация»): холд и уход на 3-D Secure — это ещё не оплата, но и не
+   * отказ, покупатель платит прямо сейчас. */
+  assert.equal(ALFA.stateOf(2), 'paid');
+  assert.equal(ALFA.stateOf(0), 'pending');
+  assert.equal(ALFA.stateOf(5), 'pending', 'ушёл на 3-D Secure — ждём, а не отказываем');
+  assert.equal(ALFA.stateOf(6), 'failed');
+  assert.equal(ALFA.stateOf(3), 'cancelled');
+  assert.equal(ALFA.stateOf('чужое'), '');
+
+  // Отказы ДО обращения к банку: неверный вызов не должен превращаться в запрос.
+  const base = { amount: 67990, currency: 'RUB', method: 'CARD_ONLINE', externalId: 'a1b2c3d4e5f6', returnUrl: 'https://shop.ru/pay/x1' };
+  const denied = async patch => (await ALFA.createInvoice(on, Object.assign({}, base, patch))).error;
+  assert.equal(await denied({ returnUrl: '' }), 'bad_return_url',
+    'без адреса возврата банк увёл бы покупателя к себе навсегда');
+  assert.equal(await denied({ currency: 'USD' }), 'currency_unavailable');
+  assert.equal(await denied({ method: 'SBP' }), 'method_unavailable');
+  assert.equal(await denied({ amount: 0 }), 'bad_amount');
+  assert.equal(await denied({ externalId: '' }), 'bad_order_number');
+  assert.equal((await ALFA.createInvoice({ alfabankToken: '' }, base)).error, 'not_configured');
+
+  /* Номером заказа у банка служит id ПОПЫТКИ, а не номер заказа: `orderNumber`
+   * обязан быть уникальным, а попыток у одного заказа бывает несколько — второй
+   * счёт столкнулся бы с первым (ошибка «Заказ с таким номером уже
+   * зарегистрирован»). */
+  assert.match(source, /externalId/);
+  assert.doesNotMatch(source, /orderNumber:\s*trimmed\(params && params\.number\)/);
+
+  /* Повторов POST у этой кассы нет вовсе. У P2P единственный безопасный повтор —
+   * «нет свободных реквизитов»: пул мог освободиться. Здесь пула нет, а любой
+   * другой отказ двусмыслен — заказ мог зарегистрироваться, и второй запрос
+   * выдал бы второй счёт на те же деньги. */
+  assert.equal(ALFA.retryableStart({ ok: false, error: 'timeout' }), false);
+  assert.equal(ALFA.retryableStart({ ok: false, error: 'no_requisite' }), false);
+
+  // Подтверждать оплату вправе только точное совпадение по счёту.
+  assert.deepEqual(ALFA.matchesInvoice({ invoiceId: 'abc12345' }, { id: 'abc12345' }), { ok: true });
+  assert.equal(ALFA.matchesInvoice({ invoiceId: 'abc12345' }, { id: 'другой' }).ok, false);
+  assert.equal(ALFA.matchesInvoice({}, { id: 'abc12345' }).ok, false, 'без ожидаемого счёта — не подтверждаем');
+
+  /* Callback у этого пути не описан вовсе, поэтому уведомлениям не верим
+   * НИКОГДА: оплату подтверждает только опрос статуса. Вернуть `true` «на
+   * всякий случай» значило бы открыть дверь чужому «заказ оплачен». */
+  assert.equal(ALFA.verifyCallback(on, {}, ''), false);
+
+  /* ТLS: цепочка Альфы снаружи РФ не собирается (банк присылает промежуточный
+   * сертификат с другим ключом, а нужного нет и в бандле Минцифры), поэтому
+   * соединение проверяется пином по ключу. Пин обязан быть в файле и обязан
+   * применяться — без него мы либо не свяжемся с банком вовсе, либо, что хуже,
+   * начнём доверять кому попало. */
+  assert.match(source, /pins:\s*\['[A-Za-z0-9+/=]{40,}'\]/, 'пин боевого хоста на месте');
+  assert.match(source, /rejectUnauthorized: false/);
+  assert.match(source, /pin_mismatch/, 'не совпал ключ — соединение рвётся');
+  assert.match(source, /socket\.destroy/);
+  // Разрыв идёт в колбэке tls.connect, то есть ПЕРВЫМ обработчиком secureConnect:
+  // токен не должен уйти неизвестно кому.
+  assert.match(source, /tls\.connect\([\s\S]{0,200}getPeerCertificate/);
+
+  /* Отказы банка приходят по-русски, и словарь обязан их знать. Для панели
+   * разница решающая: «ключи не приняты» чинится токеном, а не ожиданием. */
+  assert.equal(ERR.codeOf('Доступ запрещен'), 'auth');
+  assert.equal(ERR.shortOf('auth'), 'ключи не приняты кассой');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'Доступ запрещен' }), 'auth');
+  assert.equal(ERR.codeOf('tls_pin'), 'tls_pin');
+  assert.equal(PAYMENTS.healthState({ ok: false, error: 'tls_pin' }), 'down');
+  // Покупателю про наши ключи знать незачем — ему общая фраза и совет.
+  assert.match(ERR.messageOf('Доступ запрещен'), /заказ уже сохранён/i);
+
+  /* СТРАНИЦА ОПЛАТЫ ГОВОРИТ ПРАВДУ ПРО ТО, ЧТО ДЕЛАЕТ ПОКУПАТЕЛЬ. При переводе
+   * сумму набирает он сам, и «переведите точную сумму» — правда. При оплате
+   * картой сумма зашита в счёт, ошибиться в ней нельзя вовсе, и то же
+   * предупреждение стало бы и неправдой, и лишней тревогой на последнем шаге. */
+  const payPageFor = method => render.payPage(
+    Object.assign(dbCore.defaultSettings(), { payMethods: [method] }),
+    {
+      id: 'a1', number: '482913', total: 67990, createdAt: Date.now(), items: [],
+      payment: {
+        status: 'pending', provider: 'alfabank', method,
+        invoiceId: '70906e55-7114-41d6-8332-4609dc6590f4',
+        requisite: method === 'CARD_ONLINE' ? 'https://pay.alfabank.ru/x?mdOrder=7' : '5599002143815845',
+        bank: method === 'CARD_ONLINE' ? '' : 'Т-Банк', owner: method === 'CARD_ONLINE' ? '' : 'Иван И.',
+        amount: 67990, currency: 'RUB', expiresAt: Date.now() + 1200000, attempts: []
+      }
+    }, { origin: 'https://shop.ru', methods: [PAY.describe(method)] });
+
+  const hosted = payPageFor('CARD_ONLINE');
+  assert.match(hosted, /Оплатите заказ/);
+  assert.match(hosted, /Сумма к оплате/);
+  assert.doesNotMatch(hosted, /Переведите точную сумму/, 'при оплате картой сумму не вводят');
+  assert.doesNotMatch(hosted, /Банк получателя/, 'получателя нет: деньги идут на счёт магазина');
+  assert.match(hosted, /Перейти к оплате/);
+  assert.match(hosted, /href="https:\/\/pay\.alfabank\.ru/);
+  assert.match(hosted, /Ждём оплату/);
+  assert.match(hosted, /Проверить оплату/);
+
+  // P2P-страница не изменилась ни словом.
+  const p2p = payPageFor('TO_CARD');
+  assert.match(p2p, /Переведите сумму/);
+  assert.match(p2p, /Переведите точную сумму/);
+  assert.match(p2p, /Ждём перевод/);
+
+  /* Имя кассы покупателю не показывается — общее правило витрины. Домен в самой
+   * ссылке не в счёт: это адрес, куда он идёт платить, а не подпись в нашем
+   * интерфейсе. */
+  assert.doesNotMatch(hosted.replace(/https:\/\/pay\.alfabank\.ru\S*/g, 'LINK'), /alfabank|Альфа-Банк/i);
+
+  // Панель: галочка кассы и поле токена на месте, ключ не спрятан звёздочками —
+  // банк называет его несекретным, а сверять его с личным кабинетом надо глазами.
+  const html = adminViews.settingsPage(on, { pendingReviewCount: () => 0 }, null);
+  assert.match(html, /name="alfabankEnabled"/);
+  assert.match(html, /name="alfabankToken"[^>]*value="fhojfle6ssav32c6ao42bkcr54"/);
+  assert.match(html, /Настройки → Платежный токен/);
+  // Включена без токена — панель говорит это прямо, а не молчит.
+  const nokeys = adminViews.settingsPage(Object.assign({}, on, { alfabankToken: '' }), { pendingReviewCount: () => 0 }, null);
+  assert.match(nokeys, /Касса включена, но платёжный токен не задан/);
+
+  /* Токен проверяется ДО записи — то же правило, что у всей формы настроек.
+   * Иначе владелец увидел бы «Сохранено», а покупатель — «Доступ запрещен» на
+   * последнем шаге покупки. */
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const settingsRoute = server.slice(server.indexOf('patch.alfabankEnabled'), server.indexOf('patch.payPrimary'));
+  assert.match(settingsRoute, /ALFA\.validToken\(token\)/);
+  assert.match(settingsRoute, /return fail\(/);
+  /* Адрес возврата собирает МАРШРУТ и передаёт провайдеру: только он знает,
+   * каким именем открыт магазин. Собранный внутри кассы, он уводил бы
+   * покупателя не туда. */
+  assert.match(server, /returnUrl: paymentOrigin\(req\) \+ '\/pay\/'/);
 });
 
 /* Список банков MeridianPay идёт восемь секунд, и это не повод его терять.

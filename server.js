@@ -22,6 +22,9 @@ const CROCO = require('./lib/crocopay');
 // именно о нём — например, в его собственном callback.
 const PAYMENTS = require('./lib/payments');
 const MERIDIAN = require('./lib/meridianpay');
+// Альфа-Банк нужен здесь ровно за тем же, что и MeridianPay: проверить ключ в
+// форме настроек до записи. Всё остальное про неё знает router.
+const ALFA = require('./lib/alfabank');
 const DELIVERY = require('./lib/delivery');
 const DOMAINS = require('./lib/domains');
 // Маршрут посылки: собирает и проверяет его этот модуль, хранит сам заказ, а
@@ -2529,8 +2532,18 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
     r = await p.createInvoice(s, {
       amount: ctx.amount, currency: ctx.currency, method, callbackUrl,
       // MeridianPay требует свой уникальный идентификатор сделки — им служит id
-      // попытки. CrocoPAY поле игнорирует.
-      externalId: attemptId
+      // попытки. CrocoPAY поле игнорирует. У Альфы это `orderNumber`, который
+      // обязан быть уникальным: номером заказа их брать нельзя, попыток у одного
+      // заказа бывает несколько, и вторая столкнулась бы с первой.
+      externalId: attemptId,
+      /* Куда банк вернёт покупателя с его платёжной страницы. Нужен только
+       * кассам, которые уводят человека к себе (у Альфы обязателен); P2P-кассы
+       * поле игнорируют — там покупатель никуда не уходит.
+       *
+       * Ведём на нашу же страницу оплаты: она сама опросит статус и покажет
+       * «Платёж получен», а заодно останется отсчёт и вся история заказа. */
+      returnUrl: paymentOrigin(req) + '/pay/' + encodeURIComponent(id),
+      description: 'Заказ ' + R.orderNo(order.number)
     });
     // Явное «реквизитов нет» означает, что счёт не создан. Повторять ту же кассу
     // имеет смысл, только когда за ней в очереди никого нет: у соседней пул
@@ -4482,6 +4495,26 @@ app.post('/admin/settings', async (req, res) => {
     }
     patch.meridianpayMerchantId = merchant;
   }
+  /* Третья касса — Альфа-Банк. Ключ у неё ровно один, платёжный токен из ЛК; ни
+   * логина, ни пароля API этот путь не требует.
+   *
+   * Токен проверяем ДО записи и по виду: пустая строка в этом поле роняла бэкенд
+   * банка в 502 (проверено), а мусор дал бы «Доступ запрещен» уже покупателю, на
+   * последнем шаге покупки. Пустое поле — это «касса не настроена», и это не
+   * ошибка.
+   *
+   * Токен НЕ идёт через `keepOrReplaceSecret`: банк называет его несекретным, и
+   * прятать его звёздочками значило бы мешать владельцу сверить значение с
+   * личным кабинетом. */
+  patch.alfabankEnabled = req.body.alfabankEnabled !== undefined;
+  if (req.body.alfabankToken !== undefined) {
+    const token = String(req.body.alfabankToken).trim().slice(0, 64);
+    if (token && !ALFA.validToken(token)) {
+      return fail('Платёжный токен Альфа-Банка — 16–64 латинских буквы и цифры, из личного кабинета: Настройки → Платежный токен');
+    }
+    patch.alfabankToken = token;
+  }
+  patch.alfabankTest = req.body.alfabankTest !== undefined ? '1' : '';
   // Какую кассу спрашивать первой. Чужое значение молча сводим к порядку по
   // умолчанию, а не оставляем витрину без оплаты.
   if (req.body.payPrimary !== undefined) {
