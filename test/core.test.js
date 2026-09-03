@@ -7343,13 +7343,24 @@ test('при единственном способе с оплатой на ст
   // только когда выбирать правда не из чего.
   const direct = s => {
     if (P.mode(s) !== 'cashbox') return '';
-    const list = PAY.allowed(null, s.payMethods);
-    return list.length === 1 && PAY.isHosted(list[0].id) ? list[0].id : '';
+    const own = Array.isArray(s && s.payMethods) ? s.payMethods : PAY.DEFAULT_IDS;
+    const providers = P.enabledProviders(s);
+    const real = own.filter(id => providers.some(p => p.supports(id)));
+    return real.length === 1 && PAY.isHosted(real[0]) ? String(real[0]) : '';
   };
+  const croco = { crocopayEnabled: true, crocopayClientId: 'ID', crocopayClientSecret: 'СЕКРЕТ' };
   assert.equal(direct(Object.assign({}, alfa, { payMethods: ['CARD_ONLINE'] })), 'CARD_ONLINE');
-  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['CARD_ONLINE', 'SBP'] })), '',
-    'способов два — выбор нужен, промежуточную страницу не срезаем');
-  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['SBP'] })), '',
+  /* БОЕВОЙ СЛУЧАЙ, на котором первая версия и споткнулась: галочки остаются
+   * стоять и у способов ВЫКЛЮЧЕННЫХ касс. Покупателю показывается один способ
+   * (живой список кассы отсеет остальные), значит и путь надо сокращать —
+   * поэтому считаем не по галочкам, а по тому, что кассы умеют. */
+  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['SBP', 'TO_CARD', 'CARD_ONLINE'] })), 'CARD_ONLINE',
+    'включена одна касса и умеет она только карту — выбирать не из чего');
+  assert.equal(direct(Object.assign({}, alfa, croco, { payMethods: ['SBP', 'TO_CARD', 'CARD_ONLINE'] })), '',
+    'две кассы — выбор реальный, промежуточную страницу не срезаем');
+  assert.equal(direct(Object.assign({}, alfa, { payMethods: ['SBP', 'TO_CARD'] })), '',
+    'карта не отмечена — платить этой кассой нечем, и сокращать нечего');
+  assert.equal(direct(Object.assign({}, croco, { payMethods: ['SBP', 'TO_CARD'] })), '',
     'перевод делает сам покупатель — ему нужны реквизиты на нашей странице');
   assert.equal(direct({ payMethods: ['CARD_ONLINE'] }), '', 'режим заявок');
   assert.equal(direct({
@@ -7361,6 +7372,8 @@ test('при единственном способе с оплатой на ст
   // на нашу страницу заказа, и она нужна — на неё банк вернёт покупателя.
   assert.match(server, /body\.hostedUrl = r\.invoice\.requisite/);
   assert.match(server, /url: '\/pay\/' \+ encodeURIComponent\(id\)/);
+  assert.match(server, /providers\.some\(p => p\.supports\(id\)\)/,
+    'кассы спрашиваем supports(), а не живой список: сети на оформлении быть не должно');
   assert.match(server, /payNow: pay && order && !order\.payment/,
     'у заказа с выставленным счётом второго счёта на те же деньги не выпускаем');
 
