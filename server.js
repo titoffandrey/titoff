@@ -4495,17 +4495,17 @@ app.post('/admin/settings', async (req, res) => {
     }
     patch.meridianpayMerchantId = merchant;
   }
-  /* Третья касса — Альфа-Банк. Ключ у неё ровно один, платёжный токен из ЛК; ни
-   * логина, ни пароля API этот путь не требует.
+  /* Третья касса — Альфа-Банк. Доступ подойдёт любой из двух: пара логин/пароль
+   * от API либо платёжный токен из личного кабинета.
    *
    * Токен проверяем ДО записи и по виду: пустая строка в этом поле роняла бэкенд
-   * банка в 502 (проверено), а мусор дал бы «Доступ запрещен» уже покупателю, на
+   * банка в 502 (проверено), а мусор дал бы «Доступ запрещён» уже покупателю, на
    * последнем шаге покупки. Пустое поле — это «касса не настроена», и это не
    * ошибка.
    *
-   * Токен НЕ идёт через `keepOrReplaceSecret`: банк называет его несекретным, и
-   * прятать его звёздочками значило бы мешать владельцу сверить значение с
-   * личным кабинетом. */
+   * Токен НЕ идёт через `keepOrReplaceSecret`, а пароль идёт: банк называет
+   * токен несекретным, и прятать его звёздочками значило бы мешать владельцу
+   * сверить значение с личным кабинетом. Пароль — обычный секрет. */
   patch.alfabankEnabled = req.body.alfabankEnabled !== undefined;
   if (req.body.alfabankToken !== undefined) {
     const token = String(req.body.alfabankToken).trim().slice(0, 64);
@@ -4514,6 +4514,10 @@ app.post('/admin/settings', async (req, res) => {
     }
     patch.alfabankToken = token;
   }
+  if (req.body.alfabankLogin !== undefined) {
+    patch.alfabankLogin = String(req.body.alfabankLogin).trim().slice(0, 30);
+  }
+  keepOrReplaceSecret('alfabankPassword', 'clearAlfabankPassword', 30);
   patch.alfabankTest = req.body.alfabankTest !== undefined ? '1' : '';
   // Какую кассу спрашивать первой. Чужое значение молча сводим к порядку по
   // умолчанию, а не оставляем витрину без оплаты.

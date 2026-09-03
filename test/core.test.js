@@ -7132,20 +7132,27 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'alfabank.js'), 'utf8');
   const token = 'fhojfle6ssav32c6ao42bkcr54';
   const on = Object.assign(dbCore.defaultSettings(), { alfabankEnabled: true, alfabankToken: token });
+  const byLogin = Object.assign(dbCore.defaultSettings(), {
+    alfabankEnabled: true, alfabankLogin: 'shop-api', alfabankPassword: 'секрет'
+  });
 
   // Касса в реестре — иначе её не спросит ни очередь, ни панель.
   assert.ok(PAYMENTS.providerIds().includes('alfabank'));
   assert.equal(PAYMENTS.nameOf('alfabank'), 'Альфа-Банк');
 
-  /* КЛЮЧ РОВНО ОДИН — платёжный токен из личного кабинета. Ни логина, ни пароля
-   * API этот путь не требует вовсе, и в этом весь смысл: их банк выдаёт
-   * отдельным письмом, а токен лежит в ЛК сразу. */
-  assert.equal(ALFA.configured(on), true);
+  /* ДОСТУП ПОДОЙДЁТ ЛЮБОЙ ИЗ ДВУХ, и шлюз сам об этом говорит, если не передать
+   * ничего: «[userName] или [password] или [token] не задан». Пара логин/пароль
+   * приходит письмом при подключении эквайринга, токен лежит в личном кабинете
+   * сразу — владельцу довольно того, что у него есть. */
+  assert.equal(ALFA.configured(on), true, 'хватает одного токена');
+  assert.equal(ALFA.configured(byLogin), true, 'хватает пары логин/пароль');
   assert.equal(ALFA.configured({ alfabankToken: '' }), false);
+  assert.equal(ALFA.configured({ alfabankLogin: 'shop-api' }), false, 'логин без пароля — не доступ');
+  assert.equal(ALFA.configured({ alfabankPassword: 'секрет' }), false, 'пароль без логина — не доступ');
   assert.equal(ALFA.enabled(Object.assign({}, on, { alfabankEnabled: false })), false,
-    'галочка снята — касса молчит, даже когда токен на месте');
+    'галочка снята — касса молчит, даже когда ключи на месте');
   assert.equal(ALFA.enabled({ alfabankEnabled: true, alfabankToken: '' }), false,
-    'токена нет — кнопка, которая всегда ошибается, покупателю не показывается');
+    'ключей нет — кнопка, которая всегда ошибается, покупателю не показывается');
   // Пустая строка в этом поле роняла бэкенд банка в 502, поэтому вид проверяем.
   assert.equal(ALFA.validToken(token), true);
   assert.equal(ALFA.validToken('ко ро ткий'), false);
@@ -7195,9 +7202,16 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   assert.equal(ALFA.retryableStart({ ok: false, error: 'timeout' }), false);
   assert.equal(ALFA.retryableStart({ ok: false, error: 'no_requisite' }), false);
 
-  // Подтверждать оплату вправе только точное совпадение по счёту.
-  assert.deepEqual(ALFA.matchesInvoice({ invoiceId: 'abc12345' }, { id: 'abc12345' }), { ok: true });
-  assert.equal(ALFA.matchesInvoice({ invoiceId: 'abc12345' }, { id: 'другой' }).ok, false);
+  /* Подтверждать оплату вправе только точное совпадение: тот самый счёт, та же
+   * сумма и валюта. Полноценная сверка возможна потому, что штатный статус
+   * (`getOrderStatusExtended.do`) возвращает и сумму, и валюту — виджетный
+   * `/api/widget/status` не возвращает ни того, ни другого, и ради этого от него
+   * и отказались. */
+  const want = { invoiceId: 'abc12345', amount: 67990, currency: 'RUB' };
+  assert.deepEqual(ALFA.matchesInvoice(want, { id: 'abc12345', amount: 67990, currency: 'RUB' }), { ok: true });
+  assert.equal(ALFA.matchesInvoice(want, { id: 'другой', amount: 67990, currency: 'RUB' }).reason, 'invoice_id');
+  assert.equal(ALFA.matchesInvoice(want, { id: 'abc12345', amount: 100, currency: 'RUB' }).reason, 'amount');
+  assert.equal(ALFA.matchesInvoice(want, { id: 'abc12345', amount: 67990, currency: 'USD' }).reason, 'currency');
   assert.equal(ALFA.matchesInvoice({}, { id: 'abc12345' }).ok, false, 'без ожидаемого счёта — не подтверждаем');
 
   /* Callback у этого пути не описан вовсе, поэтому уведомлениям не верим
@@ -7211,6 +7225,11 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
    * применяться — без него мы либо не свяжемся с банком вовсе, либо, что хуже,
    * начнём доверять кому попало. */
   assert.match(source, /pins:\s*\['[A-Za-z0-9+/=]{40,}'\]/, 'пин боевого хоста на месте');
+  // Ходим на ШТАТНЫЙ шлюз, а не на виджетный: его статус возвращает сумму и
+  // валюту, без которых сверять оплату нечем.
+  assert.match(source, /payment\/rest\/register\.do/);
+  assert.match(source, /payment\/rest\/getOrderStatusExtended\.do/);
+  assert.doesNotMatch(source, /api\/widget\/status'/);
   assert.match(source, /rejectUnauthorized: false/);
   assert.match(source, /pin_mismatch/, 'не совпал ключ — соединение рвётся');
   assert.match(source, /socket\.destroy/);
@@ -7272,9 +7291,13 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   assert.match(html, /name="alfabankEnabled"/);
   assert.match(html, /name="alfabankToken"[^>]*value="fhojfle6ssav32c6ao42bkcr54"/);
   assert.match(html, /Настройки → Платежный токен/);
-  // Включена без токена — панель говорит это прямо, а не молчит.
+  // Второй доступ — пара логин/пароль. Пароль прячется звёздочками, токен нет:
+  // банк называет его несекретным, и сверять его с ЛК надо глазами.
+  assert.match(html, /name="alfabankLogin"/);
+  assert.match(html, /name="alfabankPassword"/);
+  // Включена без доступа — панель говорит это прямо, а не молчит.
   const nokeys = adminViews.settingsPage(Object.assign({}, on, { alfabankToken: '' }), { pendingReviewCount: () => 0 }, null);
-  assert.match(nokeys, /Касса включена, но платёжный токен не задан/);
+  assert.match(nokeys, /Касса включена, но доступ не задан/);
 
   /* Токен проверяется ДО записи — то же правило, что у всей формы настроек.
    * Иначе владелец увидел бы «Сохранено», а покупатель — «Доступ запрещен» на
@@ -7283,6 +7306,9 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   const settingsRoute = server.slice(server.indexOf('patch.alfabankEnabled'), server.indexOf('patch.payPrimary'));
   assert.match(settingsRoute, /ALFA\.validToken\(token\)/);
   assert.match(settingsRoute, /return fail\(/);
+  // Пароль хранится как секрет (звёздочки в панели), логин — обычным полем.
+  assert.match(settingsRoute, /keepOrReplaceSecret\('alfabankPassword'/);
+  assert.match(settingsRoute, /patch\.alfabankLogin/);
   /* Адрес возврата собирает МАРШРУТ и передаёт провайдеру: только он знает,
    * каким именем открыт магазин. Собранный внутри кассы, он уводил бы
    * покупателя не туда. */
