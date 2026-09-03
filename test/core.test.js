@@ -3262,30 +3262,24 @@ test('«О компании» — реквизиты, контакты и кар
   assert.doesNotMatch(online, /about-map|id="address"/);
 });
 
-test('карта «О компании» грузится только по нажатию', () => {
+test('карта «О компании» показывается сразу и с меткой на магазине', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const lib = fs.readFileSync(path.join(__dirname, '..', 'lib', 'server-lib.js'), 'utf8');
   const base = { storeName: 'a:Market', currency: '₽', storeAddress: 'г. Москва, Пресненская наб., 12' };
   const html = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base), { origin: 'https://example.test' });
 
-  /* Главное: в разметке страницы нет ни одного яндексовского АДРЕСА, который
-     браузер загрузил бы сам. Есть только data-атрибут и обычная ссылка —
-     значит обычный посетитель наружу не светится, а фрейм появляется после
-     того, как он сам попросил карту. */
-  assert.doesNotMatch(html, /<iframe/);
-  assert.doesNotMatch(html, /(src|href)="https:\/\/yandex\.ru\/map-widget/);
-  assert.match(html, /data-map="https:\/\/yandex\.ru\/map-widget\/v1\/\?ll=37\.537186%2C55\.749792/);
-  assert.match(html, /<a class="about-map-link" href="https:\/\/yandex\.ru\/maps\/\?/);
-  // Фрейм вставляет витринный скрипт, и адрес он берёт из разметки, а не
-  // собирает сам: второй сборщик того же адреса разошёлся бы с сервером.
-  assert.match(js, /function initStoreMap\(\)/);
-  assert.match(js, /frame\.src = box\.dataset\.map/);
-  assert.doesNotMatch(js, /yandex\.ru/);
-  /* Со скриптом в блоке остаётся ОДНА кнопка: запасная ссылка уходит вместе с
-   * прочим, чтобы на её месте была чистая карта, а не карта с рядом подписей
-   * под ней. Подписи «Загрузится с сервера Яндекса» здесь тоже больше нет. */
-  assert.match(js, /box\.textContent = '';\s*box\.appendChild\(btn\)/);
-  assert.doesNotMatch(js, /map-open-note/);
+  /* Фрейм рисует СЕРВЕР: карта видна сразу и работает без скриптов. Цена
+     решения названа в комментарии к MAP_HOST — Яндекс получает адрес каждого,
+     кто открыл страницу, — и смягчена тем, что фрейм не передаёт ему нашу
+     страницу (`no-referrer`) и грузится по подъезду к экрану (`lazy`). */
+  assert.match(html, /<iframe class="map-frame" src="https:\/\/yandex\.ru\/map-widget\/v1\/\?ll=37\.537186%2C55\.749792[^"]*"/);
+  assert.match(html, /title="Карта: г\. Москва, Пресненская наб\., 12"/);
+  assert.match(html, /loading="lazy" allowfullscreen referrerpolicy="no-referrer"/);
+  // Метка — то, ради чего карту и смотрят: с координатами её рисуем мы сами.
+  assert.match(html, /&amp;pt=37\.537186%2C55\.749792%2Cpm2rdm/);
+  // Кнопки «Показать карту» и ссылки под картой больше нет: в разделе одна карта.
+  assert.doesNotMatch(html, /map-open|about-map-link/);
+  assert.doesNotMatch(js, /initStoreMap|yandex\.ru|map-open/);
 
   // CSP пускает чужой хост только во фрейм. Ни script-src, ни connect-src, ни
   // img-src о нём не знают — иначе послабление вышло бы за карту.
@@ -3296,10 +3290,10 @@ test('карта «О компании» грузится только по на
     assert.doesNotMatch(value, /yandex/, d + ' пускает яндекс');
   }
 
-  // Координаты необязательны: без них карта ищет по самому адресу, а мусор в
-  // поле — это «координат нет», а не сломанная страница.
+  // Координат нет — метку ставит поиск виджета по самому адресу; мусор в поле
+  // это «координат нет», а не сломанная страница.
   const byText = render.aboutPage(base, { origin: 'https://example.test' });
-  assert.match(byText, /data-map="[^"]*text=%D0%B3/);
+  assert.match(byText, /src="[^"]*text=%D0%B3/);
   assert.equal(render.storePoint({ storeGeo: 'где-то в Москве' }), null);
   assert.equal(render.storePoint({ storeGeo: '95.1, 37.5' }), null, 'широта больше 90 — не точка');
   assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });

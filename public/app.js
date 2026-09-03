@@ -2197,45 +2197,6 @@
     });
   }
 
-  /* Карта на странице «О компании» грузится ТОЛЬКО ПО НАЖАТИЮ.
-
-     Встроенный чужой фрейм — это запрос к Яндексу у каждого, кто открыл
-     страницу: адрес посетителя и время визита уезжали бы туда, ничего взамен не
-     давая тому, кто пришёл просто почитать про магазин. Поэтому сервер рисует
-     обычную ссылку «Открыть в Яндекс.Картах» (она работает и без скриптов), а
-     кнопку-заглушку ставит скрипт — кнопке, которая без него ничего не делает,
-     на странице не место.
-
-     Со скриптом ссылка УХОДИТ вместе со всем прочим: в блоке остаётся одна
-     кнопка, на её месте появляется карта, и ничего больше — ни подписей, ни
-     ряда ссылок вокруг. Адрес виджета собирает сервер и отдаёт атрибутом —
-     второй сборщик того же адреса разошёлся бы с ним на первой правке. */
-  function initStoreMap() {
-    var box = document.querySelector('.about-map[data-map]');
-    if (!box || !box.dataset.map) return;
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'map-open';
-    var label = document.createElement('span');
-    label.className = 'map-open-label';
-    label.textContent = 'Показать карту';
-    btn.appendChild(label);
-    btn.addEventListener('click', function () {
-      var frame = document.createElement('iframe');
-      frame.className = 'map-frame';
-      frame.src = box.dataset.map;
-      // Имя фрейму обязательно: без него читающий с экрана слышит «фрейм» и
-      // больше ничего, а внутрь карты ему всё равно ходить незачем.
-      frame.title = 'Карта: ' + (box.dataset.mapTitle || 'адрес магазина');
-      frame.loading = 'lazy';
-      frame.setAttribute('allowfullscreen', '');
-      frame.setAttribute('referrerpolicy', 'no-referrer');
-      box.replaceChild(frame, btn);
-    }, { once: true });
-    box.textContent = '';
-    box.appendChild(btn);
-  }
-
   // Safari и Firefox могут вернуть /checkout из back-forward cache целиком,
   // вместе со старым JS-объектом корзины. Сначала сохраняем видимую форму,
   // затем перечитываем cart_v1 и перерисовываем страницу по актуальному
@@ -2278,7 +2239,6 @@
     initHeroTicker();
     initMediaGuard();
     initNavMenu();
-    initStoreMap();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();

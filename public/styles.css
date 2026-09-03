@@ -1792,18 +1792,12 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .legal-section .about-contacts{display:grid;justify-items:start;gap:12px;margin:0;padding:0;list-style:none}
 .about-contacts li{display:flex;align-items:center;gap:9px;margin:0;color:var(--footer-link);font-size:15px;line-height:1.45}
 .about-contacts .msg-link{font-size:15px}
-/* Карта, и больше ничего. Пока покупатель её не попросил, здесь стоит кнопка (а
-   без скриптов — ссылка на Яндекс.Карты); рамка вокруг остаётся, чтобы блок и
-   до нажатия читался как карточка, а не как потерянная строка. */
+/* Карта, и больше ничего: фрейм рисует сервер, поэтому она видна сразу. Рамка со
+   скруглением — на ней, а не на фрейме: у чужого документа своих углов нет, и
+   без обрезки карта торчала бы прямоугольником из скруглённой карточки. Фон
+   держит место, пока карта едет. */
 .about-map{overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:var(--bg2)}
-.map-open{display:flex;align-items:center;justify-content:center;
-  width:100%;height:280px;padding:0;border:0;background:none;color:var(--text);font:inherit;cursor:pointer}
-.map-open:hover .map-open-label{color:var(--accent)}
-.map-open-label{font-size:15px;font-weight:620}
 .map-frame{display:block;width:100%;height:380px;border:0}
-.about-map-link{display:block;padding:13px 16px;border-top:1px solid var(--border-soft);
-  background:#fff;color:var(--accent);font-size:14px;text-align:center;text-decoration:none}
-.about-map-link:hover{text-decoration:underline;text-underline-offset:3px}
 
 /* Корзина */
 .cart-overlay{background:rgba(17,17,26,.36);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
@@ -3763,7 +3757,6 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .legal-section h2{font-size:21px}
   .legal-details>div{grid-template-columns:1fr;gap:4px}
   /* Карта на телефоне ниже: в полный рост она занимала бы весь экран целиком. */
-  .map-open{height:200px}
   .map-frame{height:300px}
   .legal-table-wrap{overflow:hidden}
   .legal-table,.legal-table tbody,.legal-table tr,.legal-table td{display:block;width:100%;min-width:0}
