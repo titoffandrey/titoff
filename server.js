@@ -57,6 +57,9 @@ const PF = require('./lib/price-float');
 const PRICING = require('./lib/pricing');
 const A = require('./lib/admin-views');
 const IMG = require('./lib/images');
+// Карта магазина: тайлы OpenStreetMap, которые наш сервер забирает один раз и
+// дальше отдаёт со своего адреса — с витрины не уходит ни одного чужого запроса.
+const MAP = require('./lib/map-tiles');
 const { Analytics, clientDetails, VISITORS_PER_PAGE } = require('./lib/analytics');
 // Адрес посетителя и доверие forwarded-заголовкам: отдельный модуль, потому что
 // от него зависят блокировка перебора пароля и все антиспам-лимиты.
@@ -1047,6 +1050,38 @@ app.get('/favicon.ico', (req, res) => {
     'Cache-Control': 'public, max-age=86400'
   });
   res.end(FAVICON);
+});
+/* Тайл карты магазина. Отдаём из своего кэша, а чего в нём нет — забираем у OSM
+ * один раз и кладём рядом с данными (см. шапку `lib/map-tiles.js`).
+ *
+ * ОТКРЫТЫМ ПРОКСИ МАРШРУТ НЕ СТАНОВИТСЯ: `allows()` пропускает только тайлы
+ * вокруг САМОГО МАГАЗИНА и только на одном масштабе. Без этой рамки через нас
+ * качали бы планету, и наш адрес забанили бы у OSM — их правила прямо запрещают
+ * массовую выкачку. Точка берётся из настроек на каждый запрос, поэтому смена
+ * адреса магазина сама закрывает прежние тайлы.
+ *
+ * В метрику маршрут не попадает: `trackPage` зовут страницы, а не картинки.
+ */
+app.get('/map/tile/:z/:x/:y', async (req, res) => {
+  const point = R.storePoint(settings());
+  const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
+  if (!MAP.allows(point, z, x, y)) return res.status(404).send('Не найдено');
+  const tile = await MAP.load(db.DATA_DIR, z, x, y);
+  if (!tile) {
+    // Не достучались до OSM — говорим об этом честно, а не отдаём пустую
+    // картинку: на месте тайла останется фон блока, и карта не притворится
+    // загруженной.
+    res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Карта недоступна');
+  }
+  res.writeHead(200, {
+    'Content-Type': 'image/png',
+    'Content-Length': tile.length,
+    // Тайл под этим адресом меняется разве что при правке самой карты OSM —
+    // месяц кэша браузеру и промежуточным кэшам безопасен.
+    'Cache-Control': 'public, max-age=2592000'
+  });
+  res.end(req.method === 'HEAD' ? undefined : tile);
 });
 app.get('/sitemap.xml', (req, res) => {
   const origin = originOf(req);

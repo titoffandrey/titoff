@@ -2685,6 +2685,11 @@ test('в подвале Telegram — компактная кнопка с кор
   /* Под волосяной линией — своя группа: «О компании» первой (это страница
    * магазина), за ней мессенджеры (они уводят наружу). */
   assert.match(html, /<span class="nav-sep"[^>]*><\/span><a class="nav-item nav-ico" href="\/about"><svg class="nav-glyph"[\s\S]*?<span>О компании<\/span><\/a><a class="nav-item nav-ico nav-msg msg-tg" href="https:\/\/t\.me\/adc_apple"[^>]*><svg class="msg-ico"[\s\S]*?<span>Telegram<\/span><\/a>/);
+  /* Кружок «О компании» одного размера со знаками сервисов рядом: холст у него
+   * обрезан по фигуре вместе с обводкой, а на общих 24×24 он занимал бы четыре
+   * пятых и выглядел мельче соседей по группе. Размер у всех строк один
+   * (`.nav-ico>svg`), поэтому разницу давала бы только рамка. */
+  assert.doesNotMatch(html.match(/<svg class="nav-glyph"[^>]*>/)[0], /viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /Канал в Telegram/);
   assert.doesNotMatch(html, /tg-header/);
   // Ника под кнопкой нет: она ведёт в тот же диалог, а строка под ней читалась
@@ -2712,14 +2717,17 @@ test('WhatsApp открывает чат с готовым сообщением 
   /* Строки — ПАРА С ОДНОЙ разметкой: полный свой класс на сервис означал бы,
    * что Telegram и WhatsApp разъедутся по виду на первой правке. Приставка
    * (msg-tg/msg-wa) несёт ровно одно — фирменный цвет наведения. */
-  assert.match(html, /class="msg-links">[\s\S]*<span>Telegram<\/span>[\s\S]*<span>WhatsApp<\/span>/);
+  const footContacts = html.slice(html.indexOf('class="footer-col footer-contacts"'));
+  assert.match(footContacts, /<span>Telegram<\/span>[\s\S]*<span>WhatsApp<\/span>/);
   assert.equal((html.match(/class="msg-link /g) || []).length, 2);
   assert.doesNotMatch(html, /tg-cta|wa-cta/);
 
-  // Тот же адрес показывается среди контактов страницы «О компании».
+  /* Та же ссылка стоит в контактах «О компании», и нажимают там сам НОМЕР:
+   * строка со знаком WhatsApp открывает ровно тот же диалог с готовой репликой,
+   * что и строка в подвале. */
   const about = render.aboutPage(settings, { categories: [] });
-  assert.ok(about.includes(`href="${href}"`));
-  assert.match(about, /<dt>WhatsApp<\/dt>[\s\S]*\+7 999 123-45-67/);
+  assert.match(about, new RegExp('<a class="msg-link msg-wa" href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    + '"[^>]*><svg class="msg-ico"[\\s\\S]*?<span>\\+7 999 123-45-67</span></a>'));
 
   // Без корректного номера нет ни мёртвой кнопки, ни строки меню.
   const none = render.homePage(Object.assign({}, settings, { contactWhatsApp: '+7 900' }), fakeDb, {});
@@ -2741,9 +2749,14 @@ test('WhatsApp открывает чат с готовым сообщением 
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   /* Строки идут ОДНА ПОД ДРУГОЙ, а не рядом: это два способа связи в колонке
-   * контактов, и в ряд они вставали бы вторым «блоком действий» под почтой. */
-  assert.match(css, /\.msg-links\{[^}]*display:grid/);
-  assert.doesNotMatch((css.match(/\.msg-links\{([^}]*)\}/) || [])[1] || '', /flex/);
+   * контактов, и в ряд они вставали бы вторым «блоком действий» под почтой.
+   * Своей обёртки у них нет вовсе — они прямые дети колонки, и зазор им даёт
+   * она: у прежнего `.msg-links` он был свой, и щель между почтой и Telegram
+   * выходила шире, чем между самими мессенджерами. */
+  // Смотрим на правила БЕЗ комментариев — той же чисткой, что идёт на отдаче:
+  // иначе проверка поймала бы собственное объяснение выше по файлу.
+  assert.doesNotMatch(require('../lib/minify').css(css), /\.msg-links/);
+  assert.match(css, /\.footer-contacts\{[^}]*display:grid/);
   /* Правило у обеих строк ОДНО: цвет и кегль текста подвала, ни пилюли, ни
    * рамки, ни фона — рядом с телефоном и почтой две белые кнопки читались
    * рекламой сервисов, а не контактами. */
@@ -2808,7 +2821,11 @@ test('WhatsApp открывает чат с готовым сообщением 
   const links = 214; // «Политика конфиденциальности» — самый длинный пункт колонки «Информация»
   assert.ok(aboutW + colMin + links + 250 + gapX * 3 <= 952,
     'четыре колонки подвала обязаны помещаться в один ряд на ноутбуке');
-  assert.match(css, /\.foot-address\{[^}]*max-width:260px[^}]*font-size:14px/);
+  /* Адрес живёт в колонке МАГАЗИНА (`flex:1 1 240px; max-width:340px`), поэтому
+   * своя граница у него есть, но шире прежней: в колонке контактов он ужимался
+   * до 260 px. Строка адреса всё равно обязана переноситься сама, иначе колонка
+   * растянется по самому длинному слову. */
+  assert.match(css, /\.foot-address\{[^}]*max-width:300px[^}]*font-size:14px/);
 
   const promptDb = { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] };
   const prompt = require('../lib/chat-prompt').build(promptDb, settings, null, {})[0].content;
@@ -2825,6 +2842,13 @@ test('адрес единственной офлайн-точки виден в 
   // значок озвучить нечем, поэтому имя строке даёт спрятанное слово рядом.
   assert.match(html, /class="foot-address"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/div>/);
   assert.doesNotMatch(html, /Офлайн-магазин/);
+  /* Стоит он в колонке МАГАЗИНА, рядом с ИП, ИНН и ОГРНИП, а не среди контактов:
+   * это не способ связи, а место, и отвечает он на тот же вопрос — кто и откуда
+   * продаёт. Колонка контактов от этого стала ровным столбиком одинаковых
+   * строк, где адрес в две строки был самой высокой. */
+  const about = html.slice(html.indexOf('class="footer-about"'), html.indexOf('class="footer-col"'));
+  assert.match(about, /foot-address/);
+  assert.doesNotMatch(html.slice(html.indexOf('class="footer-col footer-contacts"')), /foot-address/);
 
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { storeAddress: address }), dbCore);
   assert.match(settingsHtml, /name="storeAddress" value="г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»"/);
@@ -3183,6 +3207,24 @@ test('цвета подвала — из подвала Google Trends, и одн
   assert.match(css, /\.pay-mc svg\{[^}]*stroke:var\(--footer-bg\)/);
   assert.match(css, /\.pay-sbp svg:first-child\{[^}]*stroke:var\(--footer-bg\)/);
   assert.doesNotMatch(css, /stroke:var\(--bg2\)/);
+
+  /* Наведение у ссылок подвала — акцент магазина, тот же цвет, каким
+   * подсвечивается почта в контактах «О компании»: разделы и контакты
+   * подсвечивались по-разному, хотя это ссылки одного подвала. Логотип
+   * исключён — это знак, а не строка текста.
+   *
+   * `.msg-link` исключён ТОЖЕ, и это не послабление: у телефона с почтой
+   * `--msg-brand` по умолчанию и есть акцент, то есть цвет там ровно тот же, а
+   * Telegram и WhatsApp сохраняют фирменные цвета — знак сервиса под курсором
+   * узнаётся именно ими. */
+  const clean = require('../lib/minify').css(css);
+  assert.match(clean, /\.site-footer a:not\(\.logo\):not\(\.msg-link\):hover\{color:var\(--accent\)\}/);
+  assert.match(clean, /\.msg-link:hover\{color:var\(--msg-brand\)\}/);
+  assert.match(clean, /\.msg-tg\{--msg-brand:#229ED9\}/);
+  assert.match(clean, /\.msg-wa\{--msg-brand:#25D366\}/);
+  for (const gone of ['.footer-col-list a:hover', '.foot-contact']) {
+    assert.ok(!clean.includes(gone + '{'), 'у ссылок подвала осталось своё правило: ' + gone);
+  }
 });
 
 test('гарантия и возврат — две отдельные страницы со своими условиями', () => {
@@ -3222,7 +3264,7 @@ test('гарантия и возврат — две отдельные стра�
   assert.match(css, /\.warranty-table td:nth-child\(2\)::before/);
 });
 
-test('«О компании» — факты из тех же модулей, что и витрина', () => {
+test('«О компании» — реквизиты, контакты и карта, и ничего сверх', () => {
   const settings = {
     storeName: 'a:Market', tagline: 'Оригинальная техника Apple', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
     contactPhone: '+79991234567', contactEmail: 'shop@example.test', contactTelegram: '@manager', contactHours: 'Ежедневно 10:00–21:00',
@@ -3232,79 +3274,133 @@ test('«О компании» — факты из тех же модулей, ч
   const html = render.aboutPage(settings, { origin: 'https://example.test', categories: ['iPhone', 'Mac'] });
 
   assert.match(html, /<link rel="canonical" href="https:\/\/example\.test\/about"/);
-  // Перевозчики и зоны сроков берутся из тех же модулей, что считают доставку на
-  // оформлении: переписанные словами, они разошлись бы с ним молча.
-  for (const m of require('../lib/delivery').METHODS) assert.ok(html.includes(m.name), 'нет перевозчика ' + m.name);
-  for (const z of require('../lib/delivery-days').summaryRows()) {
-    assert.ok(html.includes(z.name) && html.includes(z.days), 'нет зоны ' + z.name);
-  }
-  // Строка сроков консультанта и таблица страницы считаются одним проходом.
-  assert.equal(require('../lib/delivery-days').summary(),
-    require('../lib/delivery-days').summaryRows().map(r => r.name + ' — ' + r.days).join(', '));
 
-  // Контакты, категории и реквизиты — из настроек, и экранируются так же, как на
-  // правовых страницах.
-  assert.match(html, /href="tel:\+79991234567"/);
-  assert.match(html, /href="mailto:shop@example\.test"/);
-  assert.match(html, /href="https:\/\/t\.me\/manager"/);
-  assert.match(html, /href="\/\?category=iPhone"/);
+  /* Разделов ровно три, и реквизиты продавца стоят ПЕРВЫМИ: страницу открывают,
+   * чтобы проверить продавца перед предоплатой, и листать ради этого не должно
+   * приходиться. */
+  assert.deepEqual((html.match(/<section class="legal-section" id="(\w+)"/g) || []),
+    ['<section class="legal-section" id="seller"', '<section class="legal-section" id="contacts"',
+      '<section class="legal-section" id="address"']);
   assert.match(html, /ИП &lt;Тест&gt;/);
-  // Ссылки на остальные условия — ради них страницу и открывают вторым заходом.
-  for (const href of ['/warranty', '/returns', '/privacy', '/personal-data-consent', '/track']) {
-    assert.ok(html.includes(`href="${href}"`), 'нет ссылки на ' + href);
+
+  /* Пересказа доставки, оплаты, гарантии и порядка покупки здесь нет: витрина
+   * считает эти числа сама, а страница повторяла бы их словами и расходилась с
+   * ней молча. */
+  for (const gone of ['Как проходит покупка', 'Чем мы занимаемся', '<h2>Доставка</h2>', '<h2>Оплата</h2>',
+    'Гарантия, возврат и документы', 'about-cats', 'about-steps', 'legal-table']) {
+    assert.ok(!html.includes(gone), 'на странице осталось лишнее: ' + gone);
   }
-  // Часы работы стоят у контактов и НЕ повторяются под адресом: в двух соседних
-  // разделах одно значение читается как две строки, которые зачем-то сверяют.
-  const address = html.slice(html.indexOf('id="address"'), html.indexOf('id="seller"'));
-  assert.match(html.slice(html.indexOf('id="contacts"'), html.indexOf('id="address"')), /Ежедневно 10:00–21:00/);
-  assert.doesNotMatch(address, /Время работы/);
 
-  // Слоган владельца точкой не заканчивается — иначе он слипается со следующей
-  // фразой в одно предложение.
-  assert.match(html, /Оригинальная техника Apple\. Здесь собрано/);
+  /* Контакты — строки со значком, как в подвале: ни подписей «Телефон» и
+   * «Почта», ни абзаца-подсказки над ними. Значок и значение говорят то же
+   * самое. */
+  assert.match(html, /<ul class="about-contacts">/);
+  assert.match(html, /<a class="msg-link" href="tel:\+79991234567"><svg class="msg-ico"[\s\S]*?<span>\+7 999 123-45-67<\/span><\/a>/);
+  assert.match(html, /<a class="msg-link" href="mailto:shop@example\.test"><svg class="msg-ico"[\s\S]*?<span>shop@example\.test<\/span><\/a>/);
+  assert.match(html, /<a class="msg-link msg-tg" href="https:\/\/t\.me\/manager"[^>]*><svg class="msg-ico"[\s\S]*?<span>@manager<\/span><\/a>/);
+  assert.ok(html.includes('Ежедневно 10:00–21:00'));
+  assert.doesNotMatch(html, /<dt>Телефон<\/dt>|<dt>Почта<\/dt>|Пишите и звоните по любому вопросу/);
+  /* Все значки столбика ОДНОГО размера. Размер задан один на всех (`.msg-ico`),
+   * поэтому решает холст: у знаков сервисов фигура заполняет его целиком, а
+   * конверт, телефон и часы на общих 24×24 занимали две трети и выглядели
+   * мельче соседей. Рамка у каждого своя, по его же фигуре. */
+  for (const tag of html.match(/<svg class="msg-ico"[^>]*>/g)) {
+    assert.doesNotMatch(tag, /viewBox="0 0 24 24"/, 'холст значка не обрезан по фигуре: ' + tag);
+  }
 
-  // Магазин без офлайн-точки не обещает адреса вовсе, и карты у него нет.
+  // Под картой — только карта: ни абзаца про офлайн-точку, ни списка с адресом.
+  const address = html.slice(html.indexOf('id="address"'));
+  assert.doesNotMatch(address, /legal-details|Магазин работает и офлайн/);
+  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="about-map"/);
+
+  // Слоган владельца остаётся подзаголовком и ничем не дописывается.
+  assert.match(html, /<h1>a:Market<\/h1>\s*<p>Оригинальная техника Apple<\/p>/);
+
+  // Магазин без офлайн-точки не обещает адреса вовсе, и раздела карты у него нет.
   const online = render.aboutPage({ storeName: 'a:Market', currency: '₽' }, { origin: 'https://example.test' });
-  assert.doesNotMatch(online, /about-map/);
-  assert.match(online, /розничных точек, шоурума и самовывоза нет/);
+  assert.doesNotMatch(online, /about-map|id="address"/);
 });
 
-test('карта «О компании» грузится только по нажатию', () => {
+test('карта «О компании» своя, и тайлы к ней отдаёт наш сервер', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const lib = fs.readFileSync(path.join(__dirname, '..', 'lib', 'server-lib.js'), 'utf8');
+  const MAP = require('../lib/map-tiles');
+  const point = { lat: 55.749792, lon: 37.537186 };
   const base = { storeName: 'a:Market', currency: '₽', storeAddress: 'г. Москва, Пресненская наб., 12' };
   const html = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base), { origin: 'https://example.test' });
 
-  /* Главное: в разметке страницы нет ни одного яндексовского АДРЕСА, который
-     браузер загрузил бы сам. Есть только data-атрибут и обычная ссылка —
-     значит обычный посетитель наружу не светится, а фрейм появляется после
-     того, как он сам попросил карту. */
-  assert.doesNotMatch(html, /<iframe/);
-  assert.doesNotMatch(html, /(src|href)="https:\/\/yandex\.ru\/map-widget/);
-  assert.match(html, /data-map="https:\/\/yandex\.ru\/map-widget\/v1\/\?ll=37\.537186%2C55\.749792/);
-  assert.match(html, /<a class="about-map-link" href="https:\/\/yandex\.ru\/maps\/\?/);
-  // Фрейм вставляет витринный скрипт, и адрес он берёт из разметки, а не
-  // собирает сам: второй сборщик того же адреса разошёлся бы с сервером.
-  assert.match(js, /function initStoreMap\(\)/);
-  assert.match(js, /frame\.src = box\.dataset\.map/);
-  assert.doesNotMatch(js, /yandex\.ru/);
+  /* ГЛАВНОЕ: в разметке нет ни одного ЧУЖОГО адреса, который браузер загрузил бы
+     сам. Тайлы идут с нашего `/map/tile/...`, поэтому с витрины не уходит ни
+     одного запроса на сторону — то же правило, по которому здесь нет шрифтов
+     Google и внешнего геосервиса в метрике. */
+  assert.doesNotMatch(html, /<iframe|yandex\.ru\/map-widget|tile\.openstreetmap/);
+  const tiles = html.match(/<img class="map-tile" src="\/map\/tile\/\d+\/\d+\/\d+"[^>]*>/g) || [];
+  assert.equal(tiles.length, MAP.COLS * MAP.ROWS, 'слой тайлов собран не целиком');
+  // Метка — то, ради чего карту и смотрят: рисуем её сами, остриём в центр слоя.
+  assert.match(html, /<svg class="map-pin"/);
+  assert.match(html, /class="map-route" href="https:\/\/yandex\.ru\/maps\/\?rtext=/);
+  /* Строку лицензии OSM снимать нельзя — этого требует лицензия данных, и это
+     плата за карту, у которой всё остальное наше. */
+  assert.match(html, /class="map-credit" href="https:\/\/www\.openstreetmap\.org\/copyright"/);
+  // Скрипта у карты нет вовсе: разметку рисует сервер, и она работает без JS.
+  assert.doesNotMatch(js, /initStoreMap|yandex|map-open|map-tile/);
 
-  // CSP пускает чужой хост только во фрейм. Ни script-src, ни connect-src, ни
-  // img-src о нём не знают — иначе послабление вышло бы за карту.
+  /* ЧУЖИХ ХОСТОВ В CSP НЕ ОСТАЛОСЬ. Прежний `frame-src` с яндексовым доменом
+     стоял ради виджета; карта теперь своя, и тайлы проходят обычным
+     `img-src 'self'`. */
   const csp = lib.match(/'Content-Security-Policy': "([^"]+)"/)[1];
-  assert.match(csp, /frame-src https:\/\/yandex\.ru https:\/\/\*\.yandex\.ru/);
-  for (const d of ['script-src', 'connect-src', 'img-src', 'style-src', 'font-src']) {
-    const value = csp.match(new RegExp(d + " ([^;]+)"))[1];
-    assert.doesNotMatch(value, /yandex/, d + ' пускает яндекс');
-  }
+  assert.doesNotMatch(csp, /yandex|frame-src|openstreetmap/);
+  assert.match(csp, /img-src 'self' data: blob:/);
 
-  // Координаты необязательны: без них карта ищет по самому адресу, а мусор в
-  // поле — это «координат нет», а не сломанная страница.
-  const byText = render.aboutPage(base, { origin: 'https://example.test' });
-  assert.match(byText, /data-map="[^"]*text=%D0%B3/);
+  /* Маршрут отдаёт ТОЛЬКО тайлы вокруг самого магазина и только на одном
+     масштабе: без этой рамки через нас качали бы планету, и наш адрес забанили
+     бы у OSM — их правила прямо запрещают массовую выкачку. */
+  const near = MAP.layer(point).tiles[0];
+  assert.ok(MAP.allows(point, near.z, near.x, near.y), 'свой же тайл не отдаётся');
+  assert.ok(!MAP.allows(point, near.z, near.x + 40, near.y), 'отдаётся тайл за рамкой');
+  assert.ok(!MAP.allows(point, near.z + 1, near.x, near.y), 'отдаётся чужой масштаб');
+  assert.ok(!MAP.allows(point, near.z, near.x + 0.5, near.y), 'дробный номер тайла принят');
+  assert.ok(!MAP.allows(null, near.z, near.x, near.y), 'без координат маршрут открыт');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /app\.get\('\/map\/tile\/:z\/:x\/:y'[\s\S]{0,400}MAP\.allows\(point, z, x, y\)/);
+
+  // Без координат карты нет вовсе: нарисовать квартал по строке адреса нечем.
+  const noGeo = render.aboutPage(base, { origin: 'https://example.test' });
+  assert.doesNotMatch(noGeo, /about-map|id="address"/);
   assert.equal(render.storePoint({ storeGeo: 'где-то в Москве' }), null);
   assert.equal(render.storePoint({ storeGeo: '95.1, 37.5' }), null, 'широта больше 90 — не точка');
   assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });
+});
+
+test('слой тайлов встаёт центром на точку магазина', () => {
+  const MAP = require('../lib/map-tiles');
+  /* Проекция та же, что у карты метрики: долгота линейна, широта логарифмична.
+     Проверяем не формулу, а её следствие — на карте это видно только глазами. */
+  const equator = MAP.project(0, 0, MAP.ZOOM);
+  const half = Math.pow(2, MAP.ZOOM) / 2;
+  assert.ok(Math.abs(equator.x - half) < 1e-6 && Math.abs(equator.y - half) < 1e-6,
+    'нулевая точка мира обязана попасть в середину');
+  const north = MAP.project(60, 30, MAP.ZOOM);
+  assert.ok(north.y < half, 'северная широта — выше середины карты');
+
+  /* Центр слоя — ровно точка магазина: смещение внутри своего тайла плюс
+     отступ до него. Разъедется — метка встанет мимо дома, и заметить это можно
+     будет только глазами. */
+  const point = { lat: 63.201, lon: 75.451 };
+  const view = MAP.layer(point);
+  const p = MAP.project(point.lat, point.lon, view.z);
+  const own = view.tiles.find(t => t.x === Math.floor(p.x) && t.y === Math.floor(p.y));
+  assert.ok(own, 'в слое нет тайла с самим магазином');
+  assert.ok(Math.abs((own.left + (p.x - Math.floor(p.x)) * MAP.TILE) - view.cx) < 1e-6);
+  assert.ok(Math.abs((own.top + (p.y - Math.floor(p.y)) * MAP.TILE) - view.cy) < 1e-6);
+  // Слой обязан накрывать самый широкий блок страницы и с запасом.
+  assert.ok(view.width >= 1200 && view.height >= 700, 'слоя не хватит на широкий экран');
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.about-map\{[^}]*position:relative[^}]*overflow:hidden/);
+  assert.match(css, /\.map-layer\{position:absolute;left:50%;top:50%\}/);
+  assert.match(css, /\.map-pin\{[^}]*transform:translate\(-50%,-100%\)/,
+    'остриё метки обязано приходиться на центр блока');
 });
 
 test('«О компании» — своя страница витрины: маршрут, подвал, метрика и карта сайта', () => {
@@ -8004,6 +8100,8 @@ test('срок доставки виден на оформлении рядом 
   assert.ok(prompt.includes(DAYS.handlingText()), 'консультант не знает про сборку заказа');
   assert.doesNotMatch(prompt, /Сроки доставки из Москвы в пункт выдачи[^:]*: /,
     'дорога перевозчика названа полным сроком доставки');
+  // Строка сроков склеивается из `summaryRows()`, а не считается вторым проходом.
+  assert.equal(DAYS.summary(), DAYS.summaryRows().map(r => r.name + ' — ' + r.days).join(', '));
 
   /* И `summary()`, и фраза про сборку уезжают в ПОСТОЯННУЮ часть промпта,
    * которую кэширует OpenAI. Зависели бы они от «сегодня» — кэш обнулялся бы
@@ -8567,13 +8665,22 @@ test('координаты для поиска пунктов приходят �
   // — нет: «пункт в 400 м» от центра города означал бы не то, что прочитают.
   assert.match(dadata, /GEO_EXACT = new Set\(\['0', '1', '2'\]\)/);
   assert.match(dadata, /GEO_EXACT\.has\(String\(d\.qc_geo\)\)/);
-  // Своего геокодера в проекте нет и заводить его не нужно.
+  /* У ВИТРИНЫ геокодера нет ни своего, ни чужого: координаты покупателя
+   * приходят вместе с подсказкой адреса. OpenStreetMap в проекте есть, но не
+   * как геокодер — оттуда берутся пункты выдачи OZON (`lib/pickup-osm.js`) и
+   * тайлы карты магазина (`lib/map-tiles.js`).
+   *
+   * Координаты САМОГО МАГАЗИНА ищет `scripts/geocode-store.js` — офлайн-
+   * инструмент, который запускают руками раз в жизни: на открытии страницы
+   * покупателем такой запрос к чужому сервису делать незачем. Смотрим код без
+   * комментариев — иначе проверка ловила бы упоминание скрипта в объяснении. */
   const files = fs.readdirSync(path.join(__dirname, '..', 'lib')).filter(f => f.endsWith('.js'))
-    .map(f => fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8')).join('\n');
-  // Геокодера нет ни своего, ни чужого: координаты приходят вместе с подсказкой
-  // адреса. OpenStreetMap в проекте есть, но не как геокодер — оттуда берутся
-  // сами пункты выдачи OZON (lib/pickup-osm.js).
-  assert.doesNotMatch(files, /nominatim|geocod/i, 'внешний геокодер не нужен: координаты уже приходят с подсказкой');
+    .map(f => require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'lib', f), 'utf8'))).join('\n');
+  assert.doesNotMatch(files, /nominatim\.openstreetmap\.org|geocode\s*\(/i,
+    'внешний геокодер не нужен: координаты уже приходят с подсказкой');
+  const script = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'geocode-store.js'), 'utf8');
+  assert.match(script, /nominatim\.openstreetmap\.org/);
+  assert.match(script, /--apply/, 'скрипт обязан показывать найденное до записи');
   assert.equal(typeof suggestAddress, 'function');
 });
 
@@ -15590,9 +15697,15 @@ test('контакты магазина собраны в одном месте 
   });
   const db = { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const home = render.homePage(settings, db, {});
-  assert.match(home, /<a href="tel:\+79991234567">\+7 999 123-45-67<\/a>/);
-  assert.match(home, /<a href="mailto:shop@example\.ru">shop@example\.ru<\/a>/);
-  assert.match(home, /class="foot-hours">Ежедневно 10:00–21:00</);
+  /* Со значком и ТОЙ ЖЕ разметкой, что у мессенджеров ниже (`msg-link`): все
+   * четыре контакта — прямые строки колонки, одного роста и на одном шаге.
+   * Своя обёртка делала строку телефона на пять пикселей выше соседних, и
+   * столбик стоял неровно при одинаковом зазоре. */
+  assert.match(home, /<a class="msg-link" href="tel:\+79991234567"><svg class="msg-ico"[\s\S]*?<span>\+7 999 123-45-67<\/span><\/a>/);
+  assert.match(home, /<a class="msg-link" href="mailto:shop@example\.ru"><svg class="msg-ico"[\s\S]*?<span>shop@example\.ru<\/span><\/a>/);
+  // Часы — такая же строка колонки, со своим значком: единственная строка без
+  // него посреди столбика читалась обрывком.
+  assert.match(home, /class="foot-hours"><svg class="msg-ico"[\s\S]*?<span>Ежедневно 10:00–21:00<\/span><\/div>/);
 
   // Номер хранится в одном виде (E.164) и показывается в одном — как в заказе:
   // два формата одного номера читались бы как два разных номера.
