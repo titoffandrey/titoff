@@ -2829,6 +2829,18 @@ test('адрес единственной офлайн-точки виден в 
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { storeAddress: address }), dbCore);
   assert.match(settingsHtml, /name="storeAddress" value="г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»"/);
   assert.match(settingsHtml, /единственная точка и в других городах магазинов нет/);
+
+  // Эти два факта относятся именно к текущему магазину, поэтому лежат в его
+  // seed-настройках и при первой установке сразу попадают и на витрину, и в
+  // динамические условия консультанта.
+  const seeded = require('../seed-data').settings;
+  assert.equal(seeded.contactHours, 'Ежедневно 09:00–22:00 МСК');
+  assert.equal(seeded.shipFromCity, 'Ноябрьск');
+  const seededHome = render.homePage(Object.assign({ currency: '₽' }, seeded), fakeDb, {});
+  assert.match(seededHome, /class="foot-hours">Ежедневно 09:00–22:00 МСК</);
+  const seededPrompt = require('../lib/chat-prompt').storeText(Object.assign({}, seeded, SETTINGS));
+  assert.match(seededPrompt, /Город отправки — Ноябрьск/);
+  assert.match(seededPrompt, /Время работы: Ежедневно 09:00–22:00 МСК/);
 });
 
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
@@ -11254,6 +11266,29 @@ test('живой канал панели: файл изменился — под
   delete require.cache[key];
 });
 
+test('присутствие администратора меняется только с первой и последней вкладкой', () => {
+  const key = require.resolve('../lib/live');
+  delete require.cache[key];
+  const live = require('../lib/live');
+  const seen = [];
+  live.presence(online => seen.push(online));
+
+  const first = liveClient();
+  const second = liveClient();
+  assert.equal(live.hasClients(), false);
+  live.subscribe({ socket: {} }, first, 'orders');
+  live.subscribe({ socket: {} }, second, 'settings');
+  assert.deepEqual(seen, [true], 'вторая вкладка не означает второй вход');
+  assert.equal(live.hasClients(), true);
+
+  first.close();
+  assert.deepEqual(seen, [true], 'пока одна вкладка жива, администратор онлайн');
+  second.close();
+  assert.deepEqual(seen, [true, false], 'уход — только после последней вкладки');
+  assert.equal(live.hasClients(), false);
+  delete require.cache[key];
+});
+
 test('живое обновление рисуется сервером, а страницы правки его не грузят', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
 
@@ -11285,11 +11320,17 @@ test('живое обновление рисуется сервером, а ст
     assert.match(html, /admin-live\.js/);
   }
   // А формы правки — не обязаны и не должны: подмена под руками стирала бы
-  // набранное. Скрипт туда не приезжает вовсе.
+  // набранное. Скрипт туда не приезжает вовсе, но отдельный тихий канал
+  // присутствия остаётся: открытая форма тоже означает, что менеджер на смене.
   for (const html of [adminViews.productForm(SETTINGS, db, null), adminViews.settingsPage(SETTINGS, db)]) {
     assert.doesNotMatch(html, /admin-live\.js/, 'форму правки обновлять из-под руки нельзя');
     assert.doesNotMatch(html, /<body class="admin" data-live=/);
+    assert.match(html, /admin-presence\.js/);
   }
+  const presence = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-presence.js'), 'utf8');
+  assert.match(presence, /document\.body\.hasAttribute\('data-live'\)/,
+    'странице с основным каналом второй канал не нужен');
+  assert.match(presence, /new EventSource\('\/admin\/live\?topics=settings'\)/);
 
   // Отсчёт у строк, приехавших живым обновлением, обязан идти так же: список
   // ищется заново на каждом такте, а не запоминается при загрузке страницы.
@@ -12840,6 +12881,8 @@ test('консультант не повторяется и не отговар�
   assert.doesNotMatch(rules, /Не знаешь ответа или вопрос требует человека/);
   assert.match(rules, /Передавай менеджеру только то, чего нет/);
   assert.match(rules, /«в карточке не указано»/, 'отговорка названа прямо');
+  assert.match(rules, /официальный эквайринг Альфа-Банка/);
+  assert.match(rules, /расчётный счёт ИП-продавца/);
 
   /* Условия отвечают на то, на что консультант отвечать не мог. Всё снято с тех
    * же страниц витрины, что читает покупатель, — разойтись с ней им нечем. */
@@ -12848,6 +12891,8 @@ test('консультант не повторяется и не отговар�
   }));
   assert.match(store, /самовывоза нет/, 'офлайн-точек нет — это спрашивают через один диалог');
   assert.match(store, /Оплаты при получении и наложенного платежа нет/);
+  assert.match(store, /Оплата по СБП проходит через официальный эквайринг Альфа-Банка/);
+  assert.match(store, /не на личную карту/);
   const offline = chatPrompt.storeText(Object.assign({}, SETTINGS, {
     storeAddress: 'г. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»'
   }));
@@ -13758,7 +13803,7 @@ test('свои реквизиты: третий режим витрины, со 
   assert.equal(store.setOrderPaidManually(byCashbox.id, false, 'admin').reason, 'settled_by_provider');
 });
 
-test('оператор замолчал — консультант возвращается сам через пять минут', () => {
+test('онлайн-администратор отвечает первым, после ухода консультант подхватывает вопрос', () => {
   /* Первая реплика человека выключает бота, и это правильно: перебивать живого
    * менеджера нельзя. Но дежурный отвечает и уходит, а покупатель пишет снова —
    * и упирается в молчание. Хуже случая в чате магазина не придумаешь: вопрос
@@ -13769,6 +13814,7 @@ test('оператор замолчал — консультант возвра�
    * умолчанию, ноль означает «не возвращать вовсе», а само число живёт в
    * lib/chat.js — его спрашивают и возврат, и форма настроек. */
   assert.equal(chatStore.TAKEOVER_DEFAULT_MIN, 5);
+  assert.equal(chatStore.ADMIN_FIRST_WAIT_MIN, 2);
   assert.equal(chatStore.takeoverMinutes({}), 5, 'поля нет — как было');
   assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: '' }), 5, 'пустое поле — тоже');
   assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 20 }), 20);
@@ -13776,12 +13822,11 @@ test('оператор замолчал — консультант возвра�
   assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 99999 }), chatStore.TAKEOVER_MAX_MIN);
   assert.equal(chatStore.takeoverMinutes({ aiTakeoverMinutes: 'ерунда' }), 5, 'мусор не отменяет возврат');
   assert.match(source, /function takeoverMs\(s\) \{ return CHAT\.takeoverMinutes\(s\) \* 60 \* 1000; \}/);
-  assert.match(source, /if \(!wait\) return;/, 'ноль минут — таймер не заводим вовсе');
+  assert.match(source, /if \(!wait\)/, 'ноль минут — таймер не заводим вовсе');
   const arm = source.slice(source.indexOf('function armTakeover('), source.indexOf('async function aiAnswer('));
-  // Возвращаем, только если ответить и правда было некому: за пять минут
-  // менеджер мог написать сам.
-  assert.match(arm, /fresh\.mode !== 'operator'/);
-  assert.match(arm, /last\.role !== 'user'/);
+  // Возвращаем, только если режим не сменился и ответить правда было некому.
+  assert.match(arm, /fresh\.mode !== expectedMode/);
+  assert.match(arm, /lastMessageIsQuestion\(fresh\)/);
   assert.match(arm, /CHAT\.setMode\(fresh, 'ai'\)/);
   assert.match(arm, /aiReply\(fresh/, 'на реплику надо ОТВЕТИТЬ, а не просто включить бота');
   // Переписка уезжает в модель целиком, поэтому консультант знает и то, о чём
@@ -13791,8 +13836,18 @@ test('оператор замолчал — консультант возвра�
   const send = source.slice(source.indexOf("app.post('/api/chat/send'"), source.indexOf("app.get('/api/chat/stream'"));
   // Спрашиваем `enabled`, а не `configured`: выключенный галочкой консультант
   // молчит и с ключом — все вопросы уходят менеджеру.
-  assert.match(send, /chat\.mode === 'operator' && AI\.enabled\(s\)/);
+  assert.match(send, /chat\.mode === 'ai' && AI\.enabled\(s\) && aiWaitsForAdmin\(s\)[\s\S]{0,100}waitForAdmin\(chat\)/,
+    'пока панель открыта, консультант не забирает первый ответ');
+  assert.match(send, /chat\.mode === 'operator' && AI\.enabled\(s\) && aiWaitsForAdmin\(s\)[\s\S]{0,100}waitForAdmin\(chat\)/);
   assert.match(send, /armTakeover\(chat\)/);
+  const presence = source.slice(source.indexOf('function adminPresenceChanged('), source.indexOf('async function aiReply('));
+  assert.match(presence, /for \(const id of \[\.\.\.aiTakeover\.keys\(\)\]\) pauseTakeover\(id\)/,
+    'вернувшийся администратор отменяет отложенные ответы');
+  assert.match(presence, /for \(const id of \[\.\.\.aiWaitingForAdmin\]\)/,
+    'выход будит только вопросы, отложенные этой сменой, а не старые переписки');
+  assert.match(presence, /armTakeover\(chat, !adminHasAnswered\(chat\)\)/,
+    'после ухода первая беседа ждёт 2 минуты, разговор менеджера — обычный срок');
+  assert.match(source, /LIVE\.presence\(adminPresenceChanged\)/);
   // Ответил менеджер — таймер снимается: и из панели, и из темы Telegram.
   const reply = source.slice(source.indexOf("app.post('/admin/chat/:id/reply'"));
   assert.match(reply.slice(0, 2600), /cancelTakeover\(chat\.id\)/);
@@ -14240,6 +14295,7 @@ test('консультанта можно выключить галочкой, �
   assert.doesNotMatch(source, /AI\.configured\(s\)\) return;/);
   // Галочка снимается отсутствием поля в теле формы, как и все прочие.
   assert.match(source, /patch\.aiEnabled = req\.body\.aiEnabled !== undefined;/);
+  assert.match(source, /patch\.aiPauseWhenAdminOnline = req\.body\.aiPauseWhenAdminOnline !== undefined;/);
   assert.match(source, /const willAi = patch\.aiEnabled &&/);
 
   // Обе настройки стоят в разделе чата и подписаны по-человечески.
@@ -14251,6 +14307,8 @@ test('консультанта можно выключить галочкой, �
   assert.match(html, /name="aiEnabled"/);
   assert.match(html, /Консультант отвечает сам/);
   assert.match(html, /name="aiTakeoverMinutes"/);
+  assert.match(html, /name="aiPauseWhenAdminOnline"/);
+  assert.match(html, /Пока администратор онлайн, первым отвечает менеджер/);
   assert.match(html, /Возврат консультанта, минут/);
   assert.match(html, /placeholder="5 — 0 не возвращать"/);
   // Панель говорит именно «выключен», а не «не настроен»: это разные беды и
@@ -15610,7 +15668,7 @@ test('настройки по умолчанию знают про свои ре
    * режим витрины (перевод прямо владельцу) и выключатель консультанта не были
    * видны в единственном месте, где положено видеть все её настройки. */
   for (const key of ['ownPayEnabled', 'ownPayCard', 'ownPayPhone', 'ownPayOwner', 'ownPayBank',
-    'aiEnabled', 'aiTakeoverMinutes']) {
+    'aiEnabled', 'aiPauseWhenAdminOnline', 'aiTakeoverMinutes']) {
     assert.ok(key in defaults, 'в настройках по умолчанию есть ' + key);
   }
   // И читаются они ровно так же, как читалось их отсутствие, — иначе правка
@@ -15622,6 +15680,7 @@ test('настройки по умолчанию знают про свои ре
     ai.enabled({ aiApiKey: 'k' }), 'aiEnabled: true равно отсутствию поля');
   assert.equal(payments.ownRequisites(defaults).on, payments.ownRequisites({}).on);
   assert.equal(chat.takeoverMinutes(defaults), chat.takeoverMinutes({}));
+  assert.equal(defaults.aiPauseWhenAdminOnline, true);
 });
 
 test('уборка по сроку хранения идёт и на тихом магазине', t => {

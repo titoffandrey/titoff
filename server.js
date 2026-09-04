@@ -1980,6 +1980,10 @@ const aiQueued = new Map();
  * этого ещё одно поле на диске и чинить его при каждой записи — дороже задачи.
  */
 const aiTakeover = new Map();
+// Только те диалоги, где конкретная реплика была отложена из-за открытой
+// панели. Без этого списка выход администратора будил бы и старые вопросы,
+// оставшиеся последними в переписке неделю назад.
+const aiWaitingForAdmin = new Set();
 
 /* ОБЩИЙ БЮДЖЕТ ПРОЦЕССА на ответы модели — последний рубеж, за которым деньги.
  *
@@ -2010,30 +2014,88 @@ function takeoverMs(s) { return CHAT.takeoverMinutes(s) * 60 * 1000; }
 function cancelTakeover(id) {
   const timer = aiTakeover.get(id);
   if (timer) { clearTimeout(timer); aiTakeover.delete(id); }
+  aiWaitingForAdmin.delete(id);
 }
 
-function armTakeover(chat) {
+// Администратор вернулся до ответа: таймер останавливаем, но сам ожидающий
+// вопрос помним — если последняя вкладка снова закроется, пауза начнётся заново.
+function pauseTakeover(id) {
+  const timer = aiTakeover.get(id);
+  if (timer) { clearTimeout(timer); aiTakeover.delete(id); }
+}
+
+function waitForAdmin(chat) {
   cancelTakeover(chat.id);
+  aiWaitingForAdmin.add(chat.id);
+}
+
+function adminHasAnswered(chat) {
+  return !!chat && chat.messages.some(message => message.role === 'operator');
+}
+
+function lastMessageIsQuestion(chat) {
+  const last = chat && chat.messages[chat.messages.length - 1];
+  return !!last && last.role === 'user';
+}
+
+function aiWaitsForAdmin(s) {
+  return !!s && s.aiPauseWhenAdminOnline !== false && LIVE.hasClients();
+}
+
+function armTakeover(chat, firstAfterAdmin) {
+  cancelTakeover(chat.id);
+  aiWaitingForAdmin.add(chat.id);
   const s = settings();
-  const minutes = CHAT.takeoverMinutes(s);
-  const wait = takeoverMs(s);
-  if (!wait) return;                       // ноль — консультант не возвращается
+  const first = firstAfterAdmin === true;
+  const minutes = first ? CHAT.ADMIN_FIRST_WAIT_MIN : CHAT.takeoverMinutes(s);
+  const wait = first ? minutes * 60 * 1000 : takeoverMs(s);
+  if (!wait) {                             // ноль — консультант не возвращается
+    aiWaitingForAdmin.delete(chat.id);
+    return;
+  }
+  const expectedMode = chat.mode;
   const timer = setTimeout(() => {
     aiTakeover.delete(chat.id);
     const s = settings();
     const fresh = CHAT.get(chat.id);
-    if (!fresh || fresh.mode !== 'operator' || !AI.enabled(s)) return;
+    if (aiWaitsForAdmin(s)) return;
+    aiWaitingForAdmin.delete(chat.id);
+    if (!fresh || fresh.mode !== expectedMode || !AI.enabled(s)) return;
     // За заданный срок менеджер мог ответить — тогда возвращать некого.
-    const last = fresh.messages[fresh.messages.length - 1];
-    if (!last || last.role !== 'user') return;
-    CHAT.setMode(fresh, 'ai');
-    TGCHAT.relaySystem(fresh, 'Менеджер не ответил за ' + minutes + ' мин. — отвечает консультант');
+    if (!lastMessageIsQuestion(fresh)) return;
+    if (fresh.mode !== 'ai') CHAT.setMode(fresh, 'ai');
+    TGCHAT.relaySystem(fresh, (first ? 'Администратор вышел из панели, первый вопрос ждёт ' : 'Менеджер не ответил за ')
+      + minutes + ' мин. — отвечает консультант');
     aiReply(fresh, { page: fresh.page, cart: [], orders: chatOrders(fresh, 5) })
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
   }, wait);
   if (timer.unref) timer.unref();
   aiTakeover.set(chat.id, timer);
 }
+
+/* Одна вкладка панели или десять — менеджер онлайн, пока жив хотя бы один
+ * защищённый SSE-канал. Вошёл снова до истечения паузы — все отложенные ответы
+ * отменяются. Закрыл последнюю вкладку — без ответа не остаются ни новый
+ * вопрос, ни уже начатый человеком разговор. */
+function adminPresenceChanged(online) {
+  const s = settings();
+  if (s.aiPauseWhenAdminOnline === false) return;
+  if (online) {
+    for (const id of [...aiTakeover.keys()]) pauseTakeover(id);
+    return;
+  }
+  if (!AI.enabled(s)) return;
+  for (const id of [...aiWaitingForAdmin]) {
+    const chat = CHAT.get(id);
+    if (!chat || !lastMessageIsQuestion(chat)
+      || (chat.mode !== 'ai' && chat.mode !== 'operator')) {
+      aiWaitingForAdmin.delete(id);
+      continue;
+    }
+    armTakeover(chat, !adminHasAnswered(chat));
+  }
+}
+LIVE.presence(adminPresenceChanged);
 
 async function aiReply(chat, info) {
   const s = settings();
@@ -2333,13 +2395,18 @@ app.post('/api/chat/send', async (req, res) => {
    * консультант терял бы содержимое корзины ровно в тех разговорах, где к
    * вопросу приложили фото. */
   const cart = chatCart(req.body && req.body.cart);
-  if (chat.mode === 'ai' && AI.enabled(s)) {
+  if (chat.mode === 'ai' && AI.enabled(s) && aiWaitsForAdmin(s)) {
+    waitForAdmin(chat);
+  } else if (chat.mode === 'ai' && AI.enabled(s)) {
+    cancelTakeover(chat.id);
     // Заказы этого покупателя уходят в промпт фактами: «где мой заказ» и
     // «оплатил, а статус прежний» — самые частые вопросы в чате, и без них
     // консультант мог только переспросить номер у того, кто и так на странице
     // оплаты. Подбирает их сервер по метке посетителя — чужие сюда не попадут.
     aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
+  } else if (chat.mode === 'operator' && AI.enabled(s) && aiWaitsForAdmin(s)) {
+    waitForAdmin(chat);
   } else if (chat.mode === 'operator' && AI.enabled(s)) {
     // Менеджер в диалоге — ждём его. Не ответил за заданный срок, значит отошёл:
     // консультант вернётся сам и ответит на эту же реплику (см. armTakeover).
@@ -4737,6 +4804,7 @@ app.post('/admin/settings', async (req, res) => {
    * отсутствует. Ключ она не трогает, поэтому вернуть бота можно одним
    * нажатием, а не искать ключ заново. */
   patch.aiEnabled = req.body.aiEnabled !== undefined;
+  patch.aiPauseWhenAdminOnline = req.body.aiPauseWhenAdminOnline !== undefined;
   if (req.body.aiTakeoverMinutes !== undefined) {
     const raw = String(req.body.aiTakeoverMinutes).trim();
     if (!raw) patch.aiTakeoverMinutes = '';
