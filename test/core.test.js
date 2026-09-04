@@ -100,6 +100,29 @@ function freshPickup(dir) {
   return fresh;
 }
 
+/* Хранилище с НАСТОЯЩИМ каталогом — для тестов, которым нужны живые товары:
+ * временный каталог данных, засеянный тем же `ensureSeeded()`, каким наполняется
+ * свежая установка. Поэтому проверяется ровно то, что увидит покупатель на новом
+ * магазине, а заодно и сам засев — его до этого не проверял никто.
+ *
+ * ЗАЧЕМ ЭТО ВООБЩЕ. Прежде такие тесты читали рабочий `data/` рядом с проектом и
+ * падали везде, где его не засеяли: на чистой копии репозитория и на сервере,
+ * где процесс запущен с STORE_DATA_DIR, а `istore/data` остался пустой
+ * заготовкой. Падение считалось «нормой» и было записано в CLAUDE.md — но тест,
+ * исход которого решает постороннее состояние машины, не проверяет ничего:
+ * настоящую поломку в нём уже не отличить от привычного красного.
+ *
+ * Демо-отзывы собираются один раз на процесс (require кэширует `seed-data`),
+ * поэтому второму такому тесту засев достаётся даром.
+ */
+function seededDb(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-catalog-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const db = freshDb(dir);
+  db.ensureSeeded();
+  return db;
+}
+
 test('пароли проверяются синхронно и асинхронно', async () => {
   const stored = auth.hashPassword('секрет');
   assert.equal(auth.verifyPassword('секрет', stored), true);
@@ -122,9 +145,10 @@ test('утилита безопасно сбрасывает пароль пан
   assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
 });
 
-test('повторяющиеся глифы карточки лежат в спрайте, а не копируются в каждую', () => {
-  const settings = dbCore.getSettings();
-  const html = render.homePage(settings, dbCore, { origin: 'https://shop.example' });
+test('повторяющиеся глифы карточки лежат в спрайте, а не копируются в каждую', t => {
+  const db = seededDb(t);
+  const settings = db.getSettings();
+  const html = render.homePage(settings, db, { origin: 'https://shop.example' });
   const cards = (html.match(/class="card-name"/g) || []).length;
   assert.ok(cards > 10, 'на главной должно быть много карточек, иначе проверка бессмысленна');
 
@@ -141,10 +165,11 @@ test('повторяющиеся глифы карточки лежат в сп�
   assert.equal(html.split(star).length - 1, 1, 'контур звезды скопирован в карточки');
 });
 
-test('карточка товара для поисковика полна, а крошки идут отдельным блоком', () => {
-  const settings = dbCore.getSettings();
-  const product = dbCore.visibleProducts()[0];
-  const html = render.productPage(settings, dbCore, product, { origin: 'https://shop.example' });
+test('карточка товара для поисковика полна, а крошки идут отдельным блоком', t => {
+  const db = seededDb(t);
+  const settings = db.getSettings();
+  const product = db.visibleProducts()[0];
+  const html = render.productPage(settings, db, product, { origin: 'https://shop.example' });
   const blocks = (html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [])
     .map(s => JSON.parse(s.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '')));
   assert.equal(blocks.length, 2, 'ожидались карточка товара и хлебные крошки');
@@ -3384,6 +3409,53 @@ test('заголовок категории не отбит от шапки об
   assert.match(css, /\.section\.section-top\{padding-top:\d+px\}/);
   // На главной заголовка нет вовсе — там первый экран, и модификатор не нужен
   assert.ok(!/section-top/.test(render.homePage(settings, fakeDb, {})));
+});
+
+/* На каждой странице витрины ровно один `<h1>`.
+ *
+ * У категории и поиска первого экрана со слоганом нет, и вместе с ним пропадал
+ * ЕДИНСТВЕННЫЙ заголовок первого уровня: страница начиналась сразу с `<h2>`.
+ * Читающий с экрана перемещается по заголовкам — без `<h1>` у него нет и темы
+ * страницы; а категории вдобавок индексируются и стоят в карте сайта.
+ *
+ * Ноль `<h1>` и два `<h1>` одинаково плохи, поэтому считается точное число.
+ */
+test('на каждой странице витрины ровно один h1', t => {
+  const db = seededDb(t);
+  const settings = db.getSettings();
+  const product = db.visibleProducts()[0];
+  const opts = { origin: 'https://shop.example' };
+  const count = (html) => (html.match(/<h1[\s>]/g) || []).length;
+
+  const pages = {
+    'главная': render.homePage(settings, db, opts),
+    'категория': render.homePage(settings, db, Object.assign({ category: product.category }, opts)),
+    'поиск': render.homePage(settings, db, Object.assign({ q: 'айфон' }, opts)),
+    'товар': render.productPage(settings, db, product, opts),
+    'оформление': render.checkoutPage(settings, opts),
+    'о компании': render.aboutPage(settings, opts),
+    'гарантия': render.warrantyPage(settings, opts),
+    'возврат': render.returnsPage(settings, opts),
+    'политика': render.privacyPage(settings, opts),
+    'не найдено': render.notFoundPage(settings, opts)
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    assert.equal(count(html), 1, name + ': на странице должен быть ровно один <h1>');
+  }
+
+  // Заголовок категории и поиска — именно тот самый h1, а не спрятанный где-то ещё.
+  assert.match(pages['категория'], /<div class="section-head section-head-center"><h1>/);
+  assert.match(pages['поиск'], /<div class="section-head section-head-center"><h1>Результаты/);
+  // «Отзывы» на странице товара остаются подразделом.
+  assert.match(pages['товар'], /<div class="section-head"><h2>Отзывы/);
+
+  /* Оформление у заголовка не изменилось: правила писались под `h2`, и, забыв
+   * дописать `h1`, мы получили бы заголовок другого кегля ровно на тех
+   * страницах, ради которых всё и делалось. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const rules = css.match(/\.section-head h1,\.section-head h2\{/g) || [];
+  assert.equal(rules.length, 5, 'не все правила .section-head распространены на h1');
+  assert.ok(!/[^,]\.section-head h2\{/.test(css), 'осталось правило только для h2');
 });
 
 test('форма товара широкая, без текстовых подсказок и с менеджером загрузки', () => {
