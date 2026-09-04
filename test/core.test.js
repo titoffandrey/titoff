@@ -2861,7 +2861,10 @@ test('адрес единственной офлайн-точки виден в 
   assert.equal(seeded.contactHours, 'Ежедневно 09:00–22:00 МСК');
   assert.equal(seeded.shipFromCity, 'Ноябрьск');
   const seededHome = render.homePage(Object.assign({ currency: '₽' }, seeded), fakeDb, {});
-  assert.match(seededHome, /class="foot-hours">Ежедневно 09:00–22:00 МСК</);
+  // Разметку внутри блока намеренно не проверяем: часы идут со значком и в
+  // <span>, а сверяет это отдельный тест подвала. Здесь вопрос один — доехало
+  // ли до витрины само значение из seed-настроек.
+  assert.match(seededHome, /class="foot-hours">[\s\S]*?Ежедневно 09:00–22:00 МСК</);
   const seededPrompt = require('../lib/chat-prompt').storeText(Object.assign({}, seeded, SETTINGS));
   assert.match(seededPrompt, /Город отправки — Ноябрьск/);
   assert.match(seededPrompt, /Время работы: Ежедневно 09:00–22:00 МСК/);
