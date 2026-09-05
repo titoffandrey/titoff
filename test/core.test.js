@@ -15235,9 +15235,30 @@ test('кодом по умолчанию может быть только «ск
   assert.equal(promo.priceFor(84990, 20, promo.stateOf(dead, null)).price, 84990);
   // Панель об этом говорит вслух, а не сохраняет молча.
   const route = server.slice(server.indexOf("app.post('/admin/promo'"), server.indexOf("app.post('/admin/promo/add'"));
-  assert.match(route, /if \(entry\.percent\)/);
-  assert.ok(route.indexOf('По умолчанию применяется только код со скидкой товара') < route.indexOf('db.saveSettings'),
+  assert.match(route, /const why = PROMO\.defaultBlock\(entry\)/);
+  assert.ok(route.indexOf('по умолчанию не применяется') < route.indexOf('db.saveSettings'),
     'проверка обязана идти до записи');
+
+  /* ПРИЧИНА ОТКАЗА ЖИВЁТ В ОДНОМ МЕСТЕ — `defaultBlock()`. Её спрашивают и
+   * селект, и оба маршрута: две формулировки одного отказа разъехались бы на
+   * первой правке, а владелец получал бы в панели один ответ, а на сохранении
+   * другой. */
+  assert.equal(promo.defaultBlock({ code: 'SALE', percent: 0, on: true }), '', 'скидка товара годится');
+  assert.equal(promo.defaultBlock({ code: 'VIP20', percent: 20, on: true }), 'свой процент, вводится руками');
+  assert.equal(promo.defaultBlock({ code: 'SALE', percent: 0, on: false }), 'выключен');
+  // Свой процент — блокировка постоянная, поэтому она называется и у выключенного:
+  // включить код обратно её не лечит.
+  assert.equal(promo.defaultBlock({ code: 'VIP20', percent: 20, on: false }), 'свой процент, вводится руками');
+
+  /* НЕГОДНЫЙ КОД ИЗ СЕЛЕКТА НЕ ПРОПАДАЕТ, а гаснет и называет причину. Прежде
+   * его там не было вовсе: владелец, поставивший коду свой процент, видел
+   * список из одного «Не применять» — со стороны это неотличимо от сломанного
+   * раздела, а настройка при этом слетала без единого слова. */
+  const html = adminViews.promoPage(
+    Object.assign(dbCore.defaultSettings(), { storeName: 'Тест' }, s),
+    { visibleOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0 }, {});
+  assert.match(html, /<option value="VIP20" disabled>VIP20 — свой процент, вводится руками<\/option>/);
+  assert.match(html, /<option value="SALE">SALE<\/option>/, 'годный код выбирается как раньше');
 });
 
 test('вид промокода проверяется, а справочник не разрастается', () => {
@@ -15446,7 +15467,13 @@ test('код переименовывается в панели, и настро
    * `defaultCode()` искал бы запись, которой больше нет, и покупатель увидел бы
    * цены без скидки при живой на вид настройке. Выключенный или ставший
    * процентным код по-прежнему очищает её. */
-  assert.match(route, /patch\.promoDefault = def && def\.on && !def\.percent \? named : ''/);
+  assert.match(route, /lost = PROMO\.defaultBlock\(def\)/);
+  assert.match(route, /patch\.promoDefault = lost \? '' : named/);
+  /* СЛЕТЕВШАЯ НАСТРОЙКА НАЗЫВАЕТСЯ ВСЛУХ, и это не мелочь: скидка витрины и
+   * есть скидка кода по умолчанию, поэтому поставленный коду процент убирает с
+   * витрины ВСЕ скидки разом. Прежде форма отвечала бодрым «сохранён», код
+   * исчезал из селекта, и владелец узнавал бы о случившемся от покупателя. */
+  assert.match(route, /По умолчанию он больше не применяется: /);
   // Заказы по прежнему имени остаются как есть, и панель говорит это вслух.
   assert.match(route, /переименован в/);
 });
