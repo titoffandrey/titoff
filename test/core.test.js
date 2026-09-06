@@ -3086,7 +3086,10 @@ test('адрес единственной офлайн-точки виден в 
   // так говорит сам адрес, и занимало отдельную строку в колонке контактов.
   // Вместо него булавка — та же залитая, что у подписи «Адрес» на оформлении;
   // значок озвучить нечем, поэтому имя строке даёт спрятанное слово рядом.
-  assert.match(html, /class="foot-address"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/div>/);
+  /* Строка — ССЫЛКА на «О компании»: там та же точка стоит на карте, с
+   * маршрутом и контактами, а нажать на адрес покупатель пробует первым делом.
+   * До этого нажатие не делало ничего. */
+  assert.match(html, /<a class="foot-address" href="\/about"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/a>/);
   assert.doesNotMatch(html, /Офлайн-магазин/);
   /* Стоит он в колонке МАГАЗИНА, рядом с ИП, ИНН и ОГРНИП, а не среди контактов:
    * это не способ связи, а место, и отвечает он на тот же вопрос — кто и откуда
@@ -3104,16 +3107,16 @@ test('адрес единственной офлайн-точки виден в 
   // seed-настройках и при первой установке сразу попадают и на витрину, и в
   // динамические условия консультанта.
   const seeded = require('../seed-data').settings;
-  assert.equal(seeded.contactHours, 'Ежедневно 09:00–22:00 МСК');
+  assert.equal(seeded.contactHours, '09:00–22:00 МСК');
   assert.equal(seeded.shipFromCity, 'Ноябрьск');
   const seededHome = render.homePage(Object.assign({ currency: '₽' }, seeded), fakeDb, {});
   // Разметку внутри блока намеренно не проверяем: часы идут со значком и в
   // <span>, а сверяет это отдельный тест подвала. Здесь вопрос один — доехало
   // ли до витрины само значение из seed-настроек.
-  assert.match(seededHome, /class="foot-hours">[\s\S]*?Ежедневно 09:00–22:00 МСК</);
+  assert.match(seededHome, /class="foot-hours">[\s\S]*?09:00–22:00 МСК</);
   const seededPrompt = require('../lib/chat-prompt').storeText(Object.assign({}, seeded, SETTINGS));
   assert.match(seededPrompt, /Город отправки — Ноябрьск/);
-  assert.match(seededPrompt, /Время работы: Ежедневно 09:00–22:00 МСК/);
+  assert.match(seededPrompt, /Время работы: 09:00–22:00 МСК/);
 });
 
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
@@ -3134,6 +3137,30 @@ test('в подвале есть знаки оплаты, а на телефон
   // выровненный по центру, уезжает за левый край экрана.
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.footer-bottom\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
+
+  /* Знак магазина обязан следовать выравниванию колонки. Внутри ссылки лежит
+   * БЛОЧНЫЙ элемент (`.logo-mark` у вордмарка, `.logo-img` у загруженного
+   * логотипа), а блок с нулевыми полями прижимается влево — `text-align` до
+   * него не дотягивается вовсе, и на телефоне знак оставался единственным, что
+   * стояло у края, пока слоган, адрес и реквизиты шли по центру. */
+  assert.match(css, /\.foot-brand \.logo\{display:inline-block/);
+  assert.match(css, /\.logo-mark\{[^}]*display:block/, 'знак внутри ссылки блочный — центрировать нужно саму ссылку');
+
+  /* Разделы ссылок — ровным столбцом по левому краю: пункты разной длины, и по
+   * центру каждый начинался со своего отступа. Контактов это не касается — там
+   * строки со значком, и левый край им задаёт сам значок. */
+  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:left\}/);
+
+  /* Сами столбцы при этом стоят ПАРОЙ ПО ЦЕНТРУ, а не растянуты на половины
+   * экрана — для этого у них своя строка (`.footer-navs`) с центрированием.
+   * Строка обязательна: перенос во flex решается ДО сжатия, и в общем ряду на
+   * 360 px, где паре не хватает шести пикселей, «Информация» уезжала целой
+   * колонкой под «Каталог». На десктопе обёртки нет вовсе — там колонки обязаны
+   * остаться прямыми участниками ряда из четырёх. */
+  const withCats = render.homePage(payOn, Object.assign({}, fakeDb, { visibleCategories: () => ['iPhone', 'Mac'] }), {});
+  assert.match(withCats, /<div class="footer-navs">[\s\S]*aria-label="Каталог"[\s\S]*aria-label="Информация"[\s\S]*<\/nav>\s*<\/div>/);
+  assert.match(css, /\.footer-navs\{display:contents\}/);
+  assert.match(mobile, /\.footer-navs\{display:flex;flex:0 0 100%;justify-content:center/);
 });
 
 test('на телефоне слоган стоит в одну строку, а его длину считает сервер', () => {
@@ -3429,6 +3456,10 @@ test('подвал — разделы: каталог, страницы поку
   /* «О компании» — ПЕРВАЯ строка списка: с неё начинают, решая, доверять ли
    * продавцу, а остальное открывают, когда заказ уже сделан. */
   assert.ok(html.indexOf('>О компании<') < html.indexOf('>Отследить заказ<'));
+  /* Имя `footer-links` осталось за ТОЙ САМОЙ снятой сеткой 2×2, и возвращать его
+   * нельзя даже под другое содержимое: строка ссылок под копирайтом и разделы
+   * подвала — разные вещи, а одноимённое правило красило бы чужой блок. Обёртка
+   * пары разделов называется `.footer-navs`, и проверяется она отдельно. */
   assert.doesNotMatch(html, /footer-links/);
   assert.doesNotMatch(css, /\.footer-links/);
 
@@ -3438,11 +3469,16 @@ test('подвал — разделы: каталог, страницы поку
   assert.match(css, /\.footer-cols\{display:flex;flex-wrap:wrap/);
   assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /aria-label="Каталог"/);
 
-  // На телефоне разделы ссылок идут в две колонки, а магазин и контакты — во всю
-  // ширину: четырьмя блоками в столбик подвал растянулся бы на два экрана.
+  /* На телефоне ряд ОСТАЁТСЯ flex'ом, а не превращается в сетку из двух половин:
+   * у сетки трек — половина экрана, поэтому «Каталог» прибивало к левому краю, а
+   * «Информация» начиналась ровно с середины, и пара разъезжалась по краям. Своя
+   * ширина у колонок плюс центрирование строки (`.footer-navs`) ставят их парой
+   * по центру; магазин и контакты идут во всю ширину каждый своей строкой. */
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.footer-cols\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(mobile, /\.footer-about,\.footer-contacts\{grid-column:1\/-1/);
+  const mobileCols = (mobile.match(/\.footer-cols\{([^}]*)\}/) || [])[1] || '';
+  assert.match(mobileCols, /justify-content:center/);
+  assert.doesNotMatch(mobileCols, /grid/, 'ряд подвала на телефоне остаётся flex\'ом');
+  assert.match(mobile, /\.footer-about,\.footer-contacts\{flex:0 0 100%/);
 });
 
 test('цвета подвала — из подвала Google Trends, и одни на все его части', () => {
@@ -15483,9 +15519,30 @@ test('кодом по умолчанию может быть только «ск
   assert.equal(promo.priceFor(84990, 20, promo.stateOf(dead, null)).price, 84990);
   // Панель об этом говорит вслух, а не сохраняет молча.
   const route = server.slice(server.indexOf("app.post('/admin/promo'"), server.indexOf("app.post('/admin/promo/add'"));
-  assert.match(route, /if \(entry\.percent\)/);
-  assert.ok(route.indexOf('По умолчанию применяется только код со скидкой товара') < route.indexOf('db.saveSettings'),
+  assert.match(route, /const why = PROMO\.defaultBlock\(entry\)/);
+  assert.ok(route.indexOf('по умолчанию не применяется') < route.indexOf('db.saveSettings'),
     'проверка обязана идти до записи');
+
+  /* ПРИЧИНА ОТКАЗА ЖИВЁТ В ОДНОМ МЕСТЕ — `defaultBlock()`. Её спрашивают и
+   * селект, и оба маршрута: две формулировки одного отказа разъехались бы на
+   * первой правке, а владелец получал бы в панели один ответ, а на сохранении
+   * другой. */
+  assert.equal(promo.defaultBlock({ code: 'SALE', percent: 0, on: true }), '', 'скидка товара годится');
+  assert.equal(promo.defaultBlock({ code: 'VIP20', percent: 20, on: true }), 'свой процент, вводится руками');
+  assert.equal(promo.defaultBlock({ code: 'SALE', percent: 0, on: false }), 'выключен');
+  // Свой процент — блокировка постоянная, поэтому она называется и у выключенного:
+  // включить код обратно её не лечит.
+  assert.equal(promo.defaultBlock({ code: 'VIP20', percent: 20, on: false }), 'свой процент, вводится руками');
+
+  /* НЕГОДНЫЙ КОД ИЗ СЕЛЕКТА НЕ ПРОПАДАЕТ, а гаснет и называет причину. Прежде
+   * его там не было вовсе: владелец, поставивший коду свой процент, видел
+   * список из одного «Не применять» — со стороны это неотличимо от сломанного
+   * раздела, а настройка при этом слетала без единого слова. */
+  const html = adminViews.promoPage(
+    Object.assign(dbCore.defaultSettings(), { storeName: 'Тест' }, s),
+    { visibleOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0 }, {});
+  assert.match(html, /<option value="VIP20" disabled>VIP20 — свой процент, вводится руками<\/option>/);
+  assert.match(html, /<option value="SALE">SALE<\/option>/, 'годный код выбирается как раньше');
 });
 
 test('вид промокода проверяется, а справочник не разрастается', () => {
@@ -15694,7 +15751,13 @@ test('код переименовывается в панели, и настро
    * `defaultCode()` искал бы запись, которой больше нет, и покупатель увидел бы
    * цены без скидки при живой на вид настройке. Выключенный или ставший
    * процентным код по-прежнему очищает её. */
-  assert.match(route, /patch\.promoDefault = def && def\.on && !def\.percent \? named : ''/);
+  assert.match(route, /lost = PROMO\.defaultBlock\(def\)/);
+  assert.match(route, /patch\.promoDefault = lost \? '' : named/);
+  /* СЛЕТЕВШАЯ НАСТРОЙКА НАЗЫВАЕТСЯ ВСЛУХ, и это не мелочь: скидка витрины и
+   * есть скидка кода по умолчанию, поэтому поставленный коду процент убирает с
+   * витрины ВСЕ скидки разом. Прежде форма отвечала бодрым «сохранён», код
+   * исчезал из селекта, и владелец узнавал бы о случившемся от покупателя. */
+  assert.match(route, /По умолчанию он больше не применяется: /);
   // Заказы по прежнему имени остаются как есть, и панель говорит это вслух.
   assert.match(route, /переименован в/);
 });
