@@ -2903,7 +2903,18 @@ test('в подвале есть знаки оплаты, а на телефон
   /* Разделы ссылок — ровным столбцом по левому краю: пункты разной длины, и по
    * центру каждый начинался со своего отступа. Контактов это не касается — там
    * строки со значком, и левый край им задаёт сам значок. */
-  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{text-align:left\}/);
+  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:left\}/);
+
+  /* Сами столбцы при этом стоят ПАРОЙ ПО ЦЕНТРУ, а не растянуты на половины
+   * экрана — для этого у них своя строка (`.footer-navs`) с центрированием.
+   * Строка обязательна: перенос во flex решается ДО сжатия, и в общем ряду на
+   * 360 px, где паре не хватает шести пикселей, «Информация» уезжала целой
+   * колонкой под «Каталог». На десктопе обёртки нет вовсе — там колонки обязаны
+   * остаться прямыми участниками ряда из четырёх. */
+  const withCats = render.homePage(payOn, Object.assign({}, fakeDb, { visibleCategories: () => ['iPhone', 'Mac'] }), {});
+  assert.match(withCats, /<div class="footer-navs">[\s\S]*aria-label="Каталог"[\s\S]*aria-label="Информация"[\s\S]*<\/nav>\s*<\/div>/);
+  assert.match(css, /\.footer-navs\{display:contents\}/);
+  assert.match(mobile, /\.footer-navs\{display:flex;flex:0 0 100%;justify-content:center/);
 });
 
 test('на телефоне слоган стоит в одну строку, а его длину считает сервер', () => {
@@ -3199,6 +3210,10 @@ test('подвал — разделы: каталог, страницы поку
   /* «О компании» — ПЕРВАЯ строка списка: с неё начинают, решая, доверять ли
    * продавцу, а остальное открывают, когда заказ уже сделан. */
   assert.ok(html.indexOf('>О компании<') < html.indexOf('>Отследить заказ<'));
+  /* Имя `footer-links` осталось за ТОЙ САМОЙ снятой сеткой 2×2, и возвращать его
+   * нельзя даже под другое содержимое: строка ссылок под копирайтом и разделы
+   * подвала — разные вещи, а одноимённое правило красило бы чужой блок. Обёртка
+   * пары разделов называется `.footer-navs`, и проверяется она отдельно. */
   assert.doesNotMatch(html, /footer-links/);
   assert.doesNotMatch(css, /\.footer-links/);
 
@@ -3208,11 +3223,16 @@ test('подвал — разделы: каталог, страницы поку
   assert.match(css, /\.footer-cols\{display:flex;flex-wrap:wrap/);
   assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /aria-label="Каталог"/);
 
-  // На телефоне разделы ссылок идут в две колонки, а магазин и контакты — во всю
-  // ширину: четырьмя блоками в столбик подвал растянулся бы на два экрана.
+  /* На телефоне ряд ОСТАЁТСЯ flex'ом, а не превращается в сетку из двух половин:
+   * у сетки трек — половина экрана, поэтому «Каталог» прибивало к левому краю, а
+   * «Информация» начиналась ровно с середины, и пара разъезжалась по краям. Своя
+   * ширина у колонок плюс центрирование строки (`.footer-navs`) ставят их парой
+   * по центру; магазин и контакты идут во всю ширину каждый своей строкой. */
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.footer-cols\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(mobile, /\.footer-about,\.footer-contacts\{grid-column:1\/-1/);
+  const mobileCols = (mobile.match(/\.footer-cols\{([^}]*)\}/) || [])[1] || '';
+  assert.match(mobileCols, /justify-content:center/);
+  assert.doesNotMatch(mobileCols, /grid/, 'ряд подвала на телефоне остаётся flex\'ом');
+  assert.match(mobile, /\.footer-about,\.footer-contacts\{flex:0 0 100%/);
 });
 
 test('цвета подвала — из подвала Google Trends, и одни на все его части', () => {
