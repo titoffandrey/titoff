@@ -2048,6 +2048,252 @@ test('карточка посетителя показывает визиты, �
   assert.match(analyticsView.visitorMissing('85.140.7.212', { backHref: '/admin/analytics' }), /История не найдена/);
 });
 
+/* ============ Блокировка посетителя и исключение его из метрики =============
+ * Модель — lib/visitor-rules.js; хранилище своё, поэтому подменяем каталог
+ * данных так же, как для пунктов выдачи: db читает путь один раз при загрузке.
+ */
+function freshRules(dir) {
+  const keys = [require.resolve('../lib/db'), require.resolve('../lib/visitor-rules')];
+  const previous = process.env.STORE_DATA_DIR;
+  process.env.STORE_DATA_DIR = dir;
+  for (const k of keys) delete require.cache[k];
+  const fresh = require('../lib/visitor-rules');
+  for (const k of keys) delete require.cache[k];
+  if (previous === undefined) delete process.env.STORE_DATA_DIR;
+  else process.env.STORE_DATA_DIR = previous;
+  return fresh;
+}
+
+const PHONE_CARD = {
+  id: 'a'.repeat(32), ip: '85.140.7.212',
+  device: 'Телефон', model: 'iPhone', os: 'iOS 26.0', browser: 'Safari 26',
+  platform: 'iPhone', screen: '1179×2556', language: 'ru-RU', timezone: 'Europe/Moscow',
+  cpuCores: 6, deviceMemory: 4
+};
+
+test('отпечаток устройства считается только по данным страницы и переживает обновление браузера', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-rules-print-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const RULES = freshRules(dir);
+
+  const print = RULES.printOf(PHONE_CARD);
+  assert.match(print, /^[a-f0-9]{16}$/);
+
+  /* ГЛАВНОЕ ПРАВИЛО: из одного User-Agent отпечатка нет вовсе. «Телефон ·
+   * iPhone · iOS · Safari» — это каждый второй посетитель магазина, и такой
+   * «блок устройства» закрыл бы витрину половине покупателей. Экран и часовой
+   * пояс присылает только скрипт страницы. */
+  assert.equal(RULES.printOf({ device: 'Телефон', model: 'iPhone', os: 'iOS 26.0', browser: 'Safari 26' }), '');
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { screen: '' })), '');
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { timezone: '' })), '');
+
+  // Версия браузера и системы срезается до семейства: Safari обновляется раз в
+  // пару недель, и отпечаток по версии протух бы раньше, чем им воспользуются.
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { browser: 'Safari 27', os: 'iOS 26.4' })), print);
+  // Размер окна не входит вовсе — он меняется от поворота телефона.
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { viewport: '844×390' })), print);
+  // А другое устройство — другой отпечаток.
+  assert.notEqual(RULES.printOf(Object.assign({}, PHONE_CARD, { screen: '1290×2796' })), print);
+});
+
+test('правило опознаёт по метке, адресу и отпечатку, а адрес не запоминает само', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-rules-match-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const RULES = freshRules(dir);
+  const signals = RULES.signalsOf(PHONE_CARD);
+
+  const rule = RULES.add({ kind: 'block', note: 'Москва · iPhone', ids: [signals.id], ips: [signals.ip], prints: [signals.print] });
+  assert.ok(rule && rule.id);
+  assert.equal(RULES.match('block', { id: signals.id }).id, rule.id, 'по метке');
+  assert.equal(RULES.match('block', { ip: signals.ip }).id, rule.id, 'по адресу');
+  assert.equal(RULES.match('block', { print: signals.print }).id, rule.id, 'по отпечатку');
+  assert.equal(RULES.match('block', { id: 'b'.repeat(32), ip: '1.2.3.4' }), null, 'чужой посетитель не под правилом');
+  // «?» ставит clientIp(), когда адреса нет вовсе: правило с таким «адресом»
+  // закрыло бы витрину всем, у кого его не удалось определить.
+  assert.equal(RULES.match('block', { ip: '?' }), null);
+  // Исключение и блок — разные вопросы: правило блока в «skip» не отвечает.
+  assert.equal(RULES.match('skip', { id: signals.id }), null);
+
+  /* САМООБУЧЕНИЕ. Стёр cookie — устройство узнают по отпечатку, и правило
+   * привязывает к себе НОВУЮ МЕТКУ. Адрес при этом не подхватывается никогда:
+   * метка точна до браузера, а адрес оператора со временем накрыл бы
+   * посторонних, и блок расползался бы сам. */
+  const second = 'c'.repeat(32);
+  assert.equal(RULES.learn(RULES.get(rule.id), second), true);
+  assert.equal(RULES.learn(RULES.get(rule.id), second), false, 'та же метка второй раз файл не переписывает');
+  assert.equal(RULES.match('block', { id: second }).id, rule.id);
+  assert.deepEqual(RULES.get(rule.id).ips, [signals.ip], 'адрес остался тем, что задал владелец');
+
+  // Второе нажатие «Заблокировать» не плодит двойника, которого потом не снять
+  // одной кнопкой, — оно дополняет уже стоящее правило.
+  RULES.add({ kind: 'block', note: 'он же', ids: [signals.id], ips: ['5.6.7.8'], prints: [signals.print] });
+  assert.equal(RULES.list().length, 1);
+  assert.ok(RULES.get(rule.id).ips.includes('5.6.7.8'));
+
+  // Блок сильнее исключения: попавший под оба витрину не открывает вовсе.
+  RULES.add({ kind: 'skip', note: 'он же', ids: [signals.id], ips: [], prints: [] });
+  assert.equal(RULES.match(null, { id: signals.id }).kind, 'block');
+  assert.equal(RULES.list().length, 2);
+
+  // Правило без единого признака не опознаёт никого и висело бы обманкой:
+  // владелец видел бы «заблокирован», а витрина отдавалась бы всем.
+  assert.equal(RULES.add({ kind: 'block', note: 'пусто', ids: [], ips: [], prints: [] }), null);
+  assert.equal(RULES.add({ kind: 'мусор', ids: [signals.id] }), null);
+
+  assert.equal(RULES.remove(rule.id), true);
+  assert.equal(RULES.match('block', { print: signals.print }), null);
+  assert.equal(RULES.remove(rule.id), false);
+
+  // Правила переживают перезапуск: они лежат своим файлом, а не полем карточки
+  // метрики, которую вытесняет срок хранения.
+  const again = freshRules(dir);
+  assert.equal(again.list().length, 1);
+  assert.equal(again.list()[0].kind, 'skip');
+});
+
+test('порченый файл правил витрину не роняет и никого не блокирует', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-rules-broken-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'visitor-rules.json'), JSON.stringify([
+    null, 'строка', { kind: 'block' }, { kind: 'block', ids: ['короткая'] },
+    { kind: 'block', ids: ['d'.repeat(32)], ips: ['не адрес'], prints: ['xx'] }
+  ]));
+  const RULES = freshRules(dir);
+  assert.equal(RULES.list().length, 1, 'остаётся только правило хотя бы с одним настоящим признаком');
+  assert.equal(RULES.match('block', { id: 'd'.repeat(32) }) !== null, true);
+  assert.deepEqual(RULES.list()[0].prints, [], 'мусорный отпечаток выброшен');
+});
+
+test('проверка перед маршрутами закрывает и статику, и запросы', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-gate-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'внутри');
+  const gate = new App({ secret: 'x'.repeat(40) });
+  let closed = false;
+  let reached = false;
+  gate.static('/static', dir, { extensions: ['.txt'] });
+  gate.get('/', (req, res) => { reached = true; res.send('витрина'); });
+  gate.before((req, res) => {
+    if (!closed) return false;
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Доступ закрыт');
+    return true;
+  });
+
+  const open = response();
+  await gate.handle(request('/'), open);
+  assert.equal(reached, true);
+
+  closed = true;
+  reached = false;
+  const page = response();
+  await gate.handle(request('/'), page);
+  assert.equal(page.statusCode, 403);
+  assert.equal(reached, false, 'до маршрута дело не доходит');
+  // «Тотальный» — значит и статика: иначе заблокированный продолжал бы качать
+  // с магазина стили и снимки товаров.
+  const asset = response();
+  await gate.handle(request('/static/file.txt'), asset);
+  assert.equal(asset.statusCode, 403);
+  assert.doesNotMatch(asset.body.toString(), /внутри/);
+});
+
+test('страница блока самодостаточна и ничего не объясняет', () => {
+  const html = render.blockedPage({ storeName: 'iStore' });
+  assert.match(html, /Доступ к магазину закрыт/);
+  assert.match(html, /iStore/, 'человек должен понимать, куда попал, а не думать, что сайт сломался');
+  /* Блок стоит РАНЬШЕ статики, поэтому `/static/styles.css` такому посетителю
+   * тоже не отдаётся: страница обязана быть без единого внешнего файла. */
+  assert.doesNotMatch(html, /\/static\/|\/uploads\/|<script|<img/);
+  assert.match(html, /<style>/, 'свой встроенный стиль вместо витринного');
+  // Причину не называем: подробность «вас узнали по устройству» — это
+  // подсказка, как возвращаться.
+  assert.doesNotMatch(html, /устройств|cookie|адрес/i);
+});
+
+test('блок и исключение живут в карточке посетителя, а снимаются из списка в метрике', () => {
+  const now = Date.now();
+  const rule = {
+    id: 'aa11bb22', kind: 'block', note: 'Москва · iPhone · Safari 26',
+    ids: ['a'.repeat(32)], ips: ['85.140.7.212'], prints: ['0123456789abcdef'],
+    createdAt: now - 3600000, hits: { count: 4, at: now - 60000 }
+  };
+
+  // В карточке — две кнопки отдельной панелью внизу: у каждой есть цена, и её
+  // надо назвать словами, а не ставить рядом с «Написать в чат».
+  const card = analyticsView.visitorPage(PHONE_CARD, { key: PHONE_CARD.id, ruleBase: '/admin/analytics/visitor/', rules: { block: null, skip: null }, now });
+  assert.match(card, /Доступ и учёт/);
+  assert.match(card, /action="\/admin\/analytics\/visitor\/[a-f0-9]{32}\/block"/);
+  assert.match(card, /action="\/admin\/analytics\/visitor\/[a-f0-9]{32}\/skip"/);
+  assert.match(card, /Заблокировать/);
+  assert.match(card, /Не учитывать/);
+  // Адрес — отдельная галочка, и снята она не зря: за одним адресом сидит целая
+  // квартира или офис, а у мобильного оператора — половина города.
+  assert.match(card, /name="ip"[^>]*>и по адресу/);
+  assert.doesNotMatch(card, /name="ip"[^>]*checked/);
+  assert.doesNotMatch(card, /name="off"/, 'снимать нечего, пока правил нет');
+
+  const closed = analyticsView.visitorPage(PHONE_CARD, { key: PHONE_CARD.id, ruleBase: '/admin/analytics/visitor/', rules: { block: rule, skip: null }, now });
+  assert.match(closed, /Разблокировать/);
+  assert.match(closed, /name="off"/);
+  // Состояние видно в шапке — не прокручивая страницу до конца.
+  assert.match(closed, /rule-mark is-block[^>]*>Заблокирован/);
+
+  /* Список правил — единственный способ СНЯТЬ блок с того, чью карточку давно
+   * вытеснило сроком хранения. Свёрнутая строка сама называет числа. */
+  const report = analyticsView.dashboard({ generatedAt: now, days: 7, daily: [], visitors: [], bots: {} }, {
+    base: '/admin/analytics', rules: [rule, { id: 'cc33', kind: 'skip', note: 'Ноутбук владельца', ids: [], ips: [], prints: ['fedcba9876543210'], createdAt: now }]
+  });
+  assert.match(report, /Блокировки и исключения/);
+  assert.match(report, /Заблокировано: 1 · Не учитываются: 1/);
+  assert.match(report, /action="\/admin\/analytics\/rules\/aa11bb22\/delete"/);
+  assert.match(report, /Москва · iPhone · Safari 26/);
+  assert.match(report, /4 срабатывания/);
+  assert.match(report, /85\.140\.7\.212/);
+  // Пустой список говорит об этом словами и зовёт туда, где правила заводят.
+  const clean = analyticsView.dashboard({ generatedAt: now, days: 7, daily: [], visitors: [], bots: {} }, { base: '/admin/analytics', rules: [] });
+  assert.match(clean, /никого не блокировали и не исключали/);
+});
+
+test('витрина закрыта заблокированному, а панель и владелец — нет', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const gate = source.slice(source.indexOf('function blockedRequest('), source.indexOf('app.before(blockedRequest)'));
+
+  /* Проверка стоит перед ВСЕМИ маршрутами (`app.before`), а не на каждом по
+   * отдельности: забытый маршрут и был бы дырой в блоке. */
+  assert.match(source, /app\.before\(blockedRequest\)/);
+  /* ДВА ИСКЛЮЧЕНИЯ, и оба обязательны: иначе владелец, закрывший витрину по
+   * адресу своего же офиса, теряет вход в панель — и вернуть его можно только
+   * по SSH. */
+  assert.match(gate, /path === '\/admin' \|\| path\.startsWith\('\/admin\/'\)/);
+  assert.match(gate, /if \(!rule \|\| adminAuthorized\(req\)\) return false/);
+  // Тело POST не читаем, но поток спускаем: иначе браузер не увидит ответа.
+  assert.match(gate, /req\.resume\(\)/);
+  assert.match(gate, /res\.writeHead\(403/);
+
+  /* Метрика не считает владельца САМА, без всяких правил: пока в браузере
+   * открыта авторизованная сессия, ходящий по витрине — не покупатель. */
+  const skip = source.slice(source.indexOf('function metricsSkipped('), source.indexOf('function trackPage('));
+  assert.match(skip, /adminAuthorized\(req\) \|\| !!RULES\.match\('skip'/);
+  assert.match(source, /if \(metrics\.trackingDisabled\(req\) \|\| metricsSkipped\(req\)\) return;/);
+  assert.match(source, /if \(id && !metricsSkipped\(req\)\) metrics\.heartbeat/);
+
+  /* Устройство узнаётся в /api/analytics/start — только там есть экран и
+   * часовой пояс. Правила проверяются ДО отказа от метрики: блок — это про
+   * доступ, а не про учёт. */
+  const start = source.slice(source.indexOf("app.post('/api/analytics/start'"), source.indexOf("app.post('/api/analytics/ping'"));
+  assert.ok(start.indexOf('RULES.match(') < start.indexOf('metrics.trackingDisabled(req)'),
+    'правила сверяются раньше, чем отказ от метрики');
+  assert.match(start, /RULES\.printOf\(context\)/);
+  assert.match(start, /RULES\.learn\(rule, id\)/);
+  assert.match(start, /blocked: rule\.kind === 'block'/);
+
+  // Страница только исполняет ответ сервера: своих правил у витрины нет.
+  const js = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8'));
+  assert.match(js, /d\.blocked[\s\S]{0,40}location\.reload\(\)/);
+  assert.doesNotMatch(js, /visitor-rules|printOf/);
+});
+
 test('длинные названия городов не перекрывают числа в метрике', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.metric-bar-label\{display:grid;grid-template-columns:minmax\(0,1fr\) max-content/);
@@ -6002,7 +6248,9 @@ test('оформление с онлайн-оплатой не чистит ко
   // Черновик — только когда есть что выбирать. Без онлайн-оплаты заявка
   // настоящая сразу, как и была.
   assert.match(source, /const draft = PAYMENTS\.enabled\(s\)/);
-  assert.match(source, /if \(!draft\) metrics\.markOrder/);
+  // Условие рядом — про исключённых из метрики (владелец, менеджеры): заказ у них
+  // обычный, а счётчик заявок он не двигает (см. lib/visitor-rules.js).
+  assert.match(source, /if \(!draft && !metricsSkipped\(req\)\) metrics\.markOrder/);
 });
 
 test('оформление помнит введённое — после неудачной оплаты его не набирают заново', () => {

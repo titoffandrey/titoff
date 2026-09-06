@@ -2031,7 +2031,15 @@
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: analyticsPayload(includeReferrer, enableTracking), keepalive: true
     }).then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.ok && d.tracking !== false) startAnalyticsHeartbeat(); })
+      .then(function (d) {
+        if (!d) return;
+        /* Посетителя узнали по устройству и закрыли (см. lib/visitor-rules.js).
+         * Перезагрузка упирается в 403 сразу: витрина, оставшаяся открытой у
+         * заблокированного, выглядела бы недоработкой блока. Решает это сервер —
+         * своих правил у страницы нет, она только исполняет ответ. */
+        if (d.blocked) { location.reload(); return; }
+        if (d.ok && d.tracking !== false) startAnalyticsHeartbeat();
+      })
       .catch(function () {});
   }
 

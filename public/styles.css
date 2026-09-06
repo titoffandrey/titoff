@@ -3370,6 +3370,45 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .metric-ip{color:#0b6bcb;text-decoration:underline;text-decoration-color:rgba(11,107,203,.35);text-underline-offset:2px}
 .metric-table .cmarks{margin-top:0}
 
+/* Блокировки и исключения — такая же свёртка, как у ботов, но БЕЗ их тёплого
+   тона: у ботов он говорит «это не ваши посетители», а здесь тревожиться не о
+   чем — это решения владельца. Что за решение, говорит полоска у строки. */
+details.metric-rules{margin-bottom:14px}
+.rule-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}
+.rule-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 13px;border:1px solid var(--border-soft);border-radius:12px}
+/* Полоска у левого края отделяет блок от исключения с одного взгляда: строк
+   бывает десяток, и читать у каждой подпись, чтобы понять её род, незачем. */
+.rule-row.is-block{box-shadow:inset 3px 0 0 #b42318}
+.rule-row.is-skip{box-shadow:inset 3px 0 0 #8e8e93}
+.rule-main{display:grid;gap:4px;min-width:0}
+.rule-main b{font-size:13.5px}
+.rule-kind{color:#8e8e93;font-size:11.5px}
+.rule-sigs{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.rule-sig{display:inline-flex;align-items:baseline;gap:5px;padding:2px 8px;border-radius:999px;background:#f2f2f5;color:#8e8e93;font-size:11px}
+.rule-sig b{color:var(--text);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.rule-side{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rule-hits{color:#8e8e93;font-size:11.5px}
+/* Отметка в шапке карточки: состояние надо видеть, не прокручивая страницу до
+   блока «Доступ и учёт» внизу. */
+.rule-mark{display:inline-block;margin-top:9px;margin-right:7px;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600}
+.rule-mark.is-block{background:#fdeceb;color:#b42318}
+.rule-mark.is-skip{background:#f2f2f5;color:#6e6e73}
+/* Доступ и учёт — внизу карточки: у каждой кнопки есть цена, и её надо назвать
+   словами, а не ставить рядом с «Написать в чат» как обычное действие. */
+.visitor-access{margin-top:14px}
+.access-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:12px 0}
+.access-row+.access-row{border-top:1px solid var(--border-soft)}
+.access-row>div{display:grid;gap:3px;min-width:0;max-width:520px}
+.access-row b{font-size:13.5px}
+.access-row span{color:#6e6e73;font-size:12px}
+.access-row form{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.access-ip{display:inline-flex;align-items:center;gap:7px;color:#6e6e73;font-size:12px;cursor:pointer}
+.access-ip input{width:16px;height:16px;accent-color:var(--accent)}
+/* Красным подписан только действующий БЛОК: витрина закрыта, и это состояние,
+   о котором владелец обязан помнить. Исключение из метрики тревогой не
+   является — его строка остаётся обычной. */
+.access-row.is-block.is-on b{color:#b42318}
+
 /* Карточка одного посетителя: куда ведут IP и значки из строки заказа */
 .visitor-head{margin-bottom:14px}
 .visitor-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
