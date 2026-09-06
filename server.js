@@ -4373,11 +4373,12 @@ app.post('/admin/promo', (req, res) => {
    * которой нет.
    */
   if (wanted) {
-    const entry = PROMO.byCode(Object.assign({}, s, { promoOn: true }), wanted);
-    if (!entry) return res.redirect(promoBack('Такого кода нет или он выключен', true));
-    if (entry.percent) {
-      return res.redirect(promoBack('По умолчанию применяется только код со скидкой товара: свой процент переписал бы каждую цену в каталоге', true));
-    }
+    const entry = PROMO.codes(s).find(c => c.code === wanted);
+    if (!entry) return res.redirect(promoBack('Такого кода нет', true));
+    // Причину даёт `defaultBlock()` — та же, что гасит пункт в селекте: две
+    // формулировки одного отказа разъехались бы на первой правке.
+    const why = PROMO.defaultBlock(entry);
+    if (why) return res.redirect(promoBack(`Код ${wanted} по умолчанию не применяется: ${why}`, true));
   }
   db.saveSettings({ promoOn: req.body.promoOn !== undefined, promoDefault: wanted });
   res.redirect(promoBack('Сохранено'));
@@ -4434,31 +4435,42 @@ app.post('/admin/promo/edit', (req, res) => {
    * очищается, когда код выключили или дали ему свой процент — скидкой витрины
    * он быть перестал.
    */
+  let lost = '';
   if (PROMO.normCode(s.promoDefault) === code) {
     const def = next.find(c => c.code === named);
-    patch.promoDefault = def && def.on && !def.percent ? named : '';
+    lost = PROMO.defaultBlock(def);
+    patch.promoDefault = lost ? '' : named;
   }
   db.saveSettings(patch);
   /* Переименование названо вслух вместе с его единственным последствием:
    * заказы, оформленные по прежнему имени, остаются как есть, поэтому счётчик
    * заказов у кода начинается заново. */
-  res.redirect(promoBack(named === code
+  const said = named === code
     ? 'Промокод ' + code + ' сохранён'
-    : 'Промокод ' + code + ' переименован в ' + named + ' — заказы по прежнему коду остались как есть'));
+    : 'Промокод ' + code + ' переименован в ' + named + ' — заказы по прежнему коду остались как есть';
+  /* СЛЕТЕВШАЯ НАСТРОЙКА «ПО УМОЛЧАНИЮ» НАЗЫВАЕТСЯ ВСЛУХ. Скидка витрины и есть
+   * скидка этого кода, поэтому снятая настройка убирает с витрины все скидки
+   * разом — а прежде форма отвечала бодрым «сохранён», код исчезал из селекта,
+   * и владелец узнавал бы о случившемся от покупателя. */
+  res.redirect(promoBack(lost ? said + '. По умолчанию он больше не применяется: ' + lost : said));
 });
 app.post('/admin/promo/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const s = settings();
   const code = PROMO.normCode(req.body.code);
   const next = PROMO.codes(s).filter(c => c.code !== code);
+  const wasDefault = PROMO.normCode(s.promoDefault) === code;
   // Заказы, оформленные по этому коду, остаются как есть: они помнят код сами
   // (см. `promoCode` в lib/db.js), и переписывать историю ради удаления записи
   // из справочника незачем.
   db.saveSettings({
     promoCodes: next,
-    promoDefault: PROMO.normCode(s.promoDefault) === code ? '' : s.promoDefault
+    promoDefault: wasDefault ? '' : s.promoDefault
   });
-  res.redirect(promoBack('Промокод ' + code + ' удалён'));
+  /* Удалили код витрины — сказать об этом обязаны: скидку даёт код, и вместе с
+   * ним с витрины уходят плашки, зачёркнутые цены и сам процент. */
+  res.redirect(promoBack('Промокод ' + code + ' удалён'
+    + (wasDefault ? ' — скидки с витрины ушли вместе с ним: выберите новый код по умолчанию' : '')));
 });
 
 /* ---------- Настройки магазина ---------- */
