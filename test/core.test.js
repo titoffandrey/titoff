@@ -1554,8 +1554,8 @@ test('каждое название субъекта из геобазы лож�
    * Читаем таблицу геобазы ИСХОДНИКОМ, той же чисткой, что и утверждения про
    * вёрстку: расширять ради теста экспорт модуля незачем. */
   const geo = fs.readFileSync(path.join(__dirname, '..', 'lib', 'geoip.js'), 'utf8');
-  const at = geo.indexOf('const REGION_CORE = {');
-  const table = geo.slice(at, geo.indexOf('};', at));
+  const at = geo.indexOf('const REGION_CORE');
+  const table = geo.slice(at, geo.indexOf('\n});', at));
   const names = [...new Set([...table.matchAll(/:\s*'([А-ЯЁ][^']*)'/g)].map(m => m[1]))];
   assert.ok(names.length > 80, 'таблица регионов геобазы прочиталась');
 
@@ -15028,7 +15028,9 @@ test('город по IP берётся из своей базы, а дыры в
   assert.equal(geoip.lookup(dir, '178.176.87.169').city, 'Санкт-Петербург');
   const us = geoip.lookup(dir, '8.8.8.8');
   assert.equal(us.country, 'США', 'страна берётся из общей таблицы кодов, а не второй такой же');
-  assert.equal(us.city, 'Mountain View');
+  // Зарубежные города переводит словарь, а не ручная таблица: её три сотни имён
+  // кончались на первом же городе, откуда к нам зашли через чужой узел.
+  assert.equal(us.city, 'Маунтин-Вью');
 
   /* Найденный диапазон обязан НАКРЫВАТЬ адрес: в базе есть дыры, и без этой
    * проверки посетитель из незаполненного куска получил бы город соседнего
@@ -15070,6 +15072,95 @@ test('город по IP берётся из своей базы, а дыры в
   assert.equal(geoip.regionRu('Vologda Oblast', 'RU'), 'Вологодская область');
   // Незнакомое название остаётся как есть: выдумать перевод нельзя.
   assert.equal(geoip.cityRu('Vyshkov'), 'Vyshkov');
+});
+
+/* Словарь городов. Ручная таблица покрывала три сотни крупных городов, и этого
+ * хватало ровно до первого посёлка: на боевых данных латиницей оставалась каждая
+ * пятая карточка — «Sysert'» и «Kuznechikha» рядом с «Щёлково», а заодно
+ * «Stockholm» и «Frankfurt am Main». Дописывать их руками бессмысленно: в базе
+ * сто шестьдесят тысяч мест. */
+test('города переводит словарь, а не только ручная таблица', () => {
+  const zlib = require('zlib');
+  const buf = fs.readFileSync(geoip.NAMES_FILE);
+  assert.equal(buf[0], 0x1f, 'словарь обязан лежать сжатым: 6 МБ текста против 1,6 МБ в репозитории');
+  assert.ok(geoip.cityNames(), 'словарь не прочитался');
+
+  // Ничего этого в ручной таблице нет и быть не может — их переводит словарь.
+  assert.equal(geoip.cityRu('Sysert’', 'RU'), 'Сысерть');
+  assert.equal(geoip.cityRu('Kuznechikha', 'RU'), 'Кузнечиха');
+  assert.equal(geoip.cityRu('Vostochnoe Degunino', 'RU'), 'Восточное Дегунино');
+  assert.equal(geoip.cityRu('Stockholm (Kista)', 'SE'), 'Стокгольм');
+  assert.equal(geoip.cityRu('Frankfurt am Main', 'DE'), 'Франкфурт-на-Майне');
+  // «New York» в GeoNames зовётся «New York City» — город находится по
+  // дополнительным латинским написаниям, без них его не было бы вовсе.
+  assert.equal(geoip.cityRu('New York', 'US'), 'Нью-Йорк');
+
+  /* Мягкий ключ: одно и то же место две базы пишут разной транслитерацией, и
+   * точным сравнением такие города не находятся вовсе. */
+  assert.equal(geoip.cityRu('Vyshny Volochyok', 'RU'), 'Вышний Волочёк');
+  assert.equal(geoip.cityRu('Beryozovo', 'RU'), 'Берёзово');
+  assert.equal(geoip.softKey('Schelkovo'), geoip.softKey('Shchyolkovo'));
+  assert.equal(geoip.softKey('Khimki'), geoip.softKey('Himki'));
+  assert.equal(geoip.softKey('Ozyory'), geoip.softKey('Ozëry'));
+
+  /* Ручная таблица идёт ПЕРВОЙ: она означает «здесь мы решили иначе, чем
+   * словарь», и автоматический источник не вправе отменять это решение. */
+  assert.equal(geoip.cityRu('Tsuen Wan', 'HK'), 'Чхюньвань');
+
+  /* Без страны словарь не спрашивается: «Moscow» бывает и в Айдахо. Это же
+   * оставляет прежнее поведение у записей, где кода страны нет вовсе. */
+  assert.equal(geoip.cityRu('Sysert’'), 'Sysert’');
+  // Незнакомое название остаётся латиницей — выдумывать перевод мы не будем.
+  assert.equal(geoip.cityRu('Nowhereville', 'US'), 'Nowhereville');
+  assert.equal(geoip.cityRu('', 'RU'), '');
+
+  /* Файл ищется БИНАРНЫМ поиском, а он держится на том, что строки отсортированы
+   * ровно так же, как их сравнивает поиск, — байтово. Отсортируй генератор их
+   * через `localeCompare`, и словарь промахивался бы через раз, причём молча. */
+  const lines = zlib.gunzipSync(buf).toString('utf8').split('\n').filter(Boolean);
+  assert.ok(lines.length > 100000, 'в словаре подозрительно мало строк: ' + lines.length);
+  let prev = '';
+  for (const line of lines) {
+    const key = line.slice(0, line.indexOf('\t'));
+    assert.ok(key > prev, `порядок строк нарушен: ${prev} → ${key}`);
+    assert.ok(/^[A-Z]{2}\|/.test(key), 'ключ обязан начинаться с кода страны: ' + key);
+    prev = key;
+  }
+});
+
+test('метрика переводит города, записанные латиницей раньше', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-geoname-'));
+  t.after(() => { geoip.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  /* Перевод применяется при записи карточки, поэтому всё, что попало в файл до
+   * того, как словарь выучил название, оставалось английским НАВСЕГДА: карточку
+   * никто не переписывает, а вернувшийся посетитель брал город из кэша адресов —
+   * то есть латиница возвращалась и в свежие карточки тоже. */
+  fs.writeFileSync(path.join(dir, 'analytics.json'), JSON.stringify({
+    version: 3,
+    visitors: [
+      { id: 'a', ip: '5.44.1.2', city: 'Sysert’', country: 'Россия', countryCode: 'RU', lastSeen: Date.now() },
+      { id: 'b', ip: '5.44.1.3', city: 'Щёлково', country: 'Россия', countryCode: 'RU', lastSeen: Date.now() },
+      // Код страны у старых карточек бывает пустым — тогда он добирается по её
+      // названию, той же таблицей, что рисует флаги.
+      { id: 'c', ip: '5.44.1.4', city: 'Stockholm', country: 'Швеция', lastSeen: Date.now() },
+      { id: 'd', ip: '5.44.1.5', city: 'Nowhereville', country: 'США', countryCode: 'US', lastSeen: Date.now() }
+    ],
+    geoCache: { '5.44.1.2': { city: 'Sysert’', country: 'Россия', countryCode: 'RU', cachedAt: Date.now() } },
+    daily: {}, pages: {}, sources: {}
+  }));
+
+  const analytics = new Analytics({ dataDir: dir, flushMs: 600000 });
+  const by = id => analytics.data.visitors.find(v => v.id === id);
+  assert.equal(by('a').city, 'Сысерть');
+  assert.equal(by('b').city, 'Щёлково', 'русское название трогать незачем');
+  assert.equal(by('c').city, 'Стокгольм');
+  assert.equal(by('d').city, 'Nowhereville', 'выдумывать перевод мы не будем');
+  assert.equal(analytics.data.geoCache['5.44.1.2'].city, 'Сысерть', 'кэш вернул бы латиницу обратно');
+
+  // Идемпотентно: второй прогон менять нечему, и файл он не пометит к записи.
+  analytics.dirty = false;
+  assert.equal(analytics.translateGeo(), 0);
+  assert.equal(analytics.dirty, false);
 });
 
 test('метрика берёт город из своей базы и не ходит в сеть', async t => {

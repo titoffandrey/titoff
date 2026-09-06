@@ -4950,6 +4950,17 @@ const httpServer = app.listen(PORT, HOST, () => {
     console.log(`  База городов: ${geo.ranges.toLocaleString('ru-RU')} диапазонов, выпуск ${geo.stamp}`
       + `; карточек без города ${blank.toLocaleString('ru-RU')} из ${cards.length.toLocaleString('ru-RU')}`);
   }
+  /* Словарь русских названий — третья тихая пропажа в этом ряду: без него города
+   * не исчезают, а показываются латиницей, и заметить это можно только глазами
+   * в панели. Латинские карточки считаем и когда он на месте: их горстка (мелкие
+   * пригороды) — норма, а сотни означают, что словарь не читается. */
+  const latinCards = metrics.data.visitors.filter(v => v.city && !/[А-Яа-яЁё]/.test(v.city)).length;
+  if (!GEOIP.cityNames()) {
+    console.warn('\n  ВНИМАНИЕ: словаря русских названий нет — города в метрике останутся латиницей.');
+    console.warn('  Соберите его: node scripts/build-city-names.js --apply');
+  } else if (latinCards) {
+    console.log(`  Словарь городов: ${latinCards.toLocaleString('ru-RU')} карточек всё же остались латиницей`);
+  }
   /* Список способов у касс спрашиваем СРАЗУ, не дожидаясь первого покупателя.
    *
    * У MeridianPay он честно идёт восемь с половиной секунд (317 КБ, 906 банков —
