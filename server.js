@@ -2969,6 +2969,21 @@ app.post('/pay/:id/cancel', (req, res) => {
  * и фоновая проверка приходят сюда. Подписанный webhook сам по себе суммы больше
  * не трактует — двусмысленность «рубли или копейки» допускала оплату одним
  * процентом суммы. */
+/* Приписка к попытке — то, что о ней сказала САМА КАССА.
+ *
+ * Пока её не было, все незакрытые счета выглядели в панели одинаково («оплата
+ * не прошла»), хотя случаи разные: у Альфы половина отказов — это брошенная
+ * страница оплаты (код −2007 «истёк срок ввода данных»), а половина — отказ
+ * банка покупателя (−2014). Ответ на «почему не платят» касса присылает на
+ * каждый опрос статуса, и терять его было расточительством.
+ *
+ * Поле необязательное: у касс, которые ничего такого не возвращают, приписки
+ * просто нет, и панель показывает плашку как раньше.
+ */
+function invoiceNote(invoice) {
+  return String((invoice && invoice.reason) || '').slice(0, 120);
+}
+
 async function reconcilePaymentAttempt(s, orderId, attempt) {
   // Сверять счёт обязана ТА ЖЕ касса, которая его выдала: id сделки у них свои,
   // и спросить чужую — значит получить «не найдено» и решить, что счёт сгорел.
@@ -3022,7 +3037,7 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       // фоновый polling этой попытки. Только `paid` требует полного совпадения.
       if (['expired', 'cancelled', 'failed'].includes(state)) {
         const result = db.settleOrderPayment(orderId, {
-          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: ''
+          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
         });
         if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
         return { ok: true, state: (result.attempt && result.attempt.status) || state };
@@ -3033,7 +3048,7 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       return { ok: true, state: 'pending', expires: r.invoice.expiresAt || attempt.expiresAt || 0 };
     }
     const result = db.settleOrderPayment(orderId, {
-      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: ''
+      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
     });
     if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
     if (result && result.changed) notifyPayment(result.order, state, '');

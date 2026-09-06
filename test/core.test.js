@@ -7564,6 +7564,15 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   assert.equal(ALFA.validToken('ко ро ткий'), false);
   assert.equal(ALFA.validToken('abc'), false);
 
+  /* Способ называется «Карта или СБП»: на странице банка есть и то и другое, а
+   * выбирает покупатель уже там — и по боевым данным выбирает СБП. Реквизитом
+   * при этом приходит ССЫЛКА, поэтому и подпись у неё своя: «Номер карты» над
+   * `https://pay.alfabank.ru/…` читалось как испорченные данные. */
+  assert.equal(PAY.describe('CARD_ONLINE').name, 'Карта или СБП');
+  assert.equal(PAY.requisiteLabel('CARD_ONLINE'), 'Ссылка на оплату');
+  assert.equal(PAY.requisiteLabel('TO_CARD'), 'Номер карты', 'у перевода реквизит остаётся номером');
+  assert.equal(PAY.requisiteLabel('SBP'), 'Номер телефона');
+
   // Способ один и валюта одна: виджет-эндпоинт поля валюты не принимает вовсе,
   // и молча выставить счёт в другой было бы обманом.
   assert.equal(ALFA.supports('CARD_ONLINE'), true);
@@ -7620,10 +7629,41 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   assert.equal(ALFA.matchesInvoice(want, { id: 'abc12345', amount: 67990, currency: 'USD' }).reason, 'currency');
   assert.equal(ALFA.matchesInvoice({}, { id: 'abc12345' }).ok, false, 'без ожидаемого счёта — не подтверждаем');
 
-  /* Callback у этого пути не описан вовсе, поэтому уведомлениям не верим
-   * НИКОГДА: оплату подтверждает только опрос статуса. Вернуть `true` «на
-   * всякий случай» значило бы открыть дверь чужому «заказ оплачен». */
+  /* Callback-уведомлениям не верим НИКОГДА: оплату подтверждает только опрос
+   * статуса. Описаны они у банка подробно (HMAC-SHA256 по отсортированным
+   * «имя;значение;»), но ключ для подписи выдаёт техподдержка по заявке, а без
+   * ключа принять такое уведомление — открыть дверь чужому «заказ оплачен». */
   assert.equal(ALFA.verifyCallback(on, {}, ''), false);
+
+  /* ОПИСАНИЕ ЗАКАЗА чистится по требованию мануала: в процессинг банка уходит
+   * не больше 99 знаков, и «запрещены к использованию %, +, конец строки \r и
+   * перенос строки \n». Плюс в наших названиях — обычное дело («eSIM +
+   * физическая SIM»), поэтому полагаться на вызывающего здесь нельзя. */
+  assert.equal(ALFA.safeDescription('Заказ №482913'), 'Заказ №482913');
+  assert.equal(ALFA.safeDescription('eSIM + SIM 100%\r\nвторая строка'), 'eSIM SIM 100 вторая строка');
+  assert.equal(ALFA.safeDescription('я'.repeat(200)).length, 99);
+
+  /* ПОЧЕМУ НЕ ПРОШЛО — словами самого банка. `getOrderStatusExtended` отдаёт
+   * `actionCode` и `actionCodeDescription`, и без них все незакрытые счета
+   * выглядели в панели одинаково, хотя случаи разные: −2007 это брошенная
+   * страница оплаты, −2014 — отказ банка покупателя. */
+  assert.equal(ALFA.reasonOf({ actionCode: -2007, actionCodeDescription: 'Истек срок ожидания ввода данных.', paymentWay: 'SBP_C2B' }, 'failed'),
+    'Банк: Истек срок ожидания ввода данных (-2007) · СБП');
+  assert.equal(ALFA.reasonOf({ actionCode: -2014, actionCodeDescription: 'Операция отклонена.', paymentWay: 'UNKNOWN' }, 'cancelled'),
+    'Банк: Операция отклонена (-2014)', 'UNKNOWN — это «банк не сказал», а не способ оплаты');
+  /* У оплаченного заказа приписка говорит, ЧЕМ платили: способ у нас один
+   * («страница банка»), а карту или СБП покупатель выбирает уже там — и по
+   * боевым данным выбирает СБП. Подписи в именительном падеже: «Оплата через
+   * картой» — ровно то, что выходит из падежной формы. */
+  assert.equal(ALFA.reasonOf({ actionCode: 0, paymentWay: 'SBP_C2B' }, 'paid'), 'Оплата: СБП');
+  assert.equal(ALFA.reasonOf({ actionCode: 0, paymentWay: 'CARD' }, 'paid'), 'Оплата: карта');
+  assert.equal(ALFA.reasonOf({}, 'failed'), '', 'банк ничего не сказал — и мы молчим');
+  // Приписку кассы маршрут сверки кладёт в саму попытку, а панель показывает её
+  // и в строке заказа, и в отчёте по кассам.
+  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(serverSrc, /note: invoiceNote\(r\.invoice\)/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'),
+    /is-fail">\$\{a\.status === 'expired'[\s\S]{0,220}a\.note/);
 
   /* ТLS: цепочка Альфы снаружи РФ не собирается (банк присылает промежуточный
    * сертификат с другим ключом, а нужного нет и в бандле Минцифры), поэтому
@@ -7631,11 +7671,22 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
    * применяться — без него мы либо не свяжемся с банком вовсе, либо, что хуже,
    * начнём доверять кому попало. */
   assert.match(source, /pins:\s*\['[A-Za-z0-9+/=]{40,}'\]/, 'пин боевого хоста на месте');
-  // Ходим на ШТАТНЫЙ шлюз, а не на виджетный: его статус возвращает сумму и
-  // валюту, без которых сверять оплату нечем.
-  assert.match(source, /payment\/rest\/register\.do/);
-  assert.match(source, /payment\/rest\/getOrderStatusExtended\.do/);
+  /* Ходим на ШТАТНЫЙ шлюз, а не на виджетный: его статус возвращает сумму и
+   * валюту, без которых сверять оплату нечем. Путь склеивается из базы среды —
+   * у боевого контура он `/payment/rest`, у тестового свой, и одной общей
+   * константой их не описать. */
+  assert.match(source, /host: 'pay\.alfabank\.ru', base: '\/payment\/rest'/);
+  assert.match(source, /const PATH_REGISTER = '\/register\.do'/);
+  assert.match(source, /const PATH_STATUS = '\/getOrderStatusExtended\.do'/);
+  assert.match(source, /path: env\.base \+ path/);
   assert.doesNotMatch(source, /api\/widget\/status'/);
+  /* Тестовый контур — тот, что назван координатами подключения в мануале банка.
+   * Прежний `alfa.rbsuat.com` не работал бы дважды: адрес не тот, и сертификат
+   * у него подписан тем же российским центром — цепочка снаружи РФ не
+   * собирается, а пина у тестовой среды нет. У `tws.egopay.ru` сертификат
+   * обычный, публично доверенный. */
+  assert.match(source, /host: 'tws\.egopay\.ru', base: '\/api\/ab\/rest', pins: \[\]/);
+  assert.doesNotMatch(source, /alfa\.rbsuat\.com'/);
   assert.match(source, /rejectUnauthorized: false/);
   assert.match(source, /pin_mismatch/, 'не совпал ключ — соединение рвётся');
   assert.match(source, /socket\.destroy/);
