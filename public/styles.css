@@ -3238,6 +3238,10 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .metric-bar-track{height:7px;overflow:hidden;border-radius:99px;background:#eeeeF0}
 .metric-bar-track i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
 .metric-device-bars .metric-bar-track i{background:#242426}
+/* Подпись под полосой: глубина прокрутки у страницы, доля от прошлой ступени у
+   воронки. Приглушена сильнее доли справа — это уточнение к уточнению, и в один
+   вес с подписью строки оно спорило бы с самим счётчиком. */
+.metric-bar-note{display:block;margin-top:5px;color:#a1a1a6;font-size:11px;font-variant-numeric:tabular-nums}
 /* ---- Страница «Кто заходил»: отбор ----
    Считает и отправляет всё по-прежнему обычная GET-форма. Скрипт нужен только
    видимой оболочке дат: без него остаются рабочие нативные `type=date`. */

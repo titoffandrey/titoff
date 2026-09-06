@@ -1986,8 +1986,35 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); setTimeout(function () { t.hidden = true; }, 250); }, 2200);
   }
 
+  /* Глубина прокрутки — сколько процентов страницы человек увидел.
+   *
+   * Отвечает на вопрос, ради которого чаще всего и включают вебвизор:
+   * долистывают ли до кнопки покупки. Стоит это одного числа в уже уходящем
+   * ping'е — ни отдельного запроса, ни записи, ни строчки разметки.
+   *
+   * Считается в `requestAnimationFrame`, а слушатели пассивные: прокрутка идёт
+   * в композиторе, и мешать ей замером высоты документа нельзя.
+   */
+  var scrollSeen = 0;
+  function initScrollDepth() {
+    var pending = 0;
+    function measure() {
+      pending = 0;
+      var doc = document.documentElement;
+      var height = Math.max(doc.scrollHeight || 0, document.body ? document.body.scrollHeight : 0);
+      if (height <= 0) return;
+      var seen = Math.round(((window.scrollY || doc.scrollTop || 0) + window.innerHeight) / height * 100);
+      seen = Math.max(0, Math.min(100, seen));
+      if (seen > scrollSeen) scrollSeen = seen;
+    }
+    function schedule() { if (!pending) pending = requestAnimationFrame(measure); }
+    measure();
+    addEventListener('scroll', schedule, { passive: true });
+    addEventListener('resize', schedule, { passive: true });
+  }
+
   function analyticsPayload(includeDetails, enableTracking) {
-    var payload = { path: location.pathname };
+    var payload = { path: location.pathname, scroll: scrollSeen };
     if (enableTracking) payload.enableTracking = '1';
     if (includeDetails) {
       var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
@@ -2010,15 +2037,46 @@
     return JSON.stringify(payload);
   }
 
+  /* Один ping. Чаще раза в пять секунд не уходит: столько же сервер и считает
+   * значимым промежутком, а без этого порога переключение вкладок туда-сюда
+   * само по себе било бы в лимит запросов. */
+  var analyticsPingAt = 0;
+  function analyticsPing(leaving) {
+    var now = Date.now();
+    if (now - analyticsPingAt < 5000) return;
+    analyticsPingAt = now;
+    var body = analyticsPayload(false);
+    // Уходя со страницы, обычному запросу браузер вправе не дать закончиться.
+    if (leaving && navigator.sendBeacon) {
+      try {
+        if (navigator.sendBeacon('/api/analytics/ping', new Blob([body], { type: 'application/json' }))) return;
+      } catch (e) {}
+    }
+    fetch('/api/analytics/ping', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: body, keepalive: true
+    }).catch(function () {});
+  }
+
   function startAnalyticsHeartbeat() {
     if (analyticsTimer) return;
+    initScrollDepth();
+    analyticsPingAt = Date.now();
+    /* Первый ping — через 15 секунд, и это служебное событие «не отказ», ровно
+     * как accurateTrackBounce у Метрики: до него заход из одной страницы
+     * считается отказом. Заодно чинится время на сайте у коротких визитов — с
+     * одним минутным тактом любой заход короче минуты записывался нулём секунд. */
+    setTimeout(function () { if (document.visibilityState === 'visible') analyticsPing(); }, 15000);
     analyticsTimer = setInterval(function () {
       if (document.visibilityState !== 'visible') return;
-      fetch('/api/analytics/ping', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: analyticsPayload(false), keepalive: true
-      }).catch(function () {});
+      analyticsPing();
     }, 60000);
+    // Уход со страницы — единственный момент, когда достигнутая глубина
+    // прокрутки известна целиком. Отказ этот ping не снимает: секунды визита
+    // сервер считает сам, и пятисекундный заход остаётся отказом.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') analyticsPing(true);
+    });
   }
 
   function analyticsDisabled() {

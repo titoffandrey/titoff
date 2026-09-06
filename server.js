@@ -997,7 +997,10 @@ app.post('/api/analytics/ping', (req, res) => {
     return res.end();
   }
   const id = metrics.visitorId(req);
-  if (id) metrics.heartbeat({ id, path: req.body.path, context: metrics.context(req, clientIp(req), cloudflareTrusted(req)) });
+  // `scroll` — сколько процентов страницы человек увидел. Проверять его здесь
+  // незачем: модель сама зажимает значение в 0–100 и приписывает его не адресу
+  // из тела запроса, а последнему записанному просмотру.
+  if (id) metrics.heartbeat({ id, path: req.body.path, scroll: req.body.scroll, context: metrics.context(req, clientIp(req), cloudflareTrusted(req)) });
   res.writeHead(204, { 'Cache-Control': 'private, no-store' });
   res.end();
 });

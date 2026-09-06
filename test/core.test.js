@@ -21,7 +21,7 @@ const variants = require('../lib/variants');
 const search = require('../lib/search');
 const images = require('../lib/images');
 const clientIcons = require('../lib/client-icons');
-const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, sessionsOf, MAX_HITS } = require('../lib/analytics');
+const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, significantSource, sessionsOf, MAX_HITS } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
 
@@ -1075,6 +1075,129 @@ test('метрика считает визиты пакетно, различа�
   assert.equal(report.pages.some(x => x.label === '/404'), false);
   assert.equal(report.daily.length, 7);
   assert.equal(fs.existsSync(path.join(dir, 'analytics.json')), true);
+});
+
+// Общая заготовка для проверок ниже: своя папка данных и метрика без геолокации.
+function freshAnalytics(t, name) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-analytics-' + name + '-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+}
+
+test('источник посетителя — последний значимый переход, а не первый в его жизни', t => {
+  const analytics = freshAnalytics(t, 'source');
+  const id = 'a'.repeat(32);
+  const visit = referrer => analytics.recordPageView({ id, path: '/', host: 'shop.test', referrer, context: {} });
+  visit('https://google.com/search?q=x');
+  assert.equal(analytics.findVisitor(id).source, 'google.com');
+  // Свой же переход по меню источник не перебивает — иначе первый клик по сайту
+  // стирал бы рекламу, из которой человек пришёл.
+  analytics.recordPageView({ id, path: '/product/test', host: 'shop.test', referrer: 'https://shop.test/', context: {} });
+  assert.equal(analytics.findVisitor(id).source, 'google.com');
+  // Прямой заход (закладка, набрали руками) — тоже не перебивает.
+  visit('');
+  assert.equal(analytics.findVisitor(id).source, 'google.com');
+  // А чужой сайт — перебивает: именно он привёл человека СЕЙЧАС. Раньше источник
+  // писался один раз при создании карточки и жил так весь год.
+  visit('https://t.me/adc');
+  assert.equal(analytics.findVisitor(id).source, 't.me');
+  assert.equal(analytics.snapshot({ days: 1 }).sources[0].label, 't.me');
+  assert.equal(significantSource('Прямой заход'), '');
+  assert.equal(significantSource('Внутренний переход'), '');
+  assert.equal(significantSource('vk.com'), 'vk.com');
+});
+
+test('переход по UTM считается раз за визит, а не на каждый просмотр', t => {
+  const analytics = freshAnalytics(t, 'utm');
+  const id = 'a'.repeat(32);
+  analytics.recordPageView({ id, path: '/', context: { utmSource: 'telegram', utmCampaign: 'summer' } });
+  // Метка липнет к карточке на год. Прежде каждый следующий просмотр добавлял
+  // кампании ещё один «переход», и она росла сама по себе месяцами.
+  analytics.recordPageView({ id, path: '/product/test', context: {} });
+  analytics.recordPageView({ id, path: '/checkout', context: {} });
+  assert.deepEqual(analytics.snapshot({ days: 1 }).campaigns, [{ label: 'telegram · summer', value: 1 }]);
+  // Новый заход по той же ссылке — уже настоящий второй переход.
+  analytics.findVisitor(id).lastSessionAt = Date.now() - 40 * 60 * 1000;
+  analytics.recordPageView({ id, path: '/', context: { utmSource: 'telegram', utmCampaign: 'summer' } });
+  assert.equal(analytics.snapshot({ days: 1 }).campaigns[0].value, 2);
+});
+
+test('отказ снимают второй просмотр и прожитые пятнадцать секунд', t => {
+  const analytics = freshAnalytics(t, 'bounce');
+  const [alone, deep, stayed, quick] = ['a', 'b', 'c', 'd'].map(c => c.repeat(32));
+  const ping = (id, ago) => {
+    analytics.findVisitor(id).lastSeen = Date.now() - ago;
+    analytics.heartbeat({ id, path: '/', context: {} });
+  };
+  analytics.recordPageView({ id: alone, path: '/', context: {} });          // одна страница и тишина
+  analytics.recordPageView({ id: deep, path: '/', context: {} });
+  analytics.recordPageView({ id: deep, path: '/product/test', context: {} }); // второй просмотр снимает
+  analytics.recordPageView({ id: stayed, path: '/', context: {} });
+  ping(stayed, 16000);                                                       // прожитые секунды снимают
+  analytics.recordPageView({ id: quick, path: '/', context: {} });
+  ping(quick, 6000);
+  let report = analytics.snapshot({ days: 1 });
+  assert.equal(report.visits, 4);
+  // Сам факт ping'а отказ не снимает: он уходит и при уходе со вкладки, то есть
+  // приходит и на шестой секунде. Снимают его именно BOUNCE_SECONDS.
+  assert.equal(report.bounces, 2, 'шестисекундный заход остаётся отказом');
+  assert.equal(report.bounceRate, 50);
+  ping(quick, 10000);                                                        // всего 16 секунд
+  report = analytics.snapshot({ days: 1 });
+  assert.equal(report.bounces, 1);
+  assert.equal(report.bounceRate, 25);
+});
+
+test('ступени воронки считаются раз за визит и не обгоняют заходы', t => {
+  const analytics = freshAnalytics(t, 'funnel');
+  const id = 'a'.repeat(32);
+  analytics.recordPageView({ id, path: '/', context: {} });
+  analytics.recordPageView({ id, path: '/product/test', context: {} });
+  // Вторая карточка в том же заходе — не вторая ступень: иначе десять открытых
+  // товаров дали бы больше «смотрели товар», чем самих заходов.
+  analytics.recordPageView({ id, path: '/product/other', context: {} });
+  analytics.recordPageView({ id, path: '/checkout', context: {} });
+  const report = analytics.snapshot({ days: 1 });
+  assert.deepEqual(report.funnel.map(row => [row.label, row.value]), [
+    ['Заходы', 1], ['Смотрели товар', 1], ['Дошли до оформления', 1], ['Оформили заявку', 0]
+  ]);
+  for (const row of report.funnel) assert.ok(row.value <= report.visits, 'ступень «' + row.label + '» обогнала заходы');
+  assert.equal(report.funnel[1].step, 100);
+  assert.equal(report.funnel[0].step, undefined, 'у первой ступени предыдущей нет');
+  // Новый заход — стадии считаются заново.
+  analytics.findVisitor(id).lastSessionAt = Date.now() - 40 * 60 * 1000;
+  analytics.recordPageView({ id, path: '/product/test', context: {} });
+  const again = analytics.snapshot({ days: 1 });
+  assert.equal(again.funnel[1].value, 2);
+  assert.equal(again.funnel[2].step, 50, 'из двух заходов до оформления дошёл один');
+  const html = analyticsView.dashboard(again, {});
+  assert.match(html, /Путь к заказу/);
+  assert.match(html, /отказов/);
+  assert.match(html, /дошли .* с прошлого шага/);
+});
+
+test('глубина прокрутки — максимум просмотра, а не сумма пингов', t => {
+  const analytics = freshAnalytics(t, 'scroll');
+  const id = 'a'.repeat(32);
+  const page = () => analytics.snapshot({ days: 1 }).pages.find(p => p.label === '/product/test');
+  const ping = (scroll, path) => {
+    analytics.findVisitor(id).lastSeen = Date.now() - 20000;
+    analytics.heartbeat({ id, path: path || '/product/test', scroll, context: {} });
+  };
+  analytics.recordPageView({ id, path: '/product/test', context: {} });
+  ping(30); ping(80); ping(55);
+  assert.equal(page().value, 1, 'три пинга не превращаются в три открытия страницы');
+  assert.equal(page().scroll, 80, 'назад глубина не откатывается');
+  // Второй просмотр той же страницы усредняется с первым: 80 и 40 дают 60.
+  analytics.recordPageView({ id, path: '/product/test', context: {} });
+  ping(40);
+  assert.equal(page().scroll, 60);
+  // Адресу из тела запроса не верим: ключ берётся у записанного просмотра, иначе
+  // в сводку уехал бы любой путь, который вздумается прислать.
+  ping(90, '/wp-admin.php');
+  assert.deepEqual(Object.keys(analytics.daily(Date.now()).scrollSum), ['/product/test']);
+  assert.equal(page().scroll, 85);
+  assert.match(analyticsView.dashboard(analytics.snapshot({ days: 1 }), {}), /долистывают до/);
 });
 
 test('город в списке — без региона и с одним именем страны', t => {
