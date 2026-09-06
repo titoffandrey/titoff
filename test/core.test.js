@@ -1739,7 +1739,62 @@ test('меню местоположения перечисляет страны,
   // уметь вернуться и в мир, и к соседям.
   const inside = analyticsView.dashboard(geoSnapshot({ geo: 'NL' }), { base: '/admin/analytics' });
   assert.match(inside, /class="g-opt is-on"[^>]*>[\s\S]*?<span>Нидерланды<\/span>/);
-  assert.match(inside, /href="\/admin\/analytics\?days=7"[^>]*>[\s\S]*?<span>Весь мир<\/span>/);
+  /* «Весь мир» назван в адресе СЛОВОМ, а страну несёт каждая ссылка отчёта.
+   * Раздел помнит последнюю выбранную страну, а пустое значение из адреса
+   * выпадает вовсе — без явного слова выбор мира был бы неотличим от обычного
+   * открытия раздела, и панель вернула бы поверх него вчерашнюю страну. */
+  assert.match(inside, /href="\/admin\/analytics\?days=7&amp;geo=world"[^>]*>[\s\S]*?<span>Весь мир<\/span>/);
+  assert.match(inside, /href="\/admin\/analytics\?days=1&amp;geo=NL"[^>]*>[\s\S]*?<span>Сегодня<\/span>/,
+    'смена периода не теряет выбранную страну');
+  assert.match(html, /href="\/admin\/analytics\?days=30&amp;geo=world"/,
+    'с мировой карты период тоже уходит с явным миром');
+});
+
+test('метрика помнит выбранную страну, а её смена не уносит в начало страницы', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-metric-geo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = freshDb(dir);
+
+  /* Отчёт по одной стране смотрят неделями, и выбирать её заново при каждом
+   * заходе в раздел — работа, которую панель помнит за человека. Отметка живёт
+   * рядом с «что панель уже видела»: это состояние ПАНЕЛИ, а не магазина, и
+   * правит его не форма настроек. */
+  assert.equal(store.metricGeo(), '', 'по умолчанию — весь мир');
+  assert.equal(store.rememberMetricGeo(''), false, 'мир и есть значение по умолчанию — писать нечего');
+  assert.equal(store.rememberMetricGeo('nl'), true);
+  assert.equal(store.metricGeo(), 'NL', 'код приводится к общему виду');
+  assert.equal(store.rememberMetricGeo('NL'), false,
+    'повторная запись файл не трогает: страницу перерисовывает живое обновление');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'admin-seen.json'), 'utf8'))), ['geo']);
+  // «Весь мир» — законный ВЫБОР, а не отсутствие значения: он тоже запоминается.
+  assert.equal(store.rememberMetricGeo(''), true);
+  assert.equal(store.metricGeo(), '');
+  assert.equal(store.rememberMetricGeo('чепуха'), false, 'мусор читается как мир, а не как страна');
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.get('/admin/analytics'"), source.indexOf("app.get('/admin/analytics/visitors'"));
+  assert.match(route, /asked === undefined \? db\.metricGeo\(\) : asked/,
+    'страны в адресе нет — берём последнюю выбранную');
+  assert.match(route, /db\.rememberMetricGeo\(report\.geo\)/,
+    'запоминаем код, уже нормализованный моделью: второй проверки в маршруте быть не должно');
+
+  /* Прыжок в начало страницы был обычной перезагрузкой: карта, ради которой
+   * страну и выбирают, стоит посреди отчёта. Ссылка на ту же страницу теперь
+   * отдаётся живому обновлению — оно забирает ту же разметку у сервера и
+   * подменяет блоки, а прокрутку не трогает никто. */
+  const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  assert.match(live, /window\.AdminLive = \{ go: go \}/);
+  assert.match(live, /history\.pushState\(\{\}, '', next\)/);
+  assert.match(live, /addEventListener\('popstate'/, '«назад» возвращает прежний отчёт');
+
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /link\.pathname === location\.pathname/, 'внутрь отчёта ведёт ссылка на ту же страницу');
+  assert.match(ui, /window\.AdminLive\.go\(url\)/);
+  assert.match(ui, /document\.dispatchEvent\(new CustomEvent\('metric:go'/,
+    'карта отдаёт адрес страны тем же переходом, что и рейтинг');
+  // Смотрим код без комментариев — иначе проверка ловила бы объяснение рядом.
+  assert.doesNotMatch(require('../lib/minify').js(ui), /location\.href = go\b/,
+    'прежней перезагрузки по нажатию на страну не осталось');
 });
 
 test('карта мира собрана Меркатором и не тащит Антарктиду', () => {
@@ -1811,8 +1866,14 @@ test('регионы стран лежат по файлу на страну и 
 
 test('приближением карты владеет человек, а кнопки рисует скрипт', () => {
   const html = analyticsView.dashboard(geoSnapshot(), { base: '/admin/analytics' });
-  const stage = (html.match(/<div class="gm-stage" data-map data-home="([^"]+)"/) || [])[1];
+  const stage = (html.match(/<div class="gm-stage" data-map data-live-key="[^"]*" data-home="([^"]+)"/) || [])[1];
   assert.equal(stage, WORLD_MAP.viewBox, 'исходный кадр лежит рядом с картой — по нему работает сброс');
+  /* Ключ называет, ЧЬЯ это карта. Приближённый кадр принадлежит человеку, и
+   * живое обновление его не трогает — но у другой страны карта другая, и
+   * оставленный от прежней кадр показал бы её кусок неизвестно где. С разными
+   * ключами узел заменяется целиком, а не переписывается. */
+  assert.match(html, /data-live-key="gm-world"/);
+  assert.match(analyticsView.dashboard(geoSnapshot({ geo: 'RU' }), { base: '/admin/analytics' }), /data-live-key="gm-RU"/);
   assert.doesNotMatch(html, /gm-zoom/, 'кнопки приближения в серверной разметке не нужны: без скрипта они ничего не делают');
   assert.doesNotMatch(html, /<use[^>]+\.svg#/, 'карта не ссылается на внешний SVG');
 
