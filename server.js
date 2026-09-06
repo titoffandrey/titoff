@@ -64,6 +64,9 @@ const { Analytics, clientDetails, VISITORS_PER_PAGE } = require('./lib/analytics
 // Адрес посетителя и доверие forwarded-заголовкам: отдельный модуль, потому что
 // от него зависят блокировка перебора пароля и все антиспам-лимиты.
 const CLIENT_IP = require('./lib/client-ip');
+// Кого витрина не пускает вовсе и кого метрика не считает: два решения владельца
+// с одним способом опознать человека (метка, адрес, отпечаток устройства).
+const RULES = require('./lib/visitor-rules');
 // Живые обновления панели: один SSE-канал на вкладку. Каталог данных модуль
 // получает снаружи — своего расчёта пути у него нет, чтобы не разойтись с
 // хранилищем.
@@ -623,8 +626,72 @@ function metricPublicPath(rawPath) {
   const match = pathname.match(/^\/product\/([^/]+)$/);
   return match && db.visibleProduct(match[1]) ? '/product/' + match[1] : '';
 }
+/* ---------------- Блок посетителя и исключение его из метрики ----------------
+ *
+ * Оба решения принимает владелец в карточке посетителя, оба опознают человека
+ * одинаково (метка, адрес, отпечаток устройства) — разбор в lib/visitor-rules.js.
+ */
+
+// Признаки текущего запроса. Отпечатка здесь нет и быть не может: экран и
+// часовой пояс присылает скрипт страницы, а не браузер в заголовках, — и
+// собирать отпечаток из одного User-Agent значило бы записать в «это устройство»
+// каждый второй айфон. Устройство узнаётся в /api/analytics/start.
+function requestSignals(req) {
+  return { id: metrics.visitorId(req), ip: clientIp(req) };
+}
+
+/* Тотальный блок: заблокированному не отдаётся НИЧЕГО — ни страница, ни
+ * картинка, ни ответ API. Стоит раньше статики и маршрутов (`app.before`),
+ * поэтому забыть навесить проверку на новый маршрут нельзя.
+ *
+ * ДВА ИСКЛЮЧЕНИЯ, и оба обязательны:
+ *
+ *  - живая сессия панели не блокируется вовсе;
+ *  - `/admin` не блокируется даже без сессии.
+ *
+ * Иначе владелец, заблокировавший посетителя по адресу своего же офиса, терял
+ * бы вход в панель — и вернуть его можно было бы только по SSH. Перебор пароля
+ * на этом не выигрывает ничего: вход и так закрыт счётчиком попыток.
+ */
+function blockedRequest(req, res) {
+  const path = String(req.pathname || '');
+  if (path === '/admin' || path.startsWith('/admin/')) return false;
+  /* Правило спрашиваем ПЕРВЫМ: у магазина без блокировок это промах по двум
+   * пустым Map, а `adminAuthorized` читает настройки и считает HMAC — платить
+   * этим за каждую картинку витрины незачем. Порядок проверок при этом ничего
+   * не меняет: сессия панели не блокируется в любом случае. */
+  const rule = RULES.match('block', requestSignals(req));
+  if (!rule || adminAuthorized(req)) return false;
+  RULES.hit(rule);
+  // Тело POST мы не читаем — с заблокированным разговаривать не о чем, — но
+  // поток нужно спустить, иначе браузер не увидит ответа (то же, что делает
+  // отказ по чужому Origin в lib/server-lib.js).
+  req.resume();
+  const headers = { 'Cache-Control': 'private, no-store' };
+  if (path.startsWith('/api/')) {
+    res.writeHead(403, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, headers));
+    res.end(JSON.stringify({ ok: false, error: 'Доступ закрыт' }));
+    return true;
+  }
+  res.writeHead(403, Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, headers));
+  res.end(req.method === 'HEAD' ? '' : R.blockedPage(settings()));
+  return true;
+}
+app.before(blockedRequest);
+
+/* Кого метрика не считает вовсе: ни онлайна, ни визита, ни карточки.
+ *
+ * ПАНЕЛЬ ИСКЛЮЧАЕТСЯ САМА, без всяких правил: пока в этом браузере открыта
+ * авторизованная сессия, ходящий по витрине — не покупатель, и путать его с
+ * ними в отчёте нельзя. Правило нужно там, где сессии нет: телефон владельца,
+ * второй браузер, компьютер менеджера.
+ */
+function metricsSkipped(req) {
+  return adminAuthorized(req) || !!RULES.match('skip', requestSignals(req));
+}
+
 function trackPage(req, res, pathname, options) {
-  if (metrics.trackingDisabled(req)) return;
+  if (metrics.trackingDisabled(req) || metricsSkipped(req)) return;
   options = options || {};
   const context = metrics.context(req, clientIp(req), cloudflareTrusted(req));
   // HEAD используют мониторинги и краулеры, но у такого запроса не будет JS-
@@ -967,9 +1034,48 @@ for (const [route, page] of [
   });
 }
 
-// Собственная метрика запускается автоматически при первом открытии страницы.
+/* Собственная метрика запускается автоматически при первом открытии страницы.
+ *
+ * ЗДЕСЬ ЖЕ УЗНАЁТСЯ УСТРОЙСТВО. Экран, часовой пояс, платформу и язык присылает
+ * только этот запрос — из заголовков их не достать, — а без них отпечатка нет
+ * (см. lib/visitor-rules.js). Поэтому блок «по устройству» замыкается тут:
+ * стёртая cookie переживает ровно одну страницу, дальше правило узнаёт машину и
+ * привязывает к себе новую метку.
+ */
 app.post('/api/analytics/start', (req, res) => {
   if (rateLimited(req, 'analytics-start', 120, 10 * 60 * 1000)) return res.json({ ok: false }, 429);
+  const context = Object.assign(metrics.context(req, clientIp(req), cloudflareTrusted(req)), clientDetails(req.body.client));
+  // Первичный HTML-запрос такого робота уже записан сервером. Его вызов
+  // клиентского endpoint не должен ни удваивать статистику, ни ставить cookie.
+  if (context.isBot) return res.json({ ok: true });
+  const secure = originOf(req).startsWith('https://');
+  const known = metrics.visitorId(req);
+  const id = known || metrics.newVisitorId();
+
+  /* Правила идут ДО отказа от метрики и до проверки страницы: блок — это про
+   * доступ, а не про учёт, и отказавшийся от метрики не становится от этого
+   * невидимым для блокировки. Ничего при этом не записывается: признаки только
+   * сверяются с правилом. */
+  const rule = RULES.match(null, { id, ip: context.ip, print: RULES.printOf(context) });
+  if (rule) {
+    if (rule.kind === 'block') {
+      /* МЕТКУ ВЫДАЁМ ТОЛЬКО БЛОКУ. Она и делает блок дешёвым: следующий запрос
+       * закрывается по cookie, до всякого скрипта и разбора отпечатка.
+       * Исключённому из метрики новая cookie не нужна ни для чего, а тому, кто
+       * от метрики отказался, — тем более: у него правило запомнит метку,
+       * только если она у него уже есть. */
+      res.setHeader('Set-Cookie', [metrics.cookieHeader(id, secure)]);
+      RULES.learn(rule, id);
+    } else if (known) RULES.learn(rule, known);
+    // `blocked` заставляет страницу перезагрузиться и упереться в 403 сразу, а
+    // не с первого перехода: витрина, оставшаяся открытой у заблокированного,
+    // выглядела бы недоработкой блока.
+    return res.json({ ok: true, tracking: false, blocked: rule.kind === 'block' });
+  }
+  // Владелец с открытой панелью и те, кого исключили правилом, метрику не
+  // наполняют вовсе: `tracking: false` заодно останавливает heartbeat.
+  if (metricsSkipped(req)) return res.json({ ok: true, tracking: false });
+
   const publicPath = metricPublicPath(req.body.path);
   const optedOut = metrics.trackingDisabled(req);
   const explicitEnable = consentAccepted(req.body.enableTracking);
@@ -977,13 +1083,6 @@ app.post('/api/analytics/start', (req, res) => {
   // Повторное включение допускается лишь после явного нажатия на странице политики.
   if (optedOut && !explicitEnable) return res.json({ ok: true, tracking: false });
   if (!publicPath) return res.json({ ok: true });
-  const context = Object.assign(metrics.context(req, clientIp(req), cloudflareTrusted(req)), clientDetails(req.body.client));
-  // Первичный HTML-запрос такого робота уже записан сервером. Его вызов
-  // клиентского endpoint не должен ни удваивать статистику, ни ставить cookie.
-  if (context.isBot) return res.json({ ok: true });
-  let id = metrics.visitorId(req);
-  if (!id) id = metrics.newVisitorId();
-  const secure = originOf(req).startsWith('https://');
   const setCookies = [metrics.cookieHeader(id, secure)];
   if (optedOut && explicitEnable) setCookies.push(metrics.clearOptOutCookieHeader(secure));
   res.setHeader('Set-Cookie', setCookies);
@@ -997,7 +1096,10 @@ app.post('/api/analytics/ping', (req, res) => {
     return res.end();
   }
   const id = metrics.visitorId(req);
-  if (id) metrics.heartbeat({ id, path: req.body.path, context: metrics.context(req, clientIp(req), cloudflareTrusted(req)) });
+  // Исключённый heartbeat не шлёт вовсе (`tracking: false` его не запускает), но
+  // старая открытая вкладка о правиле ещё не знает — и без этой проверки владелец
+  // светился бы в «сейчас на сайте» до её закрытия.
+  if (id && !metricsSkipped(req)) metrics.heartbeat({ id, path: req.body.path, context: metrics.context(req, clientIp(req), cloudflareTrusted(req)) });
   res.writeHead(204, { 'Cache-Control': 'private, no-store' });
   res.end();
 });
@@ -1752,7 +1854,11 @@ app.post('/api/order', async (req, res) => {
     clientModel: client.model, clientOs: client.os, clientBrowser: client.browser,
     clientSource: (metricVisitor && metricVisitor.source) || client.source
   }));
-  if (!draft) metrics.markOrder(visitorId, order);
+  /* Исключённый из метрики не двигает и счётчик заявок: пробный заказ владельца
+   * иначе поднимал бы конверсию и стоял бы в выручке отчёта наравне с
+   * покупательскими. Сам заказ при этом обычный — он в списке заказов, и
+   * менеджеру приходит уведомление. */
+  if (!draft && !metricsSkipped(req)) metrics.markOrder(visitorId, order);
   /* Диалог этого покупателя теперь знает, КАК ЕГО ЗОВУТ.
    *
    * Имени в чате покупатель не называет никогда — окно его не спрашивает, — и
@@ -2863,6 +2969,21 @@ app.post('/pay/:id/cancel', (req, res) => {
  * и фоновая проверка приходят сюда. Подписанный webhook сам по себе суммы больше
  * не трактует — двусмысленность «рубли или копейки» допускала оплату одним
  * процентом суммы. */
+/* Приписка к попытке — то, что о ней сказала САМА КАССА.
+ *
+ * Пока её не было, все незакрытые счета выглядели в панели одинаково («оплата
+ * не прошла»), хотя случаи разные: у Альфы половина отказов — это брошенная
+ * страница оплаты (код −2007 «истёк срок ввода данных»), а половина — отказ
+ * банка покупателя (−2014). Ответ на «почему не платят» касса присылает на
+ * каждый опрос статуса, и терять его было расточительством.
+ *
+ * Поле необязательное: у касс, которые ничего такого не возвращают, приписки
+ * просто нет, и панель показывает плашку как раньше.
+ */
+function invoiceNote(invoice) {
+  return String((invoice && invoice.reason) || '').slice(0, 120);
+}
+
 async function reconcilePaymentAttempt(s, orderId, attempt) {
   // Сверять счёт обязана ТА ЖЕ касса, которая его выдала: id сделки у них свои,
   // и спросить чужую — значит получить «не найдено» и решить, что счёт сгорел.
@@ -2916,7 +3037,7 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       // фоновый polling этой попытки. Только `paid` требует полного совпадения.
       if (['expired', 'cancelled', 'failed'].includes(state)) {
         const result = db.settleOrderPayment(orderId, {
-          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: ''
+          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
         });
         if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
         return { ok: true, state: (result.attempt && result.attempt.status) || state };
@@ -2927,7 +3048,7 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       return { ok: true, state: 'pending', expires: r.invoice.expiresAt || attempt.expiresAt || 0 };
     }
     const result = db.settleOrderPayment(orderId, {
-      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: ''
+      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
     });
     if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
     if (result && result.changed) notifyPayment(result.order, state, '');
@@ -3136,9 +3257,11 @@ async function startPaymentRoute(req, res) {
     // Способ выбран — черновик становится заказом ДО обращения к кассам: даже
     // при отказе всех менеджер видит готового покупателя и может довести оплату
     // вручную.
+    // Та же оговорка, что при оформлении: исключённый из метрики счётчик заявок
+    // не двигает, а менеджеру заказ приходит как обычно.
     const grown = db.promoteOrder(id);
     if (grown.promoted) {
-      metrics.markOrder(grown.order.visitorId, grown.order);
+      if (!metricsSkipped(req)) metrics.markOrder(grown.order.visitorId, grown.order);
       notifyNewOrder(grown.order);
     }
 
@@ -3516,8 +3639,26 @@ app.get('/admin/analytics', (req, res) => {
   /* `reg` — страница рейтинга рядом с картой. Проверять её здесь нечем: сколько
    * там страниц, знает только само представление, оно и зажимает номер. `geo` —
    * выбранная страна (пусто — весь мир); её проверяет модель, поэтому сюда она
-   * уходит как есть: две проверки одного значения разъехались бы молча. */
-  res.send(A.analyticsPage(settings(), db, metrics.snapshot({ days: req.query.days, geo: req.query.geo }), req.query.reg));
+   * уходит как есть: две проверки одного значения разъехались бы молча.
+   *
+   * СТРАНЫ В АДРЕСЕ НЕТ — берём ту, что смотрели в прошлый раз. Отчёт по одной
+   * стране открывают неделями подряд, и выбирать её заново на каждом заходе в
+   * раздел значит делать руками то, что панель помнит сама. «Весь мир» приходит
+   * при этом явным `geo=world` (как `geo=Worldwide` у Trends): пустой параметр
+   * из адреса выпадает вовсе, и выбор мира был бы неотличим от обычного
+   * открытия раздела — панель возвращала бы вчерашнюю страну поверх него.
+   */
+  const asked = req.query.geo;
+  const report = metrics.snapshot({ days: req.query.days, geo: asked === undefined ? db.metricGeo() : asked });
+  // Запоминаем код, УЖЕ нормализованный моделью: своей проверки кода в маршруте
+  // быть не должно, иначе их станет две.
+  db.rememberMetricGeo(report.geo);
+  res.send(A.analyticsPage(settings(), db, report, req.query.reg, {
+    // Список блокировок и исключений: он же — единственный способ снять правило
+    // с посетителя, чью карточку давно вытеснило сроком хранения.
+    rules: RULES.list().map(rule => Object.assign({ hits: RULES.hitsOf(rule.id) }, rule)),
+    flash: req.query.flash
+  }));
 });
 
 /* «Кто заходил»: вся история посещений за год с отбором по датам, технике и
@@ -3564,13 +3705,72 @@ function lookupVisitor(rawKey) {
   // За одним адресом сидит целая квартира или офис — соседние карточки полезны
   // ровно тем, что показывают: это тот же человек или всё-таки другой.
   const alsoOnIp = metrics.findByIp(visitor.ip).filter(x => x.id !== visitor.id).slice(0, 10);
-  return { key, visitor, orders, alsoOnIp };
+  /* Стоит ли на нём блок и считает ли его метрика — этим подписаны кнопки в
+   * карточке. Спрашивает правила ЗДЕСЬ, а не в представлении: панель ничего не
+   * решает сама, ей приходит готовое состояние. */
+  const rules = { block: RULES.forVisitor(visitor, 'block'), skip: RULES.forVisitor(visitor, 'skip') };
+  return { key, visitor, orders, alsoOnIp, rules };
 }
 
 app.get('/admin/analytics/visitor/:key', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const found = lookupVisitor(req.params.key);
-  res.send(A.visitorPage(settings(), db, found.visitor, found), found.visitor ? 200 : 404);
+  res.send(A.visitorPage(settings(), db, found.visitor, Object.assign({ flash: req.query.flash }, found)), found.visitor ? 200 : 404);
+});
+
+/* ---------------- Блок посетителя и исключение его из метрики ----------------
+ *
+ * Обе кнопки живут в карточке посетителя — там, где видно, кого именно
+ * закрывают: город, техника, страницы и заказы. Список уже созданных правил
+ * стоит в самой «Метрике» под раскрытием (`rulesFold`), потому что снимать блок
+ * приходится и тогда, когда карточку давно вытеснило сроком хранения.
+ *
+ * Подпись правила собирается из карточки: город, устройство и браузер. Своего
+ * поля для неё нет намеренно — в списке правило узнают именно по этому, а
+ * заставлять владельца придумывать имя ради одного нажатия незачем.
+ */
+function ruleNote(v) {
+  const place = [v.city, v.country].filter(Boolean)[0] || '';
+  return [place, v.model || v.device, v.browser].filter(Boolean).join(' · ').slice(0, 160)
+    || String(v.id || '').slice(0, 8);
+}
+
+function visitorRuleRoute(kind) {
+  return (req, res) => {
+    if (!guardAdmin(req, res)) return;
+    const found = lookupVisitor(req.params.key);
+    const back = '/admin/analytics/visitor/' + encodeURIComponent(found.key);
+    if (!found.visitor) return res.redirect('/admin/analytics?flash=' + encodeURIComponent('Карточка посетителя не найдена — правило снимите в списке ниже'));
+    const current = RULES.forVisitor(found.visitor, kind);
+    if (req.body.off !== undefined) {
+      if (current) RULES.remove(current.id);
+      return res.redirect(back);
+    }
+    const signals = RULES.signalsOf(found.visitor);
+    RULES.add({
+      kind, note: ruleNote(found.visitor),
+      ids: [signals.id], prints: [signals.print],
+      // Адрес — отдельная галочка, и снята она не зря: за одним адресом сидит
+      // целая квартира или офис, а у мобильного оператора — половина города.
+      ips: req.body.ip !== undefined ? [signals.ip] : []
+    });
+    if (kind === 'block') return res.redirect(back);
+    /* Исключение СТИРАЕТ КАРТОЧКУ вместе с метками в суточных списках: иначе
+     * владелец так и остался бы в отчёте за прошлые дни и в списке «Кто
+     * заходил» — то есть ровно там, откуда его и убирают. Дневные суммы визитов
+     * и просмотров при этом остаются: они числа, а не списки, и вычесть из них
+     * чей-то вклад задним числом нечем (так же ведёт себя и отказ от метрики). */
+    metrics.removeVisitor(found.visitor.id);
+    return res.redirect('/admin/analytics?flash=' + encodeURIComponent('Посетитель исключён из метрики: карточка удалена, дальше он не считается'));
+  };
+}
+app.post('/admin/analytics/visitor/:key/block', visitorRuleRoute('block'));
+app.post('/admin/analytics/visitor/:key/skip', visitorRuleRoute('skip'));
+
+app.post('/admin/analytics/rules/:id/delete', (req, res) => {
+  if (!guardAdmin(req, res)) return;
+  const removed = RULES.remove(req.params.id);
+  res.redirect('/admin/analytics?flash=' + encodeURIComponent(removed ? 'Правило снято' : 'Правило не найдено'));
 });
 
 /* ---------- Каталог ---------- */
@@ -4373,11 +4573,12 @@ app.post('/admin/promo', (req, res) => {
    * которой нет.
    */
   if (wanted) {
-    const entry = PROMO.byCode(Object.assign({}, s, { promoOn: true }), wanted);
-    if (!entry) return res.redirect(promoBack('Такого кода нет или он выключен', true));
-    if (entry.percent) {
-      return res.redirect(promoBack('По умолчанию применяется только код со скидкой товара: свой процент переписал бы каждую цену в каталоге', true));
-    }
+    const entry = PROMO.codes(s).find(c => c.code === wanted);
+    if (!entry) return res.redirect(promoBack('Такого кода нет', true));
+    // Причину даёт `defaultBlock()` — та же, что гасит пункт в селекте: две
+    // формулировки одного отказа разъехались бы на первой правке.
+    const why = PROMO.defaultBlock(entry);
+    if (why) return res.redirect(promoBack(`Код ${wanted} по умолчанию не применяется: ${why}`, true));
   }
   db.saveSettings({ promoOn: req.body.promoOn !== undefined, promoDefault: wanted });
   res.redirect(promoBack('Сохранено'));
@@ -4434,31 +4635,42 @@ app.post('/admin/promo/edit', (req, res) => {
    * очищается, когда код выключили или дали ему свой процент — скидкой витрины
    * он быть перестал.
    */
+  let lost = '';
   if (PROMO.normCode(s.promoDefault) === code) {
     const def = next.find(c => c.code === named);
-    patch.promoDefault = def && def.on && !def.percent ? named : '';
+    lost = PROMO.defaultBlock(def);
+    patch.promoDefault = lost ? '' : named;
   }
   db.saveSettings(patch);
   /* Переименование названо вслух вместе с его единственным последствием:
    * заказы, оформленные по прежнему имени, остаются как есть, поэтому счётчик
    * заказов у кода начинается заново. */
-  res.redirect(promoBack(named === code
+  const said = named === code
     ? 'Промокод ' + code + ' сохранён'
-    : 'Промокод ' + code + ' переименован в ' + named + ' — заказы по прежнему коду остались как есть'));
+    : 'Промокод ' + code + ' переименован в ' + named + ' — заказы по прежнему коду остались как есть';
+  /* СЛЕТЕВШАЯ НАСТРОЙКА «ПО УМОЛЧАНИЮ» НАЗЫВАЕТСЯ ВСЛУХ. Скидка витрины и есть
+   * скидка этого кода, поэтому снятая настройка убирает с витрины все скидки
+   * разом — а прежде форма отвечала бодрым «сохранён», код исчезал из селекта,
+   * и владелец узнавал бы о случившемся от покупателя. */
+  res.redirect(promoBack(lost ? said + '. По умолчанию он больше не применяется: ' + lost : said));
 });
 app.post('/admin/promo/delete', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const s = settings();
   const code = PROMO.normCode(req.body.code);
   const next = PROMO.codes(s).filter(c => c.code !== code);
+  const wasDefault = PROMO.normCode(s.promoDefault) === code;
   // Заказы, оформленные по этому коду, остаются как есть: они помнят код сами
   // (см. `promoCode` в lib/db.js), и переписывать историю ради удаления записи
   // из справочника незачем.
   db.saveSettings({
     promoCodes: next,
-    promoDefault: PROMO.normCode(s.promoDefault) === code ? '' : s.promoDefault
+    promoDefault: wasDefault ? '' : s.promoDefault
   });
-  res.redirect(promoBack('Промокод ' + code + ' удалён'));
+  /* Удалили код витрины — сказать об этом обязаны: скидку даёт код, и вместе с
+   * ним с витрины уходят плашки, зачёркнутые цены и сам процент. */
+  res.redirect(promoBack('Промокод ' + code + ' удалён'
+    + (wasDefault ? ' — скидки с витрины ушли вместе с ним: выберите новый код по умолчанию' : '')));
 });
 
 /* ---------- Настройки магазина ---------- */

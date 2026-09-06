@@ -28,7 +28,10 @@
   'use strict';
 
   var topics = (document.body.getAttribute('data-live') || '').trim();
-  if (!topics || !window.EventSource || !window.fetch || !window.DOMParser) return;
+  // Забрать свежую разметку и разобрать её — всё, что нужно для подмены блоков.
+  // Канал сверх этого требует EventSource, но переход внутри страницы (см. `go`
+  // ниже) работает и без него.
+  var canSwap = !!(window.fetch && window.DOMParser);
 
   // Не чаще одного перезапроса в эту паузу. На витрине с трафиком метрика
   // меняется каждую секунду, а перерисовывать страницу столько раз незачем:
@@ -37,8 +40,38 @@
   var known = null;          // номера версий, известные этой вкладке
   var busy = false;          // запрос уже в пути
   var pending = false;       // пока он шёл, пришло ещё одно изменение
+  var urgent = false;        // и одно из них — переход человека: его не откладываем
   var lastAt = 0;
   var timer = null;
+
+  /* -------------------------------------- переход внутри одной и той же страницы
+   *
+   * Ссылки отчёта метрики — страна, период, страница рейтинга — ведут на ТУ ЖЕ
+   * страницу с другими параметрами. Обычный переход по ним перезагружает её
+   * целиком и ставит читателя в начало, хотя карта, ради которой он выбирал
+   * страну, стоит посреди отчёта: после каждого выбора приходилось прокручивать
+   * обратно. Разметка при этом нужна ровно та же, что приезжает живым
+   * обновлением, — поэтому дверь для неё здесь одна.
+   *
+   * Чего этот файл по-прежнему не знает: КАКИЕ ссылки так себя ведут. Адрес
+   * приходит снаружи (`public/admin-ui.js`), разделы панели остаются его делом.
+   */
+  function go(url) {
+    var next = String(url || '');
+    if (!next) return;
+    // Подменять нечем — обычный переход, как если бы скрипта не было вовсе.
+    if (!canSwap || !window.history || !history.pushState) { location.href = next; return; }
+    history.pushState({}, '', next);
+    pull(true);
+  }
+  window.AdminLive = { go: go };
+
+  /* «Назад» возвращает прежний адрес того же документа, и отчёт обязан вернуться
+   * к прежнему виду: сам браузер показал бы его только из кэша, а этой страницы
+   * там нет — её собрали подменой блоков. */
+  window.addEventListener('popstate', function () { pull(true); });
+
+  if (!topics || !window.EventSource || !canSwap) return;
 
   /* ---------------------------------------------------------------- перенос */
 
@@ -174,12 +207,19 @@
     }
   }
 
-  function pull() {
-    if (busy) { pending = true; return; }
+  /* `force` — обновление начал человек (перешёл по ссылке отчёта, нажал
+   * «назад»). Пауза и оговорки в `blocked()` берегут его от перерисовки под
+   * руками, а не от им же начатого перехода: ждать их значило бы показывать
+   * прежнюю страну ещё секунду после нажатия. */
+  function pull(force) {
+    if (busy) { pending = true; if (force) urgent = true; return; }
     var wait = THROTTLE - (Date.now() - lastAt);
-    if (wait > 0 || blocked()) return later(wait > 0 ? wait : 900);
+    if (!force && (wait > 0 || blocked())) return later(wait > 0 ? wait : 900);
     busy = true; lastAt = Date.now();
-    fetch(location.href, { credentials: 'same-origin', headers: {
+    // Адрес, за которым пошли: пока ответ идёт, человек мог перейти на другой
+    // отчёт, и та разметка уже не про эту страницу.
+    var asked = location.href;
+    fetch(asked, { credentials: 'same-origin', headers: {
       'X-Live': '1',
       // Скрытая вкладка получает свежую разметку, но человек её не видел. Для
       // чата это граница между «обновилось» и «прочитано менеджером».
@@ -191,15 +231,21 @@
         return r.ok ? r.text() : null;
       })
       // Пустой ответ — это либо 5xx, либо увод на вход: в обоих случаях свежего
-      // мы не получили, и обещать обратное плашке нельзя.
-      .then(function (html) { if (html) { apply(html); fresh(); } else stale(); })
+      // мы не получили, и обещать обратное плашке нельзя. Ответ про прежний
+      // адрес не показываем вовсе — вместо него сразу идём за нынешним.
+      .then(function (html) {
+        if (asked !== location.href) { pending = true; urgent = true; return; }
+        if (html) { apply(html); fresh(); } else stale();
+      })
       // Сеть моргнула. Данные на экране с этого мгновения могли устареть, и
       // плашка обязана это сказать — но не сразу: одна неудачная попытка ещё
       // ничего не значит, ждём `stale()`.
       .catch(function () { stale(); })
       .then(function () {
         busy = false;
-        if (pending) { pending = false; later(THROTTLE); }
+        if (!pending) return;
+        pending = false;
+        if (urgent) { urgent = false; pull(true); } else later(THROTTLE);
       });
   }
 

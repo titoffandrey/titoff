@@ -1739,7 +1739,62 @@ test('меню местоположения перечисляет страны,
   // уметь вернуться и в мир, и к соседям.
   const inside = analyticsView.dashboard(geoSnapshot({ geo: 'NL' }), { base: '/admin/analytics' });
   assert.match(inside, /class="g-opt is-on"[^>]*>[\s\S]*?<span>Нидерланды<\/span>/);
-  assert.match(inside, /href="\/admin\/analytics\?days=7"[^>]*>[\s\S]*?<span>Весь мир<\/span>/);
+  /* «Весь мир» назван в адресе СЛОВОМ, а страну несёт каждая ссылка отчёта.
+   * Раздел помнит последнюю выбранную страну, а пустое значение из адреса
+   * выпадает вовсе — без явного слова выбор мира был бы неотличим от обычного
+   * открытия раздела, и панель вернула бы поверх него вчерашнюю страну. */
+  assert.match(inside, /href="\/admin\/analytics\?days=7&amp;geo=world"[^>]*>[\s\S]*?<span>Весь мир<\/span>/);
+  assert.match(inside, /href="\/admin\/analytics\?days=1&amp;geo=NL"[^>]*>[\s\S]*?<span>Сегодня<\/span>/,
+    'смена периода не теряет выбранную страну');
+  assert.match(html, /href="\/admin\/analytics\?days=30&amp;geo=world"/,
+    'с мировой карты период тоже уходит с явным миром');
+});
+
+test('метрика помнит выбранную страну, а её смена не уносит в начало страницы', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-metric-geo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = freshDb(dir);
+
+  /* Отчёт по одной стране смотрят неделями, и выбирать её заново при каждом
+   * заходе в раздел — работа, которую панель помнит за человека. Отметка живёт
+   * рядом с «что панель уже видела»: это состояние ПАНЕЛИ, а не магазина, и
+   * правит его не форма настроек. */
+  assert.equal(store.metricGeo(), '', 'по умолчанию — весь мир');
+  assert.equal(store.rememberMetricGeo(''), false, 'мир и есть значение по умолчанию — писать нечего');
+  assert.equal(store.rememberMetricGeo('nl'), true);
+  assert.equal(store.metricGeo(), 'NL', 'код приводится к общему виду');
+  assert.equal(store.rememberMetricGeo('NL'), false,
+    'повторная запись файл не трогает: страницу перерисовывает живое обновление');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'admin-seen.json'), 'utf8'))), ['geo']);
+  // «Весь мир» — законный ВЫБОР, а не отсутствие значения: он тоже запоминается.
+  assert.equal(store.rememberMetricGeo(''), true);
+  assert.equal(store.metricGeo(), '');
+  assert.equal(store.rememberMetricGeo('чепуха'), false, 'мусор читается как мир, а не как страна');
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = source.slice(source.indexOf("app.get('/admin/analytics'"), source.indexOf("app.get('/admin/analytics/visitors'"));
+  assert.match(route, /asked === undefined \? db\.metricGeo\(\) : asked/,
+    'страны в адресе нет — берём последнюю выбранную');
+  assert.match(route, /db\.rememberMetricGeo\(report\.geo\)/,
+    'запоминаем код, уже нормализованный моделью: второй проверки в маршруте быть не должно');
+
+  /* Прыжок в начало страницы был обычной перезагрузкой: карта, ради которой
+   * страну и выбирают, стоит посреди отчёта. Ссылка на ту же страницу теперь
+   * отдаётся живому обновлению — оно забирает ту же разметку у сервера и
+   * подменяет блоки, а прокрутку не трогает никто. */
+  const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  assert.match(live, /window\.AdminLive = \{ go: go \}/);
+  assert.match(live, /history\.pushState\(\{\}, '', next\)/);
+  assert.match(live, /addEventListener\('popstate'/, '«назад» возвращает прежний отчёт');
+
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /link\.pathname === location\.pathname/, 'внутрь отчёта ведёт ссылка на ту же страницу');
+  assert.match(ui, /window\.AdminLive\.go\(url\)/);
+  assert.match(ui, /document\.dispatchEvent\(new CustomEvent\('metric:go'/,
+    'карта отдаёт адрес страны тем же переходом, что и рейтинг');
+  // Смотрим код без комментариев — иначе проверка ловила бы объяснение рядом.
+  assert.doesNotMatch(require('../lib/minify').js(ui), /location\.href = go\b/,
+    'прежней перезагрузки по нажатию на страну не осталось');
 });
 
 test('карта мира собрана Меркатором и не тащит Антарктиду', () => {
@@ -1811,8 +1866,14 @@ test('регионы стран лежат по файлу на страну и 
 
 test('приближением карты владеет человек, а кнопки рисует скрипт', () => {
   const html = analyticsView.dashboard(geoSnapshot(), { base: '/admin/analytics' });
-  const stage = (html.match(/<div class="gm-stage" data-map data-home="([^"]+)"/) || [])[1];
+  const stage = (html.match(/<div class="gm-stage" data-map data-live-key="[^"]*" data-home="([^"]+)"/) || [])[1];
   assert.equal(stage, WORLD_MAP.viewBox, 'исходный кадр лежит рядом с картой — по нему работает сброс');
+  /* Ключ называет, ЧЬЯ это карта. Приближённый кадр принадлежит человеку, и
+   * живое обновление его не трогает — но у другой страны карта другая, и
+   * оставленный от прежней кадр показал бы её кусок неизвестно где. С разными
+   * ключами узел заменяется целиком, а не переписывается. */
+  assert.match(html, /data-live-key="gm-world"/);
+  assert.match(analyticsView.dashboard(geoSnapshot({ geo: 'RU' }), { base: '/admin/analytics' }), /data-live-key="gm-RU"/);
   assert.doesNotMatch(html, /gm-zoom/, 'кнопки приближения в серверной разметке не нужны: без скрипта они ничего не делают');
   assert.doesNotMatch(html, /<use[^>]+\.svg#/, 'карта не ссылается на внешний SVG');
 
@@ -2046,6 +2107,252 @@ test('карточка посетителя показывает визиты, �
 
   // Посетителя могло вытеснить сроком хранения — это не ошибка, а понятный ответ.
   assert.match(analyticsView.visitorMissing('85.140.7.212', { backHref: '/admin/analytics' }), /История не найдена/);
+});
+
+/* ============ Блокировка посетителя и исключение его из метрики =============
+ * Модель — lib/visitor-rules.js; хранилище своё, поэтому подменяем каталог
+ * данных так же, как для пунктов выдачи: db читает путь один раз при загрузке.
+ */
+function freshRules(dir) {
+  const keys = [require.resolve('../lib/db'), require.resolve('../lib/visitor-rules')];
+  const previous = process.env.STORE_DATA_DIR;
+  process.env.STORE_DATA_DIR = dir;
+  for (const k of keys) delete require.cache[k];
+  const fresh = require('../lib/visitor-rules');
+  for (const k of keys) delete require.cache[k];
+  if (previous === undefined) delete process.env.STORE_DATA_DIR;
+  else process.env.STORE_DATA_DIR = previous;
+  return fresh;
+}
+
+const PHONE_CARD = {
+  id: 'a'.repeat(32), ip: '85.140.7.212',
+  device: 'Телефон', model: 'iPhone', os: 'iOS 26.0', browser: 'Safari 26',
+  platform: 'iPhone', screen: '1179×2556', language: 'ru-RU', timezone: 'Europe/Moscow',
+  cpuCores: 6, deviceMemory: 4
+};
+
+test('отпечаток устройства считается только по данным страницы и переживает обновление браузера', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-rules-print-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const RULES = freshRules(dir);
+
+  const print = RULES.printOf(PHONE_CARD);
+  assert.match(print, /^[a-f0-9]{16}$/);
+
+  /* ГЛАВНОЕ ПРАВИЛО: из одного User-Agent отпечатка нет вовсе. «Телефон ·
+   * iPhone · iOS · Safari» — это каждый второй посетитель магазина, и такой
+   * «блок устройства» закрыл бы витрину половине покупателей. Экран и часовой
+   * пояс присылает только скрипт страницы. */
+  assert.equal(RULES.printOf({ device: 'Телефон', model: 'iPhone', os: 'iOS 26.0', browser: 'Safari 26' }), '');
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { screen: '' })), '');
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { timezone: '' })), '');
+
+  // Версия браузера и системы срезается до семейства: Safari обновляется раз в
+  // пару недель, и отпечаток по версии протух бы раньше, чем им воспользуются.
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { browser: 'Safari 27', os: 'iOS 26.4' })), print);
+  // Размер окна не входит вовсе — он меняется от поворота телефона.
+  assert.equal(RULES.printOf(Object.assign({}, PHONE_CARD, { viewport: '844×390' })), print);
+  // А другое устройство — другой отпечаток.
+  assert.notEqual(RULES.printOf(Object.assign({}, PHONE_CARD, { screen: '1290×2796' })), print);
+});
+
+test('правило опознаёт по метке, адресу и отпечатку, а адрес не запоминает само', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-rules-match-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const RULES = freshRules(dir);
+  const signals = RULES.signalsOf(PHONE_CARD);
+
+  const rule = RULES.add({ kind: 'block', note: 'Москва · iPhone', ids: [signals.id], ips: [signals.ip], prints: [signals.print] });
+  assert.ok(rule && rule.id);
+  assert.equal(RULES.match('block', { id: signals.id }).id, rule.id, 'по метке');
+  assert.equal(RULES.match('block', { ip: signals.ip }).id, rule.id, 'по адресу');
+  assert.equal(RULES.match('block', { print: signals.print }).id, rule.id, 'по отпечатку');
+  assert.equal(RULES.match('block', { id: 'b'.repeat(32), ip: '1.2.3.4' }), null, 'чужой посетитель не под правилом');
+  // «?» ставит clientIp(), когда адреса нет вовсе: правило с таким «адресом»
+  // закрыло бы витрину всем, у кого его не удалось определить.
+  assert.equal(RULES.match('block', { ip: '?' }), null);
+  // Исключение и блок — разные вопросы: правило блока в «skip» не отвечает.
+  assert.equal(RULES.match('skip', { id: signals.id }), null);
+
+  /* САМООБУЧЕНИЕ. Стёр cookie — устройство узнают по отпечатку, и правило
+   * привязывает к себе НОВУЮ МЕТКУ. Адрес при этом не подхватывается никогда:
+   * метка точна до браузера, а адрес оператора со временем накрыл бы
+   * посторонних, и блок расползался бы сам. */
+  const second = 'c'.repeat(32);
+  assert.equal(RULES.learn(RULES.get(rule.id), second), true);
+  assert.equal(RULES.learn(RULES.get(rule.id), second), false, 'та же метка второй раз файл не переписывает');
+  assert.equal(RULES.match('block', { id: second }).id, rule.id);
+  assert.deepEqual(RULES.get(rule.id).ips, [signals.ip], 'адрес остался тем, что задал владелец');
+
+  // Второе нажатие «Заблокировать» не плодит двойника, которого потом не снять
+  // одной кнопкой, — оно дополняет уже стоящее правило.
+  RULES.add({ kind: 'block', note: 'он же', ids: [signals.id], ips: ['5.6.7.8'], prints: [signals.print] });
+  assert.equal(RULES.list().length, 1);
+  assert.ok(RULES.get(rule.id).ips.includes('5.6.7.8'));
+
+  // Блок сильнее исключения: попавший под оба витрину не открывает вовсе.
+  RULES.add({ kind: 'skip', note: 'он же', ids: [signals.id], ips: [], prints: [] });
+  assert.equal(RULES.match(null, { id: signals.id }).kind, 'block');
+  assert.equal(RULES.list().length, 2);
+
+  // Правило без единого признака не опознаёт никого и висело бы обманкой:
+  // владелец видел бы «заблокирован», а витрина отдавалась бы всем.
+  assert.equal(RULES.add({ kind: 'block', note: 'пусто', ids: [], ips: [], prints: [] }), null);
+  assert.equal(RULES.add({ kind: 'мусор', ids: [signals.id] }), null);
+
+  assert.equal(RULES.remove(rule.id), true);
+  assert.equal(RULES.match('block', { print: signals.print }), null);
+  assert.equal(RULES.remove(rule.id), false);
+
+  // Правила переживают перезапуск: они лежат своим файлом, а не полем карточки
+  // метрики, которую вытесняет срок хранения.
+  const again = freshRules(dir);
+  assert.equal(again.list().length, 1);
+  assert.equal(again.list()[0].kind, 'skip');
+});
+
+test('порченый файл правил витрину не роняет и никого не блокирует', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-rules-broken-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'visitor-rules.json'), JSON.stringify([
+    null, 'строка', { kind: 'block' }, { kind: 'block', ids: ['короткая'] },
+    { kind: 'block', ids: ['d'.repeat(32)], ips: ['не адрес'], prints: ['xx'] }
+  ]));
+  const RULES = freshRules(dir);
+  assert.equal(RULES.list().length, 1, 'остаётся только правило хотя бы с одним настоящим признаком');
+  assert.equal(RULES.match('block', { id: 'd'.repeat(32) }) !== null, true);
+  assert.deepEqual(RULES.list()[0].prints, [], 'мусорный отпечаток выброшен');
+});
+
+test('проверка перед маршрутами закрывает и статику, и запросы', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-gate-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'file.txt'), 'внутри');
+  const gate = new App({ secret: 'x'.repeat(40) });
+  let closed = false;
+  let reached = false;
+  gate.static('/static', dir, { extensions: ['.txt'] });
+  gate.get('/', (req, res) => { reached = true; res.send('витрина'); });
+  gate.before((req, res) => {
+    if (!closed) return false;
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Доступ закрыт');
+    return true;
+  });
+
+  const open = response();
+  await gate.handle(request('/'), open);
+  assert.equal(reached, true);
+
+  closed = true;
+  reached = false;
+  const page = response();
+  await gate.handle(request('/'), page);
+  assert.equal(page.statusCode, 403);
+  assert.equal(reached, false, 'до маршрута дело не доходит');
+  // «Тотальный» — значит и статика: иначе заблокированный продолжал бы качать
+  // с магазина стили и снимки товаров.
+  const asset = response();
+  await gate.handle(request('/static/file.txt'), asset);
+  assert.equal(asset.statusCode, 403);
+  assert.doesNotMatch(asset.body.toString(), /внутри/);
+});
+
+test('страница блока самодостаточна и ничего не объясняет', () => {
+  const html = render.blockedPage({ storeName: 'iStore' });
+  assert.match(html, /Доступ к магазину закрыт/);
+  assert.match(html, /iStore/, 'человек должен понимать, куда попал, а не думать, что сайт сломался');
+  /* Блок стоит РАНЬШЕ статики, поэтому `/static/styles.css` такому посетителю
+   * тоже не отдаётся: страница обязана быть без единого внешнего файла. */
+  assert.doesNotMatch(html, /\/static\/|\/uploads\/|<script|<img/);
+  assert.match(html, /<style>/, 'свой встроенный стиль вместо витринного');
+  // Причину не называем: подробность «вас узнали по устройству» — это
+  // подсказка, как возвращаться.
+  assert.doesNotMatch(html, /устройств|cookie|адрес/i);
+});
+
+test('блок и исключение живут в карточке посетителя, а снимаются из списка в метрике', () => {
+  const now = Date.now();
+  const rule = {
+    id: 'aa11bb22', kind: 'block', note: 'Москва · iPhone · Safari 26',
+    ids: ['a'.repeat(32)], ips: ['85.140.7.212'], prints: ['0123456789abcdef'],
+    createdAt: now - 3600000, hits: { count: 4, at: now - 60000 }
+  };
+
+  // В карточке — две кнопки отдельной панелью внизу: у каждой есть цена, и её
+  // надо назвать словами, а не ставить рядом с «Написать в чат».
+  const card = analyticsView.visitorPage(PHONE_CARD, { key: PHONE_CARD.id, ruleBase: '/admin/analytics/visitor/', rules: { block: null, skip: null }, now });
+  assert.match(card, /Доступ и учёт/);
+  assert.match(card, /action="\/admin\/analytics\/visitor\/[a-f0-9]{32}\/block"/);
+  assert.match(card, /action="\/admin\/analytics\/visitor\/[a-f0-9]{32}\/skip"/);
+  assert.match(card, /Заблокировать/);
+  assert.match(card, /Не учитывать/);
+  // Адрес — отдельная галочка, и снята она не зря: за одним адресом сидит целая
+  // квартира или офис, а у мобильного оператора — половина города.
+  assert.match(card, /name="ip"[^>]*>и по адресу/);
+  assert.doesNotMatch(card, /name="ip"[^>]*checked/);
+  assert.doesNotMatch(card, /name="off"/, 'снимать нечего, пока правил нет');
+
+  const closed = analyticsView.visitorPage(PHONE_CARD, { key: PHONE_CARD.id, ruleBase: '/admin/analytics/visitor/', rules: { block: rule, skip: null }, now });
+  assert.match(closed, /Разблокировать/);
+  assert.match(closed, /name="off"/);
+  // Состояние видно в шапке — не прокручивая страницу до конца.
+  assert.match(closed, /rule-mark is-block[^>]*>Заблокирован/);
+
+  /* Список правил — единственный способ СНЯТЬ блок с того, чью карточку давно
+   * вытеснило сроком хранения. Свёрнутая строка сама называет числа. */
+  const report = analyticsView.dashboard({ generatedAt: now, days: 7, daily: [], visitors: [], bots: {} }, {
+    base: '/admin/analytics', rules: [rule, { id: 'cc33', kind: 'skip', note: 'Ноутбук владельца', ids: [], ips: [], prints: ['fedcba9876543210'], createdAt: now }]
+  });
+  assert.match(report, /Блокировки и исключения/);
+  assert.match(report, /Заблокировано: 1 · Не учитываются: 1/);
+  assert.match(report, /action="\/admin\/analytics\/rules\/aa11bb22\/delete"/);
+  assert.match(report, /Москва · iPhone · Safari 26/);
+  assert.match(report, /4 срабатывания/);
+  assert.match(report, /85\.140\.7\.212/);
+  // Пустой список говорит об этом словами и зовёт туда, где правила заводят.
+  const clean = analyticsView.dashboard({ generatedAt: now, days: 7, daily: [], visitors: [], bots: {} }, { base: '/admin/analytics', rules: [] });
+  assert.match(clean, /никого не блокировали и не исключали/);
+});
+
+test('витрина закрыта заблокированному, а панель и владелец — нет', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const gate = source.slice(source.indexOf('function blockedRequest('), source.indexOf('app.before(blockedRequest)'));
+
+  /* Проверка стоит перед ВСЕМИ маршрутами (`app.before`), а не на каждом по
+   * отдельности: забытый маршрут и был бы дырой в блоке. */
+  assert.match(source, /app\.before\(blockedRequest\)/);
+  /* ДВА ИСКЛЮЧЕНИЯ, и оба обязательны: иначе владелец, закрывший витрину по
+   * адресу своего же офиса, теряет вход в панель — и вернуть его можно только
+   * по SSH. */
+  assert.match(gate, /path === '\/admin' \|\| path\.startsWith\('\/admin\/'\)/);
+  assert.match(gate, /if \(!rule \|\| adminAuthorized\(req\)\) return false/);
+  // Тело POST не читаем, но поток спускаем: иначе браузер не увидит ответа.
+  assert.match(gate, /req\.resume\(\)/);
+  assert.match(gate, /res\.writeHead\(403/);
+
+  /* Метрика не считает владельца САМА, без всяких правил: пока в браузере
+   * открыта авторизованная сессия, ходящий по витрине — не покупатель. */
+  const skip = source.slice(source.indexOf('function metricsSkipped('), source.indexOf('function trackPage('));
+  assert.match(skip, /adminAuthorized\(req\) \|\| !!RULES\.match\('skip'/);
+  assert.match(source, /if \(metrics\.trackingDisabled\(req\) \|\| metricsSkipped\(req\)\) return;/);
+  assert.match(source, /if \(id && !metricsSkipped\(req\)\) metrics\.heartbeat/);
+
+  /* Устройство узнаётся в /api/analytics/start — только там есть экран и
+   * часовой пояс. Правила проверяются ДО отказа от метрики: блок — это про
+   * доступ, а не про учёт. */
+  const start = source.slice(source.indexOf("app.post('/api/analytics/start'"), source.indexOf("app.post('/api/analytics/ping'"));
+  assert.ok(start.indexOf('RULES.match(') < start.indexOf('metrics.trackingDisabled(req)'),
+    'правила сверяются раньше, чем отказ от метрики');
+  assert.match(start, /RULES\.printOf\(context\)/);
+  assert.match(start, /RULES\.learn\(rule, id\)/);
+  assert.match(start, /blocked: rule\.kind === 'block'/);
+
+  // Страница только исполняет ответ сервера: своих правил у витрины нет.
+  const js = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8'));
+  assert.match(js, /d\.blocked[\s\S]{0,40}location\.reload\(\)/);
+  assert.doesNotMatch(js, /visitor-rules|printOf/);
 });
 
 test('длинные названия городов не перекрывают числа в метрике', () => {
@@ -2840,7 +3147,10 @@ test('адрес единственной офлайн-точки виден в 
   // так говорит сам адрес, и занимало отдельную строку в колонке контактов.
   // Вместо него булавка — та же залитая, что у подписи «Адрес» на оформлении;
   // значок озвучить нечем, поэтому имя строке даёт спрятанное слово рядом.
-  assert.match(html, /class="foot-address"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/div>/);
+  /* Строка — ССЫЛКА на «О компании»: там та же точка стоит на карте, с
+   * маршрутом и контактами, а нажать на адрес покупатель пробует первым делом.
+   * До этого нажатие не делало ничего. */
+  assert.match(html, /<a class="foot-address" href="\/about"><svg class="foot-pin"[\s\S]*?<span><span class="sr-only">Адрес магазина: <\/span>г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»<\/span><\/a>/);
   assert.doesNotMatch(html, /Офлайн-магазин/);
   /* Стоит он в колонке МАГАЗИНА, рядом с ИП, ИНН и ОГРНИП, а не среди контактов:
    * это не способ связи, а место, и отвечает он на тот же вопрос — кто и откуда
@@ -2858,16 +3168,16 @@ test('адрес единственной офлайн-точки виден в 
   // seed-настройках и при первой установке сразу попадают и на витрину, и в
   // динамические условия консультанта.
   const seeded = require('../seed-data').settings;
-  assert.equal(seeded.contactHours, 'Ежедневно 09:00–22:00 МСК');
+  assert.equal(seeded.contactHours, '09:00–22:00 МСК');
   assert.equal(seeded.shipFromCity, 'Ноябрьск');
   const seededHome = render.homePage(Object.assign({ currency: '₽' }, seeded), fakeDb, {});
   // Разметку внутри блока намеренно не проверяем: часы идут со значком и в
   // <span>, а сверяет это отдельный тест подвала. Здесь вопрос один — доехало
   // ли до витрины само значение из seed-настроек.
-  assert.match(seededHome, /class="foot-hours">[\s\S]*?Ежедневно 09:00–22:00 МСК</);
+  assert.match(seededHome, /class="foot-hours">[\s\S]*?09:00–22:00 МСК</);
   const seededPrompt = require('../lib/chat-prompt').storeText(Object.assign({}, seeded, SETTINGS));
   assert.match(seededPrompt, /Город отправки — Ноябрьск/);
-  assert.match(seededPrompt, /Время работы: Ежедневно 09:00–22:00 МСК/);
+  assert.match(seededPrompt, /Время работы: 09:00–22:00 МСК/);
 });
 
 test('в подвале есть знаки оплаты, а на телефоне подвал в одну колонку', () => {
@@ -2888,6 +3198,30 @@ test('в подвале есть знаки оплаты, а на телефон
   // выровненный по центру, уезжает за левый край экрана.
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.footer-bottom\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
+
+  /* Знак магазина обязан следовать выравниванию колонки. Внутри ссылки лежит
+   * БЛОЧНЫЙ элемент (`.logo-mark` у вордмарка, `.logo-img` у загруженного
+   * логотипа), а блок с нулевыми полями прижимается влево — `text-align` до
+   * него не дотягивается вовсе, и на телефоне знак оставался единственным, что
+   * стояло у края, пока слоган, адрес и реквизиты шли по центру. */
+  assert.match(css, /\.foot-brand \.logo\{display:inline-block/);
+  assert.match(css, /\.logo-mark\{[^}]*display:block/, 'знак внутри ссылки блочный — центрировать нужно саму ссылку');
+
+  /* Разделы ссылок — ровным столбцом по левому краю: пункты разной длины, и по
+   * центру каждый начинался со своего отступа. Контактов это не касается — там
+   * строки со значком, и левый край им задаёт сам значок. */
+  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:left\}/);
+
+  /* Сами столбцы при этом стоят ПАРОЙ ПО ЦЕНТРУ, а не растянуты на половины
+   * экрана — для этого у них своя строка (`.footer-navs`) с центрированием.
+   * Строка обязательна: перенос во flex решается ДО сжатия, и в общем ряду на
+   * 360 px, где паре не хватает шести пикселей, «Информация» уезжала целой
+   * колонкой под «Каталог». На десктопе обёртки нет вовсе — там колонки обязаны
+   * остаться прямыми участниками ряда из четырёх. */
+  const withCats = render.homePage(payOn, Object.assign({}, fakeDb, { visibleCategories: () => ['iPhone', 'Mac'] }), {});
+  assert.match(withCats, /<div class="footer-navs">[\s\S]*aria-label="Каталог"[\s\S]*aria-label="Информация"[\s\S]*<\/nav>\s*<\/div>/);
+  assert.match(css, /\.footer-navs\{display:contents\}/);
+  assert.match(mobile, /\.footer-navs\{display:flex;flex:0 0 100%;justify-content:center/);
 });
 
 test('на телефоне слоган стоит в одну строку, а его длину считает сервер', () => {
@@ -3183,6 +3517,10 @@ test('подвал — разделы: каталог, страницы поку
   /* «О компании» — ПЕРВАЯ строка списка: с неё начинают, решая, доверять ли
    * продавцу, а остальное открывают, когда заказ уже сделан. */
   assert.ok(html.indexOf('>О компании<') < html.indexOf('>Отследить заказ<'));
+  /* Имя `footer-links` осталось за ТОЙ САМОЙ снятой сеткой 2×2, и возвращать его
+   * нельзя даже под другое содержимое: строка ссылок под копирайтом и разделы
+   * подвала — разные вещи, а одноимённое правило красило бы чужой блок. Обёртка
+   * пары разделов называется `.footer-navs`, и проверяется она отдельно. */
   assert.doesNotMatch(html, /footer-links/);
   assert.doesNotMatch(css, /\.footer-links/);
 
@@ -3192,11 +3530,16 @@ test('подвал — разделы: каталог, страницы поку
   assert.match(css, /\.footer-cols\{display:flex;flex-wrap:wrap/);
   assert.doesNotMatch(render.homePage({ storeName: 'Тест', tagline: '', currency: '₽' }, fakeDb, {}), /aria-label="Каталог"/);
 
-  // На телефоне разделы ссылок идут в две колонки, а магазин и контакты — во всю
-  // ширину: четырьмя блоками в столбик подвал растянулся бы на два экрана.
+  /* На телефоне ряд ОСТАЁТСЯ flex'ом, а не превращается в сетку из двух половин:
+   * у сетки трек — половина экрана, поэтому «Каталог» прибивало к левому краю, а
+   * «Информация» начиналась ровно с середины, и пара разъезжалась по краям. Своя
+   * ширина у колонок плюс центрирование строки (`.footer-navs`) ставят их парой
+   * по центру; магазин и контакты идут во всю ширину каждый своей строкой. */
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.footer-cols\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(mobile, /\.footer-about,\.footer-contacts\{grid-column:1\/-1/);
+  const mobileCols = (mobile.match(/\.footer-cols\{([^}]*)\}/) || [])[1] || '';
+  assert.match(mobileCols, /justify-content:center/);
+  assert.doesNotMatch(mobileCols, /grid/, 'ряд подвала на телефоне остаётся flex\'ом');
+  assert.match(mobile, /\.footer-about,\.footer-contacts\{flex:0 0 100%/);
 });
 
 test('цвета подвала — из подвала Google Trends, и одни на все его части', () => {
@@ -6002,7 +6345,9 @@ test('оформление с онлайн-оплатой не чистит ко
   // Черновик — только когда есть что выбирать. Без онлайн-оплаты заявка
   // настоящая сразу, как и была.
   assert.match(source, /const draft = PAYMENTS\.enabled\(s\)/);
-  assert.match(source, /if \(!draft\) metrics\.markOrder/);
+  // Условие рядом — про исключённых из метрики (владелец, менеджеры): заказ у них
+  // обычный, а счётчик заявок он не двигает (см. lib/visitor-rules.js).
+  assert.match(source, /if \(!draft && !metricsSkipped\(req\)\) metrics\.markOrder/);
 });
 
 test('оформление помнит введённое — после неудачной оплаты его не набирают заново', () => {
@@ -7280,6 +7625,15 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   assert.equal(ALFA.validToken('ко ро ткий'), false);
   assert.equal(ALFA.validToken('abc'), false);
 
+  /* Способ называется «Карта или СБП»: на странице банка есть и то и другое, а
+   * выбирает покупатель уже там — и по боевым данным выбирает СБП. Реквизитом
+   * при этом приходит ССЫЛКА, поэтому и подпись у неё своя: «Номер карты» над
+   * `https://pay.alfabank.ru/…` читалось как испорченные данные. */
+  assert.equal(PAY.describe('CARD_ONLINE').name, 'Карта или СБП');
+  assert.equal(PAY.requisiteLabel('CARD_ONLINE'), 'Ссылка на оплату');
+  assert.equal(PAY.requisiteLabel('TO_CARD'), 'Номер карты', 'у перевода реквизит остаётся номером');
+  assert.equal(PAY.requisiteLabel('SBP'), 'Номер телефона');
+
   // Способ один и валюта одна: виджет-эндпоинт поля валюты не принимает вовсе,
   // и молча выставить счёт в другой было бы обманом.
   assert.equal(ALFA.supports('CARD_ONLINE'), true);
@@ -7336,10 +7690,41 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   assert.equal(ALFA.matchesInvoice(want, { id: 'abc12345', amount: 67990, currency: 'USD' }).reason, 'currency');
   assert.equal(ALFA.matchesInvoice({}, { id: 'abc12345' }).ok, false, 'без ожидаемого счёта — не подтверждаем');
 
-  /* Callback у этого пути не описан вовсе, поэтому уведомлениям не верим
-   * НИКОГДА: оплату подтверждает только опрос статуса. Вернуть `true` «на
-   * всякий случай» значило бы открыть дверь чужому «заказ оплачен». */
+  /* Callback-уведомлениям не верим НИКОГДА: оплату подтверждает только опрос
+   * статуса. Описаны они у банка подробно (HMAC-SHA256 по отсортированным
+   * «имя;значение;»), но ключ для подписи выдаёт техподдержка по заявке, а без
+   * ключа принять такое уведомление — открыть дверь чужому «заказ оплачен». */
   assert.equal(ALFA.verifyCallback(on, {}, ''), false);
+
+  /* ОПИСАНИЕ ЗАКАЗА чистится по требованию мануала: в процессинг банка уходит
+   * не больше 99 знаков, и «запрещены к использованию %, +, конец строки \r и
+   * перенос строки \n». Плюс в наших названиях — обычное дело («eSIM +
+   * физическая SIM»), поэтому полагаться на вызывающего здесь нельзя. */
+  assert.equal(ALFA.safeDescription('Заказ №482913'), 'Заказ №482913');
+  assert.equal(ALFA.safeDescription('eSIM + SIM 100%\r\nвторая строка'), 'eSIM SIM 100 вторая строка');
+  assert.equal(ALFA.safeDescription('я'.repeat(200)).length, 99);
+
+  /* ПОЧЕМУ НЕ ПРОШЛО — словами самого банка. `getOrderStatusExtended` отдаёт
+   * `actionCode` и `actionCodeDescription`, и без них все незакрытые счета
+   * выглядели в панели одинаково, хотя случаи разные: −2007 это брошенная
+   * страница оплаты, −2014 — отказ банка покупателя. */
+  assert.equal(ALFA.reasonOf({ actionCode: -2007, actionCodeDescription: 'Истек срок ожидания ввода данных.', paymentWay: 'SBP_C2B' }, 'failed'),
+    'Банк: Истек срок ожидания ввода данных (-2007) · СБП');
+  assert.equal(ALFA.reasonOf({ actionCode: -2014, actionCodeDescription: 'Операция отклонена.', paymentWay: 'UNKNOWN' }, 'cancelled'),
+    'Банк: Операция отклонена (-2014)', 'UNKNOWN — это «банк не сказал», а не способ оплаты');
+  /* У оплаченного заказа приписка говорит, ЧЕМ платили: способ у нас один
+   * («страница банка»), а карту или СБП покупатель выбирает уже там — и по
+   * боевым данным выбирает СБП. Подписи в именительном падеже: «Оплата через
+   * картой» — ровно то, что выходит из падежной формы. */
+  assert.equal(ALFA.reasonOf({ actionCode: 0, paymentWay: 'SBP_C2B' }, 'paid'), 'Оплата: СБП');
+  assert.equal(ALFA.reasonOf({ actionCode: 0, paymentWay: 'CARD' }, 'paid'), 'Оплата: карта');
+  assert.equal(ALFA.reasonOf({}, 'failed'), '', 'банк ничего не сказал — и мы молчим');
+  // Приписку кассы маршрут сверки кладёт в саму попытку, а панель показывает её
+  // и в строке заказа, и в отчёте по кассам.
+  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(serverSrc, /note: invoiceNote\(r\.invoice\)/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'),
+    /is-fail">\$\{a\.status === 'expired'[\s\S]{0,220}a\.note/);
 
   /* ТLS: цепочка Альфы снаружи РФ не собирается (банк присылает промежуточный
    * сертификат с другим ключом, а нужного нет и в бандле Минцифры), поэтому
@@ -7347,11 +7732,22 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
    * применяться — без него мы либо не свяжемся с банком вовсе, либо, что хуже,
    * начнём доверять кому попало. */
   assert.match(source, /pins:\s*\['[A-Za-z0-9+/=]{40,}'\]/, 'пин боевого хоста на месте');
-  // Ходим на ШТАТНЫЙ шлюз, а не на виджетный: его статус возвращает сумму и
-  // валюту, без которых сверять оплату нечем.
-  assert.match(source, /payment\/rest\/register\.do/);
-  assert.match(source, /payment\/rest\/getOrderStatusExtended\.do/);
+  /* Ходим на ШТАТНЫЙ шлюз, а не на виджетный: его статус возвращает сумму и
+   * валюту, без которых сверять оплату нечем. Путь склеивается из базы среды —
+   * у боевого контура он `/payment/rest`, у тестового свой, и одной общей
+   * константой их не описать. */
+  assert.match(source, /host: 'pay\.alfabank\.ru', base: '\/payment\/rest'/);
+  assert.match(source, /const PATH_REGISTER = '\/register\.do'/);
+  assert.match(source, /const PATH_STATUS = '\/getOrderStatusExtended\.do'/);
+  assert.match(source, /path: env\.base \+ path/);
   assert.doesNotMatch(source, /api\/widget\/status'/);
+  /* Тестовый контур — тот, что назван координатами подключения в мануале банка.
+   * Прежний `alfa.rbsuat.com` не работал бы дважды: адрес не тот, и сертификат
+   * у него подписан тем же российским центром — цепочка снаружи РФ не
+   * собирается, а пина у тестовой среды нет. У `tws.egopay.ru` сертификат
+   * обычный, публично доверенный. */
+  assert.match(source, /host: 'tws\.egopay\.ru', base: '\/api\/ab\/rest', pins: \[\]/);
+  assert.doesNotMatch(source, /alfa\.rbsuat\.com'/);
   assert.match(source, /rejectUnauthorized: false/);
   assert.match(source, /pin_mismatch/, 'не совпал ключ — соединение рвётся');
   assert.match(source, /socket\.destroy/);
@@ -15326,9 +15722,30 @@ test('кодом по умолчанию может быть только «ск
   assert.equal(promo.priceFor(84990, 20, promo.stateOf(dead, null)).price, 84990);
   // Панель об этом говорит вслух, а не сохраняет молча.
   const route = server.slice(server.indexOf("app.post('/admin/promo'"), server.indexOf("app.post('/admin/promo/add'"));
-  assert.match(route, /if \(entry\.percent\)/);
-  assert.ok(route.indexOf('По умолчанию применяется только код со скидкой товара') < route.indexOf('db.saveSettings'),
+  assert.match(route, /const why = PROMO\.defaultBlock\(entry\)/);
+  assert.ok(route.indexOf('по умолчанию не применяется') < route.indexOf('db.saveSettings'),
     'проверка обязана идти до записи');
+
+  /* ПРИЧИНА ОТКАЗА ЖИВЁТ В ОДНОМ МЕСТЕ — `defaultBlock()`. Её спрашивают и
+   * селект, и оба маршрута: две формулировки одного отказа разъехались бы на
+   * первой правке, а владелец получал бы в панели один ответ, а на сохранении
+   * другой. */
+  assert.equal(promo.defaultBlock({ code: 'SALE', percent: 0, on: true }), '', 'скидка товара годится');
+  assert.equal(promo.defaultBlock({ code: 'VIP20', percent: 20, on: true }), 'свой процент, вводится руками');
+  assert.equal(promo.defaultBlock({ code: 'SALE', percent: 0, on: false }), 'выключен');
+  // Свой процент — блокировка постоянная, поэтому она называется и у выключенного:
+  // включить код обратно её не лечит.
+  assert.equal(promo.defaultBlock({ code: 'VIP20', percent: 20, on: false }), 'свой процент, вводится руками');
+
+  /* НЕГОДНЫЙ КОД ИЗ СЕЛЕКТА НЕ ПРОПАДАЕТ, а гаснет и называет причину. Прежде
+   * его там не было вовсе: владелец, поставивший коду свой процент, видел
+   * список из одного «Не применять» — со стороны это неотличимо от сломанного
+   * раздела, а настройка при этом слетала без единого слова. */
+  const html = adminViews.promoPage(
+    Object.assign(dbCore.defaultSettings(), { storeName: 'Тест' }, s),
+    { visibleOrders: () => [], pendingReviewCount: () => 0, newOrderCount: () => 0 }, {});
+  assert.match(html, /<option value="VIP20" disabled>VIP20 — свой процент, вводится руками<\/option>/);
+  assert.match(html, /<option value="SALE">SALE<\/option>/, 'годный код выбирается как раньше');
 });
 
 test('вид промокода проверяется, а справочник не разрастается', () => {
@@ -15537,7 +15954,13 @@ test('код переименовывается в панели, и настро
    * `defaultCode()` искал бы запись, которой больше нет, и покупатель увидел бы
    * цены без скидки при живой на вид настройке. Выключенный или ставший
    * процентным код по-прежнему очищает её. */
-  assert.match(route, /patch\.promoDefault = def && def\.on && !def\.percent \? named : ''/);
+  assert.match(route, /lost = PROMO\.defaultBlock\(def\)/);
+  assert.match(route, /patch\.promoDefault = lost \? '' : named/);
+  /* СЛЕТЕВШАЯ НАСТРОЙКА НАЗЫВАЕТСЯ ВСЛУХ, и это не мелочь: скидка витрины и
+   * есть скидка кода по умолчанию, поэтому поставленный коду процент убирает с
+   * витрины ВСЕ скидки разом. Прежде форма отвечала бодрым «сохранён», код
+   * исчезал из селекта, и владелец узнавал бы о случившемся от покупателя. */
+  assert.match(route, /По умолчанию он больше не применяется: /);
   // Заказы по прежнему имени остаются как есть, и панель говорит это вслух.
   assert.match(route, /переименован в/);
 });
