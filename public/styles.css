@@ -1693,6 +1693,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    обрывался бы, не дойдя до края страницы. */
 .footer-cols{display:flex;flex-wrap:wrap;justify-content:space-between;gap:30px 32px}
 .footer-about{flex:1 1 240px;max-width:340px}
+/* Обёртка двух разделов ссылок нужна только телефону (см. мобильный блок), а
+   здесь её быть не должно вовсе: ряд из четырёх колонок делит ширину сам, и
+   лишний участник между ними сломал бы и `space-between`, и арифметику базисов.
+   `display:contents` убирает её из раскладки, оставляя колонки на месте. */
+.footer-navs{display:contents}
 .footer-col{flex:0 1 auto;min-width:130px}
 .footer-col-head{margin-bottom:13px;color:var(--footer-ink);font-size:17px;font-weight:650;letter-spacing:-.015em}
 .footer-col-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}
@@ -1710,6 +1715,15 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    знак, а не строка текста. */
 .site-footer a:not(.logo):not(.msg-link):hover{color:var(--accent)}
 .foot-brand{font-size:20px;color:var(--footer-ink)}
+/* ЗНАК ПОДВАЛА СЛЕДУЕТ ВЫРАВНИВАНИЮ КОЛОНКИ, а не висит у левого края всегда.
+   Внутри ссылки лежит блочный элемент (`.logo-mark` у вордмарка, `.logo-img` у
+   загруженного логотипа), а блок с `width:auto` и нулевыми полями прижимается
+   влево — `text-align` до него не дотягивается вовсе. На телефоне подвал
+   центрируется целиком, и знак оставался единственным, что стояло у края:
+   слоган, адрес и реквизиты под ним шли по центру. Строчный блок сжимается по
+   содержимому, поэтому центрируется обычным `text-align` родителя — на
+   десктопе, где подвал выровнен по левому краю, знак так и остаётся слева. */
+.foot-brand .logo{display:inline-block;margin-right:0}
 .foot-note{max-width:340px;margin-top:9px;line-height:1.55;color:var(--footer-link)}
 /* Контакты — ЧЕТВЁРТАЯ КОЛОНКА РЯДА, поэтому им нельзя задавать нижнюю границу
    ширины: `min-width` запрещает колонке сжиматься, и на ноутбуке (контейнер
@@ -3374,6 +3388,45 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .metric-ip{color:#0b6bcb;text-decoration:underline;text-decoration-color:rgba(11,107,203,.35);text-underline-offset:2px}
 .metric-table .cmarks{margin-top:0}
 
+/* Блокировки и исключения — такая же свёртка, как у ботов, но БЕЗ их тёплого
+   тона: у ботов он говорит «это не ваши посетители», а здесь тревожиться не о
+   чем — это решения владельца. Что за решение, говорит полоска у строки. */
+details.metric-rules{margin-bottom:14px}
+.rule-list{display:grid;gap:9px;margin:0;padding:0;list-style:none}
+.rule-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 13px;border:1px solid var(--border-soft);border-radius:12px}
+/* Полоска у левого края отделяет блок от исключения с одного взгляда: строк
+   бывает десяток, и читать у каждой подпись, чтобы понять её род, незачем. */
+.rule-row.is-block{box-shadow:inset 3px 0 0 #b42318}
+.rule-row.is-skip{box-shadow:inset 3px 0 0 #8e8e93}
+.rule-main{display:grid;gap:4px;min-width:0}
+.rule-main b{font-size:13.5px}
+.rule-kind{color:#8e8e93;font-size:11.5px}
+.rule-sigs{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.rule-sig{display:inline-flex;align-items:baseline;gap:5px;padding:2px 8px;border-radius:999px;background:#f2f2f5;color:#8e8e93;font-size:11px}
+.rule-sig b{color:var(--text);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.rule-side{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rule-hits{color:#8e8e93;font-size:11.5px}
+/* Отметка в шапке карточки: состояние надо видеть, не прокручивая страницу до
+   блока «Доступ и учёт» внизу. */
+.rule-mark{display:inline-block;margin-top:9px;margin-right:7px;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600}
+.rule-mark.is-block{background:#fdeceb;color:#b42318}
+.rule-mark.is-skip{background:#f2f2f5;color:#6e6e73}
+/* Доступ и учёт — внизу карточки: у каждой кнопки есть цена, и её надо назвать
+   словами, а не ставить рядом с «Написать в чат» как обычное действие. */
+.visitor-access{margin-top:14px}
+.access-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:12px 0}
+.access-row+.access-row{border-top:1px solid var(--border-soft)}
+.access-row>div{display:grid;gap:3px;min-width:0;max-width:520px}
+.access-row b{font-size:13.5px}
+.access-row span{color:#6e6e73;font-size:12px}
+.access-row form{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.access-ip{display:inline-flex;align-items:center;gap:7px;color:#6e6e73;font-size:12px;cursor:pointer}
+.access-ip input{width:16px;height:16px;accent-color:var(--accent)}
+/* Красным подписан только действующий БЛОК: витрина закрыта, и это состояние,
+   о котором владелец обязан помнить. Исключение из метрики тревогой не
+   является — его строка остаётся обычной. */
+.access-row.is-block.is-on b{color:#b42318}
+
 /* Карточка одного посетителя: куда ведут IP и значки из строки заказа */
 .visitor-head{margin-bottom:14px}
 .visitor-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -3750,13 +3803,37 @@ details.metric-bots>summary:hover{background:#fffaf0}
      По центру блок собирается вокруг одной оси и выглядит цельным. */
   .site-footer{text-align:center;padding-top:36px}
   .footer-grid{gap:22px;justify-items:center}
-  .footer-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 16px;width:100%;justify-items:center}
+  /* РЯД ОСТАЁТСЯ FLEX'ОМ, КАК НА ДЕСКТОПЕ, а не превращается в сетку из двух
+     половин. Разница видна сразу: у сетки трек — половина экрана, поэтому
+     «Каталог» прибит к левому краю, а «Информация» начинается ровно с середины,
+     и пара разъезжается по краям. У flex'а колонка занимает свою ширину
+     (замер на 375 px: 104 и 214 px при 343 px контейнера), а `justify-content`
+     ставит обе рядом по центру страницы. Не помещаются — сжимаются сами, и
+     подписи переносятся по словам, а не режутся. */
+  .footer-cols{justify-content:center;gap:24px 16px;width:100%}
   /* Магазин и контакты — во всю ширину: слоган в них стоит одной строкой, а
-     адрес офлайн-точки длиннее половины экрана. */
-  .footer-about,.footer-contacts{grid-column:1/-1;max-width:none;justify-items:center}
-  .footer-col{min-width:0;width:100%}
+     адрес офлайн-точки длиннее половины экрана. Своя строка каждому, поэтому
+     `flex-basis:100%`: ширину колонок ссылок они при этом не задают вовсе — у
+     слогана `nowrap`, и в общей сетке он раздувал бы треки под себя. */
+  .footer-about,.footer-contacts{flex:0 0 100%;max-width:none;justify-items:center}
+  .footer-col{min-width:0}
   .footer-col-head{margin-bottom:9px;font-size:15px}
   .footer-col-list{gap:8px}
+  /* РАЗДЕЛЫ ССЫЛОК — РОВНЫМ СТОЛБЦОМ ПО ЛЕВОМУ КРАЮ, а сами столбцы стоят парой
+     по центру страницы. Ссылки тут разной длины («iPad» рядом с «Политикой
+     конфиденциальности», которая ещё и переносится на две строки), и по центру
+     каждая начиналась со своего отступа — список читался рваной лесенкой вместо
+     перечня. Единой оси это не рушит: пара столбцов центрируется вокруг неё же,
+     как магазин и контакты сверху и снизу. Контактов правило не касается — там
+     строки со значком, и левый край им задаёт сам значок.
+
+     Своя строка у пары обязательна (`.footer-navs`, на десктопе её нет вовсе):
+     перенос во flex решается ДО сжатия, поэтому в общем ряду на 360 px, где паре
+     не хватает шести пикселей, «Информация» уезжала под «Каталог» целой
+     колонкой. В своей строке с `nowrap` она вместо этого ужимается, и подписи
+     переносятся по словам. */
+  .footer-navs{display:flex;flex:0 0 100%;justify-content:center;gap:16px;width:100%}
+  .footer-col:not(.footer-contacts){flex:0 1 auto;text-align:left}
   .foot-brand{font-size:22px}
   /* Слоган в подвале — тоже одна строка, тем же способом, что в заголовке
      первого экрана (--fit считает footFit() в lib/render.js). Кегль падает
@@ -4304,11 +4381,15 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .foot-note{font-size:min(14px,calc((100vw - 32px)/var(--fit,21)))}
 }
 
-/* Уже 340px две колонки разделов режут подписи посреди слова («Политика
-   конфиденци…»), поэтому там они возвращаются в столбик. Правило идёт после
-   блока 420px: побеждает последнее подошедшее. */
+/* Уже 340px двум колонкам разделов места не остаётся: «Информация» ужимается до
+   самого длинного слова, и «Согласие на обработку данных» уходит в три строки.
+   Поэтому там пара переносится в столбик — но каждый столбец по-прежнему стоит
+   ПО ЦЕНТРУ и набран по левому краю: ширина по содержимому, а строку центрирует
+   та же `justify-content` обёртки. Правило идёт после блока 420px: побеждает
+   последнее подошедшее. */
 @media(max-width:340px){
-  .footer-cols{grid-template-columns:minmax(0,1fr)}
+  .footer-navs{flex-wrap:wrap}
+  .footer-col:not(.footer-contacts){flex:0 0 auto;max-width:100%}
 }
 
 @media(min-width:640px) and (max-width:800px){
