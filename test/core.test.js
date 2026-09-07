@@ -16825,3 +16825,83 @@ test('prefers-reduced-transparency доводит липкие поверхно�
     assert.match(decl, /backdrop-filter:none/, sel + ': размытие обязано сняться');
   }
 });
+
+/* ХРОНОЛОГИЯ ПОСЕТИТЕЛЯ ПОКАЗЫВАЕТ ТО, ЧТО СОБИРАЕТ.
+ * Глубина прокрутки писалась в просмотр (`hit.d`) с первого дня, а в карточке
+ * не показывалась нигде: на боевых данных к моменту правки накопилось 1767
+ * записей, и все впустую. Собранное и невидимое — то же самое, что несобранное,
+ * только дороже: место занято, а ответа нет. Вопрос у глубины свой и денежный —
+ * «дошёл ли он до кнопки покупки или закрыл на первом экране», — и суточная
+ * сводка на него не отвечает: там среднее по всем, а тут конкретный человек. */
+test('в хронологии посетителя видно глубину прокрутки и уход наружу', () => {
+  const now = Date.parse('2026-09-07T12:00:00Z');
+  const visitor = {
+    id: 'v'.repeat(32), visits: 1, pageViews: 3, activeSeconds: 240,
+    firstSeen: now - 86400000, lastSeen: now - 60000,
+    hits: [
+      { p: '/', t: now - 600000, s: 42, d: 88, v: 1 },
+      { p: '/checkout', t: now - 300000, s: 48, d: 61, o: ['Telegram', 'WhatsApp'] }
+    ]
+  };
+  const html = analyticsView.visitorPage(visitor, { now, products: {} });
+  assert.match(html, /<i title="Долистал до 88% страницы">88%<\/i>/);
+  assert.match(html, /<i title="Долистал до 61% страницы">61%<\/i>/);
+  /* Подписи ухода идут ОДНОЙ строкой: «Ушёл в …» дважды подряд читается
+   * неуклюже и занимает два ряда там, где хватает одного. */
+  assert.equal((html.match(/visit-out/g) || []).length, 1, 'один ряд на все подписи ухода');
+  assert.match(html, /<em class="visit-out">Ушёл в Telegram · WhatsApp<\/em>/);
+
+  // Ноль глубины — не «0%», а отсутствие подписи: страницу могли открыть и не
+  // прокрутить вовсе, и нарисованный ноль читался бы как замер.
+  const plain = analyticsView.visitorPage({
+    id: 'w'.repeat(32), visits: 1, pageViews: 1, firstSeen: now, lastSeen: now,
+    hits: [{ p: '/', t: now, s: 5, v: 1 }]
+  }, { now, products: {} });
+  assert.doesNotMatch(plain, /visit-sec">[^<]*<i/, 'без замера подписи глубины быть не должно');
+  assert.doesNotMatch(plain, /visit-out/);
+
+  // Подпись ухода приходит из закрытого словаря, но текст всё равно экранируется:
+  // в карточку он попадает из тела запроса.
+  const evil = analyticsView.visitorPage({
+    id: 'x'.repeat(32), visits: 1, pageViews: 1, firstSeen: now, lastSeen: now,
+    hits: [{ p: '/', t: now, s: 5, v: 1, o: ['<script>alert(1)</script>'] }]
+  }, { now, products: {} });
+  assert.doesNotMatch(evil, /<script>alert/);
+});
+
+/* НАЖАТИЕ ПО ССЫЛКЕ НАРУЖУ ЛОЖИТСЯ И В СУТОЧНЫЙ СЧЁТЧИК, И В САМ ПРОСМОТР.
+ * Счётчик отвечает «сколько раз нажали», просмотр — «этот человек дошёл до
+ * контактов и ушёл в Telegram». Второй вопрос задают, разбирая конкретную
+ * заявку, и общий счётчик на него не отвечает никак. */
+test('уход наружу привязан к просмотру, а не только к суточной сводке', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'istore-outbound-'));
+  try {
+    const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+    const now = Date.now();
+    const ctx = { ip: '203.0.113.7', userAgent: 'Mozilla/5.0 (iPhone)' };
+    const id = 'ab'.repeat(16);   /* id посетителя обязан быть шестнадцатеричным: recordPageView отбрасывает всё прочее */
+    metrics.recordPageView({ id, path: '/about', context: ctx });
+    const v = metrics.findVisitor(id);
+    v.clientConfirmed = true;
+
+    metrics.recordClicks(v, ['t.me', 't.me', 'wa.me'], now);
+    const hit = v.hits[v.hits.length - 1];
+    assert.deepEqual(hit.o, ['Telegram', 'WhatsApp'], 'повтор подряд в просмотр не пишется');
+    const day = metrics.daily(now);
+    assert.equal(day.outbound.Telegram, 2, 'суточный счётчик считает КАЖДОЕ нажатие');
+    assert.equal(day.outbound.WhatsApp, 1);
+
+    // Предел на просмотр свой и маленький: подписи лежат в файле метрики, а
+    // просмотров у человека до MAX_HITS и карточек до 10 000.
+    metrics.recordClicks(v, ['t.me', 'wa.me', 't.me', 'wa.me'], now);
+    assert.ok(hit.o.length <= 3, 'подписей на просмотр не больше предела');
+
+    // Просмотра нет вовсе (страница не публичная) — счётчик всё равно растёт,
+    // а привязывать подпись не к чему, и падать тут нельзя.
+    const bare = { id: 'cd'.repeat(16), hits: [] };
+    assert.equal(metrics.recordClicks(bare, ['t.me'], now), 1);
+    assert.equal(metrics.daily(now).outbound.Telegram, 5, 'два нажатия в первом вызове, два во втором и одно здесь');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

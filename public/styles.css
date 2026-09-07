@@ -3528,7 +3528,16 @@ details.metric-rules{margin-bottom:14px}
 .visit-time{color:#8e8e93;font-size:11px;font-variant-numeric:tabular-nums}
 .visit-page{min-width:0;overflow-wrap:anywhere}
 .visit-page i{display:block;color:#a1a1a6;font-size:10.5px;font-style:normal}
-.visit-sec{color:#6e6e73;font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Уход наружу — не свойство строки, а СОБЫТИЕ на ней, поэтому он подкрашен и
+   стоит своей строкой под адресом. Точного времени у него нет и быть не может:
+   в просмотре лежит только подпись, а не отметка часов, — врать про минуту
+   нажатия было бы хуже, чем не называть её вовсе. */
+.visit-out{display:block;margin-top:2px;color:#bf4800;font-size:10.5px;font-style:normal;font-weight:560}
+.visit-sec{color:#6e6e73;font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+/* Глубина прокрутки — второй строкой под временем на странице: оба числа про
+   один и тот же просмотр и оба читаются столбиком, как адрес под названием
+   слева. Приглушена, потому что отвечает на второй вопрос, а не на первый. */
+.visit-sec i{display:block;color:#a1a1a6;font-size:10.5px;font-style:normal}
 .vfacts{display:grid;gap:9px}
 .vfact{display:grid;grid-template-columns:minmax(120px,38%) minmax(0,1fr);gap:12px;font-size:12.5px}
 .vfact span{color:#8e8e93}
@@ -4418,7 +4427,12 @@ details.metric-rules{margin-bottom:14px}
   .metric-table .metric-empty{grid-column:1/-1}
   .visitor-title h2{font-size:19px}
   .visit-steps li{grid-template-columns:42px minmax(0,1fr);gap:4px 10px}
-  .visit-sec{grid-column:2;color:#8e8e93}
+  /* На телефоне столбца справа нет вовсе — время и глубина переезжают под
+     страницу и встают ОДНОЙ строкой: два числа столбиком под адресом читались
+     бы продолжением пути, а не мерками просмотра. */
+  .visit-sec{grid-column:2;color:#8e8e93;text-align:left}
+  .visit-sec i{display:inline;margin-left:7px}
+  .visit-sec i::before{content:'· '}
   .vfact{grid-template-columns:1fr;gap:2px}
   .login-body{padding:16px}
   .login-card{padding:26px 20px}
