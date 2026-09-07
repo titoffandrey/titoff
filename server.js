@@ -1043,7 +1043,19 @@ for (const [route, page] of [
 ]) {
   app.get(route, (req, res) => {
     trackPage(req, res, route);
-    res.send(page(settings(), pageOpts(req)));
+    /* «О компании» единственная спрашивает готовую картинку карты: есть она —
+     * страница берёт один чёткий файл, нет (ImageMagick не стоит, тайлы не
+     * дошли) — рисует прежнюю плитку тайлов. Это проверка наличия файла, а не
+     * сборка: собирается постер при старте и при смене адреса. */
+    const extra = page === R.aboutPage
+      ? {
+        mapPoster: MAP.posterReady(db.DATA_DIR, R.storePoint(settings())),
+        // Оценка магазина — средняя по отзывам о товарах, из того же индекса,
+        // что и оценка карточки: отдельного прохода по отзывам не появляется.
+        rating: db.shopRating()
+      }
+      : null;
+    res.send(page(settings(), pageOpts(req, extra)));
   });
 }
 
@@ -1194,6 +1206,38 @@ app.get('/favicon.ico', (req, res) => {
  *
  * В метрику маршрут не попадает: `trackPage` зовут страницы, а не картинки.
  */
+/* Готовая картинка карты — один файл вместо трёх десятков тайлов.
+ *
+ * Имя считается от координат магазина (`posterName`), поэтому запрос с чужим
+ * именем не отдаст ничего: подобрать чей-то другой квартал через нас нельзя, а
+ * сменив адрес, владелец сам собой получает новое имя и новый файл.
+ */
+app.get('/map/store/:name', async (req, res) => {
+  const point = R.storePoint(settings());
+  const name = String(req.params.name || '');
+  if (!point || name !== MAP.posterName(point)) return res.status(404).send('Не найдено');
+  let file = MAP.posterFile(db.DATA_DIR, name);
+  let body = null;
+  try { body = fs.readFileSync(file); } catch (e) {}
+  if (!body) {
+    // Файла нет — собираем сейчас. Обычно он уже готов (собирается при старте),
+    // но первый посетитель после смены адреса не должен остаться без карты.
+    const built = await MAP.buildPoster(db.DATA_DIR, point, IMG);
+    if (built) { try { body = fs.readFileSync(MAP.posterFile(db.DATA_DIR, built)); } catch (e) {} }
+  }
+  if (!body) {
+    res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Карта недоступна');
+  }
+  res.writeHead(200, {
+    'Content-Type': 'image/webp',
+    'Content-Length': body.length,
+    // Имя зависит от координат, значит содержимое под ним не меняется никогда.
+    'Cache-Control': 'public, max-age=31536000, immutable'
+  });
+  res.end(req.method === 'HEAD' ? undefined : body);
+});
+
 app.get('/map/tile/:z/:x/:y', async (req, res) => {
   const point = R.storePoint(settings());
   const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
@@ -5159,9 +5203,19 @@ app.post('/admin/settings', async (req, res) => {
    */
   const logo = await resolveLogo(req, current.logoImage);
   patch.logoImage = logo.value;
+  /* Снимки магазина: отмеченные крестиком уходят, новые дописываются в конец.
+   * Обработка та же, что у фото товара (WebP, метаданные снимаются), но БЕЗ
+   * `square`: у витрины и зала кадр свой, и вписывать их в товарную рамку с
+   * серым полем незачем. Загрузка идёт здесь же, после последнего отказа, —
+   * иначе неудачное сохранение оставляло бы в хранилище сироту. */
+  const dropped = new Set([].concat(req.body.dropStorePhoto || []).map(v => String(v || '')));
+  const keep = R.storePhotos(current).filter(name => !dropped.has(name));
+  const added = await optimizeUploads(req.filesFor('storePhotos').slice(0, R.STORE_PHOTOS_MAX), 1600);
+  patch.storePhotos = keep.concat(added).slice(0, R.STORE_PHOTOS_MAX);
 
   db.saveSettings(patch);
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
+  for (const name of dropped) db.deleteUploadIfUnused(name);
   // Списки способов кэшированы под ключи прежних касс — после смены ключей они
   // бы ещё пять минут отвечали за чужие.
   PAYMENTS.forgetMethods();
@@ -5248,6 +5302,20 @@ const httpServer = app.listen(PORT, HOST, () => {
    * этого при старте магазину незачем.
    */
   if (PAYMENTS.configured(s)) livePayMethods(s).catch(() => {});
+
+  /* Карта магазина собирается ЗАРАНЕЕ, а не при первом открытии «О компании».
+   *
+   * Склейка тянет тайлы у OSM и зовёт ImageMagick — секунды работы, и платить
+   * ими должен процесс при старте, а не покупатель, открывший страницу. Пока
+   * картинки нет, страница честно рисует прежнюю плитку тайлов, поэтому провал
+   * сборки ничего не ломает: ни адреса, ни карты магазин не теряет.
+   */
+  const storePt = R.storePoint(s);
+  if (storePt && !MAP.posterReady(db.DATA_DIR, storePt)) {
+    MAP.buildPoster(db.DATA_DIR, storePt, IMG)
+      .then(name => { if (name) console.log('  Карта магазина собрана: ' + name); })
+      .catch(() => {});
+  }
   console.log('');
 });
 

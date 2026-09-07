@@ -3877,10 +3877,32 @@ test('«О компании» — реквизиты, контакты и кар
     assert.doesNotMatch(tag, /viewBox="0 0 24 24"/, 'холст значка не обрезан по фигуре: ' + tag);
   }
 
-  // Под картой — только карта: ни абзаца про офлайн-точку, ни списка с адресом.
+  /* В разделе адреса — карточка магазина и карта, и больше ничего: ни абзаца про
+   * офлайн-точку, ни списка с адресом. Карточка стоит ПЕРВОЙ: карта отвечает
+   * «где это», а карточка — «что это за место», и второй вопрос задают раньше. */
   const address = html.slice(html.indexOf('id="address"'));
   assert.doesNotMatch(address, /legal-details|Магазин работает и офлайн/);
-  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="about-map"/);
+  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="place">\s*<div class="place-card"/);
+  assert.ok(address.indexOf('place-card') < address.indexOf('about-map'), 'карточка обязана стоять до карты');
+  // Адрес и часы — в самой карточке, строками со значком.
+  assert.match(address, /place-line[\s\S]{0,700}Пресненская наб\., 12/);
+  assert.match(address, /place-open[^>]*>Открыто|place-open[^>]*>Закрыто/);
+
+  /* Оценка магазина честно подписана: это средняя по отзывам О ТОВАРАХ, а не
+   * отдельный опрос про организацию. Отзывов нет — строки нет вовсе: пустые
+   * звёзды читались бы как ноль из пяти. */
+  const rated = render.aboutPage(settings, { origin: 'https://example.test', rating: { avg: 4.7, count: 1225 } });
+  assert.match(rated, /class="place-rate"[\s\S]{0,400}по отзывам покупателей/);
+  assert.match(rated, /<b>4,7<\/b>/);
+  assert.match(rated, /1\s225 отзывов/);
+  assert.doesNotMatch(html, /place-rate/, 'без отзывов оценки на странице быть не должно');
+
+  // Снимки магазина: их показывает карточка, и только настоящие имена файлов.
+  const shots = render.aboutPage(Object.assign({ storePhotos: ['a.webp', '../тайное'] }, settings),
+    { origin: 'https://example.test' });
+  assert.match(shots, /<div class="place-shots" data-media="store">/);
+  assert.match(shots, /<a class="place-shot is-lead" href="\/uploads\/a\.webp"/);
+  assert.doesNotMatch(shots, /тайное/, 'мусор из настроек в адрес картинки не уезжает');
 
   // Слоган владельца остаётся подзаголовком и ничем не дописывается.
   assert.match(html, /<h1>a:Market<\/h1>\s*<p>Оригинальная техника Apple<\/p>/);
@@ -3907,7 +3929,24 @@ test('карта «О компании» своя, и тайлы к ней от�
   assert.equal(tiles.length, MAP.COLS * MAP.ROWS, 'слой тайлов собран не целиком');
   // Метка — то, ради чего карту и смотрят: рисуем её сами, остриём в центр слоя.
   assert.match(html, /<svg class="map-pin"/);
-  assert.match(html, /class="map-route" href="https:\/\/yandex\.ru\/maps\/\?rtext=/);
+  /* Кнопки «Построить маршрут» на карте больше НЕТ. Она уводила покупателя на
+     чужие карты с нашей же страницы и была последней ссылкой на Яндекс,
+     оставшейся от снятого виджета; адрес рядом, в карточке магазина. */
+  assert.doesNotMatch(html, /map-route|yandex\.ru\/maps/);
+
+  /* Готовая картинка вместо плитки — то, чем лечится мыло на плотных экранах.
+     Тайл 256×256 показывался ровно в 256 CSS-пикселей, то есть на любом Retina
+     растягивался вдвое. Постер собран из тайлов ближнего масштаба и показан
+     вдвое мельче: плотность двойная, и это ОДИН запрос вместо трёх десятков. */
+  const withPoster = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base),
+    { origin: 'https://example.test', mapPoster: 'abc123.webp' });
+  assert.match(withPoster, /<img class="map-poster" src="\/map\/store\/abc123\.webp"/);
+  assert.match(withPoster, new RegExp('width="' + (MAP.POSTER_COLS * MAP.TILE / 2) + '" height="' + (MAP.POSTER_ROWS * MAP.TILE / 2) + '"'),
+    'размеры обязаны быть CSS-ными: без них браузер покажет карту вдвое крупнее');
+  assert.doesNotMatch(withPoster, /class="map-tile"/, 'с постером плитка не нужна');
+  // Постера нет (нет ImageMagick, тайлы не дошли) — витрина честно возвращается
+  // к плитке, а не остаётся без карты вовсе.
+  assert.match(html, /class="map-tile"/);
   /* Строку лицензии OSM снимать нельзя — этого требует лицензия данных, и это
      плата за карту, у которой всё остальное наше. */
   assert.match(html, /class="map-credit" href="https:\/\/www\.openstreetmap\.org\/copyright"/);
