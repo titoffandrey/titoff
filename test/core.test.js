@@ -16988,3 +16988,64 @@ test('в воронке у каждой ступени видно, скольк�
   assert.match(html, /выход с 70% открытий · не вернулись 5/);
   assert.match(html, /5 не вернулись/);
 });
+
+/* СТУПЕНИ ВОРОНКИ МОЛОЖЕ САМОГО ОТЧЁТА, И МОЛЧАТЬ ОБ ЭТОМ НЕЛЬЗЯ.
+ * Счётчик стадий появился позже счётчика заходов: на длинном периоде в
+ * числителе двое суток, а в знаменателе тридцать. На боевых данных это дало
+ * «Заходы 9730 → Смотрели товар 497 → ушли здесь 9233» — панель уверенно
+ * назвала потерю, которой не было. Само пройдёт, когда счётчик догонит срок
+ * хранения, а до тех пор дата стоит прямо в панели. */
+test('воронка признаётся, что ступени считаются не с начала периода', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'istore-since-'));
+  try {
+    const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+    const now = Date.now();
+    const key = ms => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
+    const day = (at, funnel, visits) => {
+      const d = metrics.daily(at);
+      d.visits = visits; d.pageViews = visits * 3;
+      Object.assign(d.funnel, funnel);
+    };
+    day(now - 5 * 86400000, {}, 100);            // счётчика ступеней ещё не было
+    day(now, { product: 8, checkout: 3 }, 20);
+
+    const week = metrics.snapshot({ days: 7 });
+    assert.equal(week.funnelSince, key(now), 'первые сутки периода со ступенями');
+    const html = analyticsView.dashboard(week, { products: {} });
+    assert.match(html, /Ступени считаются с [\d.]+ — до этого дня в отчёте только заходы/);
+
+    /* Ступени есть за все сутки периода — приписки быть не должно вовсе:
+     * оговорка, висящая всегда, перестаёт читаться. */
+    const today = metrics.snapshot({ days: 1 });
+    assert.equal(today.funnelSince, '');
+    assert.doesNotMatch(analyticsView.dashboard(today, { products: {} }), /Ступени считаются с/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* Проход по карточкам запоминается на SNAPSHOT_TTL — тот же приём, что у
+ * пересчёта часов. На боевых данных это 21 мс из 62 у «Сегодня», а он
+ * кэшированию не подлежит и перезапрашивается живым обновлением каждые 1,2 с. */
+test('выходы не пересчитываются на каждую перерисовку отчёта', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'istore-exmemo-'));
+  try {
+    const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+    const now = Date.now();
+    metrics.recordPageView({ id: 'ee'.repeat(16), path: '/', context: {} });
+    let calls = 0;
+    const real = metrics.exitPoints.bind(metrics);
+    metrics.exitPoints = (...a) => { calls++; return real(...a); };
+    const wanted = new Set([new Date(now + 3 * 3600000).toISOString().slice(0, 10)]);
+    const date = [...wanted][0];
+    const first = metrics.exitPointsCached(wanted, date, now);
+    const again = metrics.exitPointsCached(wanted, date, now + 1000);
+    assert.equal(calls, 1, 'второй показ отчёта берёт готовое');
+    assert.equal(again, first, 'и тот же объект, а не его копию');
+    // Через SNAPSHOT_TTL считаем заново: данные всё-таки меняются.
+    metrics.exitPointsCached(wanted, date, now + 11000);
+    assert.equal(calls, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

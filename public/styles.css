@@ -3527,6 +3527,9 @@ details.metric-rules{margin-bottom:14px}
 .visit-steps li:nth-child(odd){background:#fafafb}
 .visit-time{color:#8e8e93;font-size:11px;font-variant-numeric:tabular-nums}
 .visit-page{min-width:0;overflow-wrap:anywhere}
+/* Оговорка под панелью — про то, чему в ней пока нельзя верить целиком.
+   Приглушена и мельче полос: читают её один раз, а видят при каждом заходе. */
+.metric-note{display:block;margin-top:12px;color:#8e8e93;font-size:11.5px;line-height:1.4}
 .visit-page i{display:block;color:#a1a1a6;font-size:10.5px;font-style:normal}
 /* Уход наружу — не свойство строки, а СОБЫТИЕ на ней, поэтому он подкрашен и
    стоит своей строкой под адресом. Точного времени у него нет и быть не может:
