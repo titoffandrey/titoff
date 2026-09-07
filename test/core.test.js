@@ -3884,25 +3884,43 @@ test('«О компании» — реквизиты, контакты и кар
   assert.doesNotMatch(address, /legal-details|Магазин работает и офлайн/);
   assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="place">\s*<div class="place-card"/);
   assert.ok(address.indexOf('place-card') < address.indexOf('about-map'), 'карточка обязана стоять до карты');
-  // Адрес и часы — в самой карточке, строками со значком.
-  assert.match(address, /place-line[\s\S]{0,700}Пресненская наб\., 12/);
-  assert.match(address, /place-open[^>]*>Открыто|place-open[^>]*>Закрыто/);
+  /* Адрес и часы — РАЗДЕЛАМИ с подписью, как в карточке справочника: подпись
+   * говорит, что это за строка, значение идёт крупнее под ней. Прежний список
+   * «значок + значение» читался выпиской из настроек. */
+  assert.match(address, /place-row-title">Адрес<[\s\S]{0,120}Пресненская наб\., 12/);
+  assert.match(address, /place-row-title">Время работы</);
+  // Статус — цветной текст, а не серая плашка: «Закрыто» в справочнике видно
+  // первым, и видно именно цветом.
+  assert.match(address, /class="place-state[^"]*">(Открыто|Закрыто)/);
+  // С карточки звонят и пишут — ряд действий обязателен, иначе она читается
+  // списком текста.
+  assert.match(address, /class="place-acts">[\s\S]{0,400}place-act-main" href="tel:/);
 
   /* Оценка магазина честно подписана: это средняя по отзывам О ТОВАРАХ, а не
    * отдельный опрос про организацию. Отзывов нет — строки нет вовсе: пустые
    * звёзды читались бы как ноль из пяти. */
   const rated = render.aboutPage(settings, { origin: 'https://example.test', rating: { avg: 4.7, count: 1225 } });
-  assert.match(rated, /class="place-rate"[\s\S]{0,400}по отзывам покупателей/);
+  // Приписка «о товарах» обязательна: это средняя по отзывам О ТОВАРАХ, а не
+  // отдельный опрос про организацию, и выдавать одно за другое мы не будем.
+  assert.match(rated, /class="place-rate"[\s\S]{0,400}отзывов о товарах/);
   assert.match(rated, /<b>4,7<\/b>/);
   assert.match(rated, /1\s225 отзывов/);
   assert.doesNotMatch(html, /place-rate/, 'без отзывов оценки на странице быть не должно');
 
-  // Снимки магазина: их показывает карточка, и только настоящие имена файлов.
-  const shots = render.aboutPage(Object.assign({ storePhotos: ['a.webp', '../тайное'] }, settings),
+  /* Снимки места стоят ОБЛОЖКОЙ СВЕРХУ — с этого карточка справочника и
+   * начинается: место узнают по кадру, а не по строке адреса. Первый снимок
+   * крупный, остальные лентой; что не поместилось — считает «+N». */
+  const shots = render.aboutPage(Object.assign({ storePhotos: ['a.webp', 'b.webp', 'c.webp', 'd.webp', 'e.webp', '../тайное'] }, settings),
     { origin: 'https://example.test' });
-  assert.match(shots, /<div class="place-shots" data-media="store">/);
-  assert.match(shots, /<a class="place-shot is-lead" href="\/uploads\/a\.webp"/);
+  assert.match(shots, /<div class="place-cover" data-media="store">/);
+  assert.match(shots, /<a class="place-cover-main" href="\/uploads\/a\.webp"/);
+  assert.match(shots, /place-cover-more">\+2</, 'счётчик скрытых снимков не сошёлся');
   assert.doesNotMatch(shots, /тайное/, 'мусор из настроек в адрес картинки не уезжает');
+  // Обложка идёт ДО имени: снимок отвечает на вопрос быстрее любой строки.
+  assert.ok(shots.indexOf('place-cover') < shots.indexOf('place-name'));
+  // Снимков нет — обложки нет тоже: пустая серая рамка о магазине не говорит
+  // ничего, а места занимает как настоящая.
+  assert.doesNotMatch(html, /place-cover/);
 
   // Слоган владельца остаётся подзаголовком и ничем не дописывается.
   assert.match(html, /<h1>a:Market<\/h1>\s*<p>Оригинальная техника Apple<\/p>/);

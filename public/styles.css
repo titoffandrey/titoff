@@ -1909,41 +1909,74 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    Нажатий она не ловит: под ней карта, а не ссылка. */
 .map-pin{position:absolute;left:50%;top:50%;width:32px;height:44px;transform:translate(-50%,-100%);pointer-events:none;
   filter:drop-shadow(0 2px 4px rgba(0,0,0,.28))}
-/* Карточка магазина рядом с картой — как в картах-справочниках: снимки места,
-   имя, оценка, «открыто сейчас», адрес и телефон. Карта отвечает «где это», а
-   карточка — «что это за место»; порознь они на странице и стояли бы двумя
-   блоками об одном и том же.
+/* Карточка магазина рядом с картой — сделана по карточке организации в
+   картах-справочниках (снято с живой страницы Яндекс.Карт 7 сентября 2026).
+   Порядок там такой и держится на нём: сначала СНИМКИ места, потом крупное имя
+   с категорией, оценка строкой, статус «открыто» цветным текстом, ряд крупных
+   кнопок — и только потом адрес с часами разделами. Первый заход был списком
+   строк «значок + значение», и карточка читалась как выписка из настроек.
 
-   Слева карточка, справа карта: читают сверху вниз слева направо, и сначала
-   отвечают на вопрос «куда я еду», а потом смотрят на точку. Ниже 860 px они
-   встают друг под друга — карточка первой. */
-.place{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px;align-items:stretch}
-.place-card{display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:#fff}
-/* Снимки: первый крупный, остальные лентой под ним. Ровно так их показывают
-   справочники — по одному кадру не понять места, а сеткой из шести карточка
-   превращается в фотоальбом. */
-.place-shots{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
-.place-shot{display:block;overflow:hidden;aspect-ratio:1/1;background:var(--bg2)}
-.place-shot.is-lead{grid-column:1/-1;aspect-ratio:16/9}
-.place-shot img{width:100%;height:100%;object-fit:cover;display:block}
-.place-body{display:flex;flex-direction:column;gap:7px;padding:14px 15px 15px}
-.place-name{font-size:17px;font-weight:650;line-height:1.25}
-.place-kind{font-size:13px;margin-top:-4px}
-.place-rate{display:flex;align-items:center;flex-wrap:wrap;gap:4px 7px;font-size:13px}
-.place-rate b{font-size:15px}
-/* «Открыто» — зелёным, «закрыто» — спокойным серым: это состояние места, а не
-   тревога. Цвет зелёного тот же, что у подписи наличия товара. */
-.place-open{align-self:flex-start;padding:3px 9px;border-radius:999px;background:#f2f3f5;color:#48484a;font-size:12.5px;font-weight:560}
-.place-open.is-open{background:#e8f6ed;color:#0b7a37}
-.place-line{display:flex;align-items:flex-start;gap:8px;color:var(--text);font-size:13.5px;line-height:1.4;text-decoration:none}
-.place-line svg{flex:none;width:16px;height:16px;margin-top:1px;fill:currentColor}
-a.place-line:hover{color:var(--accent)}
-.place-call{font-variant-numeric:tabular-nums}
-/* Карта в этой паре тянется по высоте карточки, а не держит свои 380 px. */
-.place .about-map{height:100%;min-height:340px}
+   Слева карточка, справа карта: карта отвечает «где это», карточка — «что это
+   за место». Ниже 860 px они встают друг под друга, карточка первой. */
+.place{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:16px;align-items:start}
+.place-card{overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:#fff}
+
+/* Обложка: крупный первый снимок и лента остальных под ним. Ровно так место и
+   узнают — по одному кадру не понять, а сеткой из шести карточка превращается
+   в фотоальбом. */
+.place-cover{display:flex;flex-direction:column;gap:2px;background:var(--bg2)}
+.place-cover-main{display:block;aspect-ratio:16/10;overflow:hidden}
+.place-cover-rest{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.place-cover-thumb{position:relative;display:block;aspect-ratio:1/1;overflow:hidden}
+.place-cover img{width:100%;height:100%;object-fit:cover;display:block}
+/* «+N» на последней плитке — счётчик того, что осталось за кадром. */
+.place-cover-more{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);color:#fff;font-size:15px;font-weight:600}
+.place-cover-rest a[hidden]{display:none!important}
+
+.place-body{display:flex;flex-direction:column;gap:6px;padding:15px 16px 16px}
+.place-name{font-size:22px;font-weight:650;line-height:1.2}
+.place-kind{color:#6e6e73;font-size:13.5px;margin-top:-3px}
+/* Оценка: звёзды, крупное число, серым — сколько оценок и по чему они. */
+.place-rate{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px 8px;margin-top:3px}
+.place-rate .stars{font-size:15px}
+.place-rate b{font-size:17px;font-weight:650}
+.place-rate-note{color:#6e6e73;font-size:13px}
+/* Статус — цветной ТЕКСТ, а не плашка: в справочнике «Закрыто» видно первым, и
+   видно именно цветом. Зелёный — цвет подписи наличия, красный — тот же, каким
+   подписано «осталось несколько штук». */
+.place-state{color:#b42318;font-size:14.5px;font-weight:560}
+.place-state.is-open{color:#0b7a37}
+
+/* Ряд действий: с карточки звонят и пишут, а не читают её. */
+.place-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.place-act{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;
+  border-radius:999px;background:#f2f3f5;color:var(--text);font-size:14.5px;font-weight:560;text-decoration:none}
+.place-act svg{width:17px;height:17px;fill:currentColor}
+.place-act-main{padding:0 17px;background:var(--accent);color:#fff}
+.place-act-main:hover{opacity:.9;color:#fff}
+.place-act-round{width:40px;padding:0}
+/* Мессенджеры красятся фирменным цветом на наведении — как в подвале: в покое
+   ряд остаётся спокойным, а не превращается в три цветных пятна. */
+.place-act-round:hover{background:var(--msg-brand,var(--accent));color:#fff}
+.place-act-round:hover .msg-cut{fill:var(--msg-brand,var(--accent))}
+.place-act-round .msg-ico{width:19px;height:19px}
+
+/* Адрес и часы — разделами с подписью, а не строчками в общий столбик: подпись
+   говорит, ЧТО это, значение идёт крупнее под ней. */
+.place-rows{margin-top:11px;padding-top:12px;border-top:1px solid var(--border-soft);display:flex;flex-direction:column;gap:11px}
+.place-row{display:flex;align-items:flex-start;gap:10px}
+.place-row svg{flex:none;width:17px;height:17px;margin-top:2px;fill:#86868b}
+.place-row>div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.place-row-title{color:#6e6e73;font-size:12.5px}
+.place-row-value{font-size:14.5px;line-height:1.35}
+
+/* Карта в этой паре тянется по высоте карточки, но не ниже своего минимума. */
+.place .about-map{height:100%;min-height:360px}
 @media(max-width:860px){
   .place{grid-template-columns:minmax(0,1fr)}
   .place .about-map{min-height:280px}
+  .place-name{font-size:20px}
 }
 
 /* Строку лицензии снимать НЕЛЬЗЯ: её требует лицензия данных OSM. Мелкая, в
