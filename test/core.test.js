@@ -3980,6 +3980,33 @@ test('карта «О компании» своя, и тайлы к ней от�
   assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });
 });
 
+test('готовая картинка карты называется и пишется правильно', () => {
+  const MAP = require('../lib/map-tiles');
+  const images = fs.readFileSync(path.join(__dirname, '..', 'lib', 'images.js'), 'utf8');
+  const point = { lat: 55.749792, lon: 37.537186 };
+  const name = MAP.posterName(point);
+
+  /* Имя обязано сохранять расширение. Прежний фильтр пропускал только
+   * шестнадцатеричные `a-f` и выгрызал из «.webp» буквы `w` и `p`: файл ложился
+   * как «….eb», а ImageMagick по такому расширению писал PNG — карта весила
+   * втрое больше положенного и отдавалась под чужим типом. */
+  assert.match(name, /^[a-f0-9]{16}\.webp$/);
+  assert.ok(MAP.posterFile('/data', name).endsWith('/map-tiles/poster/' + name), 'расширение потерялось по дороге');
+  /* Из каталога имя увести нельзя: значение приходит из адреса запроса. Имя мы
+   * формируем сами, поэтому непохожее на образец именем не считается вовсе —
+   * путь тогда указывает на сам каталог, и файла по нему нет. */
+  assert.equal(MAP.posterFile('/data', '../../etc/passwd'), '/data/map-tiles/poster');
+  assert.equal(MAP.posterFile('/data', 'нет.webp'), '/data/map-tiles/poster');
+
+  // Формат задаётся явно, а не расширением временного файла: пишем в «…tmp».
+  assert.match(images, /'webp:' \+ opts\.out/);
+
+  // Имя считается от координат: сменил владелец адрес — файл другой, и кэш
+  // браузера не покажет чужой квартал.
+  assert.notEqual(MAP.posterName({ lat: 55.75, lon: 37.54 }), name);
+  assert.equal(MAP.posterName(point), name, 'имя обязано быть устойчивым');
+});
+
 test('слой тайлов встаёт центром на точку магазина', () => {
   const MAP = require('../lib/map-tiles');
   /* Проекция та же, что у карты метрики: долгота линейна, широта логарифмична.
