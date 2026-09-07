@@ -1986,8 +1986,35 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); setTimeout(function () { t.hidden = true; }, 250); }, 2200);
   }
 
+  /* Глубина прокрутки — сколько процентов страницы человек увидел.
+   *
+   * Отвечает на вопрос, ради которого чаще всего и включают вебвизор:
+   * долистывают ли до кнопки покупки. Стоит это одного числа в уже уходящем
+   * ping'е — ни отдельного запроса, ни записи, ни строчки разметки.
+   *
+   * Считается в `requestAnimationFrame`, а слушатели пассивные: прокрутка идёт
+   * в композиторе, и мешать ей замером высоты документа нельзя.
+   */
+  var scrollSeen = 0;
+  function initScrollDepth() {
+    var pending = 0;
+    function measure() {
+      pending = 0;
+      var doc = document.documentElement;
+      var height = Math.max(doc.scrollHeight || 0, document.body ? document.body.scrollHeight : 0);
+      if (height <= 0) return;
+      var seen = Math.round(((window.scrollY || doc.scrollTop || 0) + window.innerHeight) / height * 100);
+      seen = Math.max(0, Math.min(100, seen));
+      if (seen > scrollSeen) scrollSeen = seen;
+    }
+    function schedule() { if (!pending) pending = requestAnimationFrame(measure); }
+    measure();
+    addEventListener('scroll', schedule, { passive: true });
+    addEventListener('resize', schedule, { passive: true });
+  }
+
   function analyticsPayload(includeDetails, enableTracking) {
-    var payload = { path: location.pathname };
+    var payload = { path: location.pathname, scroll: scrollSeen };
     if (enableTracking) payload.enableTracking = '1';
     if (includeDetails) {
       var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || {};
@@ -2007,18 +2034,129 @@
         utmCampaign: params.get('utm_campaign') || ''
       };
     }
-    return JSON.stringify(payload);
+    return payload;
+  }
+
+  /* Куда уходят с витрины: Telegram, WhatsApp, звонок, почта.
+   *
+   * Наружу уезжает ОДИН ХОСТ, а не адрес: у ссылки WhatsApp в query лежит
+   * готовая реплика, и тащить её на сервер незачем. Слушатель один на документ и
+   * в фазе перехвата — ссылки в подвале, в меню и на «О компании» перерисовываются,
+   * и вешать обработчик на каждую значило бы терять те, что появились позже.
+   */
+  var pendingClicks = [];
+  function initOutboundClicks() {
+    document.addEventListener('click', function (e) {
+      var link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!link) return;
+      var href = link.getAttribute('href') || '';
+      var out = '';
+      if (/^tel:/i.test(href)) out = 'tel';
+      else if (/^mailto:/i.test(href)) out = 'mailto';
+      else {
+        var url;
+        try { url = new URL(link.href, location.href); } catch (err) { return; }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+        if (url.host === location.host) return;
+        out = url.host;
+      }
+      if (pendingClicks.length < 10) pendingClicks.push(out);
+      // Нажатие уводит со страницы, поэтому ждать очередного такта нельзя.
+      analyticsPing(true, true);
+    }, true);
+  }
+
+  /* Скорость страницы у покупателя. Считает её браузер сам, мы только забираем
+   * готовые числа: отрисовку главного (LCP), скачки вёрстки (CLS) и ответ
+   * сервера (TTFB). Своего кода измерения здесь нет ни строчки.
+   *
+   * Каждый наблюдатель в своём try: `layout-shift` знают не все браузеры,
+   * доходящие до витрины, и один отказ не должен уносить с собой остальные.
+   */
+  var vitals = { lcp: 0, cls: 0 };
+  var speedSent = false;
+  function initVitals() {
+    if (typeof PerformanceObserver !== 'function') return;
+    try {
+      new PerformanceObserver(function (list) {
+        var all = list.getEntries();
+        var last = all[all.length - 1];
+        if (last) vitals.lcp = Math.round(last.startTime);
+      }).observe({ type: 'largest-contentful-paint', buffered: true });
+    } catch (e) {}
+    try {
+      new PerformanceObserver(function (list) {
+        var all = list.getEntries();
+        for (var i = 0; i < all.length; i++) if (!all[i].hadRecentInput) vitals.cls += all[i].value;
+      }).observe({ type: 'layout-shift', buffered: true });
+    } catch (e) {}
+  }
+
+  /* Замер уходит ОДИН РАЗ за открытие страницы, с первым же ping'ом — то есть на
+   * пятнадцатой секунде. К этому времени первый экран давно отрисован, а
+   * дожидаться ухода со страницы нельзя: браузер закрывают и без него. Цена
+   * названа честно: очень поздний LCP (дозагрузилась картинка на тридцатой
+   * секунде) в замер не попадёт. */
+  function speedReport() {
+    if (speedSent) return null;
+    var nav = performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
+    var out = {};
+    if (vitals.lcp) out.lcp = vitals.lcp;
+    if (vitals.cls) out.cls = Math.round(vitals.cls * 1000);   // сервер хранит тысячные: счётчики там целые
+    if (nav && nav.responseStart > 0) out.ttfb = Math.round(nav.responseStart);
+    if (!Object.keys(out).length) return null;
+    speedSent = true;
+    return out;
+  }
+
+  /* Один ping. Чаще раза в пять секунд не уходит: столько же сервер и считает
+   * значимым промежутком, а без этого порога переключение вкладок туда-сюда
+   * само по себе било бы в лимит запросов. Нажатие по внешней ссылке этот порог
+   * обходит (`force`) — но не совсем: у него свой, в секунду, а не отправленные
+   * нажатия остаются в очереди и уедут со следующим ping'ом. */
+  var analyticsPingAt = 0;
+  function analyticsPing(leaving, force) {
+    var now = Date.now();
+    if (now - analyticsPingAt < (force ? 1000 : 5000)) return;
+    analyticsPingAt = now;
+    var payload = analyticsPayload(false);
+    if (pendingClicks.length) payload.clicks = pendingClicks.splice(0, 10);
+    var speed = speedReport();
+    if (speed) payload.speed = speed;
+    var body = JSON.stringify(payload);
+    // Уходя со страницы, обычному запросу браузер вправе не дать закончиться.
+    if (leaving && navigator.sendBeacon) {
+      try {
+        if (navigator.sendBeacon('/api/analytics/ping', new Blob([body], { type: 'application/json' }))) return;
+      } catch (e) {}
+    }
+    fetch('/api/analytics/ping', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: body, keepalive: true
+    }).catch(function () {});
   }
 
   function startAnalyticsHeartbeat() {
     if (analyticsTimer) return;
+    initScrollDepth();
+    initOutboundClicks();
+    initVitals();
+    analyticsPingAt = Date.now();
+    /* Первый ping — через 15 секунд, и это служебное событие «не отказ», ровно
+     * как accurateTrackBounce у Метрики: до него заход из одной страницы
+     * считается отказом. Заодно чинится время на сайте у коротких визитов — с
+     * одним минутным тактом любой заход короче минуты записывался нулём секунд. */
+    setTimeout(function () { if (document.visibilityState === 'visible') analyticsPing(); }, 15000);
     analyticsTimer = setInterval(function () {
       if (document.visibilityState !== 'visible') return;
-      fetch('/api/analytics/ping', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: analyticsPayload(false), keepalive: true
-      }).catch(function () {});
+      analyticsPing();
     }, 60000);
+    // Уход со страницы — единственный момент, когда достигнутая глубина
+    // прокрутки известна целиком. Отказ этот ping не снимает: секунды визита
+    // сервер считает сам, и пятисекундный заход остаётся отказом.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') analyticsPing(true);
+    });
   }
 
   function analyticsDisabled() {
@@ -2029,9 +2167,17 @@
     if (analyticsDisabled()) return;
     fetch('/api/analytics/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: analyticsPayload(includeReferrer, enableTracking), keepalive: true
+      body: JSON.stringify(analyticsPayload(includeReferrer, enableTracking)), keepalive: true
     }).then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.ok && d.tracking !== false) startAnalyticsHeartbeat(); })
+      .then(function (d) {
+        if (!d) return;
+        /* Посетителя узнали по устройству и закрыли (см. lib/visitor-rules.js).
+         * Перезагрузка упирается в 403 сразу: витрина, оставшаяся открытой у
+         * заблокированного, выглядела бы недоработкой блока. Решает это сервер —
+         * своих правил у страницы нет, она только исполняет ответ. */
+        if (d.blocked) { location.reload(); return; }
+        if (d.ok && d.tracking !== false) startAnalyticsHeartbeat();
+      })
       .catch(function () {});
   }
 
