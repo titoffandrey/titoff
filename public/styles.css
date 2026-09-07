@@ -12,6 +12,15 @@
   --shadow-lg:0 12px 40px rgba(0,0,0,.14);
   --max:1180px;
   --gold:#ff9f0a;
+  /* Кривые появления. То, что ВЪЕЗЖАЕТ и УЕЗЖАЕТ, идёт ease-out: быстро
+     трогается и мягко тормозит. Встроенный `ease` начинает медленно, и шторка
+     корзины из-за него выглядела так, будто отвечает с задержкой, хотя ехала
+     те же 250 мс — задержка ощущается по первым кадрам, а не по общему сроку.
+     --ease-drawer — кривая выезжающей панели из iOS: торможение у неё длиннее,
+     и на поверхности во весь экран это как раз читается. Наведение, цвет и
+     тень остаются на `ease` — там разгоняться не с чего. */
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --ease-drawer:cubic-bezier(.32,.72,0,1);
   /* Розовый языка скидки: цена со скидкой, процент выгоды, плашка «Промоакция»
      и строка скидки в заказе. Один цвет на все четыре места — порознь они
      разъезжались бы молча, увидеть это можно только глазами.
@@ -469,8 +478,13 @@ body.lb-open{overflow:hidden}
 .foot-legal{margin-top:14px;font-size:12px}
 
 /* ===== Корзина ===== */
-.cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;visibility:hidden;transition:.2s;z-index:50}
-.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
+/* Голого `transition:.2s` тут быть не должно: без имён свойств это `all`, то
+   есть браузеру велено анимировать ВСЁ, что у элемента когда-нибудь поменяется,
+   — включая раскладку, если рядом появится правило с размером. Свойства
+   называются поимённо; `visibility` идёт в списке намеренно, она и держит
+   затемнение видимым, пока прозрачность доезжает до нуля. */
+.cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;z-index:50}
+.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer);display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
 body.cart-open .cart-overlay{opacity:1;visibility:visible}
 body.cart-open .cart-drawer{transform:translateX(0)}
 .cart-head{display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--border)}
@@ -506,7 +520,7 @@ body.cart-open .cart-drawer{transform:translateX(0)}
 .checkout-fields.show{display:block}
 
 /* ===== Тост ===== */
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;z-index:80;opacity:0;transition:.25s;box-shadow:var(--shadow-lg);max-width:90vw;text-align:center}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;z-index:80;opacity:0;transition:opacity .25s var(--ease-out),transform .25s var(--ease-out);box-shadow:var(--shadow-lg);max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ===== Планшеты/десктоп ===== */
@@ -819,9 +833,9 @@ body.admin{background:var(--bg2)}
 /* мультитенант: элементы админок */
 .swatch{display:inline-block;width:14px;height:14px;border-radius:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.15);margin-right:4px}
 .switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;color:var(--muted)}
-.switch input{width:36px;height:20px;-webkit-appearance:none;appearance:none;background:#d2d2d7;border-radius:20px;position:relative;cursor:pointer;transition:.2s;flex:none}
+.switch input{width:36px;height:20px;-webkit-appearance:none;appearance:none;background:#d2d2d7;border-radius:20px;position:relative;cursor:pointer;transition:background .2s ease;flex:none}
 .switch input:checked{background:var(--accent)}
-.switch input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s ease}
 .switch input:checked::after{transform:translateX(16px)}
 .price-inp{width:130px;border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:14px;font-family:inherit}
 .price-inp:focus{border-color:var(--accent);outline:none}
@@ -907,7 +921,17 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 /* кнопки — без свечения, аккуратный hover (лёгкий подъём + мягкая нейтральная тень) и press */
 .btn{letter-spacing:-.01em;font-weight:600}
 .btn-primary{box-shadow:none}
-.btn-primary:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.14)}
+/* ДВИЖЕНИЕ НА НАВЕДЕНИИ ЗАКРЫТО МЫШИНЫМ ЭКРАНОМ, и это не перестраховка.
+   На телефоне `:hover` не проходит после нажатия — он ЗАЛИПАЕТ до следующего
+   касания в другом месте: нажал «В корзину», ушёл читать карточку, а кнопка
+   так и стоит приподнятой с тенью. Хуже всего это у выбора цвета, где
+   поднятое состояние означает «выбрано» (см. `.swatch`). Условие по
+   `hover:hover` И `pointer:fine`: сенсорный ноутбук наведение умеет, а
+   тачпад-без-мыши — нет, и одного признака мало.
+   Правило общее на все ряды ниже, поэтому здесь оно объяснено один раз. */
+@media (hover:hover) and (pointer:fine){
+  .btn-primary:hover{filter:brightness(1.06);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.14)}
+}
 .btn-primary:active{transform:translateY(0) scale(.98);filter:brightness(.98);box-shadow:none}
 
 /* деталь товара */
@@ -941,7 +965,12 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .swatches{display:flex;flex-wrap:wrap;gap:10px}
 .swatch{width:34px;height:34px;border-radius:50%;padding:0;cursor:pointer;position:relative;
   background:var(--sw);border:1px solid rgba(0,0,0,.18);box-shadow:inset 0 0 0 2px #fff;transition:transform .12s,box-shadow .12s}
-.swatch:hover{transform:scale(1.08)}
+/* Наведение и выбранность у кружка цвета — ОДНО И ТО ЖЕ увеличение, поэтому
+   залипший на телефоне `:hover` показывал выбранным тот цвет, которого никто
+   не выбирал. Гейт см. у `.btn-primary`. */
+@media (hover:hover) and (pointer:fine){
+  .swatch:hover{transform:scale(1.08)}
+}
 .swatch.active{box-shadow:inset 0 0 0 2px #fff,0 0 0 2px var(--accent);transform:scale(1.08)}
 .storage-opts{display:flex;flex-wrap:wrap;gap:8px}
 /* Доп. характеристики (покрытие дисплея, связь) — те же кнопки, что у памяти,
@@ -1113,7 +1142,12 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   transition:background .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease;z-index:2;
   -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)
 }
-.g-arrow:hover{background:#fff;color:#1d1d1f;box-shadow:0 6px 20px rgba(17,17,26,.14);transform:translateY(-50%) scale(1.07)}
+/* Гейт наведения — см. у `.btn-primary`. Здесь он заметнее прочих: стрелка
+   стоит поверх снимка, и залипшая белая плашка с тенью читается как поломка
+   галереи. Нажатие (`:active` ниже) остаётся на всех экранах. */
+@media (hover:hover) and (pointer:fine){
+  .g-arrow:hover{background:#fff;color:#1d1d1f;box-shadow:0 6px 20px rgba(17,17,26,.14);transform:translateY(-50%) scale(1.07)}
+}
 .g-arrow:active{transform:translateY(-50%) scale(.95)}
 .g-arrow:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .g-prev{left:6px}
@@ -1137,7 +1171,10 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
   background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.06));
   transition:transform .14s cubic-bezier(.2,.8,.2,1),filter .18s,box-shadow .22s,background-color .2s}
 .card-add .add-to-cart{border-radius:980px}
-.add-to-cart:hover{transform:translateY(-1px);filter:brightness(1.05);box-shadow:0 8px 20px rgba(0,0,0,.14)}
+/* Гейт наведения — см. у `.btn-primary`. */
+@media (hover:hover) and (pointer:fine){
+  .add-to-cart:hover{transform:translateY(-1px);filter:brightness(1.05);box-shadow:0 8px 20px rgba(0,0,0,.14)}
+}
 .add-to-cart:active{transform:translateY(0) scale(.98);box-shadow:0 3px 10px rgba(0,0,0,.12)}
 
 /* ===== Характеристики: highlights в стиле apple.com (глиф + строка текста) ===== */
@@ -1221,7 +1258,14 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .btn-primary{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);color:#fff}
 /* На наведении градиент остаётся — правило обязано переопределить общее
    `.btn:hover{background:#f7f7f9}`, иначе главная кнопка на наведении белеет. */
-.btn-primary:hover{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);filter:brightness(1.05);box-shadow:0 8px 20px rgba(17,17,26,.13);transform:translateY(-1px)}
+.btn-primary:hover{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);filter:brightness(1.05);box-shadow:0 8px 20px rgba(17,17,26,.13)}
+/* Подъём вынесен из правила выше и закрыт гейтом (см. у `.btn-primary` в блоке
+   кнопок). Само правило гейтить нельзя: оно чинит градиент, перебивая общее
+   `.btn:hover`, — закрой его мышиным экраном, и на телефоне главная кнопка
+   после нажатия белела бы. Цвет чиним всегда, двигаем только мышью. */
+@media (hover:hover) and (pointer:fine){
+  .btn-primary:hover{transform:translateY(-1px)}
+}
 .btn:active,.btn-primary:active{transform:scale(.98);box-shadow:none}
 .btn-lg{min-height:50px;padding:13px 26px;font-size:16px;border-radius:16px}
 .btn-sm{min-height:36px;padding:7px 13px;font-size:13px;border-radius:11px}
@@ -1487,8 +1531,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
   box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
 /* Наведение приподнимает кнопку и усиливает тень — то же движение, что у прочих
    кнопок витрины, только заметнее. Нажатие возвращает её на место. */
-.btn-checkout:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.07);
-  box-shadow:0 14px 28px -10px rgba(0,0,0,.5)}
+/* Гейт наведения — см. у `.btn-primary`. */
+@media (hover:hover) and (pointer:fine){
+  .btn-checkout:hover:not(:disabled){transform:translateY(-2px);filter:brightness(1.07);
+    box-shadow:0 14px 28px -10px rgba(0,0,0,.5)}
+}
 .btn-checkout:active:not(:disabled){transform:translateY(0) scale(.985);
   box-shadow:0 4px 12px -6px rgba(0,0,0,.45)}
 @supports (color:color-mix(in srgb,red,blue)){
@@ -1633,7 +1680,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .rate-note{min-width:82px;color:#48484a;font-size:14px;font-weight:650;letter-spacing:-.01em}
 .rf-text textarea{min-height:104px}
 .rate-star{transition:color .1s,transform .1s}
-.rate-star:hover{transform:scale(1.08)}
+/* Гейт наведения — см. у `.btn-primary`. У звезды та же беда, что у кружка
+   цвета: на телефоне нажатая звезда так и оставалась увеличенной. */
+@media (hover:hover) and (pointer:fine){
+  .rate-star:hover{transform:scale(1.08)}
+}
 /* Выбор снимков. Родной ввод показывал «Обзор… Файлы не выбраны» — чужую
    кнопку и техническую подпись рядом с полями формы, поэтому он спрятан
    (но остаётся в потоке фокуса), а нажимается подпись-кнопка. Сколько файлов
@@ -2100,7 +2151,12 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
    auto-fit раскладывает и то и другое сам, без медиазапроса на каждый случай. */
 .a-cards{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:24px}
 .a-stat{min-height:122px;padding:20px;border-color:var(--border-soft);border-radius:18px;box-shadow:0 1px 2px rgba(17,17,26,.025);transition:transform .16s,box-shadow .18s,border-color .18s}
-.a-stat:hover{border-color:#d6d6dc;box-shadow:var(--shadow);transform:translateY(-2px)}
+/* Гейт наведения — см. у `.btn-primary`. Раньше подъём гасился отдельной
+   строкой в общем `@media(hover:none)` внизу файла: движение задавалось в
+   одном месте, а отменялось в другом, за три тысячи строк оттуда. */
+@media (hover:hover) and (pointer:fine){
+  .a-stat:hover{border-color:#d6d6dc;box-shadow:var(--shadow);transform:translateY(-2px)}
+}
 .a-stat-num{margin-bottom:7px;font-size:34px;font-weight:720;letter-spacing:-.045em}
 .a-stat-label{font-size:13.5px;font-weight:560;line-height:1.35}
 .a-stat-sub{margin-top:4px;color:#8e8e93;font-size:11px}
@@ -3193,10 +3249,14 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .g-menu{position:absolute;z-index:30;top:calc(100% + 8px);left:0;min-width:264px;max-width:min(92vw,360px);
   padding:8px 0;border-radius:16px;background:#fff;
   box-shadow:0 2px 6px rgba(60,64,67,.15),0 8px 24px rgba(60,64,67,.15);
+  transform-origin:top left;
   animation:g-menu-in .16s cubic-bezier(.4,0,.2,1)}
 /* Меню у правого края панели раскрывается влево: у карты кнопка стоит справа в
    шапке, и меню, начатое от её левого края, вылезало бы за границу панели. */
-.g-menu-right>.g-menu{left:auto;right:0}
+/* Меню растёт ОТ СВОЕЙ КНОПКИ, а не из середины: `transform-origin` совпадает
+   с тем углом, которым меню к пилюле и прижато. Из центра оно раскрывалось
+   во все стороны разом, и связь «нажал вот это — открылось вот то» терялась. */
+.g-menu-right>.g-menu{left:auto;right:0;transform-origin:top right}
 @keyframes g-menu-in{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
 .g-menu-head{padding:10px 20px 8px;color:#5f6368;font-size:14px}
 .g-menu-title{padding:10px 20px 6px;color:#80868b;font-size:12px}
@@ -3508,7 +3568,11 @@ details.metric-bots>summary:hover{background:#fffaf0}
 .color-presets{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .color-dot{width:26px;height:26px;padding:0;border:1px solid rgba(17,17,26,.12);border-radius:50%;cursor:pointer;
   transition:transform .14s,box-shadow .14s}
-.color-dot:hover{transform:scale(1.1)}
+/* Гейт наведения — см. у `.btn-primary`. Панель на телефоне открывают с руки
+   не реже, чем витрину. */
+@media (hover:hover) and (pointer:fine){
+  .color-dot:hover{transform:scale(1.1)}
+}
 .color-dot.is-on{box-shadow:0 0 0 2px #fff inset,0 0 0 2px #242426}
 .color-dot:focus-visible{outline:2px solid #242426;outline-offset:2px}
 
@@ -4311,13 +4375,32 @@ details.metric-bots>summary:hover{background:#fffaf0}
   .grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
+/* Кнопки на плитке фото показываются на телефоне ВСЕГДА, а не «не двигаются»:
+   там их нечем вызвать наведением, а без них плиткой нельзя управлять вовсе.
+   Это не про залипший hover (тот закрыт гейтом у самих правил движения), а про
+   доступность действия. */
 @media(hover:none){
-  .a-stat:hover{transform:none}
   .img-del,.img-main{opacity:1;transform:scale(1)}
 }
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+
+/* ПРОСИЛИ УБРАТЬ ПРОЗРАЧНОСТЬ — УБИРАЕМ ЕЁ, А НЕ ТОЛЬКО РАЗМЫТИЕ.
+   Настройку включают, когда сквозь полупрозрачную шапку не читается текст;
+   один снятый `backdrop-filter` делает хуже, чем было — остаётся то же 70%
+   белого, но теперь поверх резкой картинки. Поэтому фон доводится до
+   непрозрачного, и только вместе с ним снимается размытие.
+   Ряды перечислены поимённо: липкие поверхности витрины (шапка, ряд покупки),
+   стрелка галереи поверх снимка и затемнение корзины. Затемнению
+   непрозрачность не нужна — оно и должно просвечивать, у него снимается
+   только размытие. */
+@media (prefers-reduced-transparency:reduce){
+  .site-header{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .product .buy-row{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .g-arrow{background:#fff;color:#1d1d1f;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .cart-overlay{-webkit-backdrop-filter:none;backdrop-filter:none}
 }
 
 /* ===== Страница оформления заказа (/checkout) ===== */
@@ -5321,7 +5404,10 @@ details.metric-bots>summary:hover{background:#fffaf0}
   color:#fff;display:grid;place-items:center;
   box-shadow:0 8px 26px rgba(0,0,0,.22);
   transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease}
-.chat-fab:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.28)}
+/* Гейт наведения — см. у `.btn-primary`. */
+@media (hover:hover) and (pointer:fine){
+  .chat-fab:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.28)}
+}
 .chat-fab:active{transform:translateY(0) scale(.96)}
 .chat-fab svg{width:27px;height:27px}
 /* Открытое окно прячет кнопку: на телефоне она легла бы прямо на поле ввода. */
@@ -5338,7 +5424,7 @@ details.metric-bots>summary:hover{background:#fffaf0}
   background:#fff;border-radius:20px;border:1px solid var(--border);
   box-shadow:0 18px 60px rgba(0,0,0,.22);overflow:hidden;
   opacity:0;visibility:hidden;transform:translateY(12px) scale(.97);transform-origin:100% 100%;
-  transition:opacity .2s ease, transform .2s ease, visibility .2s}
+  transition:opacity .2s var(--ease-out), transform .2s var(--ease-out), visibility .2s}
 .chat-widget.is-open .chat-panel{opacity:1;visibility:visible;transform:none}
 
 .chat-head{display:flex;align-items:center;gap:11px;padding:13px 14px;border-bottom:1px solid var(--border);

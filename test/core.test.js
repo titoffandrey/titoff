@@ -16005,3 +16005,86 @@ test('домены магазина привязываются из панели
   const failed = adminViews.settingsPage(saved, db, 'Ошибка', 'err', { draft: { siteDomains: 'не домен!' } });
   assert.match(failed, /не домен!/, 'введённое возвращается в поле');
 });
+
+/* ДВИЖЕНИЕ НА НАВЕДЕНИИ ОБЯЗАНО БЫТЬ ЗАКРЫТО МЫШИНЫМ ЭКРАНОМ.
+ * На телефоне `:hover` не проходит после нажатия — он ЗАЛИПАЕТ до следующего
+ * касания в другом месте. Кнопка «В корзину» так и стоит приподнятой, кружок
+ * цвета так и стоит увеличенным (а увеличение у него означает «выбран»),
+ * стрелка галереи так и висит белой плашкой поверх снимка. Забыть гейт у новой
+ * кнопки легко, а увидеть промах можно только с телефона в руках, поэтому
+ * проверка перебирает ВЕСЬ файл, а не список известных мест.
+ *
+ * Нейтральное значение (`none` и `scale(1)`) пропускается: оно ничего не
+ * сдвигает, а служит либо сбросом, либо показом кнопки на плитке фото. */
+test('движение на наведении закрыто @media (hover:hover) and (pointer:fine)', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const GATE = /@media\s*\(hover:\s*hover\)\s*and\s*\(pointer:\s*fine\)/;
+  const NEUTRAL = /^(none|scale\(1\))$/;
+
+  const stack = [];   // прелюдии открытых блоков: @media и селекторы
+  const bad = [];
+  let buf = '';
+  for (const ch of css) {
+    if (ch === '{') { stack.push(buf.trim()); buf = ''; continue; }
+    if (ch === '}') {
+      const sel = stack.pop() || '';
+      const body = buf;
+      buf = '';
+      if (sel.startsWith('@') || !sel.includes(':hover')) continue;
+      const moves = [...body.matchAll(/(?:^|[;{\s])transform:\s*([^;}]+)/g)]
+        .map((m) => m[1].trim())
+        .filter((v) => !NEUTRAL.test(v));
+      if (moves.length && !stack.some((p) => GATE.test(p))) bad.push(sel + ' → ' + moves.join(', '));
+      continue;
+    }
+    buf += ch;
+  }
+
+  assert.deepEqual(bad, [], 'наведение двигает элемент без гейта по мышиному экрану');
+});
+
+/* `transition` БЕЗ ИМЁН СВОЙСТВ — ЭТО `all`, и это не сокращение записи.
+ * Браузеру велено анимировать всё, что у элемента когда-нибудь поменяется:
+ * добавит кто-нибудь рядом правило с высотой или полями — и оно поедет вместе
+ * с прозрачностью, а найти причину будет негде. Свойства называются поимённо.
+ * `0s` в списке разрешён: им задают задержку у visibility. */
+test('в transition названы свойства, а не голая длительность', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const bare = [...css.matchAll(/transition:\s*(?:all\b|[.\d]+m?s(?![\w-]))[^;}]*/g)]
+    .map((m) => m[0].trim())
+    .filter((s) => !/transition:\s*0s\b/.test(s));
+  assert.deepEqual(bare, [], 'transition без имён свойств означает all');
+});
+
+/* ВХОД И ВЫХОД ИДУТ EASE-OUT: быстро трогаются и мягко тормозят. Встроенный
+ * `ease` начинает медленно, и шторка корзины из-за него выглядела так, будто
+ * отвечает с задержкой, — задержку ощущают по первым кадрам, а не по общему
+ * сроку. Кривые лежат в :root одним набором: порознь они разъехались бы, а
+ * разницу между двумя похожими cubic-bezier на глаз не поймать. */
+test('появляющиеся поверхности идут по общей кривой ease-out', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /--ease-out:cubic-bezier\(\.23,1,\.32,1\)/);
+  assert.match(css, /--ease-drawer:cubic-bezier\(\.32,\.72,0,1\)/);
+  assert.match(css, /\.cart-drawer\{[^}]*transition:transform \.25s var\(--ease-drawer\)/);
+  assert.match(css, /\.toast\{[^}]*transition:opacity \.25s var\(--ease-out\),transform \.25s var\(--ease-out\)/);
+  assert.match(css, /\.chat-panel\{[\s\S]{0,600}?transition:opacity \.2s var\(--ease-out\)/);
+});
+
+/* ПРОСИЛИ УБРАТЬ ПРОЗРАЧНОСТЬ — УБИРАЕМ ЕЁ, А НЕ ТОЛЬКО РАЗМЫТИЕ. Настройку
+ * включают, когда сквозь полупрозрачную шапку не читается текст; снятый
+ * `backdrop-filter` при прежних 70% белого делает хуже, чем было, — то же
+ * просвечивание, но теперь поверх резкой картинки. */
+test('prefers-reduced-transparency доводит липкие поверхности до непрозрачных', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const block = (css.match(/@media \(prefers-reduced-transparency:reduce\)\{([\s\S]*?)\n\}/) || [])[1];
+  assert.ok(block, 'блока prefers-reduced-transparency нет вовсе');
+  for (const sel of ['.site-header', '.product .buy-row', '.g-arrow']) {
+    const rule = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}');
+    const decl = (block.match(rule) || [])[1] || '';
+    assert.match(decl, /background:#fff/, sel + ': фон обязан стать непрозрачным');
+    assert.match(decl, /backdrop-filter:none/, sel + ': размытие обязано сняться');
+  }
+});
