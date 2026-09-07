@@ -1437,7 +1437,11 @@
      * мобильных приложениях. Мышью переход происходит сразу: там подсказка уже
      * висит под курсором. */
     if (sticky && touchArmed !== shape) { touchArmed = shape; return; }
-    window.location.href = go;
+    /* КУДА идти, знает карта, а КАК ходить между отчётами — общий переход в
+     * конце файла: он подменяет разметку и не уносит читателя в начало
+     * страницы. Событие вместо прямого вызова — чтобы карта по-прежнему не
+     * знала ни про живое обновление, ни про соседние блоки отчёта. */
+    document.dispatchEvent(new CustomEvent('metric:go', { detail: go }));
   });
 })();
 
@@ -1508,6 +1512,74 @@
     var note = menu.querySelector('.g-menu-empty');
     if (note) note.hidden = shown > 0;
   });
+})();
+
+/* ============ Переход внутри отчёта: страница не перезагружается ============
+ *
+ * Страна, период и страница рейтинга живут в адресе, поэтому ссылки на них
+ * ведут на ТУ ЖЕ страницу с другими параметрами. Обычный переход по такой
+ * ссылке перезагружает отчёт целиком и ставит читателя в самое начало — а
+ * карта, ради которой он выбирал страну, стоит посреди страницы: после каждого
+ * выбора приходилось прокручивать обратно к ней.
+ *
+ * Разметку по-прежнему рисует сервер: адрес отдаётся живому обновлению
+ * (`AdminLive.go` в admin-live.js), оно забирает ту же страницу и подменяет
+ * блоки. Второго рендера в браузере здесь нет, а прокрутку не трогает никто —
+ * читатель остаётся ровно там, где нажимал.
+ *
+ * Без скриптов и без живого канала ссылки остаются обычными ссылками: переход
+ * происходит как раньше, просто с перезагрузкой.
+ */
+(function () {
+  'use strict';
+
+  /* Ссылка «внутрь отчёта» — та, что ведёт на ЭТУ ЖЕ страницу и меняет только
+   * параметры адреса. Соседние ссылки раздела («Кто заходил», карточка
+   * посетителя, заказ) ведут по другим путям и обязаны открываться как обычно,
+   * поэтому сравнивается именно путь, а не список классов. */
+  function reportLink(target) {
+    var link = target && target.closest ? target.closest('a[href]') : null;
+    if (!link || link.target || link.hasAttribute('download')) return null;
+    if (!link.closest('.metric-toolbar, .metric-panel')) return null;
+    return link.origin === location.origin && link.pathname === location.pathname ? link : null;
+  }
+
+  document.addEventListener('click', function (event) {
+    // Нажатие с модификатором — это «открыть в новой вкладке», и подменять её
+    // содержимое здесь было бы издевательством.
+    if (event.defaultPrevented || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    var link = reportLink(event.target);
+    if (!link) return;
+    event.preventDefault();
+    closeMenu(link.closest('details[data-menu]'));
+    go(link.href);
+  });
+
+  /* Меню закрываем сами: на обычном переходе его уносило перезагрузкой, а здесь
+   * страница остаётся той же, и `open` у `<details>` живое обновление не трогает
+   * вовсе — это состояние человека. Набранное в поиске по странам стирается по
+   * той же причине: свежая страница открылась бы с пустым полем. */
+  function closeMenu(box) {
+    if (!box) return;
+    box.removeAttribute('open');
+    var search = box.querySelector('[data-menu-search]');
+    if (!search || !search.value) return;
+    search.value = '';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  /* Единственная дверь к живому обновлению. Нет его на странице (раздел без
+   * живых тем) — обычный переход: ссылка обязана работать в любом случае. */
+  function go(url) {
+    if (window.AdminLive) window.AdminLive.go(url);
+    else window.location.href = url;
+  }
+
+  // Карта отдаёт адрес страны тем же путём: `<a>` вокруг каждого контура в
+  // разметке не завести (сто семьдесят четыре остановки табуляции), поэтому
+  // переход делает скрипт — но идёт он туда же, куда и ссылки рейтинга.
+  document.addEventListener('metric:go', function (event) { go(event.detail); });
 })();
 
 /* ================= Карточки уведомлений в углу =================
