@@ -1955,6 +1955,11 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .place-act svg{width:17px;height:17px;fill:currentColor}
 .place-act-main{padding:0 17px;background:var(--accent);color:#fff}
 .place-act-main:hover{opacity:.9;color:#fff}
+/* Знак мессенджера на главной кнопке белый, а деталь внутри него ВЫРЕЗАЕТСЯ
+   цветом поверхности (`--msg-cut`, см. подвал). На акцентной заливке этот вырез
+   обязан быть акцентным — с белым по умолчанию самолётик слился бы с диском, и
+   от знака остался бы просто белый кружок. */
+.place-act-main{--msg-cut:var(--accent)}
 .place-act-round{width:40px;padding:0}
 /* Мессенджеры красятся фирменным цветом на наведении — как в подвале: в покое
    ряд остаётся спокойным, а не превращается в три цветных пятна. */

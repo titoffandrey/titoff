@@ -3896,6 +3896,24 @@ test('«О компании» — реквизиты, контакты и кар
   // списком текста.
   assert.match(address, /class="place-acts">[\s\S]{0,400}place-act-main" href="tel:/);
 
+  /* Главная кнопка — та связь, что у магазина ЕСТЬ. На боевой витрине телефон
+   * в настройках не заполнен, и ряд оставался из двух круглых значков без
+   * единого крупного действия — то есть ровно тем, от чего карточку и
+   * переделывали. Тот мессенджер, что стал главной кнопкой, круглым не
+   * повторяется. */
+  const noPhone = Object.assign({}, settings, { contactPhone: '', contactWhatsApp: '+79991234567' });
+  const chatFirst = render.aboutPage(noPhone, { origin: 'https://example.test' });
+  assert.match(chatFirst, /place-act-main msg-wa"[^>]*>[\s\S]{0,3000}<span>Написать<\/span>/);
+  assert.doesNotMatch(chatFirst, /place-act-round msg-wa/, 'главная кнопка не дублируется круглой');
+  assert.match(chatFirst, /place-act-round msg-tg/, 'второй мессенджер остаётся круглым');
+  // Связи нет вовсе — ряда действий нет: кнопке, ведущей в никуда, тут не место.
+  const mute = render.aboutPage(Object.assign({}, settings, { contactPhone: '', contactTelegram: '', contactWhatsApp: '' }),
+    { origin: 'https://example.test' });
+  assert.doesNotMatch(mute, /place-acts/);
+  // Белый вырез внутри знака на акцентной заливке сливался бы с самим знаком.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.place-act-main\{--msg-cut:var\(--accent\)\}/);
+
   /* Оценка магазина честно подписана: это средняя по отзывам О ТОВАРАХ, а не
    * отдельный опрос про организацию. Отзывов нет — строки нет вовсе: пустые
    * звёзды читались бы как ноль из пяти. */
