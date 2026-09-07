@@ -2913,6 +2913,11 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .rv-who{font-size:14px;font-weight:650;overflow-wrap:anywhere}
 .rv-when{font-size:12px}
 .rv-tag{padding:2px 8px;border-radius:20px;background:#bf4800;color:#fff;font-size:11px;font-weight:650;line-height:1.55;white-space:nowrap}
+/* Прочитанный отзыв разобран, и красить его оранжевым «сделай что-нибудь» нельзя
+   — но и молчать о нём тоже: на витрине его нет. Отсюда спокойная серая плашка
+   на бледной подложке вместо тёплой подсветки всей строки. */
+.rv-tag-seen{background:#eef0f3;color:#48484a}
+.rv-row.is-seen{background:#fbfbfd}
 .rv-where{max-width:240px;margin-left:auto;overflow:hidden;color:#6e6e73;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-where-gone{color:#a1a1a6}

@@ -4637,6 +4637,79 @@ test('отзывы листаются страницами, а свой неод
   assert.equal(count(mine), per + 1);
 });
 
+test('«Прочитано» разбирает очередь, не удаляя отзыв и не публикуя его', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-seen-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const product = fresh.getProducts()[0];
+
+  /* Действий у неудачного отзыва было два, и оба плохи: «Одобрить» показывает
+   * его всем, «Удалить» стирает насовсем — вместе с фотографиями и вместе с тем,
+   * что видел автор. Очередь разбирали удалением, и один такой отзыв на боевой
+   * витрине пропал безвозвратно. «Прочитано» — третье действие: отзыв остаётся у
+   * автора, на витрину не идёт, из очереди уходит. */
+  const rv = fresh.createReview({ productId: product.id, author: 'Пётр', rating: 2, text: 'Долго ехало' });
+  assert.equal(rv.status, 'pending', 'новый отзыв ждёт решения');
+
+  assert.ok(fresh.setReviewStatus(rv.id, 'seen'), 'состояние «прочитано» принимается');
+  assert.equal(fresh.setReviewStatus(rv.id, 'что-нибудь'), null, 'чужая строка состоянием не становится');
+  const after = fresh.getReview(rv.id);
+  assert.equal(after.status, 'seen', 'отзыв на месте, а не удалён');
+
+  // Публично по-прежнему видно только одобренное — это правило не менялось.
+  assert.equal(fresh.reviewsForProduct(product.id, true).some(r => r.id === rv.id), false,
+    'прочитанный отзыв на витрину не выходит');
+  // А из очереди он уходит: и из счётчика в шапке, и из плитки товара.
+  assert.equal(fresh.pendingReviewCount(), 0, 'счётчик модерации гаснет');
+  assert.equal(fresh.reviewStats().get(product.id).pending, 0, 'плитка товара больше не зовёт разбирать');
+  assert.equal(fresh.reviewStats().get(product.id).seen, 1, 'но прочитанный посчитан отдельно');
+
+  // Вкладка «На модерации» показывает РОВНО ждущих: иначе разобранный отзыв
+  // возвращался бы в очередь и кнопка не делала бы ничего.
+  const html = adminViews.productReviews(SETTINGS, fresh, product, 'pending', '', 1, 'new', 'all');
+  assert.doesNotMatch(html, /Долго ехало/, 'прочитанного в очереди нет');
+  const seenTab = adminViews.productReviews(SETTINGS, fresh, product, 'seen', '', 1, 'new', 'all');
+  assert.match(seenTab, /Долго ехало/, 'он на своей вкладке');
+  assert.match(seenTab, /Прочитано · не на витрине/, 'и подписан, что на витрине его нет');
+  assert.match(seenTab, /\/approve"/, 'опубликовать его по-прежнему можно');
+  assert.doesNotMatch(seenTab, /\/seen"/, 'а «Прочитано» второй раз не предлагается');
+
+  fresh.setReviewStatus(rv.id, 'pending');
+  const queue = adminViews.productReviews(SETTINGS, fresh, product, 'pending', '', 1, 'new', 'all');
+  assert.match(queue, /\/seen"[^]*?>Прочитано</, 'у ждущего решения кнопка есть');
+
+  // Маршрут ставит именно это состояние и говорит покупателю правду.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /app\.post\('\/admin\/reviews\/:id\/seen'[^\n]*setReviewStatus\(req\.params\.id, 'seen'\)/);
+  assert.match(server, /автор его видит, на витрине его нет/);
+});
+
+test('свой отзыв автор видит и после того, как cookie-сессия протухла', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-visitor-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const product = fresh.getProducts()[0];
+
+  /* Опор две. Подписанная cookie-сессия живёт неделю (Max-Age=604800 в
+   * lib/server-lib.js), то есть «автор видит свой отзыв» кончалось через семь
+   * дней. Метка метрики живёт год — по ней отзыв находится и через месяц. */
+  const visitorId = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
+  const rv = fresh.createReview({ productId: product.id, author: 'Пётр', rating: 3, text: 'мой отзыв', visitorId });
+  assert.equal(fresh.getReview(rv.id).visitorId, visitorId, 'метка сохраняется у отзыва');
+  assert.equal(fresh.createReview({ productId: product.id, author: 'Аноним', rating: 5, visitorId: 'не-метка' }).visitorId, null,
+    'мусор вместо метки не хранится');
+
+  const route = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const own = route.slice(route.indexOf("app.get('/product/:id'"), route.indexOf("app.get('/checkout'"));
+  // Обе опоры и оба состояния: прочитанный отзыв от автора не прячут — в этом
+  // весь смысл «Прочитано» вместо удаления.
+  assert.match(own, /mine\.includes\(rv\.id\) \|\| \(visitorId && rv\.visitorId === visitorId\)/);
+  assert.match(own, /rv\.status !== 'approved'/);
+  assert.match(route, /visitorId: metrics\.visitorId\(req\) \|\| null/, 'метка пишется при создании отзыва');
+});
+
 test('списки отзывов в панелях листаются, а не выгружаются целиком', () => {
   // На боевых данных 7000 отзывов: единый список весил 4,5 МБ и держал
   // единственный поток 16 секунд — витрина не отвечала никому всё это время.
@@ -11438,19 +11511,21 @@ test('покупатель снова может приложить фото к 
   // Предел с витрины свой и меньше панельного: здесь грузит кто угодно, а один
   // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = source.slice(source.indexOf("app.post('/api/reviews'"));
-  assert.match(route.slice(0, 2000), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
+  // Срез — до конца самого обработчика, а не первые N символов: длина маршрута
+  // меняется от любой добавленной строки, и тест ловил бы её вместо правила.
+  const route = source.slice(source.indexOf("app.post('/api/reviews'"), source.indexOf("app.post('/api/cart'"));
+  assert.match(route, /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
   /* Поле «Фото» выключается в настройках, и выключенное означает «файлов не
    * принимаем», а не «кнопку не показываем»: форма — это разметка, а запрос
    * присылает кто угодно. Поэтому проверка стоит и в маршруте. */
-  assert.match(route.slice(0, 2000), /R\.reviewPhotosOn\(settings\(\)\)/);
+  assert.match(route, /R\.reviewPhotosOn\(settings\(\)\)/);
   const noPhotos = render.productPage({ storeName: 'Тест', currency: '₽', reviewPhotos: false }, db, product, {});
   assert.doesNotMatch(noPhotos, /name="photos"/, 'выключенная настройка обязана убрать поле с витрины');
   // Поля нет вовсе (настройки старой установки) — фото принимаются, как раньше.
   assert.ok(render.reviewPhotosOn({}) && render.reviewPhotosOn(undefined));
   assert.equal(render.reviewPhotosOn({ reviewPhotos: false }), false);
   // Превью делаем сразу: в ленте показывается оно, полный файл — в просмотрщике.
-  assert.match(route.slice(0, 2000), /previews: await reviewPreviews\(photos\)/);
+  assert.match(route, /previews: await reviewPreviews\(photos\)/);
 });
 
 test('форма отзыва идёт во всю ширину и четырьмя рядами', () => {
@@ -16329,7 +16404,11 @@ test('промокод считают в одном месте, а витрин�
    * расчёта одной скидки разошлись бы на первом же коде со своим процентом. */
   const pricing = fs.readFileSync(path.join(__dirname, '..', 'lib', 'pricing.js'), 'utf8');
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/promo'"));
-  const order = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('const visitorId ='));
+  // Конец среза ищем ОТ НАЧАЛА маршрута: `const visitorId` встречается в файле и
+  // раньше (страница товара подбирает свои отзывы по той же метке), и без этого
+  // срез оказывался пустым, а тест — зелёным ни на чём.
+  const orderAt = server.indexOf("app.post('/api/order'");
+  const order = server.slice(orderAt, server.indexOf('const visitorId =', orderAt));
   assert.match(cart, /PRICING\.resolve\(/);
   assert.match(order, /PRICING\.resolve\(/);
   assert.match(pricing, /PROMO\.priceFor\(sum, pct, promo\)/);

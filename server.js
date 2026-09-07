@@ -921,12 +921,25 @@ app.get('/product/:id', (req, res) => {
   const product = db.visibleProduct(req.params.id);
   if (!product) return sendNotFound(req, res);
   trackPage(req, res, '/product/' + product.id);
-  // Отзывы этого посетителя, ещё не прошедшие модерацию: их видит только он сам
+  /* Отзывы этого посетителя, ещё не вышедшие на витрину: их видит только он сам.
+   *
+   * Опор две, и вторая появилась не для красоты. Подписанная cookie-сессия
+   * (`myReviews`) живёт семь дней — то есть «автор видит свой отзыв» на деле
+   * кончалось через неделю. Метка метрики живёт год и переживает закрытие
+   * браузера, поэтому свой отзыв находится и через месяц. Метки может не быть
+   * вовсе (отказ от метрики) — тогда работает прежний путь по сессии.
+   *
+   * Показываем и `pending`, и `seen`: прочитанный владельцем отзыв на витрину не
+   * идёт, но от автора его не прячут — в этом весь смысл «Прочитано» вместо
+   * удаления.
+   */
   const mine = Array.isArray(req.session && req.session.myReviews) ? req.session.myReviews : [];
+  const visitorId = metrics.visitorId(req) || '';
   // Ищем по индексу товара, а не по всему файлу: на боевых данных это 300 записей
   // вместо 7000 на каждое открытие страницы любым, кто когда-то оставил отзыв.
-  const ownReviews = mine.length
-    ? db.reviewsForProduct(product.id, false).filter(rv => rv.status !== 'approved' && mine.includes(rv.id))
+  const ownReviews = mine.length || visitorId
+    ? db.reviewsForProduct(product.id, false).filter(rv => rv.status !== 'approved'
+      && (mine.includes(rv.id) || (visitorId && rv.visitorId === visitorId)))
     : [];
   res.send(R.productPage(settings(), db, product, pageOpts(req, {
     ownReviews,
@@ -1255,6 +1268,9 @@ app.post('/api/reviews', async (req, res) => {
     : [];
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating, text: req.body.text,
+    // Метка посетителя живёт год, cookie-сессия — неделю. Без неё «свой отзыв
+    // виден автору» кончалось через семь дней (см. `visitorId` в lib/db.js).
+    visitorId: metrics.visitorId(req) || null,
     photos, previews: await reviewPreviews(photos), status: 'pending',
     privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION,
     publicationConsentAt: Date.now(), publicationConsentVersion: R.PRIVACY_VERSION
@@ -4119,6 +4135,14 @@ app.post('/admin/reviews/:id/approve', (req, res) => { if (!guardAdmin(req, res)
 // админке домена; прятать его теперь негде и не от кого, а вот вернуть на
 // доработку иногда нужно, и удаление для этого слишком грубо.
 app.post('/admin/reviews/:id/hide', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'pending'); res.redirect(reviewsBackUrl(req.body, 'Отзыв снят с витрины')); });
+/* «Прочитано» — разобрать очередь, ничего не ломая.
+ *
+ * Отзыв остаётся у автора и не выходит на витрину; из очереди он уходит. Это
+ * третье действие появилось потому, что первых двух не хватало: неудачный отзыв
+ * приходилось либо публиковать, либо УДАЛЯТЬ — а удаление стирает его насовсем,
+ * вместе с фотографиями и вместе с тем, что видел автор. Подпись говорит ровно
+ * то, что произошло: покупатель свой отзыв по-прежнему видит. */
+app.post('/admin/reviews/:id/seen', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'seen'); res.redirect(reviewsBackUrl(req.body, 'Отзыв прочитан — автор его видит, на витрине его нет')); });
 app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res)) return; db.deleteReview(req.params.id); res.redirect(reviewsBackUrl(req.body, 'Отзыв удалён')); });
 
 /* ---------- Заказы ---------- */
