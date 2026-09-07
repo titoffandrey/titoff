@@ -16905,3 +16905,86 @@ test('уход наружу привязан к просмотру, а не то
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/* ГДЕ ОБРЫВАЕТСЯ ВИЗИТ.
+ * Воронка отвечает, на каком ЭТАПЕ теряются покупатели, и не отвечает, на какой
+ * СТРАНИЦЕ. Считается это по хронологии карточек, а не своим счётчиком: счётчик
+ * отвечал бы только про будущее, а хронология уже лежит на диске — ответ есть
+ * сразу и за всё время хранения. */
+test('отчёт называет страницу, на которой оборвался визит', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'istore-exits-'));
+  try {
+    const metrics = new Analytics({ dataDir: dir, geoEnabled: false, flushMs: 600000 });
+    const now = Date.now();
+    const old = now - 3 * 24 * 3600 * 1000;      // ушёл давно — про него уже можно судить
+    const ctx = { ip: '203.0.113.7' };
+    const walk = (id, pages, at) => {
+      for (const p of pages) metrics.recordPageView({ id, path: p, context: ctx });
+      const v = metrics.findVisitor(id);
+      v.clientConfirmed = true;
+      v.hits.forEach((h, i) => { h.t = at + i * 60000; h.s = 30; });
+      v.lastSeen = at + v.hits.length * 60000;
+      return v;
+    };
+    walk('aa'.repeat(16), ['/', '/product/x', '/checkout'], old);
+    walk('bb'.repeat(16), ['/', '/checkout'], old);
+    walk('cc'.repeat(16), ['/', '/product/x'], old);
+    walk('dd'.repeat(16), ['/', '/checkout'], now);   // ушёл только что — судить рано
+
+    const s = metrics.snapshot({ days: 30 });
+    const by = Object.fromEntries(s.exits.rows.map(r => [r.label, r]));
+
+    assert.equal(s.exits.visits, 4);
+    assert.equal(by['/checkout'].value, 3, 'три визита оборвались на оформлении');
+    assert.equal(by['/product/x'].value, 1);
+    /* Доля выходов считается ИЗ ТЕХ ЖЕ ВИЗИТОВ, а не из суточной сводки: два
+     * источника с разными потолками дали бы больше ста процентов. Карточку
+     * товара открывали дважды, последней она стала один раз. */
+    assert.equal(by['/checkout'].rate, 100);
+    assert.equal(by['/product/x'].rate, 50);
+    /* «Не вернулся» — только про последний визит человека и только когда с тех
+     * пор прошли сутки. Свежий уход считается отдельно, а не записывается молча
+     * в вернувшихся: иначе за сегодняшний день блок врал бы уверенно. */
+    assert.equal(by['/checkout'].gone, 2, 'третий ушёл только что — про него рано');
+    assert.equal(s.exits.lost, 3);
+    assert.equal(s.exits.fresh, 1);
+
+    // Главная в списке выходов быть не должна: ни один визит ею не кончился.
+    assert.equal(by['/'], undefined);
+
+    /* Период отсекается по ПОСЛЕДНЕЙ отметке человека: визит не может кончиться
+     * позже неё. За сегодняшние сутки остаётся только свежий уход. */
+    const today = metrics.snapshot({ days: 1 });
+    assert.equal(today.exits.visits, 1);
+    assert.equal(today.exits.lost, 0, 'про сегодняшних судить рано по построению');
+    assert.equal(today.exits.fresh, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* Воронка называет ПОТЕРЮ, а не только переход: вопрос к ней задают именно про
+ * потерю — «сколько отвалилось и где», — а раньше её вычитали в уме. */
+test('в воронке у каждой ступени видно, сколько на ней ушли', () => {
+  const rows = [
+    { label: 'Заходы', value: 100 },
+    { label: 'Смотрели товар', value: 40 },
+    { label: 'Дошли до оформления', value: 10 },
+    { label: 'Оформили заявку', value: 3 }
+  ];
+  const html = analyticsView.dashboard({
+    days: 1, funnel: rows.map((r, i) => Object.assign({}, r, {
+      step: i ? Math.round((r.value / rows[i - 1].value) * 1000) / 10 : null,
+      lost: i ? rows[i - 1].value - r.value : undefined
+    })),
+    visits: 100, unique: 100, pageViews: 300, byDate: [], visitors: [],
+    exits: { rows: [{ label: '/checkout', value: 7, gone: 5, rate: 70 }], visits: 100, lost: 5, fresh: 2 }
+  }, { products: {} });
+  assert.match(html, /ушли здесь 60/);
+  assert.match(html, /ушли здесь 30/);
+  assert.match(html, /ушли здесь 7\b/);
+  // Блок выходов: страница, доля выходов и «не вернулись».
+  assert.match(html, /Где обрывается визит/);
+  assert.match(html, /выход с 70% открытий · не вернулись 5/);
+  assert.match(html, /5 не вернулись/);
+});
