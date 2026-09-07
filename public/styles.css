@@ -1866,6 +1866,19 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .legal-section .about-contacts{display:grid;justify-items:start;gap:12px;margin:0;padding:0;list-style:none}
 .about-contacts li{display:flex;align-items:center;gap:9px;margin:0;color:var(--footer-link);font-size:15px;line-height:1.45}
 .about-contacts .msg-link{font-size:15px}
+/* Снимки магазина в настройках: плитка с крестиком-меткой. Отмеченный к
+   удалению гаснет чистым CSS — соседний селектор, без `:has()`, который знают
+   не все версии Safari, доходящие до панели. */
+.set-photos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:9px}
+.set-photo{position:relative;width:88px;height:88px;border-radius:10px;overflow:hidden;border:1px solid var(--border-soft)}
+.set-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.set-photo-drop{position:absolute;opacity:0;pointer-events:none}
+.set-photo-x{position:absolute;right:4px;top:4px;z-index:2;display:flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.9);color:#48484a;font-size:11px;cursor:pointer}
+.set-photo-x:hover{background:#fff;color:#b42318}
+.set-photo-drop:checked ~ img{opacity:.25;filter:grayscale(1)}
+.set-photo-drop:checked ~ .set-photo-x{background:#b42318;color:#fff}
+
 /* Карта своя, на тайлах OpenStreetMap (см. lib/map-tiles.js). Слой тайлов стоит
    ЦЕНТРОМ на точке магазина: отрицательные поля от середины блока считает
    сервер, поэтому одна разметка годится любой ширине — лишнее обрезает рамка.
@@ -1873,15 +1886,89 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .about-map{position:relative;height:380px;overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:var(--bg2)}
 .map-layer{position:absolute;left:50%;top:50%}
 .map-tile{position:absolute;display:block;width:256px;height:256px;border:0}
+/* Готовая картинка карты. Стоит центром на точке магазина — как и плитка,
+   отрицательные поля считает сервер. Размеры заданы в разметке: файл вдвое
+   плотнее CSS-пикселя, и без них браузер показал бы карту вдвое крупнее. */
+.map-poster{position:absolute;left:50%;top:50%;display:block;max-width:none;border:0}
 /* Остриё метки приходится ровно на центр блока — то есть на точку магазина.
    Нажатий она не ловит: под ней карта, а не ссылка. */
 .map-pin{position:absolute;left:50%;top:50%;width:32px;height:44px;transform:translate(-50%,-100%);pointer-events:none;
   filter:drop-shadow(0 2px 4px rgba(0,0,0,.28))}
-/* Наша кнопка вместо чужих: одна, своим словом и своим видом. */
-.map-route{position:absolute;left:12px;bottom:12px;display:inline-flex;align-items:center;
-  padding:9px 15px;border-radius:999px;background:#fff;color:var(--text);font-size:14px;font-weight:560;
-  text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-.map-route:hover{color:var(--accent)}
+/* Карточка магазина рядом с картой — сделана по карточке организации в
+   картах-справочниках (снято с живой страницы Яндекс.Карт 7 сентября 2026).
+   Порядок там такой и держится на нём: сначала СНИМКИ места, потом крупное имя
+   с категорией, оценка строкой, статус «открыто» цветным текстом, ряд крупных
+   кнопок — и только потом адрес с часами разделами. Первый заход был списком
+   строк «значок + значение», и карточка читалась как выписка из настроек.
+
+   Слева карточка, справа карта: карта отвечает «где это», карточка — «что это
+   за место». Ниже 860 px они встают друг под друга, карточка первой. */
+.place{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:16px;align-items:start}
+.place-card{overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:#fff}
+
+/* Обложка: крупный первый снимок и лента остальных под ним. Ровно так место и
+   узнают — по одному кадру не понять, а сеткой из шести карточка превращается
+   в фотоальбом. */
+.place-cover{display:flex;flex-direction:column;gap:2px;background:var(--bg2)}
+.place-cover-main{display:block;aspect-ratio:16/10;overflow:hidden}
+.place-cover-rest{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.place-cover-thumb{position:relative;display:block;aspect-ratio:1/1;overflow:hidden}
+.place-cover img{width:100%;height:100%;object-fit:cover;display:block}
+/* «+N» на последней плитке — счётчик того, что осталось за кадром. */
+.place-cover-more{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);color:#fff;font-size:15px;font-weight:600}
+.place-cover-rest a[hidden]{display:none!important}
+
+.place-body{display:flex;flex-direction:column;gap:6px;padding:15px 16px 16px}
+.place-name{font-size:22px;font-weight:650;line-height:1.2}
+.place-kind{color:#6e6e73;font-size:13.5px;margin-top:-3px}
+/* Оценка: звёзды, крупное число, серым — сколько оценок и по чему они. */
+.place-rate{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px 8px;margin-top:3px}
+.place-rate .stars{font-size:15px}
+.place-rate b{font-size:17px;font-weight:650}
+.place-rate-note{color:#6e6e73;font-size:13px}
+/* Статус — цветной ТЕКСТ, а не плашка: в справочнике «Закрыто» видно первым, и
+   видно именно цветом. Зелёный — цвет подписи наличия, красный — тот же, каким
+   подписано «осталось несколько штук». */
+.place-state{color:#b42318;font-size:14.5px;font-weight:560}
+.place-state.is-open{color:#0b7a37}
+
+/* Ряд действий: с карточки звонят и пишут, а не читают её. */
+.place-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.place-act{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;
+  border-radius:999px;background:#f2f3f5;color:var(--text);font-size:14.5px;font-weight:560;text-decoration:none}
+.place-act svg{width:17px;height:17px;fill:currentColor}
+.place-act-main{padding:0 17px;background:var(--accent);color:#fff}
+.place-act-main:hover{opacity:.9;color:#fff}
+/* Знак мессенджера на главной кнопке белый, а деталь внутри него ВЫРЕЗАЕТСЯ
+   цветом поверхности (`--msg-cut`, см. подвал). На акцентной заливке этот вырез
+   обязан быть акцентным — с белым по умолчанию самолётик слился бы с диском, и
+   от знака остался бы просто белый кружок. */
+.place-act-main{--msg-cut:var(--accent)}
+.place-act-round{width:40px;padding:0}
+/* Мессенджеры красятся фирменным цветом на наведении — как в подвале: в покое
+   ряд остаётся спокойным, а не превращается в три цветных пятна. */
+.place-act-round:hover{background:var(--msg-brand,var(--accent));color:#fff}
+.place-act-round:hover .msg-cut{fill:var(--msg-brand,var(--accent))}
+.place-act-round .msg-ico{width:19px;height:19px}
+
+/* Адрес и часы — разделами с подписью, а не строчками в общий столбик: подпись
+   говорит, ЧТО это, значение идёт крупнее под ней. */
+.place-rows{margin-top:11px;padding-top:12px;border-top:1px solid var(--border-soft);display:flex;flex-direction:column;gap:11px}
+.place-row{display:flex;align-items:flex-start;gap:10px}
+.place-row svg{flex:none;width:17px;height:17px;margin-top:2px;fill:#86868b}
+.place-row>div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.place-row-title{color:#6e6e73;font-size:12.5px}
+.place-row-value{font-size:14.5px;line-height:1.35}
+
+/* Карта в этой паре тянется по высоте карточки, но не ниже своего минимума. */
+.place .about-map{height:100%;min-height:360px}
+@media(max-width:860px){
+  .place{grid-template-columns:minmax(0,1fr)}
+  .place .about-map{min-height:280px}
+  .place-name{font-size:20px}
+}
+
 /* Строку лицензии снимать НЕЛЬЗЯ: её требует лицензия данных OSM. Мелкая, в
    углу, на подложке — чтобы читалась поверх любого куска карты. */
 .map-credit{position:absolute;right:7px;bottom:6px;padding:2px 6px;border-radius:6px;
@@ -2881,6 +2968,11 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .rv-who{font-size:14px;font-weight:650;overflow-wrap:anywhere}
 .rv-when{font-size:12px}
 .rv-tag{padding:2px 8px;border-radius:20px;background:#bf4800;color:#fff;font-size:11px;font-weight:650;line-height:1.55;white-space:nowrap}
+/* Прочитанный отзыв разобран, и красить его оранжевым «сделай что-нибудь» нельзя
+   — но и молчать о нём тоже: на витрине его нет. Отсюда спокойная серая плашка
+   на бледной подложке вместо тёплой подсветки всей строки. */
+.rv-tag-seen{background:#eef0f3;color:#48484a}
+.rv-row.is-seen{background:#fbfbfd}
 .rv-where{max-width:240px;margin-left:auto;overflow:hidden;color:#6e6e73;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-where-gone{color:#a1a1a6}
@@ -3906,13 +3998,21 @@ details.metric-rules{margin-bottom:14px}
   .footer-col{min-width:0}
   .footer-col-head{margin-bottom:9px;font-size:15px}
   .footer-col-list{gap:8px}
-  /* РАЗДЕЛЫ ССЫЛОК — РОВНЫМ СТОЛБЦОМ ПО ЛЕВОМУ КРАЮ, а сами столбцы стоят парой
-     по центру страницы. Ссылки тут разной длины («iPad» рядом с «Политикой
-     конфиденциальности», которая ещё и переносится на две строки), и по центру
-     каждая начиналась со своего отступа — список читался рваной лесенкой вместо
-     перечня. Единой оси это не рушит: пара столбцов центрируется вокруг неё же,
-     как магазин и контакты сверху и снизу. Контактов правило не касается — там
-     строки со значком, и левый край им задаёт сам значок.
+  /* НА ТЕЛЕФОНЕ РАЗДЕЛЫ ССЫЛОК ЦЕНТРИРУЮТСЯ ЦЕЛИКОМ — и заголовок, и пункты.
+     Весь остальной подвал здесь идёт по центру: знак магазина, слоган, адрес,
+     реквизиты, контакты, знаки оплаты и копирайт. Пока списки стояли по левому
+     краю (а стояли они так ради ровного столбца), два раздела читались
+     съехавшими влево посреди центрированной колонки — владелец это и увидел на
+     своём телефоне.
+
+     Цена решения названа честно: пункты разной длины («iPad» рядом с «Политикой
+     конфиденциальности»), и края у списка получаются рваными. На узкой колонке
+     подвала это читается как обычный центрированный перечень, а вот на широком
+     экране было бы заметно — поэтому правило живёт ТОЛЬКО в мобильном блоке, а
+     на десктопе колонки остаются выровненными по левому краю.
+
+     Контактов правило не касается — там строки со значком, и левый край им
+     задаёт сам значок.
 
      Своя строка у пары обязательна (`.footer-navs`, на десктопе её нет вовсе):
      перенос во flex решается ДО сжатия, поэтому в общем ряду на 360 px, где паре
@@ -3920,7 +4020,7 @@ details.metric-rules{margin-bottom:14px}
      колонкой. В своей строке с `nowrap` она вместо этого ужимается, и подписи
      переносятся по словам. */
   .footer-navs{display:flex;flex:0 0 100%;justify-content:center;gap:16px;width:100%}
-  .footer-col:not(.footer-contacts){flex:0 1 auto;text-align:left}
+  .footer-col:not(.footer-contacts){flex:0 1 auto;text-align:center}
   .foot-brand{font-size:22px}
   /* Слоган в подвале — тоже одна строка, тем же способом, что в заголовке
      первого экрана (--fit считает footFit() в lib/render.js). Кегль падает
@@ -3961,7 +4061,6 @@ details.metric-rules{margin-bottom:14px}
   .legal-details>div{grid-template-columns:1fr;gap:4px}
   /* Карта на телефоне ниже: в полный рост она занимала бы весь экран целиком. */
   .about-map{height:300px}
-  .map-route{left:10px;bottom:10px;font-size:13px;padding:8px 13px}
   .legal-table-wrap{overflow:hidden}
   .legal-table,.legal-table tbody,.legal-table tr,.legal-table td{display:block;width:100%;min-width:0}
   .legal-table thead{display:none}

@@ -3508,10 +3508,17 @@ test('в подвале есть знаки оплаты, а на телефон
   assert.match(css, /\.foot-brand \.logo\{display:inline-block/);
   assert.match(css, /\.logo-mark\{[^}]*display:block/, 'знак внутри ссылки блочный — центрировать нужно саму ссылку');
 
-  /* Разделы ссылок — ровным столбцом по левому краю: пункты разной длины, и по
-   * центру каждый начинался со своего отступа. Контактов это не касается — там
-   * строки со значком, и левый край им задаёт сам значок. */
-  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:left\}/);
+  /* НА ТЕЛЕФОНЕ разделы ссылок центрируются целиком — и заголовок, и пункты.
+   * Весь остальной подвал там идёт по центру (знак, слоган, адрес, реквизиты,
+   * контакты, копирайт), и списки по левому краю читались съехавшими посреди
+   * центрированной колонки. Цена — рваные края у пунктов разной длины; на узкой
+   * колонке это обычный центрированный перечень. Контактов правило не касается:
+   * там строки со значком, и левый край им задаёт сам значок. */
+  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:center\}/);
+  // Правило живёт ТОЛЬКО в мобильном блоке: на широком экране рваные края
+  // центрированного перечня были бы заметны, и там колонки остаются слева.
+  const desktopFooter = css.slice(css.indexOf('.footer-cols{'), css.indexOf('@media(max-width:800px){'));
+  assert.doesNotMatch(desktopFooter, /\.footer-col[^{]*\{[^}]*text-align:center/);
 
   /* Сами столбцы при этом стоят ПАРОЙ ПО ЦЕНТРУ, а не растянуты на половины
    * экрана — для этого у них своя строка (`.footer-navs`) с центрированием.
@@ -3955,10 +3962,68 @@ test('«О компании» — реквизиты, контакты и кар
     assert.doesNotMatch(tag, /viewBox="0 0 24 24"/, 'холст значка не обрезан по фигуре: ' + tag);
   }
 
-  // Под картой — только карта: ни абзаца про офлайн-точку, ни списка с адресом.
+  /* В разделе адреса — карточка магазина и карта, и больше ничего: ни абзаца про
+   * офлайн-точку, ни списка с адресом. Карточка стоит ПЕРВОЙ: карта отвечает
+   * «где это», а карточка — «что это за место», и второй вопрос задают раньше. */
   const address = html.slice(html.indexOf('id="address"'));
   assert.doesNotMatch(address, /legal-details|Магазин работает и офлайн/);
-  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="about-map"/);
+  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="place">\s*<div class="place-card"/);
+  assert.ok(address.indexOf('place-card') < address.indexOf('about-map'), 'карточка обязана стоять до карты');
+  /* Адрес и часы — РАЗДЕЛАМИ с подписью, как в карточке справочника: подпись
+   * говорит, что это за строка, значение идёт крупнее под ней. Прежний список
+   * «значок + значение» читался выпиской из настроек. */
+  assert.match(address, /place-row-title">Адрес<[\s\S]{0,120}Пресненская наб\., 12/);
+  assert.match(address, /place-row-title">Время работы</);
+  // Статус — цветной текст, а не серая плашка: «Закрыто» в справочнике видно
+  // первым, и видно именно цветом.
+  assert.match(address, /class="place-state[^"]*">(Открыто|Закрыто)/);
+  // С карточки звонят и пишут — ряд действий обязателен, иначе она читается
+  // списком текста.
+  assert.match(address, /class="place-acts">[\s\S]{0,400}place-act-main" href="tel:/);
+
+  /* Главная кнопка — та связь, что у магазина ЕСТЬ. На боевой витрине телефон
+   * в настройках не заполнен, и ряд оставался из двух круглых значков без
+   * единого крупного действия — то есть ровно тем, от чего карточку и
+   * переделывали. Тот мессенджер, что стал главной кнопкой, круглым не
+   * повторяется. */
+  const noPhone = Object.assign({}, settings, { contactPhone: '', contactWhatsApp: '+79991234567' });
+  const chatFirst = render.aboutPage(noPhone, { origin: 'https://example.test' });
+  assert.match(chatFirst, /place-act-main msg-wa"[^>]*>[\s\S]{0,3000}<span>Написать<\/span>/);
+  assert.doesNotMatch(chatFirst, /place-act-round msg-wa/, 'главная кнопка не дублируется круглой');
+  assert.match(chatFirst, /place-act-round msg-tg/, 'второй мессенджер остаётся круглым');
+  // Связи нет вовсе — ряда действий нет: кнопке, ведущей в никуда, тут не место.
+  const mute = render.aboutPage(Object.assign({}, settings, { contactPhone: '', contactTelegram: '', contactWhatsApp: '' }),
+    { origin: 'https://example.test' });
+  assert.doesNotMatch(mute, /place-acts/);
+  // Белый вырез внутри знака на акцентной заливке сливался бы с самим знаком.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.place-act-main\{--msg-cut:var\(--accent\)\}/);
+
+  /* Оценка магазина честно подписана: это средняя по отзывам О ТОВАРАХ, а не
+   * отдельный опрос про организацию. Отзывов нет — строки нет вовсе: пустые
+   * звёзды читались бы как ноль из пяти. */
+  const rated = render.aboutPage(settings, { origin: 'https://example.test', rating: { avg: 4.7, count: 1225 } });
+  // Приписка «о товарах» обязательна: это средняя по отзывам О ТОВАРАХ, а не
+  // отдельный опрос про организацию, и выдавать одно за другое мы не будем.
+  assert.match(rated, /class="place-rate"[\s\S]{0,400}отзывов о товарах/);
+  assert.match(rated, /<b>4,7<\/b>/);
+  assert.match(rated, /1\s225 отзывов/);
+  assert.doesNotMatch(html, /place-rate/, 'без отзывов оценки на странице быть не должно');
+
+  /* Снимки места стоят ОБЛОЖКОЙ СВЕРХУ — с этого карточка справочника и
+   * начинается: место узнают по кадру, а не по строке адреса. Первый снимок
+   * крупный, остальные лентой; что не поместилось — считает «+N». */
+  const shots = render.aboutPage(Object.assign({ storePhotos: ['a.webp', 'b.webp', 'c.webp', 'd.webp', 'e.webp', '../тайное'] }, settings),
+    { origin: 'https://example.test' });
+  assert.match(shots, /<div class="place-cover" data-media="store">/);
+  assert.match(shots, /<a class="place-cover-main" href="\/uploads\/a\.webp"/);
+  assert.match(shots, /place-cover-more">\+2</, 'счётчик скрытых снимков не сошёлся');
+  assert.doesNotMatch(shots, /тайное/, 'мусор из настроек в адрес картинки не уезжает');
+  // Обложка идёт ДО имени: снимок отвечает на вопрос быстрее любой строки.
+  assert.ok(shots.indexOf('place-cover') < shots.indexOf('place-name'));
+  // Снимков нет — обложки нет тоже: пустая серая рамка о магазине не говорит
+  // ничего, а места занимает как настоящая.
+  assert.doesNotMatch(html, /place-cover/);
 
   // Слоган владельца остаётся подзаголовком и ничем не дописывается.
   assert.match(html, /<h1>a:Market<\/h1>\s*<p>Оригинальная техника Apple<\/p>/);
@@ -3985,7 +4050,24 @@ test('карта «О компании» своя, и тайлы к ней от�
   assert.equal(tiles.length, MAP.COLS * MAP.ROWS, 'слой тайлов собран не целиком');
   // Метка — то, ради чего карту и смотрят: рисуем её сами, остриём в центр слоя.
   assert.match(html, /<svg class="map-pin"/);
-  assert.match(html, /class="map-route" href="https:\/\/yandex\.ru\/maps\/\?rtext=/);
+  /* Кнопки «Построить маршрут» на карте больше НЕТ. Она уводила покупателя на
+     чужие карты с нашей же страницы и была последней ссылкой на Яндекс,
+     оставшейся от снятого виджета; адрес рядом, в карточке магазина. */
+  assert.doesNotMatch(html, /map-route|yandex\.ru\/maps/);
+
+  /* Готовая картинка вместо плитки — то, чем лечится мыло на плотных экранах.
+     Тайл 256×256 показывался ровно в 256 CSS-пикселей, то есть на любом Retina
+     растягивался вдвое. Постер собран из тайлов ближнего масштаба и показан
+     вдвое мельче: плотность двойная, и это ОДИН запрос вместо трёх десятков. */
+  const withPoster = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base),
+    { origin: 'https://example.test', mapPoster: 'abc123.webp' });
+  assert.match(withPoster, /<img class="map-poster" src="\/map\/store\/abc123\.webp"/);
+  assert.match(withPoster, new RegExp('width="' + (MAP.POSTER_COLS * MAP.TILE / 2) + '" height="' + (MAP.POSTER_ROWS * MAP.TILE / 2) + '"'),
+    'размеры обязаны быть CSS-ными: без них браузер покажет карту вдвое крупнее');
+  assert.doesNotMatch(withPoster, /class="map-tile"/, 'с постером плитка не нужна');
+  // Постера нет (нет ImageMagick, тайлы не дошли) — витрина честно возвращается
+  // к плитке, а не остаётся без карты вовсе.
+  assert.match(html, /class="map-tile"/);
   /* Строку лицензии OSM снимать нельзя — этого требует лицензия данных, и это
      плата за карту, у которой всё остальное наше. */
   assert.match(html, /class="map-credit" href="https:\/\/www\.openstreetmap\.org\/copyright"/);
@@ -4017,6 +4099,33 @@ test('карта «О компании» своя, и тайлы к ней от�
   assert.equal(render.storePoint({ storeGeo: 'где-то в Москве' }), null);
   assert.equal(render.storePoint({ storeGeo: '95.1, 37.5' }), null, 'широта больше 90 — не точка');
   assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });
+});
+
+test('готовая картинка карты называется и пишется правильно', () => {
+  const MAP = require('../lib/map-tiles');
+  const images = fs.readFileSync(path.join(__dirname, '..', 'lib', 'images.js'), 'utf8');
+  const point = { lat: 55.749792, lon: 37.537186 };
+  const name = MAP.posterName(point);
+
+  /* Имя обязано сохранять расширение. Прежний фильтр пропускал только
+   * шестнадцатеричные `a-f` и выгрызал из «.webp» буквы `w` и `p`: файл ложился
+   * как «….eb», а ImageMagick по такому расширению писал PNG — карта весила
+   * втрое больше положенного и отдавалась под чужим типом. */
+  assert.match(name, /^[a-f0-9]{16}\.webp$/);
+  assert.ok(MAP.posterFile('/data', name).endsWith('/map-tiles/poster/' + name), 'расширение потерялось по дороге');
+  /* Из каталога имя увести нельзя: значение приходит из адреса запроса. Имя мы
+   * формируем сами, поэтому непохожее на образец именем не считается вовсе —
+   * путь тогда указывает на сам каталог, и файла по нему нет. */
+  assert.equal(MAP.posterFile('/data', '../../etc/passwd'), '/data/map-tiles/poster');
+  assert.equal(MAP.posterFile('/data', 'нет.webp'), '/data/map-tiles/poster');
+
+  // Формат задаётся явно, а не расширением временного файла: пишем в «…tmp».
+  assert.match(images, /'webp:' \+ opts\.out/);
+
+  // Имя считается от координат: сменил владелец адрес — файл другой, и кэш
+  // браузера не покажет чужой квартал.
+  assert.notEqual(MAP.posterName({ lat: 55.75, lon: 37.54 }), name);
+  assert.equal(MAP.posterName(point), name, 'имя обязано быть устойчивым');
 });
 
 test('слой тайлов встаёт центром на точку магазина', () => {
@@ -4713,6 +4822,79 @@ test('отзывы листаются страницами, а свой неод
   const ownAt = mine.indexOf('reviews-own');
   assert.ok(ownAt > -1 && ownAt < mine.indexOf('id="reviews-list"'), 'свой отзыв выше общего списка');
   assert.equal(count(mine), per + 1);
+});
+
+test('«Прочитано» разбирает очередь, не удаляя отзыв и не публикуя его', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-seen-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const product = fresh.getProducts()[0];
+
+  /* Действий у неудачного отзыва было два, и оба плохи: «Одобрить» показывает
+   * его всем, «Удалить» стирает насовсем — вместе с фотографиями и вместе с тем,
+   * что видел автор. Очередь разбирали удалением, и один такой отзыв на боевой
+   * витрине пропал безвозвратно. «Прочитано» — третье действие: отзыв остаётся у
+   * автора, на витрину не идёт, из очереди уходит. */
+  const rv = fresh.createReview({ productId: product.id, author: 'Пётр', rating: 2, text: 'Долго ехало' });
+  assert.equal(rv.status, 'pending', 'новый отзыв ждёт решения');
+
+  assert.ok(fresh.setReviewStatus(rv.id, 'seen'), 'состояние «прочитано» принимается');
+  assert.equal(fresh.setReviewStatus(rv.id, 'что-нибудь'), null, 'чужая строка состоянием не становится');
+  const after = fresh.getReview(rv.id);
+  assert.equal(after.status, 'seen', 'отзыв на месте, а не удалён');
+
+  // Публично по-прежнему видно только одобренное — это правило не менялось.
+  assert.equal(fresh.reviewsForProduct(product.id, true).some(r => r.id === rv.id), false,
+    'прочитанный отзыв на витрину не выходит');
+  // А из очереди он уходит: и из счётчика в шапке, и из плитки товара.
+  assert.equal(fresh.pendingReviewCount(), 0, 'счётчик модерации гаснет');
+  assert.equal(fresh.reviewStats().get(product.id).pending, 0, 'плитка товара больше не зовёт разбирать');
+  assert.equal(fresh.reviewStats().get(product.id).seen, 1, 'но прочитанный посчитан отдельно');
+
+  // Вкладка «На модерации» показывает РОВНО ждущих: иначе разобранный отзыв
+  // возвращался бы в очередь и кнопка не делала бы ничего.
+  const html = adminViews.productReviews(SETTINGS, fresh, product, 'pending', '', 1, 'new', 'all');
+  assert.doesNotMatch(html, /Долго ехало/, 'прочитанного в очереди нет');
+  const seenTab = adminViews.productReviews(SETTINGS, fresh, product, 'seen', '', 1, 'new', 'all');
+  assert.match(seenTab, /Долго ехало/, 'он на своей вкладке');
+  assert.match(seenTab, /Прочитано · не на витрине/, 'и подписан, что на витрине его нет');
+  assert.match(seenTab, /\/approve"/, 'опубликовать его по-прежнему можно');
+  assert.doesNotMatch(seenTab, /\/seen"/, 'а «Прочитано» второй раз не предлагается');
+
+  fresh.setReviewStatus(rv.id, 'pending');
+  const queue = adminViews.productReviews(SETTINGS, fresh, product, 'pending', '', 1, 'new', 'all');
+  assert.match(queue, /\/seen"[^]*?>Прочитано</, 'у ждущего решения кнопка есть');
+
+  // Маршрут ставит именно это состояние и говорит покупателю правду.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /app\.post\('\/admin\/reviews\/:id\/seen'[^\n]*setReviewStatus\(req\.params\.id, 'seen'\)/);
+  assert.match(server, /автор его видит, на витрине его нет/);
+});
+
+test('свой отзыв автор видит и после того, как cookie-сессия протухла', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-visitor-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const product = fresh.getProducts()[0];
+
+  /* Опор две. Подписанная cookie-сессия живёт неделю (Max-Age=604800 в
+   * lib/server-lib.js), то есть «автор видит свой отзыв» кончалось через семь
+   * дней. Метка метрики живёт год — по ней отзыв находится и через месяц. */
+  const visitorId = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
+  const rv = fresh.createReview({ productId: product.id, author: 'Пётр', rating: 3, text: 'мой отзыв', visitorId });
+  assert.equal(fresh.getReview(rv.id).visitorId, visitorId, 'метка сохраняется у отзыва');
+  assert.equal(fresh.createReview({ productId: product.id, author: 'Аноним', rating: 5, visitorId: 'не-метка' }).visitorId, null,
+    'мусор вместо метки не хранится');
+
+  const route = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const own = route.slice(route.indexOf("app.get('/product/:id'"), route.indexOf("app.get('/checkout'"));
+  // Обе опоры и оба состояния: прочитанный отзыв от автора не прячут — в этом
+  // весь смысл «Прочитано» вместо удаления.
+  assert.match(own, /mine\.includes\(rv\.id\) \|\| \(visitorId && rv\.visitorId === visitorId\)/);
+  assert.match(own, /rv\.status !== 'approved'/);
+  assert.match(route, /visitorId: metrics\.visitorId\(req\) \|\| null/, 'метка пишется при создании отзыва');
 });
 
 test('списки отзывов в панелях листаются, а не выгружаются целиком', () => {
@@ -6869,6 +7051,13 @@ test('повтор оформления возвращает тот же сво�
   order.payment = { status: 'pending' };
   order.manualVoid = { at: Date.now(), by: 'customer' };
   assert.equal(reusableOrder(req, base), null, 'отменённый покупателем заказ не оживает');
+  // Черновик стареет так же: способ он не выбрал, но полчаса на это у него были
+  // те же самые, и второй заход обязан начаться с чистого заказа.
+  delete order.manualVoid;
+  order.draft = true;
+  order.payment = null;
+  order.createdAt = Date.now() - render.PAY_WINDOW - 60000;
+  assert.equal(reusableOrder(req, base), null, 'просроченный черновик — тоже новый заказ');
 });
 
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
@@ -6896,6 +7085,38 @@ test('оформление имеет свой идемпотентный клю
   assert.match(browser, /checkout_order_request_v1/);
   assert.match(browser, /qty: i\.qty, price: i\.price/,
     'сервер получает цену, которую покупатель видел перед подтверждением');
+});
+
+test('ключ оформления не переживает заказ, а по одному ключу отдаётся свежий', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-expired-replay-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+
+  /* Закрытый заказ идемпотентностью больше не прикрыт, и новый унаследует ТОТ ЖЕ
+   * ключ — он приходит из браузера, а тот про наш срок не знает. Значит поиск по
+   * ключу обязан отдать свежий заказ: указывай он на похороненный, повтор снова
+   * приводил бы покупателя на «Оформите заказ заново». */
+  const requestId = 'c'.repeat(32);
+  const hash = 'd'.repeat(64);
+  const dead = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: hash, items: [], total: 1000, contact: '@buyer'
+  });
+  const again = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: hash, items: [], total: 1000, contact: '@buyer'
+  });
+  assert.notEqual(again.id, dead.id, 'это два разных заказа');
+  assert.equal(fresh.getOrderByCheckoutRequest(requestId).id, again.id,
+    'по одному ключу отдаётся самый свежий заказ, а не первый попавшийся');
+
+  /* Сам ключ в браузере тоже не должен переживать заказ: срок оплаты — полчаса, и
+   * восстанавливать потерянный ответ дольше этого нечего. Сутки, стоявшие здесь
+   * раньше, и создавали пару «ключ на два заказа». */
+  const browser = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const ttl = browser.match(/var ORDER_REQUEST_TTL = ([^;]+);/);
+  assert.ok(ttl, 'срок ключа оформления найден');
+  assert.ok(new Function('return ' + ttl[1])() <= render.PAY_WINDOW,
+    'ключ оформления живёт не дольше, чем по заказу можно заплатить');
 });
 
 test('идентификатор запроса кассы хранится отдельно по способу и удаляется адресно', () => {
@@ -11515,19 +11736,21 @@ test('покупатель снова может приложить фото к 
   // Предел с витрины свой и меньше панельного: здесь грузит кто угодно, а один
   // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = source.slice(source.indexOf("app.post('/api/reviews'"));
-  assert.match(route.slice(0, 2000), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
+  // Срез — до конца самого обработчика, а не первые N символов: длина маршрута
+  // меняется от любой добавленной строки, и тест ловил бы её вместо правила.
+  const route = source.slice(source.indexOf("app.post('/api/reviews'"), source.indexOf("app.post('/api/cart'"));
+  assert.match(route, /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
   /* Поле «Фото» выключается в настройках, и выключенное означает «файлов не
    * принимаем», а не «кнопку не показываем»: форма — это разметка, а запрос
    * присылает кто угодно. Поэтому проверка стоит и в маршруте. */
-  assert.match(route.slice(0, 2000), /R\.reviewPhotosOn\(settings\(\)\)/);
+  assert.match(route, /R\.reviewPhotosOn\(settings\(\)\)/);
   const noPhotos = render.productPage({ storeName: 'Тест', currency: '₽', reviewPhotos: false }, db, product, {});
   assert.doesNotMatch(noPhotos, /name="photos"/, 'выключенная настройка обязана убрать поле с витрины');
   // Поля нет вовсе (настройки старой установки) — фото принимаются, как раньше.
   assert.ok(render.reviewPhotosOn({}) && render.reviewPhotosOn(undefined));
   assert.equal(render.reviewPhotosOn({ reviewPhotos: false }), false);
   // Превью делаем сразу: в ленте показывается оно, полный файл — в просмотрщике.
-  assert.match(route.slice(0, 2000), /previews: await reviewPreviews\(photos\)/);
+  assert.match(route, /previews: await reviewPreviews\(photos\)/);
 });
 
 test('форма отзыва идёт во всю ширину и четырьмя рядами', () => {
@@ -15428,12 +15651,39 @@ test('маршрут посылки детальный, идёт по возра
     assert.ok(hour >= 7 && hour <= 21, 'событие в ночной час: ' + render.mskDateTime(step.at));
   }
 
-  // Ближняя зона обходится без транзита: хаб, совпавший с концом маршрута, из
-  // пути выпадает — «Отправлен в г. Екатеринбург» у посылки, которая туда и
-  // едет, читается как сбой.
+  /* Хаб, совпавший с концом маршрута, из пути выпадает — «Отправлен в
+   * г. Екатеринбург» у посылки, которая туда и едет, читается как сбой.
+   * Остальные хабы зоны при этом остаются: путь на Урал идёт через Нижний
+   * Новгород, и выкидывать его вместе с совпавшим незачем. */
   const near = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Екатеринбург', zone: 'ural', seed: 'order-2', startedAt: started });
-  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Екатеринбург'), []);
-  assert.ok(near.steps.every(s => s.place === 'Москва' || s.place === 'Екатеринбург'), 'в ближнем маршруте появился чужой город');
+  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Екатеринбург'), ['Нижний Новгород']);
+  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Нижний Новгород'), ['Екатеринбург']);
+  const nearCities = new Set(near.steps.map(s => String(s.place).split(',')[0]));
+  assert.deepEqual([...nearCities].sort(), ['Екатеринбург', 'Москва', 'Нижний Новгород'],
+    'в маршруте появился город не из таблицы хабов');
+
+  /* Маршрут обязан быть ПОДРОБНЫМ. До правки на Дальний Восток приходилось по
+   * одному событию в сутки (14 точек на 11 дней) — лента выглядела брошенной,
+   * хотя посылка ехала. Точное число не закрепляем: оно зависит от таблицы
+   * хабов, которую правят. Закрепляем два свойства, ради которых всё делалось. */
+  assert.ok(far.steps.length >= 18, 'дальний маршрут стал короче, чем был задуман: ' + far.steps.length);
+  const gaps = far.steps.slice(1).map((s, i) => (s.at - far.steps[i].at) / 3600000);
+  assert.ok(Math.max(...gaps) <= 30, 'между событиями больше суток простоя: ' + Math.max(...gaps).toFixed(1) + ' ч');
+  assert.ok(Math.min(...gaps) >= 0.5, 'события слиплись: ' + Math.min(...gaps).toFixed(2) + ' ч');
+
+  /* Сортировочный центр приписывается ТОЛЬКО складским шагам: «Принят на склад ·
+   * Москва, СЦ Внуково» читается как строка трекинга, а у «Отправлен в г. Казань»
+   * это был бы повтор города дважды в одной строке. */
+  const withSc = far.steps.filter(s => String(s.place).includes('СЦ '));
+  assert.ok(withSc.length, 'названия сортировочных центров не появились вовсе');
+  assert.ok(withSc.every(s => s.kind === 'warehouse' || s.kind === 'arrive'),
+    'СЦ приписан шагу, который складским не является');
+  assert.ok(far.steps.some(s => s.place === 'Москва, СЦ Внуково'));
+  // Города, которого нет в таблице, мы не выдумываем: у него остаётся имя города.
+  const unknown = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Хабаровск', zone: 'dfo', seed: 'order-4', startedAt: started });
+  assert.ok(unknown.steps.some(s => s.place === 'Хабаровск'),
+    'у города без известного центра должен остаться просто город');
+  assert.ok(!unknown.steps.some(s => /Хабаровск,\s*СЦ/.test(String(s.place))));
 });
 
 test('пересборка того же маршрута даёт те же времена', () => {
@@ -16406,7 +16656,11 @@ test('промокод считают в одном месте, а витрин�
    * расчёта одной скидки разошлись бы на первом же коде со своим процентом. */
   const pricing = fs.readFileSync(path.join(__dirname, '..', 'lib', 'pricing.js'), 'utf8');
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/promo'"));
-  const order = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('const visitorId ='));
+  // Конец среза ищем ОТ НАЧАЛА маршрута: `const visitorId` встречается в файле и
+  // раньше (страница товара подбирает свои отзывы по той же метке), и без этого
+  // срез оказывался пустым, а тест — зелёным ни на чём.
+  const orderAt = server.indexOf("app.post('/api/order'");
+  const order = server.slice(orderAt, server.indexOf('const visitorId =', orderAt));
   assert.match(cart, /PRICING\.resolve\(/);
   assert.match(order, /PRICING\.resolve\(/);
   assert.match(pricing, /PROMO\.priceFor\(sum, pct, promo\)/);
