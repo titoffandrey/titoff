@@ -6692,8 +6692,8 @@ test('повтор оформления возвращает тот же сво�
   const to = source.indexOf("app.post('/api/order'", from);
   assert.ok(from > -1 && to > from, 'reusableOrder найден');
   const orders = new Map();
-  // `R` здесь настоящий: срок оплаты заказа считает та же функция, что и
-  // страница оплаты, — подделка разъехалась бы с ней молча.
+  // `R` — настоящий рендер: правило «заказ для покупателя закрыт» живёт там
+  // (`payClosed`), и подменять его заглушкой значило бы проверять не то правило.
   const reusableOrder = new Function('db', 'R', source.slice(from, to) + '\nreturn reusableOrder;')({
     getOrder: id => orders.get(id) || null,
     isOrderArchived: order => !!(order && order.archive && order.archive.active)
@@ -6731,24 +6731,35 @@ test('повтор оформления возвращает тот же сво�
   assert.equal(reusableOrder(req, base), null, 'запись из будущего не переиспользуется');
   assert.equal(reusableOrder({ session: { myOrders: [] } }, base), null, 'чужая сессия заказ не видит');
 
-  /* Просроченный заказ переиспользованию не подлежит, и это не мелочь: платить
-   * по нему уже нельзя, а страница оплаты сама зовёт оформить заново. Пока
-   * проверки не было, «заново» возвращало ТОТ ЖЕ мёртвый заказ — покупатель
-   * ходил по кругу все сутки ORDER_REUSE_TTL и купить не мог вовсе. */
-  order.createdAt = Date.now() - render.PAY_WINDOW - 60 * 1000;
+  /* ПРОСРОЧЕННЫЙ ЗАКАЗ — ТУПИК, А НЕ ПОВТОР.
+   *
+   * На боевой витрине это заперло покупателя: полчаса вышли, он собирает ту же
+   * корзину заново — и оформление возвращает ему тот же мёртвый заказ со
+   * страницей «Оформите заказ заново», сутки подряд. Повтор бережёт от второго
+   * списания, а по закрытому заказу списывать нечего. */
+  order.createdAt = Date.now() - 31 * 60000;
   order.payment = { status: 'pending' };
-  assert.equal(reusableOrder(req, base), null, 'мёртвый заказ не подсовывается вместо нового');
+  assert.equal(reusableOrder(req, base), null, 'срок оплаты вышел — нужен новый заказ');
+  // Живой счёт кассы срок заказа переживает: реквизиты у покупателя на руках, и
+  // второй заказ на то же самое — как раз то самое двойное списание.
+  order.payment = {
+    status: 'pending', invoiceId: 'inv', requisite: '79104693811',
+    expiresAt: Date.now() + 5 * 60000
+  };
+  assert.equal(reusableOrder(req, base), order, 'по выданным реквизитам ещё платят');
+  // Отменил сам покупатель — тоже тупик: страница оплаты ведёт его оформлять
+  // заново, и оформление обязано это принять.
+  order.createdAt = Date.now();
+  order.payment = { status: 'pending' };
+  order.manualVoid = { at: Date.now(), by: 'customer' };
+  assert.equal(reusableOrder(req, base), null, 'отменённый покупателем заказ не оживает');
+  // Черновик стареет так же: способ он не выбрал, но полчаса на это у него были
+  // те же самые, и второй заход обязан начаться с чистого заказа.
+  delete order.manualVoid;
   order.draft = true;
   order.payment = null;
+  order.createdAt = Date.now() - render.PAY_WINDOW - 60000;
   assert.equal(reusableOrder(req, base), null, 'просроченный черновик — тоже новый заказ');
-  // Живой счёт срок заказа переживает: реквизиты у покупателя, деньги бывают в
-  // пути, и повтор нажатия обязан открыть тот же счёт, а не второй.
-  order.draft = false;
-  order.payment = {
-    status: 'pending', invoiceId: 'inv-1', requisite: '+79990000000',
-    expiresAt: Date.now() + 10 * 60 * 1000
-  };
-  assert.equal(reusableOrder(req, base), order, 'живой счёт старше получаса переиспользуется');
 });
 
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
@@ -6778,16 +6789,16 @@ test('оформление имеет свой идемпотентный клю
     'сервер получает цену, которую покупатель видел перед подтверждением');
 });
 
-test('мёртвый заказ не запирает покупателя: «оформите заново» правда оформляет заново', t => {
+test('ключ оформления не переживает заказ, а по одному ключу отдаётся свежий', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-expired-replay-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const fresh = freshDb(dir);
   fresh.ensureSeeded();
 
-  /* Ключ оформления живёт в браузере и переживает один заказ: покупатель
-   * вернулся к той же корзине, а прежний заказ уже просрочен. Идемпотентность
-   * тогда обязана указывать на СВЕЖИЙ заказ — иначе повтор вечно возвращает
-   * похороненный, и страница оплаты снова просит оформить заново. */
+  /* Закрытый заказ идемпотентностью больше не прикрыт, и новый унаследует ТОТ ЖЕ
+   * ключ — он приходит из браузера, а тот про наш срок не знает. Значит поиск по
+   * ключу обязан отдать свежий заказ: указывай он на похороненный, повтор снова
+   * приводил бы покупателя на «Оформите заказ заново». */
   const requestId = 'c'.repeat(32);
   const hash = 'd'.repeat(64);
   const dead = fresh.createOrder({
@@ -6800,16 +6811,9 @@ test('мёртвый заказ не запирает покупателя: «о
   assert.equal(fresh.getOrderByCheckoutRequest(requestId).id, again.id,
     'по одному ключу отдаётся самый свежий заказ, а не первый попавшийся');
 
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('const buyerRateId'));
-  // Просроченный заказ не прикрыт ни ключом оформления, ни переиспользованием.
-  assert.match(route, /R\.payExpired\(order\)[\s\S]{0,40}getOrderByCheckoutRequest\(checkoutRequestId\)/,
-    'ключ оформления не воскрешает просроченный заказ');
-  const reuse = server.slice(server.indexOf('function reusableOrder('), server.indexOf("app.post('/api/order'"));
-  assert.match(reuse, /R\.payExpired\(order, now\)/, 'переиспользование пропускает просроченный заказ');
-
-  /* Ключ в браузере не должен переживать сам заказ: срок оплаты — полчаса, и
-   * восстанавливать потерянный ответ дольше этого нечего. */
+  /* Сам ключ в браузере тоже не должен переживать заказ: срок оплаты — полчаса, и
+   * восстанавливать потерянный ответ дольше этого нечего. Сутки, стоявшие здесь
+   * раньше, и создавали пару «ключ на два заказа». */
   const browser = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const ttl = browser.match(/var ORDER_REQUEST_TTL = ([^;]+);/);
   assert.ok(ttl, 'срок ключа оформления найден');
@@ -14592,6 +14596,61 @@ test('на оплату полчаса, и по их истечении зака
    * бы перезагрузку по кругу — то самое «висит с обновлением счётчика». */
   const payJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
   assert.match(payJs, /reloading = true;[\s\S]{0,160}setTimeout\(function \(\) \{ location\.reload\(\); \}, \d+\)/);
+});
+
+test('закрытый заказ не возвращается вместо нового — иначе покупатель заперт', () => {
+  /* Что было на боевой витрине: покупатель не успел заплатить, полчаса вышли,
+   * заказ закрылся. Он собирает ту же корзину заново — и оформление раз за разом
+   * возвращает ему ТОТ ЖЕ мёртвый заказ со страницей «Оформите заказ заново».
+   * И так сутки, пока живёт окно повтора: новый заказ создать нельзя вовсе.
+   *
+   * Повтор существует ради одного — не списать дважды за одно и то же, когда
+   * ответ на нажатие не дошёл. По закрытому заказу второго списания не будет,
+   * защищать его не от чего. */
+  const now = Date.now();
+  const fresh = { id: 'a1', number: '482913', total: 67990, createdAt: now, items: [], payment: null, draft: true };
+  const stale = Object.assign({}, fresh, { createdAt: now - 31 * 60000 });
+  const live = { status: 'pending', invoiceId: 'inv', requisite: '79104693811', expiresAt: now + 5 * 60000 };
+
+  assert.equal(render.payClosed(fresh, now, false), false, 'по живому заказу платить ещё можно');
+  assert.equal(render.payClosed(stale, now, false), true);
+  // Живой счёт кассы срок заказа переживает: реквизиты у покупателя на руках, и
+  // второй заказ на то же самое — как раз то самое двойное списание.
+  assert.equal(render.payClosed(Object.assign({}, stale, { payment: live }), now, false), false);
+  // Решение человека и деньги: и то и другое закрывает заказ, но новый заказ на
+  // то же самое покупатель вправе оформить.
+  assert.equal(render.payClosed(Object.assign({}, fresh, { manualVoid: { at: now, by: 'customer' } }), now, false), true);
+  assert.equal(render.payClosed(Object.assign({}, fresh, { manualPaid: { at: now } }), now, false), true);
+  assert.equal(render.payClosed(Object.assign({}, fresh, { payment: { status: 'paid' } }), now, false), true);
+  assert.equal(render.payClosed(Object.assign({}, fresh, { payment: { status: 'mismatch' } }), now, false), true);
+  // Про архив спрашиваем не сами: признак живёт в lib/db.js, и второй копии его
+  // устройства быть не должно — по той же причине его принимает и `payPage`.
+  assert.equal(render.payClosed(fresh, now, true), true);
+  assert.equal(render.payClosed(null, now, false), true);
+
+  /* Страница оплаты и оформление обязаны одинаково понимать, что заказ закрыт:
+   * иначе одно отправляет покупателя туда, где второе его не принимает. */
+  const ss = Object.assign({}, SETTINGS);
+  for (const [why, order] of [
+    ['срок вышел', stale],
+    ['отменил покупатель', Object.assign({}, fresh, { manualVoid: { at: now, by: 'customer' } })]
+  ]) {
+    const page = render.payPage(ss, order, { origin: '', methods: [{ id: 'SBP', name: 'СБП' }] });
+    assert.doesNotMatch(page, /Получить реквизиты|pay-copy/, 'закрытый заказ реквизитов не показывает: ' + why);
+    assert.equal(render.payClosed(order, now, false), true, why);
+  }
+
+  /* Обе двери повтора спрашивают одно и то же правило, и своей копии у них быть
+   * не должно: разъехавшись, они снова заперли бы покупателя — а увидеть это
+   * можно только с той стороны прилавка. */
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /const orderClosedForBuyer = order => R\.payClosed\(order, Date\.now\(\), db\.isOrderArchived\(order\)\)/);
+  // Дверь первая: тот же ключ идемпотентности (потерянный ответ того же нажатия).
+  assert.match(server, /const replay = db\.getOrderByCheckoutRequest\(checkoutRequestId\);\s*\n\s*if \(replay && !orderClosedForBuyer\(replay\)\)/);
+  // Дверь вторая: тот же заказ по составу, контактам и доставке.
+  const reuse = server.slice(server.indexOf('function reusableOrder(req, data)'), server.indexOf("app.post('/api/order'"));
+  assert.match(reuse, /if \(orderClosedForBuyer\(order\)\) continue;/);
+  assert.doesNotMatch(reuse, /isOrderArchived|'paid'|'mismatch'/, 'второй копии правила здесь быть не должно');
 });
 
 test('свои реквизиты: третий режим витрины, со своим окном и без кассы', () => {
