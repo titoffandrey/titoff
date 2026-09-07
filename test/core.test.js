@@ -6505,6 +6505,160 @@ test('плашка «Сохранено» гаснет сама и не оста
   assert.doesNotMatch(ui, /a-flash/);
 });
 
+test('«получилось» приходит карточкой в угол, ошибка остаётся плашкой у формы', () => {
+  const orders = [{
+    id: 'o1', number: '853211', total: 78500, items: [{ id: 'p1', name: 'iPhone', qty: 1 }],
+    customerName: 'Саша', contact: '@s', createdAt: 1
+  }];
+  const db = {
+    getOrders: () => orders, visibleOrders: () => orders,
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
+  };
+
+  /* Плашка стояла первой строкой содержимого, то есть увидеть её можно было,
+   * только стоя наверху: действие делают внизу длинного списка, а страница после
+   * него приходит заново. Карточка падает в тот же угол, что и события канала. */
+  const done = adminViews.ordersList(SETTINGS, db, 'Касса ещё ждёт оплату', 1);
+  assert.match(done, /<div class="a-notes" id="a-notes" aria-live="polite"><div class="a-note a-note-flash"/);
+  assert.match(done, /a-note-msg">Касса ещё ждёт оплату</);
+  assert.doesNotMatch(done, /class="a-flash/, 'плашки в потоке у «получилось» больше нет');
+  // Закрывается она тем же крестиком, что и события: двух похожих крестиков в
+  // одном углу быть не должно.
+  assert.match(done, /a-note-flash[\s\S]{0,400}data-note-close/);
+  // Текст сообщения разметкой не становится.
+  assert.doesNotMatch(adminViews.ordersList(SETTINGS, db, '<img src=x onerror=alert(1)>', 1), /<img src=x/);
+
+  /* Ошибка отвечает на другой вопрос — «почему не сохранилось», — нужна всё
+   * время, пока правят форму, и место ей рядом с формой, а не в углу. */
+  const bad = adminViews.settingsPage(SETTINGS, db, 'Укажите название магазина', 'err', { draft: {} });
+  assert.match(bad, /<div class="a-flash err" data-flash>Укажите название магазина<\/div>/);
+  assert.doesNotMatch(bad, /a-note-flash/);
+
+  /* Контейнер нужен и странице без живого канала: «Сохранено» есть и у формы
+   * настроек, а живого обновления у неё нет и быть не должно. */
+  assert.match(adminViews.settingsPage(SETTINGS, db, 'Сохранено'), /id="a-notes"/);
+  assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db), /id="a-notes"/);
+  assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db, 'Сохранено'), /admin-live\.js/,
+    'карточка карточкой, а живого канала у формы по-прежнему нет');
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  // Уходит карточка сама и чистым CSS — как гасла плашка. Число секунд записано
+  // ровно один раз: скрипт убирает узел по концу анимации, а не по таймеру.
+  assert.match(css, /\.a-note-flash\{[^}]*animation:a-note-in [\d.]+s ease,a-note-away [\d.]+s ease (\d+)s forwards\}/);
+  const secs = css.match(/\.a-note-flash\{[^}]*a-note-away [\d.]+s ease (\d+)s forwards\}/)[1];
+  // Без скриптов узел останется в колонке, и невидимая карточка перехватывала бы
+  // клики по странице под ней.
+  assert.match(css, /@keyframes a-note-away\{to\{[^}]*visibility:hidden/);
+  // Под курсором карточка не уходит: читать уведомление, которое исчезает
+  // из-под руки, невозможно.
+  assert.match(css, /\.a-note-flash:hover,\.a-note-flash:focus-within\{animation-play-state:paused\}/);
+  // При выключенной анимации она не остаётся навсегда — просто исчезает без
+  // движения, тем же сроком.
+  assert.match(css, new RegExp('\\.a-note-flash\\{animation:a-note-away [\\d.]+s ease ' + secs + 's forwards\\}'));
+  /* На телефоне карточка стоит внизу, и домашняя полоса iPhone — её дело.
+   * Отдельным объявлением: без поддержки `env()` недействительным становится всё
+   * объявление целиком, и отступ пропал бы вместе с ним. */
+  assert.match(css, /\.a-notes\{right:10px;left:10px;bottom:10px;width:auto\}/);
+  assert.match(css, /\.a-notes\{bottom:calc\(10px \+ env\(safe-area-inset-bottom\)\)\}/);
+
+  /* Уход у карточки один на обе — событие канала и ответ сервера, — и лежит он
+   * в admin-ui.js: тот грузится на каждой странице панели, а живой канал есть
+   * не у всех. Второй копии в admin-live.js быть не должно. */
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /window\.AdminNotes = \{ hide: hide \}/);
+  assert.match(ui, /e\.animationName !== 'a-note-away'/);
+  const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
+  assert.match(live, /var notes = window\.AdminNotes/);
+  assert.doesNotMatch(live, /classList\.add\('is-out'\)/, 'уход карточки описан один раз');
+});
+
+test('после действия панель возвращает на прежнее место, а не в начало страницы', () => {
+  const db = {
+    getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [], getOrders: () => [],
+    getReviews: () => [], reviewStats: () => new Map(), pendingReviewCount: () => 0,
+    categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
+  };
+  const html = adminViews.dashboard(SETTINGS, db);
+  const at = html.indexOf("var K='a-scroll'");
+  assert.ok(at > 0, 'отметка места живёт в самой странице');
+  /* Скрипт ЗДЕСЬ, а не в admin-ui.js: вернуться надо ДО первой отрисовки, а
+   * отложенный файл успевает показать страницу сверху и дёрнуть её на глазах.
+   * Обе половины — и «запомнить», и «вернуть» — рядом, чтобы не разъехались. */
+  assert.ok(at < html.indexOf('admin-ui.js'));
+  const code = html.slice(html.lastIndexOf('<script>', at) + 8, html.indexOf('</script>', at));
+
+  // Гоняем сам скрипт, а не его текст: правило здесь одно, и проверять его надо
+  // поведением.
+  const vm = require('vm');
+  const store = {
+    data: {},
+    setItem(k, v) { this.data[k] = String(v); },
+    getItem(k) { return Object.prototype.hasOwnProperty.call(this.data, k) ? this.data[k] : null; },
+    removeItem(k) { delete this.data[k]; }
+  };
+  function open(pathname, opts) {
+    const o = opts || {};
+    const ready = [];
+    const box = {
+      pageYOffset: o.y || 0, scrolled: null, sessionStorage: store, Date,
+      location: { pathname },
+      scrollTo(x, y) { box.scrolled = y; box.pageYOffset = y; },
+      document: {
+        documentElement: { scrollHeight: o.height == null ? 4000 : o.height },
+        addEventListener(type, fn) { (type === 'submit' ? box.onSubmit : ready).push(fn); },
+        querySelector: sel => (sel === '[data-flash]' && o.flashErr ? {} : null)
+      },
+      onSubmit: []
+    };
+    vm.runInNewContext('var window=this;' + code, box);
+    box.loaded = () => ready.forEach(fn => fn());
+    box.submit = ev => box.onSubmit.forEach(fn => fn(ev || {}));
+    return box;
+  }
+
+  // Разобрали заявку внизу списка — вернулись туда же, а не в его начало.
+  open('/admin/orders', { y: 1200 }).submit();
+  assert.equal(open('/admin/orders').scrolled, 1200);
+
+  // Отметка живёт РОВНО ОДНУ навигацию: следующая страница уже ничего не двигает.
+  assert.equal(open('/admin/orders').scrolled, null);
+
+  /* Помним ПУТЬ: заявка со списка возвращает на список (туда и надо), а форма
+   * товара уводит в каталог — это другая страница, и её начало правильное. */
+  open('/admin/products/iphone-17', { y: 900 }).submit();
+  assert.equal(open('/admin/products').scrolled, null);
+
+  /* Страницу с ошибкой на место не возвращаем вовсе: объяснение стоит наверху, и
+   * не показать его значило бы спрятать ровно то, ради чего оно есть. */
+  open('/admin/settings', { y: 700 }).submit();
+  assert.equal(open('/admin/settings', { flashErr: true }).scrolled, null);
+
+  // Отменённую подтверждением отправку не запоминаем: перехода не было.
+  open('/admin/orders', { y: 640 }).submit({ defaultPrevented: true });
+  assert.equal(open('/admin/orders').scrolled, null);
+
+  // Чужая отметка от давнего перехода страницу не дёргает.
+  store.data['a-scroll'] = '/admin/orders|800|' + (Date.now() - 3600000);
+  assert.equal(open('/admin/orders').scrolled, null);
+
+  /* Браузер вправе считать страницу ещё нулевой высоты и обрезать прокрутку до
+   * нуля — молча. Тогда возвращаемся по готовности дерева; на уже прокрученной
+   * странице повтор ничего не делает и человеку под руку не лезет. */
+  open('/admin/orders', { y: 1200 }).submit();
+  const late = open('/admin/orders', { height: 0 });
+  assert.equal(late.scrolled, null);
+  late.document.documentElement.scrollHeight = 4000;
+  late.loaded();
+  assert.equal(late.scrolled, 1200);
+
+  open('/admin/orders', { y: 1200 }).submit();
+  const done = open('/admin/orders');
+  done.pageYOffset = 30;                 // человек уже листает сам
+  done.scrolled = null;
+  done.loaded();
+  assert.equal(done.scrolled, null, 'повтор не отбирает страницу у того, кто её уже листает');
+});
+
 test('поздние ответы старого счёта не перезаписывают новую попытку', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-pay-race-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

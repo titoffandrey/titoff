@@ -544,6 +544,10 @@ body.admin{background:var(--bg2)}
    Плашка отвечает на вопрос «получилось?», и ответ этот нужен ровно один раз:
    раньше она висела до следующего перехода, и на странице настроек «Сохранено»
    от давней правки соседствовало с уже другим содержимым формы.
+   ГДЕ ОНА ОСТАЛАСЬ: «получилось» в панели уехало карточкой в угол
+   (`.a-note-flash` ниже) — плашкой сверху его было видно, только стоя в начале
+   страницы. Зелёной плашкой в потоке осталась одна страница диалога: шапки
+   панели у неё нет вовсе, и место у сообщения там своё.
    ОШИБКА (`.a-flash.err`) не гаснет никогда: она отвечает на другой вопрос —
    «почему не сохранилось», — и нужна всё время, пока человек правит форму.
    Пропасть у него из-под рук вместе с объяснением она не имеет права.
@@ -2084,12 +2088,44 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .a-note-x:hover{background:var(--bg2);color:var(--text)}
 .a-note-x:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @keyframes a-note-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+/* ОТВЕТ НА СОБСТВЕННОЕ ДЕЙСТВИЕ — «Сохранено», «Товар удалён», «Касса ещё ждёт
+   оплату» — приходит той же карточкой, в тот же угол.
+   Плашкой сверху её было видно, только стоя в начале страницы: действие делают
+   там, где строка, а страница после него приходит заново и встаёт на начало.
+   Зелёная полоска слева — та же, что у заказа: «получилось».
+   Уходит карточка САМА и без единой строчки скрипта: сервер её рисует, значит
+   исчезать она обязана и там, где скрипты панели не загрузились. Скрипт только
+   убирает узел по концу анимации (`public/admin-ui.js`), поэтому шесть секунд
+   записаны здесь и больше нигде — двумя копиями они разъехались бы молча.
+   Под курсором карточка не уходит: читать уведомление, которое исчезает
+   из-под руки, невозможно. Цена — попасть курсором ровно в те 0,4 с, что идёт
+   само угасание: карточка замрёт полупрозрачной, пока курсор не уйдёт.
+   `visibility` в конце обязателен: без скриптов узел останется в колонке, и
+   невидимая карточка перехватывала бы клики по странице под ней. */
+.a-note-flash{box-shadow:inset 3px 0 0 #0b7a37,0 16px 40px rgba(17,17,26,.18);
+  animation:a-note-in .26s ease,a-note-away .4s ease 6s forwards}
+.a-note-flash:hover,.a-note-flash:focus-within{animation-play-state:paused}
+.a-note-say{display:flex;flex:1;min-width:0;align-items:center;gap:11px;padding:12px 2px 12px 13px;
+  font-size:13.5px;font-weight:560;letter-spacing:-.01em;line-height:1.35}
+.a-note-msg{min-width:0;overflow-wrap:break-word}
+.a-note-tick{flex:none;display:grid;place-items:center;width:26px;height:26px;
+  border-radius:50%;background:#e9f7ee;color:#0b7a37}
+.a-note-tick svg{width:15px;height:15px}
+@keyframes a-note-away{to{opacity:0;visibility:hidden;transform:translateY(10px)}}
 @media(max-width:640px){
   /* На телефоне карточка занимает всю ширину: в 360 px колонка справа оставляла
      бы поле, в котором всё равно ничего нет. */
   .a-notes{right:10px;left:10px;bottom:10px;width:auto}
+  /* Отдельным объявлением, а не внутри строки выше: без поддержки `env()`
+     недействительным становится всё объявление целиком, и карточка вернулась бы
+     под домашнюю полосу iPhone вместо того, чтобы просто её не учитывать. */
+  .a-notes{bottom:calc(10px + env(safe-area-inset-bottom))}
 }
-@media(prefers-reduced-motion:reduce){.a-note{animation:none}.a-note.is-out{transition:none}}
+@media(prefers-reduced-motion:reduce){.a-note{animation:none}.a-note.is-out{transition:none}
+  /* Карточка «получилось» не остаётся навсегда — она просто исчезает без
+     движения: «висит вечно» здесь хуже, чем «пропало резко». Правило то же, что
+     у плашки `.a-flash`. */
+  .a-note-flash{animation:a-note-away .01s ease 6s forwards}}
 /* Выход переехал сюда со страницы «Настройки»: в шапке кнопка стояла рядом с
    разделами и нажималась вместо них, а нужна она раз в жизни. */
 /* В блоке выхода осталась одна кнопка: заголовок «Выход» и объяснение, что

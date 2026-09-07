@@ -289,12 +289,14 @@
    */
   var NOTE_TTL = 12000;        // сколько карточка висит сама по себе
   var NOTE_KEEP = 4;           // сколько их держим на экране разом
-  var NOTE_FADE = 260;         // столько идёт её уход, см. .a-note в styles.css
 
+  /* Уводит карточку `public/admin-ui.js`: он грузится на каждой странице панели,
+   * и правило «как она исчезает» одно на события канала и на ответ сервера
+   * («Сохранено»), который приезжает готовой карточкой прямо в разметке. Второй
+   * копии здесь быть не должно — она разъехалась бы на первой правке. */
   function noteHide(card) {
-    if (!card || !card.parentNode || card.classList.contains('is-out')) return;
-    card.classList.add('is-out');
-    setTimeout(function () { if (card.parentNode) card.parentNode.removeChild(card); }, NOTE_FADE);
+    var notes = window.AdminNotes;
+    if (notes) notes.hide(card);
   }
 
   /* Уведомление о реплике В ТОМ ЖЕ ДИАЛОГЕ, который сейчас открыт, показывать
@@ -350,19 +352,6 @@
     card.addEventListener('mouseenter', function () { clearTimeout(timer); });
     card.addEventListener('mouseleave', function () { timer = setTimeout(function () { noteHide(card); }, NOTE_TTL); });
   }
-
-  (function () {
-    var box = document.getElementById('a-notes');
-    if (!box) return;
-    // Слушаем контейнер, а не крестик: карточки приходят и уходят, и вешать
-    // обработчик на каждую заново незачем.
-    box.addEventListener('click', function (e) {
-      var x = e.target.closest && e.target.closest('[data-note-close]');
-      if (!x) return;
-      e.preventDefault();
-      noteHide(x.closest('[data-note]'));
-    });
-  })();
 
   /* ------------------------------------------------------------------- канал */
 

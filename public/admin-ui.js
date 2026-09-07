@@ -1509,3 +1509,52 @@
     if (note) note.hidden = shown > 0;
   });
 })();
+
+/* ================= Карточки уведомлений в углу =================
+ *
+ * В правый нижний угол падают две разные вещи: события канала («новый заказ»,
+ * реплика в чате) и ответ на собственное действие («Сохранено»). Первые
+ * приносит `public/admin-live.js`, вторую рисует сервер прямо в разметке
+ * страницы — а УХОДЯТ они одинаково, и правило это лежит здесь, потому что
+ * admin-ui.js грузится на КАЖДОЙ странице панели, а живой канал есть не у всех:
+ * у формы товара и у настроек его нет и быть не должно.
+ *
+ * Карточку «получилось» уводит CSS, а не таймер: число секунд тогда записано
+ * ровно в одном месте — в самой анимации, — и работает даже там, где скрипты не
+ * загрузились. Скрипту остаётся убрать узел, когда анимация доиграла: иначе
+ * невидимая карточка держала бы за собой место в колонке под живыми.
+ */
+(function () {
+  'use strict';
+  // Столько идёт уход карточки, см. `.a-note.is-out` в styles.css.
+  var FADE = 260;
+
+  function hide(card) {
+    if (!card || !card.parentNode || card.classList.contains('is-out')) return;
+    card.classList.add('is-out');
+    setTimeout(function () { if (card.parentNode) card.parentNode.removeChild(card); }, FADE);
+  }
+  // Живой канал уводит свои карточки тем же способом: двух представлений о том,
+  // как исчезает карточка, быть не должно.
+  window.AdminNotes = { hide: hide };
+
+  var box = document.getElementById('a-notes');
+  if (!box) return;
+
+  // Слушаем контейнер, а не крестик: карточки приходят и уходят, и вешать
+  // обработчик на каждую заново незачем.
+  box.addEventListener('click', function (e) {
+    var x = e.target.closest && e.target.closest('[data-note-close]');
+    if (!x) return;
+    e.preventDefault();
+    hide(x.closest('[data-note]'));
+  });
+
+  // Догоревшую анимацию ухода убираем узлом: имя проверяем, потому что через
+  // тот же контейнер всплывает и анимация появления.
+  box.addEventListener('animationend', function (e) {
+    if (e.animationName !== 'a-note-away') return;
+    var card = e.target.closest && e.target.closest('[data-note]');
+    if (card && card.parentNode) card.parentNode.removeChild(card);
+  });
+})();
