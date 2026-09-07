@@ -21,7 +21,7 @@ const variants = require('../lib/variants');
 const search = require('../lib/search');
 const images = require('../lib/images');
 const clientIcons = require('../lib/client-icons');
-const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, significantSource, sessionsOf, MAX_HITS } = require('../lib/analytics');
+const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, significantSource, outboundLabel, sessionsOf, MAX_HITS } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
 
@@ -1198,6 +1198,100 @@ test('глубина прокрутки — максимум просмотра,
   assert.deepEqual(Object.keys(analytics.daily(Date.now()).scrollSum), ['/product/test']);
   assert.equal(page().scroll, 85);
   assert.match(analyticsView.dashboard(analytics.snapshot({ days: 1 }), {}), /долистывают до/);
+});
+
+test('нажатия по внешним ссылкам считаются по сервису, а не по адресу', t => {
+  const analytics = freshAnalytics(t, 'outbound');
+  const id = 'a'.repeat(32);
+  analytics.recordPageView({ id, path: '/', context: {} });
+  analytics.findVisitor(id).lastSeen = Date.now() - 20000;
+  analytics.heartbeat({ id, path: '/', clicks: ['t.me', 'wa.me', 'tel', 'mailto', 'wa.me', 'example.com'], context: {} });
+  const report = analytics.snapshot({ days: 1 });
+  const seen = Object.fromEntries(report.outbound.map(row => [row.label, row.value]));
+  assert.deepEqual(seen, { Telegram: 1, WhatsApp: 2, Звонок: 1, Почта: 1, 'example.com': 1 });
+  // Хост знакомого сервиса называется по-человечески, чужой остаётся хостом,
+  // а мусор и адрес с query в счётчик не попадают вовсе.
+  assert.equal(outboundLabel('api.whatsapp.com'), 'WhatsApp');
+  assert.equal(outboundLabel('www.t.me'), 'Telegram');
+  assert.equal(outboundLabel('https://wa.me/79991234567?text=привет'), '');
+  assert.equal(outboundLabel('  '), '');
+  // Пачка обрезается: тело запроса присылает кто угодно.
+  analytics.findVisitor(id).lastSeen = Date.now() - 20000;
+  analytics.heartbeat({ id, path: '/', clicks: new Array(50).fill('vk.com'), context: {} });
+  assert.equal(analytics.snapshot({ days: 1 }).outbound.find(r => r.label === 'vk.com').value, 10);
+  assert.match(analyticsView.dashboard(analytics.snapshot({ days: 1 }), {}), /Куда уходят/);
+});
+
+test('скорость страниц: и среднее, и разбивка по порогам Web Vitals', t => {
+  const analytics = freshAnalytics(t, 'speed');
+  const id = 'a'.repeat(32);
+  analytics.recordPageView({ id, path: '/', context: {} });
+  const send = speed => {
+    analytics.findVisitor(id).lastSeen = Date.now() - 20000;
+    analytics.heartbeat({ id, path: '/', speed, context: {} });
+  };
+  send({ lcp: 1500, cls: 40, ttfb: 300 });    // всё хорошо
+  send({ lcp: 3000, cls: 200, ttfb: 1000 });  // всё терпимо
+  send({ lcp: 9000, cls: 900, ttfb: 5000 });  // всё плохо
+  // Невозможный замер отбрасывается целиком, а не портит среднее за сутки.
+  send({ lcp: 9e9, cls: -5, ttfb: 'быстро' });
+  const speed = Object.fromEntries(analytics.snapshot({ days: 1 }).speed.map(row => [row.name, row]));
+  assert.deepEqual(
+    ['lcp', 'cls', 'ttfb'].map(k => [speed[k].count, speed[k].good, speed[k].ok, speed[k].poor]),
+    [[3, 1, 1, 1], [3, 1, 1, 1], [3, 1, 1, 1]]
+  );
+  assert.equal(speed.lcp.average, 4500);
+  assert.equal(speed.ttfb.average, 2100);
+  const html = analyticsView.dashboard(analytics.snapshot({ days: 1 }), {});
+  assert.match(html, /Как грузится у покупателей/);
+  assert.match(html, /4,5 с/, 'LCP показывается секундами, а не миллисекундами');
+  assert.match(html, /is-good|is-ok|is-poor/);
+  // Показателя, по которому не пришло ни одного замера, в отчёте нет вовсе:
+  // строка «0 мс» у браузера, который так не умеет, была бы неправдой.
+  const bare = freshAnalytics(t, 'speed-bare');
+  bare.recordPageView({ id, path: '/', context: {} });
+  assert.deepEqual(bare.snapshot({ days: 1 }).speed, []);
+  assert.doesNotMatch(analyticsView.dashboard(bare.snapshot({ days: 1 }), {}), /Как грузится у покупателей/);
+});
+
+/* Поле, забытое в маршруте ping'а, молча не доезжает до метрики: счётчик
+ * остаётся пустым, и по виду это неотличимо от «никто не нажимал». На этом уже
+ * наступили — клики и скорость собирались витриной, уходили на сервер и там
+ * терялись, потому что маршрут прокидывал в модель только `path` и `scroll`.
+ * Поэтому проверка автоматическая: что `heartbeat()` читает, то маршрут обязан
+ * передать. */
+test('маршрут ping передаёт в метрику всё, что она читает', () => {
+  const model = fs.readFileSync(path.join(__dirname, '..', 'lib', 'analytics.js'), 'utf8');
+  const body = model.slice(model.indexOf('  heartbeat(input) {'), model.indexOf('  markOrder('));
+  assert.ok(body.length > 200, 'не нашли тело heartbeat — проверка стала бы бессмысленной');
+  const fields = [...new Set([...body.matchAll(/input\.([a-zA-Z]+)/g)].map(m => m[1]))];
+  assert.ok(fields.includes('clicks') && fields.includes('speed') && fields.includes('scroll'));
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/analytics/ping'"), server.indexOf("app.post('/api/analytics/withdraw'"));
+  for (const field of fields) {
+    assert.match(route, new RegExp('\\b' + field + '\\s*[:,]'), 'маршрут ping не передаёт в метрику поле ' + field);
+  }
+});
+
+test('витрина шлёт клики и скорость тем же ping, а не своим запросом', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  // Своего маршрута у клика и у замера скорости быть не должно: витрина ходит на
+  // сервер ровно там же, где и раньше.
+  assert.deepEqual(js.match(/'\/api\/analytics\/[a-z]+'/g).filter((v, i, a) => a.indexOf(v) === i).sort(),
+    ["'/api/analytics/ping'", "'/api/analytics/start'", "'/api/analytics/withdraw'"]);
+  // Скорость считает браузер, мы только забираем готовые числа.
+  assert.match(js, /largest-contentful-paint/);
+  assert.match(js, /layout-shift/);
+  // Каждый наблюдатель в своём try: layout-shift знают не все браузеры, и один
+  // отказ не должен уносить с собой остальные.
+  assert.equal((js.match(/new PerformanceObserver/g) || []).length, 2);
+  assert.equal((js.match(/\}\)\.observe\(\{ type:/g) || []).length, 2);
+  // Наружу уезжает хост, а не адрес: в query ссылки WhatsApp лежит готовая реплика.
+  assert.match(js, /out = url\.host/);
+  assert.doesNotMatch(js, /pendingClicks\.push\(\s*url\.href/);
+  // Слушатель один на документ и в фазе перехвата: ссылки подвала и меню
+  // перерисовываются, и обработчик на каждой терял бы появившиеся позже.
+  assert.match(js, /document\.addEventListener\('click', function \(e\) \{[\s\S]*?\}, true\)/);
 });
 
 test('город в списке — без региона и с одним именем страны', t => {
@@ -2460,7 +2554,13 @@ test('витрина закрыта заблокированному, а пан�
   const skip = source.slice(source.indexOf('function metricsSkipped('), source.indexOf('function trackPage('));
   assert.match(skip, /adminAuthorized\(req\) \|\| !!RULES\.match\('skip'/);
   assert.match(source, /if \(metrics\.trackingDisabled\(req\) \|\| metricsSkipped\(req\)\) return;/);
-  assert.match(source, /if \(id && !metricsSkipped\(req\)\) metrics\.heartbeat/);
+  /* Проверяем СМЫСЛ, а не расстановку строк: маршрут ping'а обязан спрашивать
+   * `metricsSkipped` перед тем, как звать метрику. Прежняя проверка была
+   * привязана к однострочной записи и падала от одного переноса, хотя правило
+   * оставалось на месте. */
+  const ping = source.slice(source.indexOf("app.post('/api/analytics/ping'"), source.indexOf("app.post('/api/analytics/withdraw'"));
+  assert.match(ping, /!metricsSkipped\(req\)/);
+  assert.match(ping, /metrics\.heartbeat\(/);
 
   /* Устройство узнаётся в /api/analytics/start — только там есть экран и
    * часовой пояс. Правила проверяются ДО отказа от метрики: блок — это про

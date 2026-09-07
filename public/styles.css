@@ -3256,6 +3256,22 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
    воронки. Приглушена сильнее доли справа — это уточнение к уточнению, и в один
    вес с подписью строки оно спорило бы с самим счётчиком. */
 .metric-bar-note{display:block;margin-top:5px;color:#a1a1a6;font-size:11px;font-variant-numeric:tabular-nums}
+/* ---- Скорость у покупателей ----
+   Полоса трёхцветная: «хорошо / терпимо / плохо» по порогам Web Vitals. Цвета
+   уже приняты в проекте — зелёный подписи наличия, оранжевый очереди модерации,
+   красный плашки акции; своей палитры ради одного блока заводить незачем.
+   Сегменты идут одной строкой и делят её долями, поэтому ширина в процентах
+   ставится прямо в разметке: числа считает сервер, и второй расчёт в CSS
+   разошёлся бы с ним. */
+.speed-rows{display:grid;gap:16px}
+.speed-label{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px;font-size:12px}
+.speed-label b{font-size:15px;font-variant-numeric:tabular-nums}
+.speed-track{display:flex;height:7px;overflow:hidden;border-radius:99px;background:#eeeeF0}
+.speed-track i{display:block;height:100%}
+.speed-track .is-good{background:#0b7a37}
+.speed-track .is-ok{background:#bf4800}
+.speed-track .is-poor{background:#b42318}
+.speed-row small{display:block;margin-top:5px;color:#a1a1a6;font-size:11px;font-variant-numeric:tabular-nums}
 /* ---- Страница «Кто заходил»: отбор ----
    Считает и отправляет всё по-прежнему обычная GET-форма. Скрипт нужен только
    видимой оболочке дат: без него остаются рабочие нативные `type=date`. */
