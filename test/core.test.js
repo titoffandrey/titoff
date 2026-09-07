@@ -122,9 +122,34 @@ test('утилита безопасно сбрасывает пароль пан
   assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
 });
 
+/* Каталог для тестов рендера берётся из `catalog.js`, а НЕ из живого хранилища.
+ *
+ * `dbCore.getProducts()` читает `data/` рядом с проектом, и на сервере этот
+ * каталог пуст: процесс запущен с `STORE_DATA_DIR=/var/lib/apple-store`, а
+ * `istore/data` там остался пустой заготовкой. Два теста ниже из-за этого падали
+ * на сервере ВСЕГДА — «на главной должно быть много карточек» при нулевом
+ * каталоге и `productPage(undefined)`, — и их приходилось объяснять в CLAUDE.md
+ * как «не регрессию». Проверка, которую нельзя прогнать там, где работает
+ * магазин, не проверяет ничего: её перестают читать.
+ *
+ * `catalog.js` — тот же источник, которым засеивается витрина, и в отличие от
+ * хранилища он не зависит ни от каталога данных, ни от чужих правок в панели.
+ */
+const CATALOG_DB = {
+  getProducts: () => catalog.products,
+  visibleProducts: () => catalog.products.filter(p => p.visible !== false),
+  visibleProduct: (id) => CATALOG_DB.visibleProducts().find(p => p.id === id) || null,
+  categories: () => [...new Set(catalog.products.map(p => p.category))],
+  visibleCategories: () => [...new Set(CATALOG_DB.visibleProducts().map(p => p.category))],
+  // Оценка непустая намеренно: без отзывов строка со звездой и пузырьком в
+  // карточке не рисуется вовсе, а проверка спрайта смотрит именно на неё.
+  ratingFor: () => ({ avg: 4.7, count: 300 }),
+  reviewsForProduct: () => []
+};
+
 test('повторяющиеся глифы карточки лежат в спрайте, а не копируются в каждую', () => {
-  const settings = dbCore.getSettings();
-  const html = render.homePage(settings, dbCore, { origin: 'https://shop.example' });
+  const settings = dbCore.defaultSettings();
+  const html = render.homePage(settings, CATALOG_DB, { origin: 'https://shop.example' });
   const cards = (html.match(/class="card-name"/g) || []).length;
   assert.ok(cards > 10, 'на главной должно быть много карточек, иначе проверка бессмысленна');
 
@@ -142,9 +167,9 @@ test('повторяющиеся глифы карточки лежат в сп�
 });
 
 test('карточка товара для поисковика полна, а крошки идут отдельным блоком', () => {
-  const settings = dbCore.getSettings();
-  const product = dbCore.visibleProducts()[0];
-  const html = render.productPage(settings, dbCore, product, { origin: 'https://shop.example' });
+  const settings = dbCore.defaultSettings();
+  const product = CATALOG_DB.visibleProducts()[0];
+  const html = render.productPage(settings, CATALOG_DB, product, { origin: 'https://shop.example' });
   const blocks = (html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [])
     .map(s => JSON.parse(s.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '')));
   assert.equal(blocks.length, 2, 'ожидались карточка товара и хлебные крошки');
@@ -605,6 +630,59 @@ test('маршруты экранируют точки, HEAD не отправл
   assert.equal(Array.isArray(cookies.headers['set-cookie']), true);
   assert.equal(cookies.headers['set-cookie'].length, 2);
   assert.match(cookies.headers['set-cookie'][1], /^sess=/);
+});
+
+test('поле, ломающее приведение к строке, до маршрута не доезжает', async () => {
+  /* `String({toString: 1})` не возвращает «[object Object]», а бросает
+   * TypeError: собственное свойство перебивает Object.prototype. Пока такое
+   * тело проходило в маршрут, `/api/cart` и `/api/order` отвечали 500-й — то
+   * есть один кривой запрос ронял оба денежных пути витрины и писал стек в
+   * лог. Ловим это на входе, а не в каждом маршруте: забытое место и было бы
+   * дырой. */
+  const app = new App({ secret: 'test' });
+  let seen = null;
+  app.post('/api/cart', (req, res) => { seen = req.body; res.json({ ok: true, id: String(req.body.items[0].id) }); });
+
+  const res1 = response();
+  await app.handle(request('/api/cart', {
+    method: 'POST', body: Buffer.from(JSON.stringify({ items: [{ id: { toString: 1, valueOf: 2 } }] })),
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), res1);
+  assert.equal(res1.statusCode, 200, 'маршрут обязан ответить, а не упасть');
+  assert.equal(JSON.parse(res1.body).id, '[object Object]');
+  assert.equal(Object.prototype.hasOwnProperty.call(seen.items[0].id, 'toString'), false);
+
+  /* Имя ключа в JSON можно записать escape-последовательностью, и по литералу
+   * «toString» такой ключ не найти. Быстрый путь разбора существует ровно до
+   * первого обратного слэша в теле — дальше идёт reviver. */
+  const escaped = response();
+  await app.handle(request('/api/cart', {
+    method: 'POST', body: Buffer.from('{"items":[{"id":{"\\u0074oString":1,"\\u0076alueOf":2}}]}'),
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), escaped);
+  assert.equal(escaped.statusCode, 200, 'экранированное имя ключа обязано ловиться так же');
+  assert.equal(JSON.parse(escaped.body).id, '[object Object]');
+
+  // `__proto__` в теле тоже не нужен никому, кроме того, кто путает слияния.
+  const res2 = response();
+  await app.handle(request('/api/cart', {
+    method: 'POST', body: Buffer.from('{"items":[{"id":"x"}],"__proto__":{"admin":true}}'),
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), res2);
+  assert.equal(res2.statusCode, 200);
+  assert.equal(Object.prototype.hasOwnProperty.call(seen, '__proto__'), false);
+
+  /* Форм это НЕ касается: у urlencoded и multipart значение поля всегда строка,
+   * а строка `String()` не ломает. Поле формы с таким именем обязано остаться
+   * обычной строкой — см. тест «поле формы с именем из прототипа остаётся
+   * строкой». Здесь проверяем, что чистка JSON туда не расползлась. */
+  app.post('/form', (req, res) => res.json({ toString: req.body.toString }));
+  const res3 = response();
+  await app.handle(request('/form', {
+    method: 'POST', body: Buffer.from('toString=b'),
+    headers: { host: 'shop.test', 'content-type': 'application/x-www-form-urlencoded' }
+  }), res3);
+  assert.equal(JSON.parse(res3.body).toString, 'b');
 });
 
 test('POST из другого origin отклоняется до обработчика', async () => {
@@ -5077,6 +5155,13 @@ test('панель одна: /owner уводит на /admin, а прав мен
   assert.match(source, /if \(\/\^\\\/owner\(\?:\\\/\|\$\)\/\.test\([\s\S]*?\) return res\.redirect\('\/admin'\)/,
     'адреса прежней панели обязаны уводить на новую, а не в 404');
 
+  /* Промахнувшийся адрес панели у ВОШЕДШЕГО владельца тоже не уводит на 404
+   * витрины: та записывает просмотр `/404` и предлагает «вернуться в каталог»,
+   * то есть выкидывает владельца из панели в магазин. Постороннего это не
+   * касается — он получает обычное «не найдено» и попадает в метрику как все. */
+  assert.match(source, /if \(\/\^\\\/admin\(\?:\\\/\|\$\)\/\.test\(path\) && adminAuthorized\(req\)\)[\s\S]{0,120}adminMissing\(res, '\/admin'/,
+    'ненайденный адрес панели обязан возвращать владельца в панель');
+
   // Ни одного маршрута прежней панели и ни одной второй учётной записи.
   assert.equal(/app\.(get|post)\('\/owner/.test(source), false, 'маршруты /owner должны быть сняты целиком');
   assert.equal(/ownerPasswordHash|ownerUsername/.test(source), false, 'вторая учётка ушла вместе с панелью');
@@ -5895,6 +5980,37 @@ test('страница оплаты: точная сумма выделена, �
   assert.doesNotMatch(html, /id="pay-cancel"|Отменить (счёт|платёж|оплату)|Отменять счёт/);
   const croco = fs.readFileSync(path.join(__dirname, '..', 'lib', 'crocopay.js'), 'utf8');
   assert.doesNotMatch(croco, /\/cancel|\/void|\/refund/, 'у кассы нет отмены — выдумывать эндпоинт нельзя');
+});
+
+test('HTML-комментарии в браузер не уезжают', () => {
+  /* Комментарий в шаблоне отправляется КАЖДОМУ посетителю: комментарии из .css
+   * и .js на отдаче снимаются (`lib/minify.js`), а из разметки снять их нечем.
+   * Пояснения этого проекта длинные и русские — пять таких в `layout()` весили
+   * 1,4 КБ на каждой странице витрины, включая 404. Место таким пояснениям —
+   * в JS-комментарии рядом, а внутри шаблонной строки для этого есть свой
+   * приём: `${/* … *\/''}` не печатает ничего.
+   *
+   * Проверяем и панель: там разметку видит только владелец, но правило одно, а
+   * второе исключение из него завелось бы на первой же правке. */
+  const ss = Object.assign(dbCore.defaultSettings(), { storeName: 'Тест', tagline: 'Слоган', chatEnabled: true, aiApiKey: 'k' });
+  const product = CATALOG_DB.visibleProducts()[0];
+  const pages = {
+    'главная': render.homePage(ss, CATALOG_DB, { origin: '' }),
+    'товар': render.productPage(ss, CATALOG_DB, product, { origin: '' }),
+    'оформление': render.checkoutPage(ss, { origin: '' }),
+    'о компании': render.aboutPage(ss, { origin: '' }),
+    'политика': render.privacyPage(ss, { origin: '' }),
+    'гарантия': render.warrantyPage(ss, { origin: '' }),
+    'возврат': render.returnsPage(ss, { origin: '' }),
+    'отслеживание': render.trackingPage(ss, { origin: '' }),
+    'не найдено': render.notFoundPage(ss, { origin: '' }),
+    'форма товара': adminViews.productForm(ss, CATALOG_DB, product),
+    'настройки': adminViews.settingsPage(ss, CATALOG_DB, null)
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    const found = String(html).match(/<!--[\s\S]{0,80}/);
+    assert.equal(found, null, name + ': комментарий уехал в браузер — ' + (found && found[0]));
+  }
 });
 
 test('неоплаченный счёт напоминает о себе на всей витрине и в корзине', () => {
