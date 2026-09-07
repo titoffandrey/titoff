@@ -6692,10 +6692,12 @@ test('повтор оформления возвращает тот же сво�
   const to = source.indexOf("app.post('/api/order'", from);
   assert.ok(from > -1 && to > from, 'reusableOrder найден');
   const orders = new Map();
-  const reusableOrder = new Function('db', source.slice(from, to) + '\nreturn reusableOrder;')({
+  // `R` здесь настоящий: срок оплаты заказа считает та же функция, что и
+  // страница оплаты, — подделка разъехалась бы с ней молча.
+  const reusableOrder = new Function('db', 'R', source.slice(from, to) + '\nreturn reusableOrder;')({
     getOrder: id => orders.get(id) || null,
     isOrderArchived: order => !!(order && order.archive && order.archive.active)
-  });
+  }, render);
   const base = {
     items: [
       { id: 'phone', name: 'iPhone', price: 60000, qty: 1 },
@@ -6728,6 +6730,25 @@ test('повтор оформления возвращает тот же сво�
   order.createdAt = Date.now() + 1000;
   assert.equal(reusableOrder(req, base), null, 'запись из будущего не переиспользуется');
   assert.equal(reusableOrder({ session: { myOrders: [] } }, base), null, 'чужая сессия заказ не видит');
+
+  /* Просроченный заказ переиспользованию не подлежит, и это не мелочь: платить
+   * по нему уже нельзя, а страница оплаты сама зовёт оформить заново. Пока
+   * проверки не было, «заново» возвращало ТОТ ЖЕ мёртвый заказ — покупатель
+   * ходил по кругу все сутки ORDER_REUSE_TTL и купить не мог вовсе. */
+  order.createdAt = Date.now() - render.PAY_WINDOW - 60 * 1000;
+  order.payment = { status: 'pending' };
+  assert.equal(reusableOrder(req, base), null, 'мёртвый заказ не подсовывается вместо нового');
+  order.draft = true;
+  order.payment = null;
+  assert.equal(reusableOrder(req, base), null, 'просроченный черновик — тоже новый заказ');
+  // Живой счёт срок заказа переживает: реквизиты у покупателя, деньги бывают в
+  // пути, и повтор нажатия обязан открыть тот же счёт, а не второй.
+  order.draft = false;
+  order.payment = {
+    status: 'pending', invoiceId: 'inv-1', requisite: '+79990000000',
+    expiresAt: Date.now() + 10 * 60 * 1000
+  };
+  assert.equal(reusableOrder(req, base), order, 'живой счёт старше получаса переиспользуется');
 });
 
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
@@ -6755,6 +6776,45 @@ test('оформление имеет свой идемпотентный клю
   assert.match(browser, /checkout_order_request_v1/);
   assert.match(browser, /qty: i\.qty, price: i\.price/,
     'сервер получает цену, которую покупатель видел перед подтверждением');
+});
+
+test('мёртвый заказ не запирает покупателя: «оформите заново» правда оформляет заново', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-expired-replay-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+
+  /* Ключ оформления живёт в браузере и переживает один заказ: покупатель
+   * вернулся к той же корзине, а прежний заказ уже просрочен. Идемпотентность
+   * тогда обязана указывать на СВЕЖИЙ заказ — иначе повтор вечно возвращает
+   * похороненный, и страница оплаты снова просит оформить заново. */
+  const requestId = 'c'.repeat(32);
+  const hash = 'd'.repeat(64);
+  const dead = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: hash, items: [], total: 1000, contact: '@buyer'
+  });
+  const again = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: hash, items: [], total: 1000, contact: '@buyer'
+  });
+  assert.notEqual(again.id, dead.id, 'это два разных заказа');
+  assert.equal(fresh.getOrderByCheckoutRequest(requestId).id, again.id,
+    'по одному ключу отдаётся самый свежий заказ, а не первый попавшийся');
+
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('const buyerRateId'));
+  // Просроченный заказ не прикрыт ни ключом оформления, ни переиспользованием.
+  assert.match(route, /R\.payExpired\(order\)[\s\S]{0,40}getOrderByCheckoutRequest\(checkoutRequestId\)/,
+    'ключ оформления не воскрешает просроченный заказ');
+  const reuse = server.slice(server.indexOf('function reusableOrder('), server.indexOf("app.post('/api/order'"));
+  assert.match(reuse, /R\.payExpired\(order, now\)/, 'переиспользование пропускает просроченный заказ');
+
+  /* Ключ в браузере не должен переживать сам заказ: срок оплаты — полчаса, и
+   * восстанавливать потерянный ответ дольше этого нечего. */
+  const browser = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const ttl = browser.match(/var ORDER_REQUEST_TTL = ([^;]+);/);
+  assert.ok(ttl, 'срок ключа оформления найден');
+  assert.ok(new Function('return ' + ttl[1])() <= render.PAY_WINDOW,
+    'ключ оформления живёт не дольше, чем по заказу можно заплатить');
 });
 
 test('идентификатор запроса кассы хранится отдельно по способу и удаляется адресно', () => {

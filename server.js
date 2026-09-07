@@ -1613,6 +1613,21 @@ function reusableOrder(req, data) {
     const age = order ? now - Number(order.createdAt || 0) : NaN;
     if (!order || !Number.isFinite(age) || age < 0 || age >= ORDER_REUSE_TTL) continue;
     if (db.isOrderArchived(order)) continue;
+    /* СРОК ОПЛАТЫ ВЫШЕЛ — ЭТО НЕ ПОВТОР НАЖАТИЯ, А НОВАЯ ПОКУПКА.
+     *
+     * Переиспользование существует ради потерянного ответа: повтор в пределах
+     * минут возвращает уже созданный заказ вместо дубля. Просроченный заказ под
+     * это правило не подходит вовсе — платить по нему уже нельзя (`R.payExpired`,
+     * полчаса от оформления), и страница оплаты сама говорит «оформите заказ
+     * заново».
+     *
+     * Без этой проверки получался замкнутый круг, и выйти из него было нельзя:
+     * покупатель собирал ту же корзину (форма помнит имя, телефон и адрес —
+     * `checkout_v1`), нажимал «Оплатить», а сервер отдавал ему ТОТ ЖЕ мёртвый
+     * заказ — и снова уводил на страницу «время на оплату вышло». И так все
+     * сутки, что действует ORDER_REUSE_TTL. Заказ, который просил оформить себя
+     * заново, обязан оформляться заново. */
+    if (R.payExpired(order, now)) continue;
     if (pay && (pay.status === 'paid' || pay.status === 'mismatch')) continue;
     if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
     if (scalars.some(key => String(order[key] == null ? '' : order[key]) !== String(data[key] == null ? '' : data[key]))) continue;
@@ -1631,7 +1646,14 @@ app.post('/api/order', async (req, res) => {
     return res.json({ ok: false, errorCode: 'bad_request_id', error: 'Обновите страницу оформления и попробуйте ещё раз' }, 400);
   }
   const requestHash = checkoutRequestHash(req.body);
-  const replay = db.getOrderByCheckoutRequest(checkoutRequestId);
+  /* Ключ оформления держит заказ ровно столько, сколько по нему можно платить.
+   * Просроченный заказ (`R.payExpired`) идемпотентностью больше не прикрыт: он
+   * закрыт для покупателя, и повтор с тем же ключом — это новая покупка, а не
+   * потерянный ответ. Та же причина, что и у `reusableOrder` ниже; без этого
+   * второй путь вёл в тот же круг «оформите заново → тот же мёртвый заказ».
+   * Ключ у нового заказа при этом останется прежним — поэтому
+   * `getOrderByCheckoutRequest` отдаёт САМЫЙ СВЕЖИЙ из совпавших. */
+  const replay = (order => order && !R.payExpired(order) ? order : null)(db.getOrderByCheckoutRequest(checkoutRequestId));
   if (replay) {
     if (replay.checkoutRequestHash !== requestHash) {
       return res.json({ ok: false, errorCode: 'idempotency_conflict', error: 'Данные заказа изменились. Обновите страницу и повторите оформление.' }, 409);
