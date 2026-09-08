@@ -6505,6 +6505,11 @@ details.metric-rules{margin-bottom:14px}
 /* Заголовки узких колонок не переносим: «Кол-во» иначе встаёт в две строки и
    поднимает всю шапку таблицы. */
 .rc-table thead th{white-space:nowrap}
+/* «в том числе скидка» — не отдельная сумма столбика, а пояснение к строке
+   выше: цена позиции в заказе хранится уже со скидкой. Поэтому строка тише
+   соседних и не притворяется вычитанием. */
+.rc-line-note{font-size:12.5px}
+.rc-line-note dd{color:#6e6e73}
 .rc-totals{margin-left:auto;padding-top:14px;max-width:340px}
 .rc-total{padding-top:8px;margin-top:4px;border-top:1px solid var(--border-soft);font-size:17px;font-weight:650}
 .rc-total dt{color:inherit}
