@@ -96,12 +96,42 @@ fi
 if [ -z "$REPO" ]; then
   echo "== Заливаю текущее дерево проекта на $ALIAS"
   # Только то, что нужно для запуска: данные, фото и сборочный мусор остаются дома.
+  #
+  # РАСПАКОВЫВАЕМ РЯДОМ, А НЕ ПОВЕРХ ЖИВОГО КАТАЛОГА, и это не аккуратизм.
+  # `tar -x` прямо в `istore` пишет файлы по одному и на месте — а из этого же
+  # каталога работающий процесс прямо сейчас отдаёт статику. Несколько секунд
+  # `styles.css` и `app.js` лежат недописанными, и посетитель, попавший в это
+  # окно, получает страницу без стилей: голая разметка, видимый служебный
+  # чекбокс меню и раздутые инлайновые глифы. Ровно это владелец и увидел на
+  # `/about` 8 сентября 2026 — сайт при этом был совершенно здоров.
+  #
+  # Оттуда же вторая беда: `chown` шёл ПОСЛЕ распаковки, поэтому свежий файл
+  # успевал побывать root-овым, и процесс под `titoff` ловил на нём `EACCES`
+  # (в логах это `permission denied, open '…/public/chat-links.js'`).
+  #
+  # Лечение: распаковать во временный каталог, там же выставить владельца и
+  # только потом перенести — `rsync` пишет каждый файл во временный и делает
+  # `rename`, то есть замена атомарна ПОФАЙЛОВО: посетитель видит либо старую
+  # версию файла, либо новую, но никогда половину.
+  #
+  # Каталог данных, `.git` и загруженные фото rsync не трогает вовсе — они
+  # исключены и здесь, и в самом архиве: `--delete` без этого снёс бы их.
+  # `.claude` исключён не для порядка: там лежат worktree рабочих сессий, и на
+  # боевой сервер за одну выкатку уезжало 91 МБ чужих копий проекта вместе с
+  # локальными настройками Claude Code. Витрине из этого не нужно ничего.
   COPYFILE_DISABLE=1 tar --no-xattrs -czf - -C "$ROOT" \
-    --exclude='./data' --exclude='./.git' --exclude='./apple_svg' --exclude='./apple-photos' \
+    --exclude='./data' --exclude='./.git' --exclude='./.claude' \
+    --exclude='./apple_svg' --exclude='./apple-photos' \
     --exclude='./node_modules' --exclude='./.DS_Store' --exclude='._*' --exclude='*.tmp' . \
     | ssh -o BatchMode=yes "$ALIAS" \
       'set -e; id -u titoff >/dev/null 2>&1 || adduser --disabled-password --gecos "" titoff;
-       mkdir -p /home/titoff/istore && tar -xzf - -C /home/titoff/istore && chown -R titoff:titoff /home/titoff/istore'
+       rm -rf /home/titoff/istore.new && mkdir -p /home/titoff/istore.new /home/titoff/istore;
+       tar -xzf - -C /home/titoff/istore.new;
+       chown -R titoff:titoff /home/titoff/istore.new;
+       rsync -a --delete --exclude=data --exclude=.git --exclude=node_modules \
+         /home/titoff/istore.new/ /home/titoff/istore/;
+       chown -R titoff:titoff /home/titoff/istore;
+       rm -rf /home/titoff/istore.new'
 fi
 
 echo "== Разворачиваю магазин на домене $DOMAIN"
