@@ -17761,3 +17761,74 @@ test('выходы не пересчитываются на каждую пер�
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/* ТОВАРНЫЙ ЧЕК.
+ *
+ * Документ собирается ЦЕЛИКОМ ИЗ ЗАКАЗА, а не считается заново: цены плавают,
+ * скидка меняется, промокод переименовывают — а чек обязан показывать те
+ * деньги, которые покупатель заплатил.
+ */
+test('товарный чек: цены из заказа, реквизиты продавца, отметка об оплате', () => {
+  const ss = {
+    storeName: 'Тест', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    legalOperator: 'ИП Иванов Иван Иванович', legalInn: '771234567890',
+    legalOgrn: '321774600123456', legalAddress: 'г Ноябрьск, ул Ленина, д 1'
+  };
+  const order = {
+    id: 'a1b2', number: '482913', createdAt: Date.parse('2026-09-08T09:00:00Z'),
+    items: [
+      { id: 'p1', name: 'iPhone 17 Pro Max 512 ГБ, Космический чёрный', price: 129990, qty: 1 },
+      { id: 'p2', name: 'AirTag', price: 11990, qty: 2 }
+    ],
+    itemsTotal: 153970, deliveryPrice: 710, total: 139680,
+    promoCode: 'SALE', promoDiscount: 15000,
+    customerName: 'Пётр Петров', phone: '+79991234567',
+    address: 'г Екатеринбург, ул Малышева, д 5',
+    delivery: 'cdek', deliveryMode: 'pvz',
+    payment: { status: 'paid', method: 'CARD_ONLINE', paidAt: Date.parse('2026-09-08T09:30:00Z') }
+  };
+  const html = render.receiptPage(ss, order, { origin: '' });
+
+  // Реквизиты продавца — те же, что в подвале: у документа и у сайта продавец
+  // обязан быть одним и тем же, до цифры.
+  assert.match(html, /Товарный чек №482913/);
+  assert.match(html, /ИП Иванов Иван Иванович/);
+  assert.match(html, /771234567890/);
+  assert.match(html, /321774600123456/, 'ОГРНИП в чеке');
+  assert.match(html, /ОГРНИП/, 'подпись номера выводится из его длины');
+
+  // Позиции, количество и суммы — из заказа, а не пересчётом по каталогу.
+  assert.match(html, /iPhone 17 Pro Max 512 ГБ, Космический чёрный/);
+  assert.match(html, /23\s980/, 'сумма позиции = цена × количество');
+  assert.match(html, /Скидка по промокоду SALE/);
+  assert.match(html, /139\s680/, 'итог берётся из заказа');
+  assert.match(html, /СДЭК/, 'способ доставки назван словами');
+
+  // Отметка об оплате: она и есть то, ради чего чек чаще всего открывают.
+  assert.match(html, /class="rc-stamp is-paid">Оплачено</);
+  assert.match(html, /08\.09\.2026/, 'дата по московским часам');
+
+  // Неоплаченный заказ не выдаёт себя за оплаченный.
+  const unpaid = render.receiptPage(ss, Object.assign({}, order, { payment: null }), { origin: '' });
+  assert.match(unpaid, /Не оплачен/);
+  assert.match(unpaid, /Оплата по заказу не подтверждена/);
+  assert.doesNotMatch(unpaid, /is-paid/);
+
+  // Чек не индексируется: это документ конкретной покупки.
+  assert.match(html, /noindex/);
+
+  /* Кнопка чека — только у оплаченного заказа: у неоплаченного документ о
+   * покупке был бы обещанием того, чего ещё не случилось. */
+  const paidPage = render.payPage(ss, order, { origin: '' });
+  assert.match(paidPage, /href="\/receipt\/a1b2"/);
+  const draftPage = render.payPage(ss, Object.assign({}, order, { payment: null }), { origin: '' });
+  assert.doesNotMatch(draftPage, /\/receipt\//);
+
+  /* Маршрут открыт двумя ключами — своей сессией покупателя и живой сессией
+   * панели, — а черновику чек не выдаётся вовсе: заказом он ещё не стал. */
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  const route = server.slice(server.indexOf("app.get('/receipt/:id'"), server.indexOf("app.get('/receipt/:id'") + 700);
+  assert.match(route, /ownOrder\(req/);
+  assert.match(route, /adminAuthorized\(req\)/);
+  assert.match(route, /order\.draft === true/);
+});

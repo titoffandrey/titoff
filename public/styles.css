@@ -6477,3 +6477,72 @@ details.metric-rules{margin-bottom:14px}
      кнопки снова окажутся ниже середины поля ровно на эту разницу. */
   .chat-form{--chat-row:43px}
 }
+
+/* ---------- Товарный чек ---------- */
+/* Документ, а не страница витрины: белый лист, ровные ряды, ничего лишнего.
+   Печать — главный способ им воспользоваться, поэтому вид на бумаге задан
+   наравне с экранным (@media print в конце блока). */
+.receipt{max-width:860px}
+.rc-actions{display:flex;gap:10px;justify-content:flex-end;margin-bottom:14px}
+.rc-card{padding:30px}
+.rc-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--border-soft)}
+.rc-head h1{margin:0;font-size:24px;line-height:1.25}
+.rc-date{margin:4px 0 0;color:#6e6e73;font-size:14px}
+/* Отметка об оплате — то, ради чего чек чаще всего и открывают, поэтому она
+   стоит в шапке и читается с одного взгляда. Цвета — уже принятые в проекте
+   зелёный подписи наличия и серый «денег нет». */
+.rc-stamp{padding:5px 12px;border:1px solid currentColor;border-radius:9999px;color:#6e6e73;font-size:13px;font-weight:600;white-space:nowrap}
+.rc-stamp.is-paid{color:#0b7a37}
+.rc-parties{display:grid;grid-template-columns:1fr 1fr;gap:22px;padding:18px 0}
+.rc-parties h2{margin:0 0 8px;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6e6e73}
+.rc-list,.rc-totals{margin:0}
+.rc-line{display:flex;gap:10px;justify-content:space-between;padding:3px 0;font-size:14px}
+.rc-line dt{flex:none;color:#6e6e73}
+.rc-line dd{margin:0;text-align:right}
+.rc-table{font-size:14px}
+.rc-table .rc-num{width:1%;color:#6e6e73}
+.rc-table .rc-qty,.rc-table .rc-price,.rc-table .rc-sum{width:1%;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+/* Заголовки узких колонок не переносим: «Кол-во» иначе встаёт в две строки и
+   поднимает всю шапку таблицы. */
+.rc-table thead th{white-space:nowrap}
+.rc-totals{margin-left:auto;padding-top:14px;max-width:340px}
+.rc-total{padding-top:8px;margin-top:4px;border-top:1px solid var(--border-soft);font-size:17px;font-weight:650}
+.rc-total dt{color:inherit}
+.rc-paid{margin:16px 0 0;font-size:14px;color:#6e6e73}
+/* Место для подписей нужно только на бумаге, но и на экране оно объясняет, что
+   это документ, а не сводка заказа. */
+.rc-sign{display:flex;gap:28px;margin-top:26px;padding-top:18px;border-top:1px solid var(--border-soft)}
+.rc-sign>div{flex:1;display:flex;align-items:flex-end;gap:8px}
+.rc-sign-label{flex:none;font-size:13px;color:#6e6e73}
+.rc-sign-line{flex:1;border-bottom:1px solid var(--border)}
+@media(max-width:800px){
+  .rc-card{padding:20px}
+  .rc-parties{grid-template-columns:1fr;gap:16px}
+  .rc-actions{justify-content:stretch}
+  .rc-actions>*{flex:1}
+  .rc-sign{flex-direction:column;gap:18px}
+  /* Позиция — карточка, а не пять ячеек столбиком. Общее мобильное правило
+     правовых таблиц отводит слева 92 px под подпись из `td::before`, а у чека
+     подписей нет: название уезжало вправо, а количество с ценой висели
+     отдельными строками без объяснения, что это за числа. Здесь они читаются
+     сами: «1 × 129 990 ₽» слева и сумма справа. */
+  .rc-table tr{display:grid;grid-template-columns:auto 1fr;gap:2px 6px;padding:11px 13px}
+  .rc-table td{display:block;padding:0;border:0}
+  .rc-table .rc-num{display:none}
+  .rc-table .rc-name{grid-column:1/-1;font-size:14px;line-height:1.35}
+  .rc-table .rc-qty::after{content:' ×'}
+  .rc-table .rc-qty,.rc-table .rc-price{width:auto;color:#6e6e73;font-size:13px;text-align:left}
+  .rc-table .rc-price{grid-column:2;justify-self:start}
+  .rc-table .rc-sum{grid-column:1/-1;width:auto;text-align:right;font-weight:600}
+}
+/* На бумаге остаётся только сам документ: ни шапки сайта, ни подвала, ни
+   кнопок, ни рамок с тенями — они съедают поля и печатаются серым. */
+@media print{
+  .site-header,.site-footer,.chat-fab,.chat-panel,.pay-remind,.no-print,#a-notes{display:none!important}
+  body{background:#fff}
+  .receipt{max-width:none;padding:0}
+  .rc-card{border:0;border-radius:0;box-shadow:none;padding:0}
+  .legal-table-wrap{border:0;overflow:visible}
+  .rc-table th{background:transparent}
+  a[href]::after{content:none}
+}
