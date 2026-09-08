@@ -13692,6 +13692,74 @@ test('диалог находится по теме Telegram, и связь пе
   assert.equal(chatStore.byTopicId(42), null);
 });
 
+test('цвет покупатель называет по-своему, и это не повод отказать', () => {
+  /* «Какая цена 17 про макс сим 512 белый» → «Белого цвета у айфон 17 Pro Max
+   * нет, доступны оранжевый, синий и серебристый» (боевой диалог 8 сентября).
+   * Формально верно — белого в списке правда нет; по делу человек имел в виду
+   * серебристый и вместо продажи получил отказ, а на переспрос «когда появятся
+   * белые» ему пообещали сообщить о цвете, которого не будет никогда.
+   * Каталожные имена цветов наизусть не знает никто: «Сияющая звезда»,
+   * «Шалфейный», «Космический оранжевый». */
+  const rule = chatPrompt.RULES.find(r => /цвет покупатель называет приблизительно/i.test(r));
+  assert.ok(rule, 'правило про народные названия цветов есть в стандартном наборе');
+  assert.match(rule, /белый/i);
+  assert.match(rule, /серебристый/i, 'названа пара, из-за которой всё и вышло');
+  assert.match(rule, /не отвечай «такого цвета нет»/i, 'запрет на отказ вместо подбора');
+
+  // Правило уезжает в модель вместе с остальными — и видно владельцу в панели.
+  const system = chatPrompt.systemPrompt(CATALOG_DB, SETTINGS);
+  assert.ok(system.includes(rule), 'правило доезжает до модели');
+  const page = adminViews.settingsPage(SETTINGS, CATALOG_DB, '', '', {});
+  assert.ok(page.includes(render.esc(rule)), 'и его видно в поле инструкции');
+
+  /* Сами цвета в таблице остаются каталожными: подменять их «народными» нельзя
+   * — покупатель выбирает цвет в карточке по настоящему имени, и «белый» в
+   * ответе консультанта против «Серебристый» на кнопке читался бы как другой
+   * товар. Сопоставляет их модель, а не таблица. */
+  const line = chatPrompt.catalogText(CATALOG_DB, SETTINGS).split('\n').find(l => l.startsWith('iPhone 17 Pro Max|'));
+  assert.match(line, /Серебристый/);
+  assert.ok(!/белый/i.test(line), 'выдуманного цвета в таблице нет');
+});
+
+test('новые правила проекта видно в панели и можно дописать одной кнопкой', () => {
+  /* Инструкция редактируется владельцем, и после первого сохранения проект в
+   * неё не вмешивается — иначе его правка затиралась бы обновлением. Из этого
+   * следовало, что НОВОЕ правило до работающего магазина не доезжает вовсе:
+   * правила про цену сборки и про цвета появились в коде, а в панели их не
+   * было, и владелец о них не знал. */
+  const own = chatPrompt.RULES.slice(0, -2).map(r => '- ' + r).join('\n');
+  const saved = { chatPrompt: own, chatPromptComplete: true };
+  const missing = chatPrompt.missingRules(saved);
+  assert.equal(missing.length, 2, 'панель видит ровно те правила, которых нет');
+  assert.equal(chatPrompt.missingRules({ chatPrompt: '', chatPromptComplete: false }).length, 0,
+    'пока поле не сохраняли, правила подставляются целиком сами — предлагать нечего');
+
+  // Дописываются В КОНЕЦ: порядок правил владельца — его решение, а вставка в
+  // середину переставляла бы уже прочитанное им.
+  const after = chatPrompt.withMissingRules(saved);
+  assert.ok(after.startsWith(own), 'текст владельца не тронут');
+  assert.equal(chatPrompt.missingRules({ chatPrompt: after, chatPromptComplete: true }).length, 0);
+
+  // Правило узнаётся по началу: правка хвоста фразы не превращает его в
+  // «отсутствующее», иначе панель предлагала бы дописать уже принятое.
+  const edited = { chatPromptComplete: true, chatPrompt: chatPrompt.RULES.map(r => '- ' + r.slice(0, 60) + ' (по-своему)').join('\n') };
+  assert.equal(chatPrompt.missingRules(edited).length, 0, 'переписанный конец правила не считается пропажей');
+
+  // Кнопка — вторая отправка той же формы: вложенных форм в HTML не бывает.
+  const page = adminViews.settingsPage(Object.assign({}, SETTINGS, saved), CATALOG_DB, '', '', {});
+  assert.match(page, /name="chatRulesAppend"/, 'в панели есть кнопка дописать');
+  assert.ok(page.includes(render.esc(missing[0])), 'и сами правила показаны целиком — решать, читая');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /if \(req\.body\.chatRulesAppend\)[\s\S]{0,220}withMissingRules\(\{ chatPrompt: patch\.chatPrompt/,
+    'недостающие считаются от присланного текста, а не от сохранённого: владелец мог править поле прямо сейчас');
+
+  // Сколько стоит запрос — тоже в панели: длина инструкции это деньги на
+  // каждом ответе, и узнать об этом иначе неоткуда.
+  const size = chatPrompt.promptSize(CATALOG_DB, SETTINGS);
+  assert.ok(size.instruction > 0 && size.catalog > 0 && size.total >= size.instruction + size.catalog);
+  assert.match(page, /примерно \d+ токенов/);
+});
+
 test('консультант знает цену каждой сборки, а не одну «от»', () => {
   /* «Какая розничная цена 17 про макс сим 512» — самый обычный вопрос магазина
    * техники, и ответ на него у нас есть до рубля. Боевая витрина 8 сентября
@@ -13736,15 +13804,20 @@ test('консультант знает цену каждой сборки, а �
         if (cfg && !variants.optionFits(cfg, label, map)) continue;
         if (!picked.every(c => variants.optionFits(c.value, label, map))) continue;
         const add = picked.reduce((a, c) => a + (Number(c.value.add) || 0), 0);
-        const shown = render.money(promo.shopPrice(p.price + (cfg ? Number(cfg.add) || 0 : 0) + add, p, SALE).price, SALE);
-        assert.ok(line.includes(shown), `у ${p.name} нет цены сборки ${label} ${picked.map(c => c.label).join(' + ')} (${shown})`);
+        /* Число в таблице ГОЛОЕ — без разрядов и валюты: «90 410 ₽» стоит
+         * вчетверо дороже «90410», а цен две сотни. Разряды и знак валюты в
+         * ответе покупателю расставит правило, валюту объявляет шапка. */
+        const shown = String(promo.shopPrice(p.price + (cfg ? Number(cfg.add) || 0 : 0) + add, p, SALE).price);
+        assert.match(line, new RegExp('(^|[ ,;])' + shown + '(,|;|$)'),
+          `у ${p.name} нет цены сборки ${label} ${picked.map(c => c.label).join(' + ')} (${shown})`);
         mine++; checked++;
       }
     };
     walk(0, []);
     // Лишних чисел в строке тоже быть не должно: цена, которой не отвечает ни
     // одна сборка, — это цена, которой на витрине нет.
-    assert.equal((line.match(/₽/g) || []).length, mine, 'у ' + p.name + ' в строке ровно столько цен, сколько сборок');
+    assert.equal((line.match(/(^|[ ,;])\d{3,}(,|;|$)/g) || []).length, mine,
+      'у ' + p.name + ' в строке ровно столько цен, сколько сборок');
   }
   assert.ok(checked > 100, 'проверено цен: ' + checked);
 
@@ -13772,10 +13845,15 @@ test('в контекст ИИ уезжают живые цены и налич�
   const text = chatPrompt.catalogText(db, SETTINGS);
 
   // Цена берётся той же функцией, что рисует карточку: своя формула здесь была
-  // бы вторым расчётом цены в проекте.
-  assert.ok(text.includes(render.money(render.startPrice(products[0]), SETTINGS)), 'цена как на витрине');
-  assert.match(text, /цены: 256 ГБ .+, 512 ГБ /, 'у каждой сборки своя точная цена, а не одна «от»');
+  // бы вторым расчётом цены в проекте. В таблице она голая, без разрядов и
+  // валюты — за их оформление мы платили бы в каждом запросе.
+  assert.match(text, new RegExp('цены: 256 ГБ ' + render.startPrice(products[0]) + ','), 'цена как на витрине');
+  assert.match(text, /цены: 256 ГБ \d+, 512 ГБ \d+/, 'у каждой сборки своя точная цена, а не одна «от»');
   assert.match(text, /\|iphone-17-pro$/m, 'id карточки — чтобы дать покупателю ссылку');
+  /* Раздел не повторяем, когда он и так в начале названия, а цену «от» — когда
+   * ниже стоит строка цен: и то, и другое мы оплачивали бы дважды у каждого
+   * товара. У «Mac Studio|Mac» раздел остаётся: название с него не начинается. */
+  assert.match(text, /^iPhone 17 Pro\|\|/m, 'раздел из названия не дублируется');
 
   /* Каталог — таблица с подписями столбцов в шапке, а не подпись у каждого
    * товара: за «категория:», «варианты:» и «цвета:» мы платим в каждом
@@ -13783,7 +13861,7 @@ test('в контекст ИИ уезжают живые цены и налич�
    * строке лежит, — иначе экономия выйдет боком. */
   assert.match(text, /поля через «\|»/);
   for (const w of ['раздел', 'наличие', 'цвета', '/product/id']) assert.ok(text.includes(w), 'шапка называет ' + w);
-  assert.match(text, /^Mac Studio\|Mac\|[^|]+\|нет\|\|mac-studio$/m,
+  assert.match(text, /^Mac Studio\|\|[^|]+\|нет\|\|mac-studio$/m,
     'у распроданного варианты не перечисляем вовсе: выбирать не из чего, а место они занимают');
   assert.ok(!/^цены:/m.test(text.split('Mac Studio')[1] || ''), 'и строки цен у него тоже нет');
 

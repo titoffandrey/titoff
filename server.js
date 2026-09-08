@@ -5351,6 +5351,14 @@ app.post('/admin/settings', async (req, res) => {
     // textarea. Без отметки следующий показ принял бы их за старую добавку
     // владельца и ещё раз приписал стандартную инструкцию сверху.
     patch.chatPromptComplete = true;
+    /* «Дописать правила» — вторая кнопка отправки той же формы: браузер шлёт
+     * имя только нажатой, а вложенных форм в HTML не бывает (тот же приём, что
+     * у удаления ответа на отзыв). Недостающие считаются от ПРИСЛАННОГО текста,
+     * а не от сохранённого: владелец мог править поле прямо сейчас, и сверка со
+     * старым значением дописала бы то, что он только что вписал сам. */
+    if (req.body.chatRulesAppend) {
+      patch.chatPrompt = PROMPT.withMissingRules({ chatPrompt: patch.chatPrompt, chatPromptComplete: true });
+    }
   }
   if (req.body.chatGreeting !== undefined) patch.chatGreeting = String(req.body.chatGreeting).trim().slice(0, 400);
   if (req.body.chatChatId !== undefined) {

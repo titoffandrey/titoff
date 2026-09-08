@@ -751,6 +751,15 @@ body.admin{background:var(--bg2)}
 .form-section .field:last-child{margin-bottom:0}
 .field-hint{margin:6px 0 0;font-size:12.5px;color:var(--muted);line-height:1.4}
 .field-err{margin:6px 0 0;font-size:12.5px;color:#c8102e;line-height:1.4}
+/* Новые правила консультанта, которых нет в инструкции владельца. Тон тёплый —
+   тот же #bf4800, каким подписана очередь модерации: это не ошибка, а работа,
+   которую стоит заметить. Правила показываются целиком: решать, нужно ли
+   правило, можно только прочитав его. */
+.a-newrules{margin:10px 0 0;padding:12px 14px;background:#fffaf2;border:1px solid #f2dcc8;border-radius:12px;font-size:12.5px;line-height:1.45}
+.a-newrules b{display:block;color:#a83f00;font-size:13px;margin-bottom:6px}
+.a-newrules ul{margin:0 0 10px;padding-left:18px;color:var(--muted)}
+.a-newrules li{margin:0 0 5px}
+.a-newrules .btn{margin-right:10px}
 .field.has-error input,.field.has-error textarea{border-color:#c8102e;background:#fff8f8}
 .form-alert{background:#fff5f5;border:1px solid #f6c9c9;border-radius:14px;padding:14px 18px;margin-bottom:14px;font-size:14px;color:#8a1220}
 .form-alert ul{margin:6px 0 0;padding-left:18px}
