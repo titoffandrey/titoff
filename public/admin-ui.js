@@ -1603,11 +1603,15 @@
   /* Ссылка «внутрь отчёта» — та, что ведёт на ЭТУ ЖЕ страницу и меняет только
    * параметры адреса. Соседние ссылки раздела («Кто заходил», карточка
    * посетителя, заказ) ведут по другим путям и обязаны открываться как обычно,
-   * поэтому сравнивается именно путь, а не список классов. */
+   * поэтому сравнивается именно путь, а не список классов.
+   *
+   * `.a-period` — тот же случай на «Обзоре» и в «Заказах»: смена периода меняет
+   * только параметр адреса, и перезагружать ради неё страницу (со списком заявок
+   * и прокруткой к нужной) незачем. */
   function reportLink(target) {
     var link = target && target.closest ? target.closest('a[href]') : null;
     if (!link || link.target || link.hasAttribute('download')) return null;
-    if (!link.closest('.metric-toolbar, .metric-panel')) return null;
+    if (!link.closest('.metric-toolbar, .metric-panel, .a-period')) return null;
     return link.origin === location.origin && link.pathname === location.pathname ? link : null;
   }
 

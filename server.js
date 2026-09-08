@@ -199,6 +199,11 @@ const ordersBackUrl = (body, flash) => {
   if (['ok', 'wait', 'warn', 'off', 'none', 'draft'].includes(pay)) {
     params.push('pay=' + encodeURIComponent(pay));
   }
+  // Период — такой же охват страницы, как номер и режим правки: без него разбор
+  // заявок за неделю после первого же действия выбрасывал бы менеджера ко всем
+  // заказам за всё время. Список значений закрытый (`orderPeriod` в render.js).
+  const period = R.orderPeriod(body && body.period);
+  if (period) params.push('period=' + period);
   if (flash) params.push('flash=' + encodeURIComponent(flash));
   return '/admin/orders' + (params.length ? '?' + params.join('&') : '');
 };
@@ -3894,7 +3899,10 @@ app.get('/admin/live', (req, res) => {
 // Пульс витрины («сейчас на сайте» и сегодняшние сутки) — на «Обзоре»: полную
 // сводку там считать незачем, а число людей на сайте прямо сейчас — то, ради
 // чего панель и открывают.
-app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db, metrics.pulse())); });
+// Период сводки приезжает адресом (`?period=7`), как и в метрике: своей проверки
+// здесь нет — список допустимых значений закрыт в `R.orderPeriod`, и вторая
+// проверка того же параметра разъехалась бы с ней молча.
+app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db, metrics.pulse(), req.query)); });
 app.get('/admin/analytics', (req, res) => {
   if (!guardAdmin(req, res)) return;
   /* `reg` — страница рейтинга рядом с картой. Проверять её здесь нечем: сколько

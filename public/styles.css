@@ -2941,6 +2941,23 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
   border-radius:9px;background:#fff;color:var(--text);font-size:12.5px}
 .o-filters .link{white-space:nowrap}
 
+/* Период — ОХВАТ страницы, а не ещё одно поле отбора, поэтому кнопка стоит
+   перед формой отдельной пилюлей. Пилюля та же самая, что над отчётом метрики
+   (`gSelect` в lib/analytics-view.js): второй вид одного и того же выбора в
+   соседних разделах панели читался бы как два разных раздела.
+
+   На «Обзоре» в этом ряду кнопка одна. Ряд переносится: у формы отбора свой
+   минимум ширины, и в узком окне ей лучше уехать под кнопку, чем сжиматься до
+   нечитаемого.
+
+   Высота у пилюли своя, 40 px, и тянуть её во всю высоту ряда НЕЛЬЗЯ: `height`
+   в процентах у подписи внутри `<details>` считается от высоты, которую сам же
+   `<details>` берёт у своего содержимого. В ряду с формой отбора это выглядело
+   правильно (высоту задавала форма), а на телефоне, где кнопка в ряду одна,
+   круг замыкался и пилюля сплющивалась до 26 px. */
+.a-period{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px}
+.a-period>.o-filters{flex:1;margin:0}
+
 /* Режим правки: пока он выключен, столбца с удалением нет вовсе. «✕» у каждой
    строки — это удаление заказа в один промах мыши, а список открывают, чтобы
    читать, а не чистить. Переключатель — скрытый чекбокс, поэтому ни строчки
@@ -2949,6 +2966,10 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .o-list-title{display:flex;align-items:baseline;gap:9px;min-width:0}
 .o-list-title h2{margin:0;font-size:18px}
 .o-list-title span{color:var(--muted);font-size:12px;white-space:nowrap}
+/* Общая сумма найденных заявок — рядом с их числом: «12 заказов» без денег
+   отвечает на половину вопроса. Цифры табличные, иначе сумма прыгает в ширине
+   при каждом обновлении списка. */
+.o-list-sum{font-size:13.5px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
 .a-panel-edit-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto}
 .edit-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;
   border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12.5px;cursor:pointer;
@@ -4268,10 +4289,18 @@ details.metric-rules{margin-bottom:14px}
   .o-filters{grid-template-columns:1fr auto}
   .o-filters label:first-of-type{grid-column:1/-1}
   .o-filters label:nth-of-type(2){min-width:0}
+  /* Кнопка периода и форма отбора занимают по ряду: рядом им нужно 690 px, а
+     есть 390. Меню под кнопкой раскрывается во всю её ширину — то же правило,
+     что у пилюль над отчётом метрики. */
+  .a-period>.g-select{flex:1 0 100%}
+  .a-period>.g-select>.g-pill{width:100%;justify-content:center}
+  .a-period>.o-filters{flex-basis:100%}
   .o-list-panel{padding:13px}
   .a-panel-edit{align-items:flex-start}
-  .o-list-title{display:block}
-  .o-list-title span{display:block;margin-top:2px}
+  /* Число заявок и их сумма встают под заголовком ОДНОЙ строкой: тремя строками
+     шапка списка съедала бы экран до первой заявки. */
+  .o-list-title{flex-wrap:wrap;row-gap:2px}
+  .o-list-title h2{flex:1 0 100%}
   .a-panel-edit-actions{flex-wrap:wrap}
 
   /* Строка кассы: на телефоне состояние всё равно переносится под название, и

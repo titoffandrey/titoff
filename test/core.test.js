@@ -10612,6 +10612,125 @@ test('счётчики и выручка одинаковы на «Обзоре�
   assert.doesNotMatch(empty, /o-recent-row/);
 });
 
+test('общая сумма заказов стоит в шапке списка и считается по найденным заявкам', () => {
+  const now = Date.now();
+  const orders = [
+    { id: 'a', number: '100001', total: 100000, items: [], createdAt: now - 60000, customerName: 'Анна', payment: { status: 'paid' } },
+    { id: 'b', number: '100002', total: 50000, items: [], createdAt: now - 3 * 86400000, customerName: 'Борис', payment: null },
+    { id: 'c', number: '100003', total: 20000, items: [], createdAt: now - 400 * 86400000, customerName: 'Вера', payment: { status: 'paid' } }
+  ];
+  const db = statsDb(orders);
+  const list = adminViews.ordersList(SETTINGS, db, null, 1, null, {});
+  // Сумма видна БЕЗ раскрытия свёртки: «на сколько заказали» — первый вопрос к
+  // любому отбору, и отвечать на него нажатием значит не отвечать вовсе.
+  assert.match(list, /<span>3 заказа<\/span><b class="o-list-sum">170\s?000\s?₽<\/b>/);
+  assert.ok(list.indexOf('o-list-sum') < list.indexOf('o-summary-details'),
+    'сумма стоит в шапке списка, а не только в свёрнутой сводке под ним');
+  // Считается она по НАЙДЕННЫМ заявкам — по тем самым строкам, что ниже: иначе
+  // «Найдено 1 из 3» и сумма рядом были бы про разные наборы заказов.
+  const found = adminViews.ordersList(SETTINGS, db, null, 1, null, { q: 'Борис' });
+  assert.match(found, /<span>Найдено 1 из 3<\/span><b class="o-list-sum">50\s?000\s?₽<\/b>/);
+  // Общая сумма есть и в самой сводке — рядом с выручкой: сколько оформили и
+  // сколько из этого дошло, это два разных вопроса.
+  assert.match(list, /<dt>Сумма заказов<\/dt><dd>170\s?000\s?₽<\/dd>/);
+  // Всё оплачено — строки нет вовсе: она повторяла бы выручку над собой.
+  assert.doesNotMatch(render.orderStatsBar(render.orderStats([
+    { total: 1000, createdAt: now, payment: { status: 'paid' } }
+  ]), SETTINGS), /Сумма заказов/);
+});
+
+test('период заказов выбирается тем же меню, что и в метрике, и задаёт всю страницу', () => {
+  const now = Date.now();
+  const orders = [
+    { id: 'a', number: '100001', total: 100000, items: [], createdAt: now - 60000, customerName: 'Анна', payment: { status: 'paid' } },
+    { id: 'b', number: '100002', total: 50000, items: [], createdAt: now - 3 * 86400000, customerName: 'Борис', payment: null },
+    { id: 'c', number: '100003', total: 20000, items: [], createdAt: now - 400 * 86400000, customerName: 'Вера', payment: { status: 'paid' } }
+  ];
+  const db = statsDb(orders);
+
+  // Список закрытый, по умолчанию охват не ограничен: «Обзор» показывал выручку
+  // за всё время, и молча превратить её в сегодняшнюю значило бы поменять числа
+  // под руками у владельца. Мусор в адресе читается так же — его правят руками.
+  assert.equal(render.orderPeriod(undefined), 0);
+  assert.equal(render.orderPeriod('99'), 0);
+  assert.equal(render.orderPeriod('7'), 7);
+  assert.equal(render.orderPeriodLabel(0), 'За всё время');
+  assert.equal(render.orderPeriodSince(0, now), 0, 'за всё время границы нет вовсе');
+  assert.equal(render.ordersInPeriod(orders, 0).length, 3);
+  assert.equal(render.ordersInPeriod(orders, 7, now).length, 2);
+  assert.equal(render.ordersInPeriod(orders, 1, now).length, 1);
+
+  // Кнопка — ТА ЖЕ, что над отчётом метрики (`gSelect`): вторая такая же
+  // означала бы два вида одного и того же выбора в соседних разделах панели.
+  for (const [page, base] of [['обзор', '/admin'], ['заказы', '/admin/orders']]) {
+    const html = page === 'обзор'
+      ? adminViews.dashboard(SETTINGS, db, {}, { period: '7' })
+      : adminViews.ordersList(SETTINGS, db, null, 1, null, { period: '7' });
+    assert.match(html, /<details class="g-select gs-days" data-menu>/, page + ': пилюля метрики');
+    assert.match(html, /class="g-pill-text">Последние 7 дней</, page + ': на кнопке выбранный период');
+    assert.match(html, new RegExp('href="' + base.replace('/', '\\/') + '\\?period=1"'), page + ': «Сегодня» ссылкой');
+    // «За всё время» — пустое значение, и в адресе его нет вовсе.
+    assert.match(html, new RegExp('href="' + base.replace('/', '\\/') + '"'), page + ': «за всё время» без хвоста');
+  }
+
+  // Период задаёт и список, и сводку под ним — иначе таблица и числа над ней
+  // говорили бы про разные сроки.
+  const week = adminViews.ordersList(SETTINGS, db, null, 1, null, { period: '7' });
+  assert.equal((week.match(/<tr id="order-/g) || []).length, 2);
+  assert.match(week, /<span>2 заказа<\/span><b class="o-list-sum">150\s?000\s?₽<\/b>/);
+  assert.match(week, /Выручка<\/span>\s*<strong>100\s?000\s?₽/);
+  // Разметка сводки по-прежнему одна на обе страницы.
+  const bar = html => {
+    const from = html.indexOf('<div class="o-stats">');
+    return html.slice(from, html.indexOf('</section></div>', from) + 16);
+  };
+  assert.equal(bar(adminViews.dashboard(SETTINGS, db, {}, { period: '7' })), bar(week));
+
+  // За выбранный период заявок может не быть, и это не «заказов пока нет».
+  const dayList = adminViews.ordersList(SETTINGS, statsDb([orders[2]]), null, 1, null, { period: '1' });
+  assert.match(dayList, /За выбранный период заказов нет/);
+  assert.match(adminViews.dashboard(SETTINGS, statsDb([orders[2]]), {}, { period: '1' }),
+    /За выбранный период заказов нет/);
+
+  // «Сегодня» отдельной строкой показывается, только когда это ЧАСТЬ показанного:
+  // за сегодняшний период она повторяла бы «Оплачено N из N» и выручку над ней.
+  assert.match(adminViews.dashboard(SETTINGS, db, {}, {}), /<dt>Сегодня<\/dt>/);
+  assert.doesNotMatch(adminViews.dashboard(SETTINGS, db, {}, { period: '1' }), /<dt>Сегодня<\/dt>/);
+
+  // Период переживает поиск, «Сбросить» и действие над строкой: он охват
+  // страницы, а не отбор, и после каждого удаления сбрасывать его нельзя.
+  const searched = adminViews.ordersList(SETTINGS, db, null, 1, null, { period: '7', q: 'Анна' });
+  assert.match(searched, /<input type="hidden" name="period" value="7">/, 'форма отбора несёт период');
+  assert.match(searched, /href="\/admin\/orders\?period=7">Сбросить</,
+    '«Сбросить» снимает отбор, но не срок, за который смотрят');
+  assert.match(searched, /\/admin\/orders\/a\/delete[\s\S]{0,400}name="period" value="7"/,
+    'форма действия возвращает период вместе со страницей');
+  // Сервер кладёт его в адрес возврата — иначе разбор заявок за неделю после
+  // первого же действия выбрасывал бы менеджера ко всем заказам за всё время.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const back = server.slice(server.indexOf('const ordersBackUrl'), server.indexOf('// Тот же возврат для отзывов'));
+  assert.match(back, /R\.orderPeriod\(body[\s\S]{0,120}period=/, 'период возвращается тем же адресом');
+
+  // Пилюля меняет период живым переходом, а не перезагрузкой всей страницы со
+  // списком заявок: путь у ссылки тот же, меняется только параметр.
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  assert.match(ui, /closest\('\.metric-toolbar, \.metric-panel, \.a-period'\)/);
+});
+
+test('«сегодня» у заказов начинается в московскую полночь, а не в серверную', () => {
+  // Сервер живёт в UTC, и `setHours(0,0,0,0)` начинал бы сутки в три часа ночи
+  // по Москве: заказы первых трёх часов считались бы вчерашними.
+  const at = Date.UTC(2026, 8, 8, 0, 30, 0, 123); // 03:30 по Москве
+  const start = render.mskDayStart(at);
+  assert.equal(render.mskDateTime(start), '08.09.2026 в 00:00');
+  assert.ok(start <= at && at - start < 86400000);
+  assert.equal(render.mskDayStart(start), start, 'полночь — начало собственных суток');
+  // Заказ, оформленный в 00:30 по Москве, — сегодняшний, хотя по UTC ещё вчера.
+  const night = Date.UTC(2026, 8, 7, 21, 30); // 08.09 00:30 МСК
+  assert.equal(render.orderStats([{ total: 1000, createdAt: night }], at).today.n, 1);
+  assert.equal(render.ordersInPeriod([{ createdAt: night }], 1, at).length, 1);
+});
+
 test('состояние оплаты красит панель одним набором цветов, и на телефоне это карточки', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   // Цвет тона задан ОДИН раз: по нему красятся плашка, строка и точка сводки.
