@@ -16927,8 +16927,8 @@ test('домены магазина привязываются из панели
   /* Разбор поля формы: владелец копирует адрес из строки браузера, поэтому
    * схема, порт, путь и регистр снимаются молча, а `www` не заводится отдельной
    * записью — он обслуживается вместе с основным именем. */
-  const parsed = DOMAINS.parse('https://WWW.Shop.Example.com/catalog\nadc-apple.com\nshop.example.com:8443\n');
-  assert.deepEqual(parsed.list, ['shop.example.com', 'adc-apple.com'], 'дубли схлопываются, мусор адреса снимается');
+  const parsed = DOMAINS.parse('https://WWW.Shop.Example.com/catalog\ndash-shop.example.com\nshop.example.com:8443\n');
+  assert.deepEqual(parsed.list, ['shop.example.com', 'dash-shop.example.com'], 'дубли схлопываются, мусор адреса снимается');
   assert.deepEqual(parsed.bad, []);
 
   // Негодной считается СТРОКА ЦЕЛИКОМ: иначе форма пожалуется на «не», и
@@ -16937,7 +16937,7 @@ test('домены магазина привязываются из панели
   /* IP доменом не считается: сертификат на адрес по этому пути не выпустится
    * вовсе, а строка «89.125.187.83» в списке читалась бы как рабочая привязка. */
   assert.equal(DOMAINS.valid('89.125.187.83'), false);
-  assert.equal(DOMAINS.valid('adc-apple.com'), true);
+  assert.equal(DOMAINS.valid('dash-shop.example.com'), true);
 
   // Наш ли домен: `www` засчитывается, чужое имя — нет.
   const settings = { siteDomains: ['shop.example.com'] };
@@ -16969,10 +16969,10 @@ test('домены магазина привязываются из панели
   // Раздел панели: поле есть, сохранённое показывается, введённое возвращается
   // вместе с ошибкой (иначе владелец потеряет набранное).
   const db = { pendingReviewCount: () => 0, getOrders: () => [] };
-  const saved = { storeName: 'Тест', adminUsername: 'admin', siteDomains: ['adc-apple.com'] };
+  const saved = { storeName: 'Тест', adminUsername: 'admin', siteDomains: ['dash-shop.example.com'] };
   const panel = adminViews.settingsPage(saved, db, null);
   assert.match(panel, /name="siteDomains"/);
-  assert.match(panel, /adc-apple\.com/);
+  assert.match(panel, /dash-shop\.example\.com/);
   const failed = adminViews.settingsPage(saved, db, 'Ошибка', 'err', { draft: { siteDomains: 'не домен!' } });
   assert.match(failed, /не домен!/, 'введённое возвращается в поле');
 });
