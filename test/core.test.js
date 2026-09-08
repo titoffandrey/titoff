@@ -15683,6 +15683,77 @@ test('оформил заказ — в чате он по имени, а не п
   assert.match(adminViews.chatList(SETTINGS, { ...db, visibleOrders: () => [] }, '', 1), /Сергей Петров/);
 });
 
+test('заказ находится по названному номеру телефона, а не только по метке браузера', () => {
+  /* Заказы диалогу подбирала одна метка посетителя, а живёт она в браузере: в
+   * чат пишут с телефона, из другого браузера, после чистки cookie и через
+   * прокси — и метка тогда другая. На боевой витрине это выглядело так:
+   * покупатель просит отслеживание, называет телефон и номер заказа, а
+   * консультант трижды подряд отвечает «заявки не вижу» — при том что заказ
+   * оплачен, отправление собрано и ссылка на него уже есть. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-phone-'));
+  chatStore.init(dir);
+  const phoneLib = require('../public/phone.js');
+  const promptDb = { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] };
+
+  /* Разбирает номер тот же модуль, что и поле оформления: записать его в заказ и
+   * узнать в реплике обязано одно и то же правило. Отсюда и все привычные
+   * записи одного номера. */
+  for (const said of ['+79969962915', '89969962915', '8 (996) 996-29-15', '9969962915',
+    'мой номер 8 996 996-29-15, заказ 149021']) {
+    assert.deepEqual(phoneLib.find(said), ['+79969962915'], 'номер не узнан в записи: ' + said);
+  }
+  // Номер заказа шестизначный, и телефоном он притворяться не должен — иначе
+  // каждая вторая реплика тратила бы попытку опознания.
+  assert.deepEqual(phoneLib.find('149021'), []);
+  assert.deepEqual(phoneLib.find('заказ на 57600 рублей от 08.09.2026'), []);
+  // Из одной фразы берём считаное число номеров: иначе длинная реплика сама по
+  // себе была бы перебором.
+  assert.ok(phoneLib.find('+7 996 996 29 15, +375 29 123-45-67, +7 999 111-22-33, +7 999 111-22-44').length <= 3);
+
+  const chat = chatStore.create({ visitorId: 'ab12'.repeat(8), city: 'Торонто' });
+  assert.equal(chatStore.get(chat.id).phone, '', 'номера нет, пока покупатель его не назвал');
+  assert.equal(chatStore.setPhone(chat, '+79969962915'), true);
+  assert.equal(chatStore.get(chat.id).phone, '+79969962915');
+  assert.equal(chatStore.setPhone(chat, '+79969962915'), false, 'тот же номер ничего не меняет');
+
+  /* Телефон — не секрет, поэтому неудачные попытки считаются: без предела чат
+   * стал бы способом перебирать чужие номера и узнавать, кто здесь покупал. */
+  const guesser = chatStore.create({});
+  assert.equal(chatStore.phoneTriesLeft(guesser), chatStore.MAX_PHONE_TRIES);
+  for (let i = 0; i < chatStore.MAX_PHONE_TRIES; i++) chatStore.phoneMiss(guesser);
+  assert.equal(chatStore.phoneTriesLeft(guesser), 0, 'после предела опознание не работает вовсе');
+
+  // Номер переживает перезапуск: заказы обязаны находиться и завтра.
+  const saved = chatStore.create({ phone: '+79969962915', phoneTries: 2 });
+  assert.equal(saved.phone, '+79969962915');
+  assert.equal(chatStore.phoneTriesLeft(saved), chatStore.MAX_PHONE_TRIES - 2);
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const orders = source.slice(source.indexOf('function chatOrders('), source.indexOf('function identifyByPhone('));
+  assert.match(orders, /phone && o\.phone === phone/, 'заказы подбираются и по подтверждённому номеру');
+  const find = source.slice(source.indexOf('function identifyByPhone('), source.indexOf('function chatContext('));
+  assert.match(find, /CHAT\.phoneTriesLeft\(chat\)/, 'исчерпанные попытки не ищут вовсе');
+  assert.match(find, /PHONE\.find\(text\)/, 'свой разбор номера в маршруте завёлся бы вторым');
+  assert.match(find, /CHAT\.setPhone\(chat, phone\)/);
+  assert.match(find, /CHAT\.phoneMiss\(chat\)/, 'номер без заказов тратит попытку');
+  /* Опознание идёт ДО ответа модели: заказ обязан попасть в факты той же
+   * реплики, иначе на «мой номер такой-то» пришло бы «заявок не вижу». */
+  const send = source.slice(source.indexOf("app.post('/api/chat/send'"), source.indexOf("app.get('/api/chat/stream'"));
+  assert.ok(send.includes('identifyByPhone(chat, text)'), 'реплику покупателя надо разобрать');
+  assert.ok(send.indexOf('identifyByPhone(chat, text)') < send.indexOf('aiReply(chat'),
+    'сперва опознание, потом ответ консультанта');
+
+  /* Ключ опознания ОДИН — телефон. По номеру заказа поиска нет и быть не должно:
+   * он шестизначный, то есть перебирается целиком. */
+  assert.equal(/o\.number === /.test(find), false, 'поиск заказа по номеру вернулся в чат');
+
+  /* И правила консультанта просят ровно тот ключ, который работает: прежде он
+   * просил номер заказа — то есть обещал поиск, которого нет. */
+  const rules = chatPrompt.build(promptDb, CHAT_ON, { messages: [] })[0].content;
+  assert.match(rules, /попроси номер телефона, на который оформлен заказ/);
+  assert.match(rules, /Номер заказа для поиска не проси/);
+});
+
 test('консультанта можно выключить галочкой, не трогая ключ', () => {
   /* Владелец вправе увести все вопросы на живого менеджера — на время, на
    * выходные, на разбор жалоб — и вернуть бота одним нажатием, а не искать ключ
