@@ -15821,6 +15821,123 @@ test('отправлениям без ключа ссылка выдаётся �
   assert.equal(db.getOrder(order.id).shipment.token, token, 'ключ сменился сам собой');
 });
 
+test('оплаченный заказ показывает подтверждение с составом, суммами и продавцом', () => {
+  const ss = Object.assign({}, SETTINGS, {
+    legalOperator: 'ИП Титов Роман Сергеевич', legalInn: '890512345678', legalOgrn: '325890000012345'
+  });
+  const paidAt = Date.parse('2026-09-08T14:21:00+03:00');
+  const order = {
+    id: 'r1', number: '482913', createdAt: paidAt - 600000,
+    items: [
+      { id: 'iphone-17-pro', name: 'iPhone 17 Pro 256 ГБ, Космический оранжевый', price: 79470, qty: 1 },
+      { id: 'airtag', name: 'AirTag', price: 3490, qty: 2 }
+    ],
+    itemsTotal: 86450, promoCode: 'SALE', promoDiscount: 15260, deliveryPrice: 550, total: 87000,
+    customerName: 'Иван Петров', phone: '+79991234567',
+    delivery: 'cdek', deliveryMode: 'pvz', deliveryZone: 'ural',
+    pickupCode: 'EKB77', pickupAddress: 'Свердловская область, Екатеринбург, ул. Малышева, 53',
+    address: 'г Екатеринбург, ул Малышева, д 5',
+    payment: { status: 'paid', method: 'SBP', amount: 87000, currency: 'RUB', paidAt, invoiceId: 'x' }
+  };
+  const html = render.payPage(ss, order, { origin: '' });
+
+  // ЧТО куплено — то, ради чего документ и открывают: состав, количество,
+  // цена за штуку и сумма строки.
+  assert.match(html, /iPhone 17 Pro 256 ГБ, Космический оранжевый/);
+  assert.match(html, /class="rc-qty">2</);
+  assert.match(html, /class="rc-sum">6\s?980\s?₽/);
+
+  /* Суммы собраны так же, как их видел покупатель на оформлении: товары ДО
+   * скидки, отдельной строкой сама скидка, доставка и итог. Цена позиции
+   * хранится уже со скидкой, поэтому «товары» без неё не сходились бы со
+   * столбиком — на это здесь и смотрят в первую очередь. */
+  assert.match(html, /Товары<\/span><b>101\s?710\s?₽/);
+  assert.match(html, /Скидка по промокоду SALE<\/span><b>−15\s?260\s?₽/);
+  assert.match(html, /Доставка<\/span><b>550\s?₽/);
+  assert.match(html, /Оплачено<\/span><b>87\s?000\s?₽/);
+
+  // Кому заплатили и куда поедет: продавец с реквизитами, пункт выдачи, получатель.
+  assert.match(html, /ИНН<\/dt><dd>890512345678/);
+  assert.match(html, /ОГРНИП<\/dt><dd>325890000012345/);
+  assert.match(html, /EKB77/);
+  assert.match(html, /\+7 999 123-45-67/);
+  assert.match(html, /08\.09\.2026 в 14:21/);
+  assert.match(html, /data-print/);
+
+  /* ЭТО НЕ ФИСКАЛЬНЫЙ ЧЕК, и вид его подделывать нельзя: онлайн-кассы у
+   * магазина нет, а у настоящего чека есть номер ФД, фискальный признак и QR
+   * для проверки в ФНС. Документ называется тем, чем является. */
+  assert.match(html, /Подтверждение оплаты/);
+  assert.doesNotMatch(html, /кассовый чек|фискальн|ФНС|ОФД|Кассовый чек/i);
+
+  // Какая касса выдала реквизиты — по-прежнему наше внутреннее дело.
+  assert.doesNotMatch(html, /CrocoPAY|MeridianPay|Альфа/i);
+
+  // Неоплаченный заказ подтверждения не получает: платить ещё не за что.
+  const waiting = render.payPage(ss, Object.assign({}, order, {
+    payment: { status: 'pending', method: 'SBP', requisite: '79104693811', expiresAt: Date.now() + 6e5 }
+  }), { origin: '' });
+  assert.doesNotMatch(waiting, /class="receipt"/);
+});
+
+test('отправление готовится само при оплате: срок максимальный, показ — за менеджером', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const prepare = source.slice(source.indexOf('function prepareShipment('),
+    source.indexOf('/* Реквизитов не дала ни одна касса.'));
+
+  // Идемпотентность: повторный вебхук кассы не вправе затереть правки менеджера.
+  assert.match(prepare, /if \(!order \|\| order\.shipment\) return null;/);
+  /* Покупателю заготовка не показывается: «Принят на склад» у коробки, которая
+   * лежит на столе, — обещание, которого никто не давал. Публикует маршрут
+   * человек галочкой в форме отправления. */
+  assert.match(prepare, /shipment\.visible = false;/);
+  // Начало маршрута — день передачи перевозчику, а не момент оплаты.
+  assert.match(prepare, /startedAt: SHIPDAYS\.handoverAt\(/);
+  // Своего срока здесь нет: его берёт `TRACK.build` по зоне, и второй ответ на
+  // тот же вопрос разошёлся бы с маршрутом молча.
+  assert.doesNotMatch(prepare, /days:/);
+  // Ни одного застревания автоматически не ставится: «посылка задерживается» —
+  // это утверждение о конкретной посылке, и делает его человек.
+  assert.doesNotMatch(prepare, /hold/);
+
+  /* Дверей две, и обе там же, где решается «заказ оплачен»: ответ кассы и
+   * ручная отметка о переводе на свои реквизиты. Расхождение сумм отправления
+   * не готовит — там сперва смотрит человек. */
+  const reconcile = source.slice(source.indexOf('async function reconcilePaymentAttempt('),
+    source.indexOf('/* Что реально включено у кассы'));
+  assert.match(reconcile, /if \(state === 'paid'\) prepareShipment\(result\.order\);/);
+  const manual = source.slice(source.indexOf("app.post('/admin/orders/:id/paid'"));
+  assert.match(manual.slice(0, 900), /if \(result\.ok && result\.changed && paid\) prepareShipment\(result\.order\);/);
+
+  /* Срок — ВЕРХНЯЯ граница транзита по этому маршруту: обещать в отслеживании
+   * быстрее, чем обещали на оформлении, нельзя. */
+  const DAYS = require('../lib/delivery-days');
+  for (const zone of ['msk', 'ural', 'dfo', 'ru']) {
+    for (const mode of ['pvz', 'courier']) {
+      const built = tracking.build({ carrier: 'cdek', mode, to: 'Владивосток', zone, seed: 'auto' });
+      assert.equal(built.days, DAYS.transitFor('cdek', mode, zone).max,
+        'срок маршрута разошёлся с верхней границей транзита: ' + zone + '/' + mode);
+    }
+  }
+
+  /* Маршрут начинается в день передачи перевозчику — по той же сетке, что
+   * считает срок на оформлении: отсечка в 16:00 и рабочие дни сборки. Значит и
+   * приедет он к той дате, которую покупатель увидел при покупке. */
+  const friday = Date.parse('2026-09-04T18:30:00+03:00');   // пятница, после отсечки
+  const handover = DAYS.handoverAt(friday, {});
+  assert.equal(render.mskDateTime(handover).slice(0, 10), '08.09.2026', 'сборка уехала не в ближайший рабочий день');
+  assert.ok(handover > friday);
+  // Час уже прошёл — в прошлое посылку не передать.
+  const lateMonday = Date.parse('2026-09-07T15:00:00+03:00');
+  assert.equal(DAYS.handoverAt(lateMonday, { shipHandlingDays: 0 }), lateMonday);
+
+  /* Пока маршрут не начался, «в пути» было бы неправдой ровно в том месте, где
+   * менеджер решает, пора ли отдавать посылку. */
+  const ahead = tracking.build({ carrier: 'cdek', mode: 'pvz', to: 'Казань', zone: 'pfo', seed: 'a', startedAt: Date.now() + 86400000 });
+  assert.equal(tracking.stateText(ahead), 'Ожидает отправки');
+  assert.equal(tracking.shortState(ahead), 'ожидает отправки');
+});
+
 /* ===================== Город по IP: своя база ===================== */
 
 const geoip = require('../lib/geoip');

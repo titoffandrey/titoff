@@ -2760,6 +2760,65 @@ function notifyPayment(order, state, note) {
   sendTelegram(ss, msg).catch(() => {});
 }
 
+/* ---------- Отправление готовится САМО, как только заказ оплачен ----------
+ *
+ * До сих пор маршрут собирал менеджер руками: открыть заявку, перейти в
+ * отправление, вписать город получения и нажать «Собрать». Данных для этого у
+ * магазина нет ни одного лишнего — перевозчик, вариант доставки, адрес и
+ * тарифная зона уже лежат в заказе, — то есть работа была чисто механической и
+ * делалась по каждой оплате заново.
+ *
+ * Три правила, из которых следует всё остальное.
+ *
+ * 1. СРОК — ВЕРХНЯЯ ГРАНИЦА ТРАНЗИТА по этому маршруту (`TRACK.defaultDays` →
+ *    `SHIPDAYS.transitFor().max`). Обещать в отслеживании быстрее, чем обещали
+ *    на оформлении, нельзя, а из вилки честнее брать дальний конец: приехать
+ *    раньше лучше, чем опоздать против собственной ленты.
+ *
+ * 2. НАЧАЛО МАРШРУТА — ДЕНЬ ПЕРЕДАЧИ ПЕРЕВОЗЧИКУ, а не момент оплаты
+ *    (`SHIPDAYS.handoverAt`). Лента начинается с «Заказ создан» У ПЕРЕВОЗЧИКА;
+ *    поставь её начало на оплату — и через несколько часов появится «Принят на
+ *    склад» о коробке, которая ещё у нас на столе.
+ *
+ * 3. ПОКУПАТЕЛЮ ОНО НЕ ПОКАЗЫВАЕТСЯ, пока посылку правда не отдали перевозчику
+ *    (`visible: false`). Это то самое правило, ради которого галочка и заведена
+ *    (см. `lib/tracking.js`): собранный заранее маршрут — заготовка менеджера, а
+ *    не обещание покупателю. Публикует его человек одной галочкой в форме
+ *    отправления — там же, где он видит собранный путь целиком.
+ *
+ * Идемпотентно: заказ, у которого маршрут уже есть, не трогается вовсе — иначе
+ * повторный вебхук кассы затирал бы правки менеджера.
+ */
+function prepareShipment(order) {
+  if (!order || order.shipment) return null;
+  const carrier = DELIVERY.isValid(order.delivery) ? String(order.delivery) : '';
+  if (!carrier) return null;
+  const mode = DELIVERY.isValidMode(carrier, order.deliveryMode) ? String(order.deliveryMode) : 'pvz';
+  /* Куда едет посылка: адрес пункта выдачи, а у курьерского заказа — адрес
+   * покупателя. Города в адресе может не оказаться вовсе (покупатель пишет его
+   * руками), и тогда маршрут не собираем: выдумывать пункт назначения хуже, чем
+   * оставить заготовку менеджеру. */
+  const to = TRACK.cityOf(order.pickupAddress || order.address);
+  if (!to) return null;
+  const s = settings();
+  const shipment = TRACK.build({
+    carrier, mode, to,
+    // Зону проверяет и сводит к «регион не опознан» сам `TRACK.build`, он же по
+    // ней берёт срок — ВЕРХНЮЮ границу транзита (`TRACK.defaultDays`). Считать
+    // её здесь второй раз значило бы завести второй ответ на один вопрос: с
+    // мусором в поле `days` разошлись бы с маршрутом молча.
+    zone: order.deliveryZone || '',
+    from: String(s.shipFromCity || '').trim() || TRACK.DEFAULT_FROM,
+    startedAt: SHIPDAYS.handoverAt(Date.now(), s),
+    // Пересборка того же заказа обязана давать те же времена — иначе «Собрать
+    // заново» в панели тасовало бы часы у уже случившихся событий.
+    seed: order.id
+  });
+  shipment.visible = false;
+  const saved = db.setOrderShipment(order.id, shipment);
+  return saved.ok ? saved.shipment : null;
+}
+
 /* Реквизитов не дала ни одна касса.
  *
  * В отличие от покупателя, менеджеру имена касс как раз нужны: по ним видно,
@@ -3090,7 +3149,14 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
     });
     if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
-    if (result && result.changed) notifyPayment(result.order, state, '');
+    if (result && result.changed) {
+      notifyPayment(result.order, state, '');
+      // Дверь та же, что у уведомления менеджеру: «заказ оплачен» решается
+      // здесь один раз, и второе место с этим решением разошлось бы молча.
+      // Расхождение сумм (`mismatch`) отправление не готовит: там сперва
+      // смотрит человек.
+      if (state === 'paid') prepareShipment(result.order);
+    }
     return { ok: true, state: (result.attempt && result.attempt.status) || state };
   })();
   paymentReconcileJobs.set(reconcileKey, job);
@@ -4175,6 +4241,11 @@ app.post('/admin/orders/:id/paid', (req, res) => {
   if (!guardAdmin(req, res)) return;
   const paid = String(req.body && req.body.paid || '') === '1';
   const result = db.setOrderPaidManually(req.params.id, paid, 'admin');
+  // Вторая дверь «заказ оплачен»: у перевода на свои реквизиты кассы нет вовсе,
+  // и отправление здесь готовится тем же способом. Снятие отметки маршрут не
+  // трогает: он мог быть уже поправлен руками, а стирать чужую работу из-за
+  // промаха мышью нельзя.
+  if (result.ok && result.changed && paid) prepareShipment(result.order);
   const flash = result.ok
     ? (paid ? 'Заказ отмечен оплаченным' : 'Отметка оплаты снята')
     : (result.reason === 'settled_by_provider'

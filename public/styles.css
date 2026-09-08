@@ -5309,6 +5309,70 @@ details.metric-rules{margin-bottom:14px}
   .pay-timer b{font-size:21px}
 }
 
+/* ===== Подтверждение оплаты (документ под «Спасибо за заказ») =====
+   Это не плашка, а документ: его читают строками и печатают. Отсюда белый
+   лист с волосяной рамкой, табличный состав и суммы столбиком справа — вид
+   бумаги, а не карточки витрины.
+
+   Печать сделана обычной печатью браузера (`@media print` ниже): «сохранить в
+   PDF» у него — та же печать, и свой генератор PDF ради одной страницы завести
+   было бы дороже, чем она стоит. */
+.receipt{margin-top:18px;padding:22px;border:1px solid var(--border-soft,var(--border));
+  border-radius:20px;background:#fff}
+.rc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding-bottom:14px;border-bottom:1px solid var(--border-soft,var(--border))}
+.rc-store b{display:block;font-size:17px;letter-spacing:-.02em}
+.rc-store span{display:block;margin-top:2px;color:var(--muted);font-size:12.5px}
+.rc-num{text-align:right}
+.rc-num span{display:block;color:var(--muted);font-size:12.5px}
+.rc-num b{display:block;margin-top:2px;font-size:13px;font-variant-numeric:tabular-nums}
+/* Состав — настоящая таблица: строк бывает десяток, и цифры обязаны стоять
+   столбиком, иначе итог глазами не сходится. */
+.rc-items{width:100%;margin:14px 0 0;border-collapse:collapse;font-size:13.5px}
+.rc-items th{padding:0 0 8px;color:var(--muted);font-size:11.5px;font-weight:600;text-align:right;
+  white-space:nowrap;letter-spacing:.03em;text-transform:uppercase}
+.rc-items th:first-child{text-align:left;width:100%}
+.rc-items td{padding:9px 0;border-top:1px solid var(--border-soft,var(--border));vertical-align:top;text-align:right}
+/* Название — единственная колонка по левому краю, и селектор ей нужен не слабее
+   общего `.rc-items td`: при равной специфичности решал бы порядок правил в
+   файле, а лишний класс тут дешевле такой зависимости. */
+.rc-items .rc-name{text-align:left;padding-right:12px;line-height:1.4}
+.rc-items .rc-qty,.rc-items .rc-one,.rc-items .rc-sum{white-space:nowrap;
+  font-variant-numeric:tabular-nums;padding-left:14px}
+.rc-items .rc-sum{font-weight:600}
+.rc-sums{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft,var(--border));
+  display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.rc-sum-row{display:flex;gap:18px;justify-content:space-between;min-width:min(280px,100%);font-size:13.5px}
+.rc-sum-row span{color:var(--muted)}
+.rc-sum-row b{font-variant-numeric:tabular-nums}
+.rc-sum-row.is-save b{color:var(--sale)}
+.rc-sum-row.is-total{margin-top:4px;padding-top:8px;border-top:1px solid var(--border-soft,var(--border));font-size:15px}
+.rc-sum-row.is-total span{color:var(--text)}
+.rc-sum-row.is-total b{font-size:19px;letter-spacing:-.02em}
+/* Три блока фактов рядом: оплата, доставка, продавец. На узком экране —
+   столбиком, но подписи и значения остаются парами, а не сливаются в текст. */
+.rc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 22px;margin-top:18px;
+  padding-top:16px;border-top:1px solid var(--border-soft,var(--border))}
+.rc-block{margin:0}
+.rc-row{display:flex;gap:10px;justify-content:space-between;padding:3px 0;font-size:12.5px;line-height:1.45}
+.rc-row dt{flex:none;color:var(--muted)}
+.rc-row dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.rc-row-head dt{color:var(--text);font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.rc-row-head{padding-bottom:5px}
+.rc-actions{margin-top:18px}
+.rc-note{margin:12px 0 0;color:var(--muted);font-size:11.5px;line-height:1.5}
+
+/* Печать: на лист уходит только сам документ. Шапка, подвал, чат и кнопки на
+   бумаге не нужны, а карточка «Спасибо за заказ» повторила бы то, что и так
+   стоит первой строкой подтверждения. */
+@media print{
+  .site-header,.site-footer,.chat-fab,.chat-window,#a-notes,.pay-remind,
+  .order-success,.rc-actions,.breadcrumb{display:none!important}
+  body{background:#fff}
+  .receipt{margin:0;padding:0;border:0;border-radius:0}
+  .checkout-page{padding:0}
+}
+
 /* ===== Отслеживание посылки (/track) =====
    Страница выглядит как отслеживание ТОГО перевозчика, который везёт: покупатель,
    отправлявший посылки, узнаёт зелёную ленту СДЭК и синие этапы OZON быстрее,
