@@ -2375,6 +2375,60 @@ test('в строке заказа видно, откуда клиент, а а�
   assert.match(adminViews.ordersList(SETTINGS, db, null, 1), /\/admin\/analytics\/visitor\//);
 });
 
+test('кнопка WhatsApp открывает диалог с покупателем и составом его заказа', () => {
+  const settings = { storeName: 'iStore', currency: '₽' };
+  const order = {
+    id: 'o1', number: '482913', createdAt: Date.UTC(2026, 8, 8, 9, 30),
+    firstName: 'Иван', customerName: 'Иван Петров', phone: '+79991234567', contact: '@ivan',
+    items: [{ name: 'iPhone 17 Pro Max 512 ГБ', price: 79490, qty: 1 }, { name: 'AirTag', price: 3490, qty: 2 }],
+    delivery: 'cdek', deliveryMode: 'pvz', deliveryPrice: 710,
+    pickupCode: 'SVX123', pickupAddress: 'Свердловская область, Екатеринбург, ул. Малышева, 53',
+    address: 'Екатеринбург, ул. Ленина, 5', promoCode: 'SALE', promoDiscount: 4340, total: 87180,
+    clientIp: '85.140.7.212', clientCity: 'Москва', clientOs: 'iOS 26.0', clientBrowser: 'Safari 26'
+  };
+  const text = render.orderMessage(order, settings);
+  // То, ради чего пишут: какой заказ, что в нём, куда едет и сколько платить.
+  assert.match(text, /Здравствуйте, Иван!/);
+  assert.match(text, /№482913 от 08\.09\.2026/);
+  assert.match(text, /iPhone 17 Pro Max 512 ГБ — 79\s490\s₽/);
+  assert.match(text, /AirTag — 2 × 3\s490\s₽/, '«× 1» не пишем, а количество больше одного — обязательно');
+  assert.match(text, /Пункт выдачи: SVX123 — Свердловская/);
+  assert.match(text, /Промокод SALE — выгода 4\s340\s₽/);
+  assert.match(text, /Итого: 87\s180\s₽/);
+  // НО НЕ служебная сводка менеджера: город по IP, устройство и браузер человеку
+  // слать незачем — он и так знает, с какого телефона заказывал.
+  assert.doesNotMatch(text, /85\.140|Safari|iOS 26|Устройство|IP/);
+  // И не разметка: WhatsApp тегов не понимает, «<b>» уехало бы буквами.
+  assert.doesNotMatch(text, /[<>]/);
+
+  const href = render.orderWaHref(order, settings);
+  assert.match(href, /^https:\/\/wa\.me\/79991234567\?text=/, 'wa.me принимает номер одними цифрами');
+  assert.equal(decodeURIComponent(href.slice(href.indexOf('text=') + 5)), text,
+    'текст кодируется целиком — кириллица и переносы остаются одной репликой');
+
+  // Телефона нет (прежняя заявка) — кнопки нет вовсе: диалог «ни с кем» хуже её
+  // отсутствия.
+  assert.equal(render.orderWaHref({ items: [] }, settings), '');
+  assert.doesNotMatch(render.orderClient({ customerName: 'Старый', contact: 'tg' }, { money: settings }), /o-wa/);
+
+  /* Кнопка стоит СНАРУЖИ свёртки: клик по ссылке внутри `summary` браузер
+   * засчитывает заодно нажатием на саму свёртку, и заявка раскрывалась бы на
+   * ровном месте. */
+  const row = render.orderClient(order, { money: settings });
+  assert.match(row, /class="o-wa"/);
+  assert.doesNotMatch(row.slice(row.indexOf('<summary'), row.indexOf('</summary>')), /o-wa/);
+  assert.match(adminViews.ordersList(SETTINGS, {
+    getOrders: () => [order], visibleOrders: () => [order],
+    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
+  }, null, 1), /class="o-wa"/, 'панель зовёт ту же разметку строки заказа');
+
+  /* Деньги в сообщении считает `moneyText()` — без экранирования: у магазина с
+   * «&» в названии валюты в реплике стояло бы «&amp;». В разметке при этом
+   * ничего не изменилось. */
+  assert.match(render.orderMessage(order, { currency: 'A&B' }), /Итого: 87\s180\sA&B/);
+  assert.match(render.money(87180, { currency: 'A&B' }), /87\s180\sA&amp;B/);
+});
+
 test('карточка посетителя показывает визиты, страницы и время на каждой', () => {
   const now = Date.now();
   const visitor = {

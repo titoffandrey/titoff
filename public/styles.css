@@ -2798,6 +2798,24 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .a-orders .o-who-body{margin-top:5px;font-weight:400}
 /* Доставка и адрес — приглушённые: в строке они подсказка, а не заголовок. */
 .a-orders .o-line{margin-top:3px;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+/* «Написать в WhatsApp» — с номером покупателя и составом его заказа.
+
+   Стоит СНАРУЖИ свёртки и видна всегда: написать по телефону — первое, что с
+   заявкой делают, а внутри `summary` ссылка заодно раскрывала бы саму свёртку.
+
+   Цвет фирменный (#25D366), поэтому вырез внутри знака (`--msg-cut`) обязан
+   повторять фон кнопки: по умолчанию он белый, и трубка осталась бы белым пятном
+   на зелёном. Ширина по содержимому — это действие над одной заявкой, а не
+   полоса во всю колонку. */
+.a-orders .o-wa{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:4px 10px;
+  border-radius:999px;background:#25d366;color:#fff;font-size:12.5px;font-weight:560;line-height:1.35;
+  text-decoration:none;--msg-cut:#25d366}
+.a-orders .o-wa .msg-ico{width:15px;height:15px}
+/* Движение и наведение — только под мышью: на телефоне `:hover` залипает после
+   нажатия, и кнопка так и осталась бы подсвеченной (см. блок про наведение). */
+@media (hover:hover) and (pointer:fine){
+  .a-orders .o-wa:hover{background:#1da851;--msg-cut:#1da851}
+}
 
 /* Длинный заказ: три позиции видно всегда, остальные — по клику. */
 .o-rest{margin-top:4px}
