@@ -10222,6 +10222,48 @@ test('номер телефона в реквизитах читается ка�
     'столбец «Оплата» идёт nowrap — внутри свёртки перенос обязан вернуться');
 });
 
+test('строка заказа не раздувается ответом кассы: приписка коротко, ссылка ссылкой', () => {
+  const order = { id: 'o1', number: '752303', total: 77500, items: [], contact: 'tg' };
+  const link = 'https://paysecurepayment.com/payment/merchants/alfasbp/payment.html'
+    + '?mdOrder=1d4edd90-7014-7af5-abc1-c6ae04be6761&language=ru';
+
+  /* РЕКВИЗИТ-ССЫЛКА ПОКАЗЫВАЕТСЯ ССЫЛКОЙ, А НЕ СВОИМ АДРЕСОМ. Полторы сотни
+   * знаков без пробелов браузер ломает в узком столбце по буквам — одна заявка
+   * занимала восемь строк адресом, по которому всё равно только переходят. */
+  const req = render.orderPayMethod(Object.assign({}, order, {
+    payment: {
+      status: 'failed', method: 'CARD_ONLINE', provider: 'alfabank', currency: 'RUB',
+      invoiceId: '1d4edd90-7014-7af5-abc1-c6ae04be6761', requisite: link,
+      startedAt: 1, expiresAt: 2, closedAt: 2
+    }
+  }));
+  assert.match(req, /<a class="o-req-link" href="[^"]+" target="_blank" rel="noopener">Открыть страницу оплаты<\/a>/);
+  assert.ok(!req.includes('>' + render.esc(link) + '<'), 'адрес страницы оплаты выведен текстом');
+  assert.match(req, /1d4edd90-7014-7af5-abc1-c6ae04be6761/, 'сделку у кассы ищут по номеру счёта');
+
+  /* ПРИПИСКА КАССЫ — ОДНОЙ СТРОКОЙ. Банк присылает вместе с кодом инструкцию
+   * ПОКУПАТЕЛЮ, и менеджеру она не нужна: пять строк в столбце у каждой заявки.
+   * Хвост с кодом сохраняется — ради него строку и читают, — а полный ответ
+   * остаётся под курсором. */
+  const note = 'Банк: Операция отклонена. Проверьте введённые данные, достаточность средств'
+    + ' на карте и повторите операцию (-2014)';
+  const status = render.orderStatus(Object.assign({}, order, {
+    payment: { status: 'failed', method: 'CARD_ONLINE', invoiceId: 'i', requisite: link, note, startedAt: 1, expiresAt: 2, closedAt: 2 }
+  }));
+  assert.match(status, /<div class="muted small o-note" title="[^"]+">Банк: Операция отклонена \(-2014\)<\/div>/);
+  // Смотрим ВИДИМЫЙ текст, а не всю разметку: полный ответ лежит в `title`, и по
+  // строке целиком проверка ничего не значила бы.
+  const shown = status.match(/<div class="muted small o-note"[^>]*>([^<]*)</)[1];
+  assert.ok(!shown.includes('Проверьте введённые данные'), 'инструкция покупателю осталась в списке');
+  assert.match(status, /title="Банк: Операция отклонена\. Проверьте введённые данные[^"]+"/, 'полный ответ кассы обязан остаться под курсором');
+
+  // Короткая приписка не режется и лишнего `title` не получает: сокращать нечего.
+  const short = render.orderStatus(Object.assign({}, order, {
+    payment: { status: 'failed', method: 'CARD_ONLINE', invoiceId: 'i', requisite: link, note: 'Банк: Обратитесь в магазин (-2028) · СБП', startedAt: 1, expiresAt: 2, closedAt: 2 }
+  }));
+  assert.match(short, /<div class="muted small o-note">Банк: Обратитесь в магазин \(-2028\) · СБП<\/div>/);
+});
+
 test('оплаченным заказ на странице называется только по ответу кассы', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const order = { id: 'ord1', number: '482913', total: 71990, items: [], contact: 'tg' };

@@ -2509,6 +2509,10 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .o-req-list div+div{margin-top:3px}
 .o-req-list span{color:var(--muted);flex:none}
 .o-req-list b{font-weight:600;text-align:right;word-break:break-word}
+/* Реквизит-ссылка (эквайринг) показывается ссылкой, а не своим адресом: полторы
+   сотни знаков без пробелов ломались по буквам и занимали восемь строк. Перенос
+   ей запрещён — это одно короткое слово-действие, а не значение для чтения. */
+.o-req-link{font-weight:600;text-align:right;white-space:nowrap;color:var(--accent);text-decoration:underline;text-underline-offset:2px}
 
 /* Забракованные реквизиты в свёртке заказа. Покупателю такой счёт не
    показывается вовсе (по выдуманному номеру он либо не заплатит, либо переведёт
@@ -2668,7 +2672,7 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
    оплатой и сколько всего. Состояние и способ оплаты живут одним блоком — это
    один процесс, а отдельные столбцы заставляли собирать его глазами. */
 .o-list-panel{padding:18px 20px}
-.a-orders td{padding:14px 12px;vertical-align:middle;line-height:1.4}
+.a-orders td{padding:11px 12px;vertical-align:middle;line-height:1.4}
 .a-orders th{vertical-align:middle}
 .a-orders .o-num{width:1%;min-width:118px;white-space:nowrap}
 .a-orders .o-num b{display:block;font-size:15px;letter-spacing:-.015em}
@@ -2678,11 +2682,11 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .a-orders .o-items-list{font-size:12.5px;color:#48484a}
 .a-orders .o-items-list div+div{margin-top:4px}
 .a-orders .o-payment{width:1%;min-width:190px}
-.o-payment-main{display:grid;gap:7px}
+.o-payment-main{display:grid;gap:5px}
 .o-payment-state{white-space:nowrap}
 .o-payment-method{font-size:12.5px;color:#48484a}
 .o-payment-method>.muted{display:none}
-.o-reconcile{margin-top:9px}
+.o-reconcile{margin-top:7px}
 .o-reconcile .btn{padding:5px 9px;border-color:#d6d6dc;background:#fff;color:#48484a;font-size:11.5px}
 .o-reconcile .btn:hover{border-color:var(--accent);color:var(--text)}
 .a-orders .o-sum{white-space:nowrap;text-align:right}
@@ -2693,7 +2697,7 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 /* Селектор длиннее нужного намеренно: у `.a-orders .o-sum b` свой крупный кегль
    и он перебил бы кегль этой подписи. */
 .a-orders .o-sum .o-promo b{font-size:11.5px;font-weight:650;letter-spacing:.02em}
-.a-orders .o-note{margin-top:3px;max-width:190px;white-space:normal}
+.a-orders .o-note{margin-top:2px;max-width:190px;white-space:normal}
 /* Отправление — третья строка в столбце заказа, под номером и датой. Подпись
    говорящая («в пути», «задерживается»), поэтому цвет несёт смысл: тёплый у
    задержки — её разбирают руками, зелёный у вручённой, серый у остальных.
@@ -2739,7 +2743,7 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 /* Время под плашкой: обратный отсчёт живого счёта и момент, когда всё
    случилось. Цифры табличные — иначе отсчёт дёргает соседние столбцы на каждой
    секунде. */
-.o-left,.o-when{margin-top:3px;font-variant-numeric:tabular-nums}
+.o-left,.o-when{margin-top:2px;font-variant-numeric:tabular-nums}
 .o-left b{font-weight:650;color:#48484a}
 
 /* Строка красится по состоянию оплаты: оплаченную от отменённой надо отличать с
