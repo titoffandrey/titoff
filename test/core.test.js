@@ -122,9 +122,34 @@ test('утилита безопасно сбрасывает пароль пан
   assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
 });
 
+/* Каталог для тестов рендера берётся из `catalog.js`, а НЕ из живого хранилища.
+ *
+ * `dbCore.getProducts()` читает `data/` рядом с проектом, и на сервере этот
+ * каталог пуст: процесс запущен с `STORE_DATA_DIR=/var/lib/apple-store`, а
+ * `istore/data` там остался пустой заготовкой. Два теста ниже из-за этого падали
+ * на сервере ВСЕГДА — «на главной должно быть много карточек» при нулевом
+ * каталоге и `productPage(undefined)`, — и их приходилось объяснять в CLAUDE.md
+ * как «не регрессию». Проверка, которую нельзя прогнать там, где работает
+ * магазин, не проверяет ничего: её перестают читать.
+ *
+ * `catalog.js` — тот же источник, которым засеивается витрина, и в отличие от
+ * хранилища он не зависит ни от каталога данных, ни от чужих правок в панели.
+ */
+const CATALOG_DB = {
+  getProducts: () => catalog.products,
+  visibleProducts: () => catalog.products.filter(p => p.visible !== false),
+  visibleProduct: (id) => CATALOG_DB.visibleProducts().find(p => p.id === id) || null,
+  categories: () => [...new Set(catalog.products.map(p => p.category))],
+  visibleCategories: () => [...new Set(CATALOG_DB.visibleProducts().map(p => p.category))],
+  // Оценка непустая намеренно: без отзывов строка со звездой и пузырьком в
+  // карточке не рисуется вовсе, а проверка спрайта смотрит именно на неё.
+  ratingFor: () => ({ avg: 4.7, count: 300 }),
+  reviewsForProduct: () => []
+};
+
 test('повторяющиеся глифы карточки лежат в спрайте, а не копируются в каждую', () => {
-  const settings = dbCore.getSettings();
-  const html = render.homePage(settings, dbCore, { origin: 'https://shop.example' });
+  const settings = dbCore.defaultSettings();
+  const html = render.homePage(settings, CATALOG_DB, { origin: 'https://shop.example' });
   const cards = (html.match(/class="card-name"/g) || []).length;
   assert.ok(cards > 10, 'на главной должно быть много карточек, иначе проверка бессмысленна');
 
@@ -142,9 +167,9 @@ test('повторяющиеся глифы карточки лежат в сп�
 });
 
 test('карточка товара для поисковика полна, а крошки идут отдельным блоком', () => {
-  const settings = dbCore.getSettings();
-  const product = dbCore.visibleProducts()[0];
-  const html = render.productPage(settings, dbCore, product, { origin: 'https://shop.example' });
+  const settings = dbCore.defaultSettings();
+  const product = CATALOG_DB.visibleProducts()[0];
+  const html = render.productPage(settings, CATALOG_DB, product, { origin: 'https://shop.example' });
   const blocks = (html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [])
     .map(s => JSON.parse(s.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '')));
   assert.equal(blocks.length, 2, 'ожидались карточка товара и хлебные крошки');
@@ -605,6 +630,59 @@ test('маршруты экранируют точки, HEAD не отправл
   assert.equal(Array.isArray(cookies.headers['set-cookie']), true);
   assert.equal(cookies.headers['set-cookie'].length, 2);
   assert.match(cookies.headers['set-cookie'][1], /^sess=/);
+});
+
+test('поле, ломающее приведение к строке, до маршрута не доезжает', async () => {
+  /* `String({toString: 1})` не возвращает «[object Object]», а бросает
+   * TypeError: собственное свойство перебивает Object.prototype. Пока такое
+   * тело проходило в маршрут, `/api/cart` и `/api/order` отвечали 500-й — то
+   * есть один кривой запрос ронял оба денежных пути витрины и писал стек в
+   * лог. Ловим это на входе, а не в каждом маршруте: забытое место и было бы
+   * дырой. */
+  const app = new App({ secret: 'test' });
+  let seen = null;
+  app.post('/api/cart', (req, res) => { seen = req.body; res.json({ ok: true, id: String(req.body.items[0].id) }); });
+
+  const res1 = response();
+  await app.handle(request('/api/cart', {
+    method: 'POST', body: Buffer.from(JSON.stringify({ items: [{ id: { toString: 1, valueOf: 2 } }] })),
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), res1);
+  assert.equal(res1.statusCode, 200, 'маршрут обязан ответить, а не упасть');
+  assert.equal(JSON.parse(res1.body).id, '[object Object]');
+  assert.equal(Object.prototype.hasOwnProperty.call(seen.items[0].id, 'toString'), false);
+
+  /* Имя ключа в JSON можно записать escape-последовательностью, и по литералу
+   * «toString» такой ключ не найти. Быстрый путь разбора существует ровно до
+   * первого обратного слэша в теле — дальше идёт reviver. */
+  const escaped = response();
+  await app.handle(request('/api/cart', {
+    method: 'POST', body: Buffer.from('{"items":[{"id":{"\\u0074oString":1,"\\u0076alueOf":2}}]}'),
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), escaped);
+  assert.equal(escaped.statusCode, 200, 'экранированное имя ключа обязано ловиться так же');
+  assert.equal(JSON.parse(escaped.body).id, '[object Object]');
+
+  // `__proto__` в теле тоже не нужен никому, кроме того, кто путает слияния.
+  const res2 = response();
+  await app.handle(request('/api/cart', {
+    method: 'POST', body: Buffer.from('{"items":[{"id":"x"}],"__proto__":{"admin":true}}'),
+    headers: { host: 'shop.test', 'content-type': 'application/json' }
+  }), res2);
+  assert.equal(res2.statusCode, 200);
+  assert.equal(Object.prototype.hasOwnProperty.call(seen, '__proto__'), false);
+
+  /* Форм это НЕ касается: у urlencoded и multipart значение поля всегда строка,
+   * а строка `String()` не ломает. Поле формы с таким именем обязано остаться
+   * обычной строкой — см. тест «поле формы с именем из прототипа остаётся
+   * строкой». Здесь проверяем, что чистка JSON туда не расползлась. */
+  app.post('/form', (req, res) => res.json({ toString: req.body.toString }));
+  const res3 = response();
+  await app.handle(request('/form', {
+    method: 'POST', body: Buffer.from('toString=b'),
+    headers: { host: 'shop.test', 'content-type': 'application/x-www-form-urlencoded' }
+  }), res3);
+  assert.equal(JSON.parse(res3.body).toString, 'b');
 });
 
 test('POST из другого origin отклоняется до обработчика', async () => {
@@ -3430,10 +3508,17 @@ test('в подвале есть знаки оплаты, а на телефон
   assert.match(css, /\.foot-brand \.logo\{display:inline-block/);
   assert.match(css, /\.logo-mark\{[^}]*display:block/, 'знак внутри ссылки блочный — центрировать нужно саму ссылку');
 
-  /* Разделы ссылок — ровным столбцом по левому краю: пункты разной длины, и по
-   * центру каждый начинался со своего отступа. Контактов это не касается — там
-   * строки со значком, и левый край им задаёт сам значок. */
-  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:left\}/);
+  /* НА ТЕЛЕФОНЕ разделы ссылок центрируются целиком — и заголовок, и пункты.
+   * Весь остальной подвал там идёт по центру (знак, слоган, адрес, реквизиты,
+   * контакты, копирайт), и списки по левому краю читались съехавшими посреди
+   * центрированной колонки. Цена — рваные края у пунктов разной длины; на узкой
+   * колонке это обычный центрированный перечень. Контактов правило не касается:
+   * там строки со значком, и левый край им задаёт сам значок. */
+  assert.match(mobile, /\.footer-col:not\(\.footer-contacts\)\{flex:0 1 auto;text-align:center\}/);
+  // Правило живёт ТОЛЬКО в мобильном блоке: на широком экране рваные края
+  // центрированного перечня были бы заметны, и там колонки остаются слева.
+  const desktopFooter = css.slice(css.indexOf('.footer-cols{'), css.indexOf('@media(max-width:800px){'));
+  assert.doesNotMatch(desktopFooter, /\.footer-col[^{]*\{[^}]*text-align:center/);
 
   /* Сами столбцы при этом стоят ПАРОЙ ПО ЦЕНТРУ, а не растянуты на половины
    * экрана — для этого у них своя строка (`.footer-navs`) с центрированием.
@@ -3833,7 +3918,37 @@ test('гарантия и возврат — две отдельные стра�
   assert.match(css, /\.warranty-table td:nth-child\(2\)::before/);
 });
 
-test('«О компании» — реквизиты, контакты и карта, и ничего сверх', () => {
+test('куда придут деньги — выделенная плашка, и текст у обеих страниц один', () => {
+  const settings = { storeName: 'a:Market', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const warranty = render.warrantyPage(settings, { origin: '' });
+  const returns = render.returnsPage(settings, { origin: '' });
+
+  /* Плашка стоит на ОБЕИХ страницах: гарантия ведёт к возврату денег по ст. 18,
+   * возврат — тем более, а вопрос у покупателя один. */
+  const note = warranty.match(/<aside class="legal-note">[\s\S]*?<\/aside>/);
+  assert.ok(note, 'на странице гарантии нет плашки про реквизиты возврата');
+  assert.ok(returns.includes(note[0]), 'у возврата своя формулировка — тексты разъедутся молча');
+
+  // Главное — жирным, и оно называет оба случая: обычный возврат и отказ при получении.
+  assert.match(note[0], /<b>Деньги возвращаются на те же реквизиты, с которых была оплата, — в том числе при отказе от товара в момент получения\.<\/b>/);
+  assert.match(note[0], /свяжитесь с менеджером/);
+
+  /* В перечне «Возврат денежных средств» прежней строки про ту же карту больше
+   * нет: плашка говорит ровно это, а повторять одно и то же дважды на одном
+   * экране незачем. */
+  const money = returns.slice(returns.indexOf('id="money"'), returns.indexOf('id="seller"'));
+  assert.ok(money.includes('<aside class="legal-note">'));
+  assert.doesNotMatch(money, /<li>деньги возвращаются на ту же банковскую карту/);
+
+  /* Плашка выделяется акцентом магазина, а не зашитым цветом, и текст в ней
+   * набран полужирным — иначе она не отличалась бы от обычного абзаца. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.legal-note\{[^}]*border-left:3px solid var\(--accent\)/);
+  assert.match(css, /\.legal-section \.legal-note p\{margin:0;color:var\(--text\);font-weight:500\}/);
+  assert.match(css, /\.legal-note b\{font-weight:700\}/);
+});
+
+test('«О компании» — реквизиты, условия, контакты и карта, и ничего сверх', () => {
   const settings = {
     storeName: 'a:Market', tagline: 'Оригинальная техника Apple', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
     contactPhone: '+79991234567', contactEmail: 'shop@example.test', contactTelegram: '@manager', contactHours: 'Ежедневно 10:00–21:00',
@@ -3844,13 +3959,33 @@ test('«О компании» — реквизиты, контакты и кар
 
   assert.match(html, /<link rel="canonical" href="https:\/\/example\.test\/about"/);
 
-  /* Разделов ровно три, и реквизиты продавца стоят ПЕРВЫМИ: страницу открывают,
-   * чтобы проверить продавца перед предоплатой, и листать ради этого не должно
-   * приходиться. */
+  /* Разделов ровно четыре, и реквизиты продавца стоят ПЕРВЫМИ: страницу
+   * открывают, чтобы проверить продавца перед предоплатой, и листать ради этого
+   * не должно приходиться. Условия покупки идут вторыми — «кто продаёт» и «на
+   * каких условиях» это половины одного решения; контакты и адрес отвечают на
+   * другой вопрос и стоят ниже. */
   assert.deepEqual((html.match(/<section class="legal-section" id="(\w+)"/g) || []),
-    ['<section class="legal-section" id="seller"', '<section class="legal-section" id="contacts"',
-      '<section class="legal-section" id="address"']);
+    ['<section class="legal-section" id="seller"', '<section class="legal-section" id="terms"',
+      '<section class="legal-section" id="contacts"', '<section class="legal-section" id="address"']);
   assert.match(html, /ИП &lt;Тест&gt;/);
+
+  /* Путь к гарантии и возврату — плитки, а не строчные ссылки, и глифы у них те
+   * же, что в бегущей строке главной и в блоке доверия: второго набора значков
+   * для тех же понятий в проекте быть не должно. Пересказа самих документов
+   * здесь нет — подпись говорит, что внутри, а читают уже на их страницах. */
+  const tiles = html.slice(html.indexOf('id="terms"'), html.indexOf('id="contacts"'));
+  assert.match(tiles, /<div class="about-links">/);
+  assert.match(tiles, /<a class="about-link" href="\/warranty"><svg class="about-link-ico"[\s\S]*?<b>Гарантия<\/b>/);
+  assert.match(tiles, /<a class="about-link" href="\/returns"><svg class="about-link-ico"[\s\S]*?<b>Возврат и обмен<\/b>/);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  const block = src.slice(src.indexOf('const ABOUT_LINKS_BLOCK'), src.indexOf('function aboutPage'));
+  assert.match(block, /glyphBody\(g\)/, 'плитки рисуют свои контуры вместо общих BENEFIT_GLYPHS');
+  /* Глиф вписан в общую рамку тем же способом, что и в бегущей строке главной:
+   * холст 35×35, а stroke-width поделён на масштаб — увеличенный глиф иначе
+   * приезжает жирнее соседнего, и один вес штриха на витрине теряет смысл. */
+  const fitted = [...tiles.matchAll(/<svg class="about-link-ico" viewBox="0 0 35 35"[^>]*><g transform="translate\([-\d. ]+\) scale\(([\d.]+)\)" stroke-width="([\d.]+)"/g)];
+  assert.equal(fitted.length, 2, 'глифы плиток не вписаны в общую рамку');
+  for (const [, s, w] of fitted) assert.ok(Math.abs(Number(s) * Number(w) - 1.2) < 0.005);
 
   /* Пересказа доставки, оплаты, гарантии и порядка покупки здесь нет: витрина
    * считает эти числа сама, а страница повторяла бы их словами и расходилась с
@@ -3877,10 +4012,68 @@ test('«О компании» — реквизиты, контакты и кар
     assert.doesNotMatch(tag, /viewBox="0 0 24 24"/, 'холст значка не обрезан по фигуре: ' + tag);
   }
 
-  // Под картой — только карта: ни абзаца про офлайн-точку, ни списка с адресом.
+  /* В разделе адреса — карточка магазина и карта, и больше ничего: ни абзаца про
+   * офлайн-точку, ни списка с адресом. Карточка стоит ПЕРВОЙ: карта отвечает
+   * «где это», а карточка — «что это за место», и второй вопрос задают раньше. */
   const address = html.slice(html.indexOf('id="address"'));
   assert.doesNotMatch(address, /legal-details|Магазин работает и офлайн/);
-  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="about-map"/);
+  assert.match(address, /<h2>Как нас найти<\/h2>\s*<div class="place">\s*<div class="place-card"/);
+  assert.ok(address.indexOf('place-card') < address.indexOf('about-map'), 'карточка обязана стоять до карты');
+  /* Адрес и часы — РАЗДЕЛАМИ с подписью, как в карточке справочника: подпись
+   * говорит, что это за строка, значение идёт крупнее под ней. Прежний список
+   * «значок + значение» читался выпиской из настроек. */
+  assert.match(address, /place-row-title">Адрес<[\s\S]{0,120}Пресненская наб\., 12/);
+  assert.match(address, /place-row-title">Время работы</);
+  // Статус — цветной текст, а не серая плашка: «Закрыто» в справочнике видно
+  // первым, и видно именно цветом.
+  assert.match(address, /class="place-state[^"]*">(Открыто|Закрыто)/);
+  // С карточки звонят и пишут — ряд действий обязателен, иначе она читается
+  // списком текста.
+  assert.match(address, /class="place-acts">[\s\S]{0,400}place-act-main" href="tel:/);
+
+  /* Главная кнопка — та связь, что у магазина ЕСТЬ. На боевой витрине телефон
+   * в настройках не заполнен, и ряд оставался из двух круглых значков без
+   * единого крупного действия — то есть ровно тем, от чего карточку и
+   * переделывали. Тот мессенджер, что стал главной кнопкой, круглым не
+   * повторяется. */
+  const noPhone = Object.assign({}, settings, { contactPhone: '', contactWhatsApp: '+79991234567' });
+  const chatFirst = render.aboutPage(noPhone, { origin: 'https://example.test' });
+  assert.match(chatFirst, /place-act-main msg-wa"[^>]*>[\s\S]{0,3000}<span>Написать<\/span>/);
+  assert.doesNotMatch(chatFirst, /place-act-round msg-wa/, 'главная кнопка не дублируется круглой');
+  assert.match(chatFirst, /place-act-round msg-tg/, 'второй мессенджер остаётся круглым');
+  // Связи нет вовсе — ряда действий нет: кнопке, ведущей в никуда, тут не место.
+  const mute = render.aboutPage(Object.assign({}, settings, { contactPhone: '', contactTelegram: '', contactWhatsApp: '' }),
+    { origin: 'https://example.test' });
+  assert.doesNotMatch(mute, /place-acts/);
+  // Белый вырез внутри знака на акцентной заливке сливался бы с самим знаком.
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.place-act-main\{--msg-cut:var\(--accent\)\}/);
+
+  /* Оценка магазина честно подписана: это средняя по отзывам О ТОВАРАХ, а не
+   * отдельный опрос про организацию. Отзывов нет — строки нет вовсе: пустые
+   * звёзды читались бы как ноль из пяти. */
+  const rated = render.aboutPage(settings, { origin: 'https://example.test', rating: { avg: 4.7, count: 1225 } });
+  // Приписка «о товарах» обязательна: это средняя по отзывам О ТОВАРАХ, а не
+  // отдельный опрос про организацию, и выдавать одно за другое мы не будем.
+  assert.match(rated, /class="place-rate"[\s\S]{0,400}отзывов о товарах/);
+  assert.match(rated, /<b>4,7<\/b>/);
+  assert.match(rated, /1\s225 отзывов/);
+  assert.doesNotMatch(html, /place-rate/, 'без отзывов оценки на странице быть не должно');
+
+  /* Снимки места стоят ОБЛОЖКОЙ СВЕРХУ — с этого карточка справочника и
+   * начинается: место узнают по кадру, а не по строке адреса. Первый снимок
+   * крупный, остальные лентой; что не поместилось — считает «+N». */
+  const shots = render.aboutPage(Object.assign({ storePhotos: ['a.webp', 'b.webp', 'c.webp', 'd.webp', 'e.webp', '../тайное'] }, settings),
+    { origin: 'https://example.test' });
+  assert.match(shots, /<div class="place-cover" data-media="store">/);
+  assert.match(shots, /<a class="place-cover-main" href="\/uploads\/a\.webp"/);
+  assert.match(shots, /place-cover-more">\+2</, 'счётчик скрытых снимков не сошёлся');
+  assert.doesNotMatch(shots, /тайное/, 'мусор из настроек в адрес картинки не уезжает');
+  // Обложка идёт ДО имени: снимок отвечает на вопрос быстрее любой строки.
+  assert.ok(shots.indexOf('place-cover') < shots.indexOf('place-name'));
+  // Снимков нет — обложки нет тоже: пустая серая рамка о магазине не говорит
+  // ничего, а места занимает как настоящая.
+  assert.doesNotMatch(html, /place-cover/);
 
   // Слоган владельца остаётся подзаголовком и ничем не дописывается.
   assert.match(html, /<h1>a:Market<\/h1>\s*<p>Оригинальная техника Apple<\/p>/);
@@ -3907,7 +4100,24 @@ test('карта «О компании» своя, и тайлы к ней от�
   assert.equal(tiles.length, MAP.COLS * MAP.ROWS, 'слой тайлов собран не целиком');
   // Метка — то, ради чего карту и смотрят: рисуем её сами, остриём в центр слоя.
   assert.match(html, /<svg class="map-pin"/);
-  assert.match(html, /class="map-route" href="https:\/\/yandex\.ru\/maps\/\?rtext=/);
+  /* Кнопки «Построить маршрут» на карте больше НЕТ. Она уводила покупателя на
+     чужие карты с нашей же страницы и была последней ссылкой на Яндекс,
+     оставшейся от снятого виджета; адрес рядом, в карточке магазина. */
+  assert.doesNotMatch(html, /map-route|yandex\.ru\/maps/);
+
+  /* Готовая картинка вместо плитки — то, чем лечится мыло на плотных экранах.
+     Тайл 256×256 показывался ровно в 256 CSS-пикселей, то есть на любом Retina
+     растягивался вдвое. Постер собран из тайлов ближнего масштаба и показан
+     вдвое мельче: плотность двойная, и это ОДИН запрос вместо трёх десятков. */
+  const withPoster = render.aboutPage(Object.assign({ storeGeo: '55.749792, 37.537186' }, base),
+    { origin: 'https://example.test', mapPoster: 'abc123.webp' });
+  assert.match(withPoster, /<img class="map-poster" src="\/map\/store\/abc123\.webp"/);
+  assert.match(withPoster, new RegExp('width="' + (MAP.POSTER_COLS * MAP.TILE / 2) + '" height="' + (MAP.POSTER_ROWS * MAP.TILE / 2) + '"'),
+    'размеры обязаны быть CSS-ными: без них браузер покажет карту вдвое крупнее');
+  assert.doesNotMatch(withPoster, /class="map-tile"/, 'с постером плитка не нужна');
+  // Постера нет (нет ImageMagick, тайлы не дошли) — витрина честно возвращается
+  // к плитке, а не остаётся без карты вовсе.
+  assert.match(html, /class="map-tile"/);
   /* Строку лицензии OSM снимать нельзя — этого требует лицензия данных, и это
      плата за карту, у которой всё остальное наше. */
   assert.match(html, /class="map-credit" href="https:\/\/www\.openstreetmap\.org\/copyright"/);
@@ -3939,6 +4149,33 @@ test('карта «О компании» своя, и тайлы к ней от�
   assert.equal(render.storePoint({ storeGeo: 'где-то в Москве' }), null);
   assert.equal(render.storePoint({ storeGeo: '95.1, 37.5' }), null, 'широта больше 90 — не точка');
   assert.deepEqual(render.storePoint({ storeGeo: '55.75, 37.61' }), { lat: 55.75, lon: 37.61 });
+});
+
+test('готовая картинка карты называется и пишется правильно', () => {
+  const MAP = require('../lib/map-tiles');
+  const images = fs.readFileSync(path.join(__dirname, '..', 'lib', 'images.js'), 'utf8');
+  const point = { lat: 55.749792, lon: 37.537186 };
+  const name = MAP.posterName(point);
+
+  /* Имя обязано сохранять расширение. Прежний фильтр пропускал только
+   * шестнадцатеричные `a-f` и выгрызал из «.webp» буквы `w` и `p`: файл ложился
+   * как «….eb», а ImageMagick по такому расширению писал PNG — карта весила
+   * втрое больше положенного и отдавалась под чужим типом. */
+  assert.match(name, /^[a-f0-9]{16}\.webp$/);
+  assert.ok(MAP.posterFile('/data', name).endsWith('/map-tiles/poster/' + name), 'расширение потерялось по дороге');
+  /* Из каталога имя увести нельзя: значение приходит из адреса запроса. Имя мы
+   * формируем сами, поэтому непохожее на образец именем не считается вовсе —
+   * путь тогда указывает на сам каталог, и файла по нему нет. */
+  assert.equal(MAP.posterFile('/data', '../../etc/passwd'), '/data/map-tiles/poster');
+  assert.equal(MAP.posterFile('/data', 'нет.webp'), '/data/map-tiles/poster');
+
+  // Формат задаётся явно, а не расширением временного файла: пишем в «…tmp».
+  assert.match(images, /'webp:' \+ opts\.out/);
+
+  // Имя считается от координат: сменил владелец адрес — файл другой, и кэш
+  // браузера не покажет чужой квартал.
+  assert.notEqual(MAP.posterName({ lat: 55.75, lon: 37.54 }), name);
+  assert.equal(MAP.posterName(point), name, 'имя обязано быть устойчивым');
 });
 
 test('слой тайлов встаёт центром на точку магазина', () => {
@@ -4637,6 +4874,79 @@ test('отзывы листаются страницами, а свой неод
   assert.equal(count(mine), per + 1);
 });
 
+test('«Прочитано» разбирает очередь, не удаляя отзыв и не публикуя его', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-seen-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const product = fresh.getProducts()[0];
+
+  /* Действий у неудачного отзыва было два, и оба плохи: «Одобрить» показывает
+   * его всем, «Удалить» стирает насовсем — вместе с фотографиями и вместе с тем,
+   * что видел автор. Очередь разбирали удалением, и один такой отзыв на боевой
+   * витрине пропал безвозвратно. «Прочитано» — третье действие: отзыв остаётся у
+   * автора, на витрину не идёт, из очереди уходит. */
+  const rv = fresh.createReview({ productId: product.id, author: 'Пётр', rating: 2, text: 'Долго ехало' });
+  assert.equal(rv.status, 'pending', 'новый отзыв ждёт решения');
+
+  assert.ok(fresh.setReviewStatus(rv.id, 'seen'), 'состояние «прочитано» принимается');
+  assert.equal(fresh.setReviewStatus(rv.id, 'что-нибудь'), null, 'чужая строка состоянием не становится');
+  const after = fresh.getReview(rv.id);
+  assert.equal(after.status, 'seen', 'отзыв на месте, а не удалён');
+
+  // Публично по-прежнему видно только одобренное — это правило не менялось.
+  assert.equal(fresh.reviewsForProduct(product.id, true).some(r => r.id === rv.id), false,
+    'прочитанный отзыв на витрину не выходит');
+  // А из очереди он уходит: и из счётчика в шапке, и из плитки товара.
+  assert.equal(fresh.pendingReviewCount(), 0, 'счётчик модерации гаснет');
+  assert.equal(fresh.reviewStats().get(product.id).pending, 0, 'плитка товара больше не зовёт разбирать');
+  assert.equal(fresh.reviewStats().get(product.id).seen, 1, 'но прочитанный посчитан отдельно');
+
+  // Вкладка «На модерации» показывает РОВНО ждущих: иначе разобранный отзыв
+  // возвращался бы в очередь и кнопка не делала бы ничего.
+  const html = adminViews.productReviews(SETTINGS, fresh, product, 'pending', '', 1, 'new', 'all');
+  assert.doesNotMatch(html, /Долго ехало/, 'прочитанного в очереди нет');
+  const seenTab = adminViews.productReviews(SETTINGS, fresh, product, 'seen', '', 1, 'new', 'all');
+  assert.match(seenTab, /Долго ехало/, 'он на своей вкладке');
+  assert.match(seenTab, /Прочитано · не на витрине/, 'и подписан, что на витрине его нет');
+  assert.match(seenTab, /\/approve"/, 'опубликовать его по-прежнему можно');
+  assert.doesNotMatch(seenTab, /\/seen"/, 'а «Прочитано» второй раз не предлагается');
+
+  fresh.setReviewStatus(rv.id, 'pending');
+  const queue = adminViews.productReviews(SETTINGS, fresh, product, 'pending', '', 1, 'new', 'all');
+  assert.match(queue, /\/seen"[^]*?>Прочитано</, 'у ждущего решения кнопка есть');
+
+  // Маршрут ставит именно это состояние и говорит покупателю правду.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /app\.post\('\/admin\/reviews\/:id\/seen'[^\n]*setReviewStatus\(req\.params\.id, 'seen'\)/);
+  assert.match(server, /автор его видит, на витрине его нет/);
+});
+
+test('свой отзыв автор видит и после того, как cookie-сессия протухла', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-visitor-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+  const product = fresh.getProducts()[0];
+
+  /* Опор две. Подписанная cookie-сессия живёт неделю (Max-Age=604800 в
+   * lib/server-lib.js), то есть «автор видит свой отзыв» кончалось через семь
+   * дней. Метка метрики живёт год — по ней отзыв находится и через месяц. */
+  const visitorId = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
+  const rv = fresh.createReview({ productId: product.id, author: 'Пётр', rating: 3, text: 'мой отзыв', visitorId });
+  assert.equal(fresh.getReview(rv.id).visitorId, visitorId, 'метка сохраняется у отзыва');
+  assert.equal(fresh.createReview({ productId: product.id, author: 'Аноним', rating: 5, visitorId: 'не-метка' }).visitorId, null,
+    'мусор вместо метки не хранится');
+
+  const route = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const own = route.slice(route.indexOf("app.get('/product/:id'"), route.indexOf("app.get('/checkout'"));
+  // Обе опоры и оба состояния: прочитанный отзыв от автора не прячут — в этом
+  // весь смысл «Прочитано» вместо удаления.
+  assert.match(own, /mine\.includes\(rv\.id\) \|\| \(visitorId && rv\.visitorId === visitorId\)/);
+  assert.match(own, /rv\.status !== 'approved'/);
+  assert.match(route, /visitorId: metrics\.visitorId\(req\) \|\| null/, 'метка пишется при создании отзыва');
+});
+
 test('списки отзывов в панелях листаются, а не выгружаются целиком', () => {
   // На боевых данных 7000 отзывов: единый список весил 4,5 МБ и держал
   // единственный поток 16 секунд — витрина не отвечала никому всё это время.
@@ -5076,6 +5386,13 @@ test('панель одна: /owner уводит на /admin, а прав мен
   // Прежняя панель владельца жила на /owner, и её адреса остались в закладках.
   assert.match(source, /if \(\/\^\\\/owner\(\?:\\\/\|\$\)\/\.test\([\s\S]*?\) return res\.redirect\('\/admin'\)/,
     'адреса прежней панели обязаны уводить на новую, а не в 404');
+
+  /* Промахнувшийся адрес панели у ВОШЕДШЕГО владельца тоже не уводит на 404
+   * витрины: та записывает просмотр `/404` и предлагает «вернуться в каталог»,
+   * то есть выкидывает владельца из панели в магазин. Постороннего это не
+   * касается — он получает обычное «не найдено» и попадает в метрику как все. */
+  assert.match(source, /if \(\/\^\\\/admin\(\?:\\\/\|\$\)\/\.test\(path\) && adminAuthorized\(req\)\)[\s\S]{0,120}adminMissing\(res, '\/admin'/,
+    'ненайденный адрес панели обязан возвращать владельца в панель');
 
   // Ни одного маршрута прежней панели и ни одной второй учётной записи.
   assert.equal(/app\.(get|post)\('\/owner/.test(source), false, 'маршруты /owner должны быть сняты целиком');
@@ -5895,6 +6212,37 @@ test('страница оплаты: точная сумма выделена, �
   assert.doesNotMatch(html, /id="pay-cancel"|Отменить (счёт|платёж|оплату)|Отменять счёт/);
   const croco = fs.readFileSync(path.join(__dirname, '..', 'lib', 'crocopay.js'), 'utf8');
   assert.doesNotMatch(croco, /\/cancel|\/void|\/refund/, 'у кассы нет отмены — выдумывать эндпоинт нельзя');
+});
+
+test('HTML-комментарии в браузер не уезжают', () => {
+  /* Комментарий в шаблоне отправляется КАЖДОМУ посетителю: комментарии из .css
+   * и .js на отдаче снимаются (`lib/minify.js`), а из разметки снять их нечем.
+   * Пояснения этого проекта длинные и русские — пять таких в `layout()` весили
+   * 1,4 КБ на каждой странице витрины, включая 404. Место таким пояснениям —
+   * в JS-комментарии рядом, а внутри шаблонной строки для этого есть свой
+   * приём: `${/* … *\/''}` не печатает ничего.
+   *
+   * Проверяем и панель: там разметку видит только владелец, но правило одно, а
+   * второе исключение из него завелось бы на первой же правке. */
+  const ss = Object.assign(dbCore.defaultSettings(), { storeName: 'Тест', tagline: 'Слоган', chatEnabled: true, aiApiKey: 'k' });
+  const product = CATALOG_DB.visibleProducts()[0];
+  const pages = {
+    'главная': render.homePage(ss, CATALOG_DB, { origin: '' }),
+    'товар': render.productPage(ss, CATALOG_DB, product, { origin: '' }),
+    'оформление': render.checkoutPage(ss, { origin: '' }),
+    'о компании': render.aboutPage(ss, { origin: '' }),
+    'политика': render.privacyPage(ss, { origin: '' }),
+    'гарантия': render.warrantyPage(ss, { origin: '' }),
+    'возврат': render.returnsPage(ss, { origin: '' }),
+    'отслеживание': render.trackingPage(ss, { origin: '' }),
+    'не найдено': render.notFoundPage(ss, { origin: '' }),
+    'форма товара': adminViews.productForm(ss, CATALOG_DB, product),
+    'настройки': adminViews.settingsPage(ss, CATALOG_DB, null)
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    const found = String(html).match(/<!--[\s\S]{0,80}/);
+    assert.equal(found, null, name + ': комментарий уехал в браузер — ' + (found && found[0]));
+  }
 });
 
 test('неоплаченный счёт напоминает о себе на всей витрине и в корзине', () => {
@@ -6753,6 +7101,13 @@ test('повтор оформления возвращает тот же сво�
   order.payment = { status: 'pending' };
   order.manualVoid = { at: Date.now(), by: 'customer' };
   assert.equal(reusableOrder(req, base), null, 'отменённый покупателем заказ не оживает');
+  // Черновик стареет так же: способ он не выбрал, но полчаса на это у него были
+  // те же самые, и второй заход обязан начаться с чистого заказа.
+  delete order.manualVoid;
+  order.draft = true;
+  order.payment = null;
+  order.createdAt = Date.now() - render.PAY_WINDOW - 60000;
+  assert.equal(reusableOrder(req, base), null, 'просроченный черновик — тоже новый заказ');
 });
 
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
@@ -6780,6 +7135,38 @@ test('оформление имеет свой идемпотентный клю
   assert.match(browser, /checkout_order_request_v1/);
   assert.match(browser, /qty: i\.qty, price: i\.price/,
     'сервер получает цену, которую покупатель видел перед подтверждением');
+});
+
+test('ключ оформления не переживает заказ, а по одному ключу отдаётся свежий', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-expired-replay-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fresh = freshDb(dir);
+  fresh.ensureSeeded();
+
+  /* Закрытый заказ идемпотентностью больше не прикрыт, и новый унаследует ТОТ ЖЕ
+   * ключ — он приходит из браузера, а тот про наш срок не знает. Значит поиск по
+   * ключу обязан отдать свежий заказ: указывай он на похороненный, повтор снова
+   * приводил бы покупателя на «Оформите заказ заново». */
+  const requestId = 'c'.repeat(32);
+  const hash = 'd'.repeat(64);
+  const dead = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: hash, items: [], total: 1000, contact: '@buyer'
+  });
+  const again = fresh.createOrder({
+    checkoutRequestId: requestId, checkoutRequestHash: hash, items: [], total: 1000, contact: '@buyer'
+  });
+  assert.notEqual(again.id, dead.id, 'это два разных заказа');
+  assert.equal(fresh.getOrderByCheckoutRequest(requestId).id, again.id,
+    'по одному ключу отдаётся самый свежий заказ, а не первый попавшийся');
+
+  /* Сам ключ в браузере тоже не должен переживать заказ: срок оплаты — полчаса, и
+   * восстанавливать потерянный ответ дольше этого нечего. Сутки, стоявшие здесь
+   * раньше, и создавали пару «ключ на два заказа». */
+  const browser = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const ttl = browser.match(/var ORDER_REQUEST_TTL = ([^;]+);/);
+  assert.ok(ttl, 'срок ключа оформления найден');
+  assert.ok(new Function('return ' + ttl[1])() <= render.PAY_WINDOW,
+    'ключ оформления живёт не дольше, чем по заказу можно заплатить');
 });
 
 test('идентификатор запроса кассы хранится отдельно по способу и удаляется адресно', () => {
@@ -9835,6 +10222,48 @@ test('номер телефона в реквизитах читается ка�
     'столбец «Оплата» идёт nowrap — внутри свёртки перенос обязан вернуться');
 });
 
+test('строка заказа не раздувается ответом кассы: приписка коротко, ссылка ссылкой', () => {
+  const order = { id: 'o1', number: '752303', total: 77500, items: [], contact: 'tg' };
+  const link = 'https://paysecurepayment.com/payment/merchants/alfasbp/payment.html'
+    + '?mdOrder=1d4edd90-7014-7af5-abc1-c6ae04be6761&language=ru';
+
+  /* РЕКВИЗИТ-ССЫЛКА ПОКАЗЫВАЕТСЯ ССЫЛКОЙ, А НЕ СВОИМ АДРЕСОМ. Полторы сотни
+   * знаков без пробелов браузер ломает в узком столбце по буквам — одна заявка
+   * занимала восемь строк адресом, по которому всё равно только переходят. */
+  const req = render.orderPayMethod(Object.assign({}, order, {
+    payment: {
+      status: 'failed', method: 'CARD_ONLINE', provider: 'alfabank', currency: 'RUB',
+      invoiceId: '1d4edd90-7014-7af5-abc1-c6ae04be6761', requisite: link,
+      startedAt: 1, expiresAt: 2, closedAt: 2
+    }
+  }));
+  assert.match(req, /<a class="o-req-link" href="[^"]+" target="_blank" rel="noopener">Открыть страницу оплаты<\/a>/);
+  assert.ok(!req.includes('>' + render.esc(link) + '<'), 'адрес страницы оплаты выведен текстом');
+  assert.match(req, /1d4edd90-7014-7af5-abc1-c6ae04be6761/, 'сделку у кассы ищут по номеру счёта');
+
+  /* ПРИПИСКА КАССЫ — ОДНОЙ СТРОКОЙ. Банк присылает вместе с кодом инструкцию
+   * ПОКУПАТЕЛЮ, и менеджеру она не нужна: пять строк в столбце у каждой заявки.
+   * Хвост с кодом сохраняется — ради него строку и читают, — а полный ответ
+   * остаётся под курсором. */
+  const note = 'Банк: Операция отклонена. Проверьте введённые данные, достаточность средств'
+    + ' на карте и повторите операцию (-2014)';
+  const status = render.orderStatus(Object.assign({}, order, {
+    payment: { status: 'failed', method: 'CARD_ONLINE', invoiceId: 'i', requisite: link, note, startedAt: 1, expiresAt: 2, closedAt: 2 }
+  }));
+  assert.match(status, /<div class="muted small o-note" title="[^"]+">Банк: Операция отклонена \(-2014\)<\/div>/);
+  // Смотрим ВИДИМЫЙ текст, а не всю разметку: полный ответ лежит в `title`, и по
+  // строке целиком проверка ничего не значила бы.
+  const shown = status.match(/<div class="muted small o-note"[^>]*>([^<]*)</)[1];
+  assert.ok(!shown.includes('Проверьте введённые данные'), 'инструкция покупателю осталась в списке');
+  assert.match(status, /title="Банк: Операция отклонена\. Проверьте введённые данные[^"]+"/, 'полный ответ кассы обязан остаться под курсором');
+
+  // Короткая приписка не режется и лишнего `title` не получает: сокращать нечего.
+  const short = render.orderStatus(Object.assign({}, order, {
+    payment: { status: 'failed', method: 'CARD_ONLINE', invoiceId: 'i', requisite: link, note: 'Банк: Обратитесь в магазин (-2028) · СБП', startedAt: 1, expiresAt: 2, closedAt: 2 }
+  }));
+  assert.match(short, /<div class="muted small o-note">Банк: Обратитесь в магазин \(-2028\) · СБП<\/div>/);
+});
+
 test('оплаченным заказ на странице называется только по ответу кассы', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const order = { id: 'ord1', number: '482913', total: 71990, items: [], contact: 'tg' };
@@ -11399,19 +11828,21 @@ test('покупатель снова может приложить фото к 
   // Предел с витрины свой и меньше панельного: здесь грузит кто угодно, а один
   // файл может весить до 6 МБ. Маршрут обязан его применять, а не верить форме.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const route = source.slice(source.indexOf("app.post('/api/reviews'"));
-  assert.match(route.slice(0, 2000), /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
+  // Срез — до конца самого обработчика, а не первые N символов: длина маршрута
+  // меняется от любой добавленной строки, и тест ловил бы её вместо правила.
+  const route = source.slice(source.indexOf("app.post('/api/reviews'"), source.indexOf("app.post('/api/cart'"));
+  assert.match(route, /filesFor\('photos'\)\.slice\(0, R\.REVIEW_PHOTOS_MAX\)/);
   /* Поле «Фото» выключается в настройках, и выключенное означает «файлов не
    * принимаем», а не «кнопку не показываем»: форма — это разметка, а запрос
    * присылает кто угодно. Поэтому проверка стоит и в маршруте. */
-  assert.match(route.slice(0, 2000), /R\.reviewPhotosOn\(settings\(\)\)/);
+  assert.match(route, /R\.reviewPhotosOn\(settings\(\)\)/);
   const noPhotos = render.productPage({ storeName: 'Тест', currency: '₽', reviewPhotos: false }, db, product, {});
   assert.doesNotMatch(noPhotos, /name="photos"/, 'выключенная настройка обязана убрать поле с витрины');
   // Поля нет вовсе (настройки старой установки) — фото принимаются, как раньше.
   assert.ok(render.reviewPhotosOn({}) && render.reviewPhotosOn(undefined));
   assert.equal(render.reviewPhotosOn({ reviewPhotos: false }), false);
   // Превью делаем сразу: в ленте показывается оно, полный файл — в просмотрщике.
-  assert.match(route.slice(0, 2000), /previews: await reviewPreviews\(photos\)/);
+  assert.match(route, /previews: await reviewPreviews\(photos\)/);
 });
 
 test('форма отзыва идёт во всю ширину и четырьмя рядами', () => {
@@ -13558,6 +13989,22 @@ test('Enter отправляет, а время с галочкой держат
   assert.match(shop, /e\.key === 'Enter' && !e\.shiftKey\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*send\(input\.value\)/);
   assert.doesNotMatch(shop, /'Enter'[\s\S]{0,80}pointer:coarse/, 'сенсорный экран Enter больше не отменяет');
 
+  /* ТО ЖЕ ПРАВИЛО У МЕНЕДЖЕРА В ПАНЕЛИ. Разговор один, и клавиша в нём обязана
+   * значить одно и то же с обеих сторон: у покупателя Enter отправлял, а в
+   * панели переносил строку — менеджер жал его и молча набирал абзац.
+   *
+   * Реализация своя неизбежно: у покупателя реплика уходит своим каналом, а у
+   * менеджера — формой. Просить отправиться обязана САМА ФОРМА: в её обработчике
+   * лежит и разбор пустого поля, и отправка снимков через fetch, и мимо него
+   * Enter отправлял бы не то. */
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  const key = panel.match(/field\.addEventListener\('keydown', function \(e\) \{[\s\S]*?\n {4}\}\);/);
+  assert.ok(key, 'в панели Enter не отправляет реплику');
+  assert.match(key[0], /e\.key !== 'Enter' \|\| e\.shiftKey/, 'Shift\\+Enter обязан оставаться переносом строки');
+  assert.match(key[0], /dock\.requestSubmit\(\)/, 'отправлять должна сама форма, а не обход её обработчика');
+  assert.match(key[0], /isComposing/, 'Enter в подсказке IME выбирает слово, а не отправляет реплику');
+  assert.doesNotMatch(key[0], /pointer:coarse/, 'сенсорный экран Enter не отменяет и здесь');
+
   /* Время и галочка — ОДНИМ узлом: порознь это были два соседних inline-элемента,
    * и строка рвалась между ними — время оставалось в конце текста, а галочка
    * уезжала на следующую строку одна. */
@@ -15312,12 +15759,39 @@ test('маршрут посылки детальный, идёт по возра
     assert.ok(hour >= 7 && hour <= 21, 'событие в ночной час: ' + render.mskDateTime(step.at));
   }
 
-  // Ближняя зона обходится без транзита: хаб, совпавший с концом маршрута, из
-  // пути выпадает — «Отправлен в г. Екатеринбург» у посылки, которая туда и
-  // едет, читается как сбой.
+  /* Хаб, совпавший с концом маршрута, из пути выпадает — «Отправлен в
+   * г. Екатеринбург» у посылки, которая туда и едет, читается как сбой.
+   * Остальные хабы зоны при этом остаются: путь на Урал идёт через Нижний
+   * Новгород, и выкидывать его вместе с совпавшим незачем. */
   const near = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Екатеринбург', zone: 'ural', seed: 'order-2', startedAt: started });
-  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Екатеринбург'), []);
-  assert.ok(near.steps.every(s => s.place === 'Москва' || s.place === 'Екатеринбург'), 'в ближнем маршруте появился чужой город');
+  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Екатеринбург'), ['Нижний Новгород']);
+  assert.deepEqual(tracking.hubsFor('ural', 'Москва', 'Нижний Новгород'), ['Екатеринбург']);
+  const nearCities = new Set(near.steps.map(s => String(s.place).split(',')[0]));
+  assert.deepEqual([...nearCities].sort(), ['Екатеринбург', 'Москва', 'Нижний Новгород'],
+    'в маршруте появился город не из таблицы хабов');
+
+  /* Маршрут обязан быть ПОДРОБНЫМ. До правки на Дальний Восток приходилось по
+   * одному событию в сутки (14 точек на 11 дней) — лента выглядела брошенной,
+   * хотя посылка ехала. Точное число не закрепляем: оно зависит от таблицы
+   * хабов, которую правят. Закрепляем два свойства, ради которых всё делалось. */
+  assert.ok(far.steps.length >= 18, 'дальний маршрут стал короче, чем был задуман: ' + far.steps.length);
+  const gaps = far.steps.slice(1).map((s, i) => (s.at - far.steps[i].at) / 3600000);
+  assert.ok(Math.max(...gaps) <= 30, 'между событиями больше суток простоя: ' + Math.max(...gaps).toFixed(1) + ' ч');
+  assert.ok(Math.min(...gaps) >= 0.5, 'события слиплись: ' + Math.min(...gaps).toFixed(2) + ' ч');
+
+  /* Сортировочный центр приписывается ТОЛЬКО складским шагам: «Принят на склад ·
+   * Москва, СЦ Внуково» читается как строка трекинга, а у «Отправлен в г. Казань»
+   * это был бы повтор города дважды в одной строке. */
+  const withSc = far.steps.filter(s => String(s.place).includes('СЦ '));
+  assert.ok(withSc.length, 'названия сортировочных центров не появились вовсе');
+  assert.ok(withSc.every(s => s.kind === 'warehouse' || s.kind === 'arrive'),
+    'СЦ приписан шагу, который складским не является');
+  assert.ok(far.steps.some(s => s.place === 'Москва, СЦ Внуково'));
+  // Города, которого нет в таблице, мы не выдумываем: у него остаётся имя города.
+  const unknown = tracking.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Хабаровск', zone: 'dfo', seed: 'order-4', startedAt: started });
+  assert.ok(unknown.steps.some(s => s.place === 'Хабаровск'),
+    'у города без известного центра должен остаться просто город');
+  assert.ok(!unknown.steps.some(s => /Хабаровск,\s*СЦ/.test(String(s.place))));
 });
 
 test('пересборка того же маршрута даёт те же времена', () => {
@@ -15819,65 +16293,6 @@ test('отправлениям без ключа ссылка выдаётся �
   // проход при каждом старте переписывал бы orders.json на ровном месте.
   assert.equal(db.ensureShipmentTokens(), 0);
   assert.equal(db.getOrder(order.id).shipment.token, token, 'ключ сменился сам собой');
-});
-
-test('оплаченный заказ показывает подтверждение с составом, суммами и продавцом', () => {
-  const ss = Object.assign({}, SETTINGS, {
-    legalOperator: 'ИП Титов Роман Сергеевич', legalInn: '890512345678', legalOgrn: '325890000012345'
-  });
-  const paidAt = Date.parse('2026-09-08T14:21:00+03:00');
-  const order = {
-    id: 'r1', number: '482913', createdAt: paidAt - 600000,
-    items: [
-      { id: 'iphone-17-pro', name: 'iPhone 17 Pro 256 ГБ, Космический оранжевый', price: 79470, qty: 1 },
-      { id: 'airtag', name: 'AirTag', price: 3490, qty: 2 }
-    ],
-    itemsTotal: 86450, promoCode: 'SALE', promoDiscount: 15260, deliveryPrice: 550, total: 87000,
-    customerName: 'Иван Петров', phone: '+79991234567',
-    delivery: 'cdek', deliveryMode: 'pvz', deliveryZone: 'ural',
-    pickupCode: 'EKB77', pickupAddress: 'Свердловская область, Екатеринбург, ул. Малышева, 53',
-    address: 'г Екатеринбург, ул Малышева, д 5',
-    payment: { status: 'paid', method: 'SBP', amount: 87000, currency: 'RUB', paidAt, invoiceId: 'x' }
-  };
-  const html = render.payPage(ss, order, { origin: '' });
-
-  // ЧТО куплено — то, ради чего документ и открывают: состав, количество,
-  // цена за штуку и сумма строки.
-  assert.match(html, /iPhone 17 Pro 256 ГБ, Космический оранжевый/);
-  assert.match(html, /class="rc-qty">2</);
-  assert.match(html, /class="rc-sum">6\s?980\s?₽/);
-
-  /* Суммы собраны так же, как их видел покупатель на оформлении: товары ДО
-   * скидки, отдельной строкой сама скидка, доставка и итог. Цена позиции
-   * хранится уже со скидкой, поэтому «товары» без неё не сходились бы со
-   * столбиком — на это здесь и смотрят в первую очередь. */
-  assert.match(html, /Товары<\/span><b>101\s?710\s?₽/);
-  assert.match(html, /Скидка по промокоду SALE<\/span><b>−15\s?260\s?₽/);
-  assert.match(html, /Доставка<\/span><b>550\s?₽/);
-  assert.match(html, /Оплачено<\/span><b>87\s?000\s?₽/);
-
-  // Кому заплатили и куда поедет: продавец с реквизитами, пункт выдачи, получатель.
-  assert.match(html, /ИНН<\/dt><dd>890512345678/);
-  assert.match(html, /ОГРНИП<\/dt><dd>325890000012345/);
-  assert.match(html, /EKB77/);
-  assert.match(html, /\+7 999 123-45-67/);
-  assert.match(html, /08\.09\.2026 в 14:21/);
-  assert.match(html, /data-print/);
-
-  /* ЭТО НЕ ФИСКАЛЬНЫЙ ЧЕК, и вид его подделывать нельзя: онлайн-кассы у
-   * магазина нет, а у настоящего чека есть номер ФД, фискальный признак и QR
-   * для проверки в ФНС. Документ называется тем, чем является. */
-  assert.match(html, /Подтверждение оплаты/);
-  assert.doesNotMatch(html, /кассовый чек|фискальн|ФНС|ОФД|Кассовый чек/i);
-
-  // Какая касса выдала реквизиты — по-прежнему наше внутреннее дело.
-  assert.doesNotMatch(html, /CrocoPAY|MeridianPay|Альфа/i);
-
-  // Неоплаченный заказ подтверждения не получает: платить ещё не за что.
-  const waiting = render.payPage(ss, Object.assign({}, order, {
-    payment: { status: 'pending', method: 'SBP', requisite: '79104693811', expiresAt: Date.now() + 6e5 }
-  }), { origin: '' });
-  assert.doesNotMatch(waiting, /class="receipt"/);
 });
 
 test('отправление готовится само при оплате: срок максимальный, показ — за менеджером', () => {
@@ -16407,7 +16822,11 @@ test('промокод считают в одном месте, а витрин�
    * расчёта одной скидки разошлись бы на первом же коде со своим процентом. */
   const pricing = fs.readFileSync(path.join(__dirname, '..', 'lib', 'pricing.js'), 'utf8');
   const cart = server.slice(server.indexOf("app.post('/api/cart'"), server.indexOf("app.post('/api/promo'"));
-  const order = server.slice(server.indexOf("app.post('/api/order'"), server.indexOf('const visitorId ='));
+  // Конец среза ищем ОТ НАЧАЛА маршрута: `const visitorId` встречается в файле и
+  // раньше (страница товара подбирает свои отзывы по той же метке), и без этого
+  // срез оказывался пустым, а тест — зелёным ни на чём.
+  const orderAt = server.indexOf("app.post('/api/order'");
+  const order = server.slice(orderAt, server.indexOf('const visitorId =', orderAt));
   assert.match(cart, /PRICING\.resolve\(/);
   assert.match(order, /PRICING\.resolve\(/);
   assert.match(pricing, /PROMO\.priceFor\(sum, pct, promo\)/);
@@ -17044,8 +17463,8 @@ test('домены магазина привязываются из панели
   /* Разбор поля формы: владелец копирует адрес из строки браузера, поэтому
    * схема, порт, путь и регистр снимаются молча, а `www` не заводится отдельной
    * записью — он обслуживается вместе с основным именем. */
-  const parsed = DOMAINS.parse('https://WWW.Shop.Example.com/catalog\nadc-apple.com\nshop.example.com:8443\n');
-  assert.deepEqual(parsed.list, ['shop.example.com', 'adc-apple.com'], 'дубли схлопываются, мусор адреса снимается');
+  const parsed = DOMAINS.parse('https://WWW.Shop.Example.com/catalog\nmy-store.example.com\nshop.example.com:8443\n');
+  assert.deepEqual(parsed.list, ['shop.example.com', 'my-store.example.com'], 'дубли схлопываются, мусор адреса снимается');
   assert.deepEqual(parsed.bad, []);
 
   // Негодной считается СТРОКА ЦЕЛИКОМ: иначе форма пожалуется на «не», и
@@ -17054,7 +17473,7 @@ test('домены магазина привязываются из панели
   /* IP доменом не считается: сертификат на адрес по этому пути не выпустится
    * вовсе, а строка «89.125.187.83» в списке читалась бы как рабочая привязка. */
   assert.equal(DOMAINS.valid('89.125.187.83'), false);
-  assert.equal(DOMAINS.valid('adc-apple.com'), true);
+  assert.equal(DOMAINS.valid('my-store.example.com'), true);
 
   // Наш ли домен: `www` засчитывается, чужое имя — нет.
   const settings = { siteDomains: ['shop.example.com'] };
@@ -17086,10 +17505,10 @@ test('домены магазина привязываются из панели
   // Раздел панели: поле есть, сохранённое показывается, введённое возвращается
   // вместе с ошибкой (иначе владелец потеряет набранное).
   const db = { pendingReviewCount: () => 0, getOrders: () => [] };
-  const saved = { storeName: 'Тест', adminUsername: 'admin', siteDomains: ['adc-apple.com'] };
+  const saved = { storeName: 'Тест', adminUsername: 'admin', siteDomains: ['my-store.example.com'] };
   const panel = adminViews.settingsPage(saved, db, null);
   assert.match(panel, /name="siteDomains"/);
-  assert.match(panel, /adc-apple\.com/);
+  assert.match(panel, /my-store\.example\.com/);
   const failed = adminViews.settingsPage(saved, db, 'Ошибка', 'err', { draft: { siteDomains: 'не домен!' } });
   assert.match(failed, /не домен!/, 'введённое возвращается в поле');
 });
@@ -17399,4 +17818,112 @@ test('выходы не пересчитываются на каждую пер�
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ТОВАРНЫЙ ЧЕК.
+ *
+ * Документ собирается ЦЕЛИКОМ ИЗ ЗАКАЗА, а не считается заново: цены плавают,
+ * скидка меняется, промокод переименовывают — а чек обязан показывать те
+ * деньги, которые покупатель заплатил.
+ */
+test('товарный чек: цены из заказа, реквизиты продавца, отметка об оплате', () => {
+  const ss = {
+    storeName: 'Тест', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    legalOperator: 'ИП Иванов Иван Иванович', legalInn: '771234567890',
+    legalOgrn: '321774600123456', legalAddress: 'г Ноябрьск, ул Ленина, д 1'
+  };
+  const order = {
+    id: 'a1b2', number: '482913', createdAt: Date.parse('2026-09-08T09:00:00Z'),
+    items: [
+      { id: 'p1', name: 'iPhone 17 Pro Max 512 ГБ, Космический чёрный', price: 129990, qty: 1 },
+      { id: 'p2', name: 'AirTag', price: 11990, qty: 2 }
+    ],
+    itemsTotal: 153970, deliveryPrice: 710, total: 139680,
+    promoCode: 'SALE', promoDiscount: 15000,
+    customerName: 'Пётр Петров', phone: '+79991234567',
+    address: 'г Екатеринбург, ул Малышева, д 5',
+    delivery: 'cdek', deliveryMode: 'pvz',
+    payment: { status: 'paid', method: 'CARD_ONLINE', paidAt: Date.parse('2026-09-08T09:30:00Z') }
+  };
+  const html = render.receiptPage(ss, order, { origin: '' });
+
+  // Реквизиты продавца — те же, что в подвале: у документа и у сайта продавец
+  // обязан быть одним и тем же, до цифры.
+  assert.match(html, /Товарный чек №482913/);
+  assert.match(html, /ИП Иванов Иван Иванович/);
+  assert.match(html, /771234567890/);
+  assert.match(html, /321774600123456/, 'ОГРНИП в чеке');
+  assert.match(html, /ОГРНИП/, 'подпись номера выводится из его длины');
+
+  // Позиции, количество и суммы — из заказа, а не пересчётом по каталогу.
+  assert.match(html, /iPhone 17 Pro Max 512 ГБ, Космический чёрный/);
+  assert.match(html, /23\s980/, 'сумма позиции = цена × количество');
+  assert.match(html, /Скидка по промокоду SALE/);
+  assert.match(html, /139\s680/, 'итог берётся из заказа');
+  assert.match(html, /СДЭК/, 'способ доставки назван словами');
+
+  // Отметка об оплате: она и есть то, ради чего чек чаще всего открывают.
+  assert.match(html, /class="rc-stamp is-paid">Оплачено</);
+  assert.match(html, /08\.09\.2026/, 'дата по московским часам');
+
+  // Неоплаченный заказ не выдаёт себя за оплаченный.
+  const unpaid = render.receiptPage(ss, Object.assign({}, order, { payment: null }), { origin: '' });
+  assert.match(unpaid, /Не оплачен/);
+  assert.match(unpaid, /Оплата по заказу не подтверждена/);
+  assert.doesNotMatch(unpaid, /is-paid/);
+
+  // Чек не индексируется: это документ конкретной покупки.
+  assert.match(html, /noindex/);
+
+  /* Кнопка чека — только у оплаченного заказа: у неоплаченного документ о
+   * покупке был бы обещанием того, чего ещё не случилось. */
+  const paidPage = render.payPage(ss, order, { origin: '' });
+  assert.match(paidPage, /href="\/receipt\/a1b2"/);
+  const draftPage = render.payPage(ss, Object.assign({}, order, { payment: null }), { origin: '' });
+  assert.doesNotMatch(draftPage, /\/receipt\//);
+
+  /* Маршрут открыт двумя ключами — своей сессией покупателя и живой сессией
+   * панели, — а черновику чек не выдаётся вовсе: заказом он ещё не стал. */
+  const server = require('../lib/minify').js(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  const route = server.slice(server.indexOf("app.get('/receipt/:id'"), server.indexOf("app.get('/receipt/:id'") + 700);
+  assert.match(route, /ownOrder\(req/);
+  assert.match(route, /adminAuthorized\(req\)/);
+  assert.match(route, /order\.draft === true/);
+});
+
+/* УВЕДОМЛЕНИЕ О СВОЁМ ДЕЙСТВИИ — ОДНОРАЗОВОЕ.
+ *
+ * «Сохранено» приезжает параметром `?flash=` (POST → редирект → GET), и
+ * параметр остаётся в адресной строке: сервер рисует по нему карточку при
+ * КАЖДОМ открытии страницы. Поэтому F5 на списке заказов доставал уведомление
+ * о действии, которого сейчас не было, — и то же самое делал возврат на такую
+ * страницу из истории.
+ */
+test('панель: «Сохранено» не повторяется при обновлении страницы', () => {
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
+  const code = require('../lib/minify').js(ui);
+
+  // Параметр снимается с адреса сразу после показа — тем же приёмом, каким
+  // погашен повтор звука отправки в чате.
+  assert.match(code, /searchParams\.delete\('flash'\)/, 'flash убирается из адреса');
+  assert.match(code, /history\.replaceState\(history\.state/,
+    'состояние истории сохраняем: живое обновление кладёт туда своё при переходах внутри отчёта');
+
+  /* Удаляется ТОЛЬКО flash. Остальные параметры описывают, ЧТО показано —
+   * номер страницы, вкладка, режим правки, раскрытый раздел настроек, — и
+   * обновление обязаны переживать. */
+  const drops = code.match(/searchParams\.delete\('[^']+'\)/g) || [];
+  assert.deepEqual(drops, ["searchParams.delete('flash')"],
+    'из адреса не должно вычищаться ничего, кроме уведомления');
+
+  /* Карточку рисует сервер, и это не меняется: скрипт лишь снимает параметр.
+   * Проверка страховая — без неё правку легко «упростить» до пряток карточки в
+   * браузере, и тогда она пропала бы у тех, у кого скрипты не загрузились. */
+  assert.doesNotMatch(code, /a-note-flash[^\n]*remove\(\)/, 'карточку скрипт не прячет сам');
+
+  /* Плашки ОШИБКИ это не касается вовсе: она приходит не через адрес, а прямо в
+   * ответе на POST, и живёт, пока человек правит форму. */
+  const views = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
+  assert.match(views, /flashErr \? `<div class="a-flash err" data-flash>/,
+    'ошибка остаётся плашкой в потоке, а не карточкой в углу');
 });

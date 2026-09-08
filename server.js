@@ -921,12 +921,25 @@ app.get('/product/:id', (req, res) => {
   const product = db.visibleProduct(req.params.id);
   if (!product) return sendNotFound(req, res);
   trackPage(req, res, '/product/' + product.id);
-  // Отзывы этого посетителя, ещё не прошедшие модерацию: их видит только он сам
+  /* Отзывы этого посетителя, ещё не вышедшие на витрину: их видит только он сам.
+   *
+   * Опор две, и вторая появилась не для красоты. Подписанная cookie-сессия
+   * (`myReviews`) живёт семь дней — то есть «автор видит свой отзыв» на деле
+   * кончалось через неделю. Метка метрики живёт год и переживает закрытие
+   * браузера, поэтому свой отзыв находится и через месяц. Метки может не быть
+   * вовсе (отказ от метрики) — тогда работает прежний путь по сессии.
+   *
+   * Показываем и `pending`, и `seen`: прочитанный владельцем отзыв на витрину не
+   * идёт, но от автора его не прячут — в этом весь смысл «Прочитано» вместо
+   * удаления.
+   */
   const mine = Array.isArray(req.session && req.session.myReviews) ? req.session.myReviews : [];
+  const visitorId = metrics.visitorId(req) || '';
   // Ищем по индексу товара, а не по всему файлу: на боевых данных это 300 записей
   // вместо 7000 на каждое открытие страницы любым, кто когда-то оставил отзыв.
-  const ownReviews = mine.length
-    ? db.reviewsForProduct(product.id, false).filter(rv => rv.status !== 'approved' && mine.includes(rv.id))
+  const ownReviews = mine.length || visitorId
+    ? db.reviewsForProduct(product.id, false).filter(rv => rv.status !== 'approved'
+      && (mine.includes(rv.id) || (visitorId && rv.visitorId === visitorId)))
     : [];
   res.send(R.productPage(settings(), db, product, pageOpts(req, {
     ownReviews,
@@ -1030,7 +1043,19 @@ for (const [route, page] of [
 ]) {
   app.get(route, (req, res) => {
     trackPage(req, res, route);
-    res.send(page(settings(), pageOpts(req)));
+    /* «О компании» единственная спрашивает готовую картинку карты: есть она —
+     * страница берёт один чёткий файл, нет (ImageMagick не стоит, тайлы не
+     * дошли) — рисует прежнюю плитку тайлов. Это проверка наличия файла, а не
+     * сборка: собирается постер при старте и при смене адреса. */
+    const extra = page === R.aboutPage
+      ? {
+        mapPoster: MAP.posterReady(db.DATA_DIR, R.storePoint(settings())),
+        // Оценка магазина — средняя по отзывам о товарах, из того же индекса,
+        // что и оценка карточки: отдельного прохода по отзывам не появляется.
+        rating: db.shopRating()
+      }
+      : null;
+    res.send(page(settings(), pageOpts(req, extra)));
   });
 }
 
@@ -1181,6 +1206,38 @@ app.get('/favicon.ico', (req, res) => {
  *
  * В метрику маршрут не попадает: `trackPage` зовут страницы, а не картинки.
  */
+/* Готовая картинка карты — один файл вместо трёх десятков тайлов.
+ *
+ * Имя считается от координат магазина (`posterName`), поэтому запрос с чужим
+ * именем не отдаст ничего: подобрать чей-то другой квартал через нас нельзя, а
+ * сменив адрес, владелец сам собой получает новое имя и новый файл.
+ */
+app.get('/map/store/:name', async (req, res) => {
+  const point = R.storePoint(settings());
+  const name = String(req.params.name || '');
+  if (!point || name !== MAP.posterName(point)) return res.status(404).send('Не найдено');
+  let file = MAP.posterFile(db.DATA_DIR, name);
+  let body = null;
+  try { body = fs.readFileSync(file); } catch (e) {}
+  if (!body) {
+    // Файла нет — собираем сейчас. Обычно он уже готов (собирается при старте),
+    // но первый посетитель после смены адреса не должен остаться без карты.
+    const built = await MAP.buildPoster(db.DATA_DIR, point, IMG);
+    if (built) { try { body = fs.readFileSync(MAP.posterFile(db.DATA_DIR, built)); } catch (e) {} }
+  }
+  if (!body) {
+    res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Карта недоступна');
+  }
+  res.writeHead(200, {
+    'Content-Type': 'image/webp',
+    'Content-Length': body.length,
+    // Имя зависит от координат, значит содержимое под ним не меняется никогда.
+    'Cache-Control': 'public, max-age=31536000, immutable'
+  });
+  res.end(req.method === 'HEAD' ? undefined : body);
+});
+
 app.get('/map/tile/:z/:x/:y', async (req, res) => {
   const point = R.storePoint(settings());
   const z = Number(req.params.z), x = Number(req.params.x), y = Number(req.params.y);
@@ -1255,6 +1312,9 @@ app.post('/api/reviews', async (req, res) => {
     : [];
   const review = db.createReview({
     productId: p.id, author: req.body.author, rating, text: req.body.text,
+    // Метка посетителя живёт год, cookie-сессия — неделю. Без неё «свой отзыв
+    // виден автору» кончалось через семь дней (см. `visitorId` в lib/db.js).
+    visitorId: metrics.visitorId(req) || null,
     photos, previews: await reviewPreviews(photos), status: 'pending',
     privacyConsentAt: Date.now(), privacyConsentVersion: R.PRIVACY_VERSION,
     publicationConsentAt: Date.now(), publicationConsentVersion: R.PRIVACY_VERSION
@@ -1651,8 +1711,8 @@ app.post('/api/order', async (req, res) => {
   /* Заказ по тому же ключу идемпотентности. Закрытый (срок вышел, отменён,
    * оплачен) не отдаём: тот же ключ приходит только когда ответ не дошёл, и
    * вернуть покупателю мёртвую страницу вместо заказа — худшее, что можно
-   * сделать. Новый заказ унаследует тот же ключ, а `getOrderByCheckoutRequest`
-   * ищет по списку от свежих к старым и отдаст уже его. */
+   * сделать. Новый заказ унаследует тот же ключ, поэтому
+   * `getOrderByCheckoutRequest` отдаёт САМЫЙ СВЕЖИЙ из совпавших. */
   const replay = db.getOrderByCheckoutRequest(checkoutRequestId);
   if (replay && !orderClosedForBuyer(replay)) {
     if (replay.checkoutRequestHash !== requestHash) {
@@ -3569,6 +3629,27 @@ app.get('/pay/:id', async (req, res) => {
   })));
 });
 
+/* Товарный чек по заказу.
+ *
+ * Открыт ДВУМЯ ключами, и оба нужны: покупателю — его собственная подписанная
+ * cookie-сессия (тот же ключ, что у страницы оплаты), менеджеру — живая сессия
+ * панели. Без второго менеджер не смог бы ни распечатать чек, ни посмотреть,
+ * что в нём, — заказа в ЕГО сессии нет и быть не может.
+ *
+ * Черновик чека не получает вовсе: заказом он ещё не стал (способ оплаты не
+ * выбран, товары остались в корзине), и документ о покупке по нему был бы
+ * бумагой о том, чего не случилось.
+ */
+app.get('/receipt/:id', (req, res) => {
+  const own = ownOrder(req, req.params.id);
+  const order = own || (adminAuthorized(req) ? db.getOrder(String(req.params.id)) : null);
+  if (!order || order.draft === true) return sendNotFound(req, res);
+  /* Обвязка обычная, через pageOpts: полоса напоминания здесь не лишняя. Чек
+   * открывают у ОПЛАЧЕННОГО заказа, а напоминание говорит про другой,
+   * неоплаченный, — про него покупателю знать как раз надо. */
+  res.send(R.receiptPage(settings(), order, pageOpts(req)));
+});
+
 /* Вебхук об оплате — свой адрес у каждой кассы.
  *
  * Адреса именные, и это не противоречие с «покупатель не знает про кассы»: сюда
@@ -4185,6 +4266,14 @@ app.post('/admin/reviews/:id/approve', (req, res) => { if (!guardAdmin(req, res)
 // админке домена; прятать его теперь негде и не от кого, а вот вернуть на
 // доработку иногда нужно, и удаление для этого слишком грубо.
 app.post('/admin/reviews/:id/hide', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'pending'); res.redirect(reviewsBackUrl(req.body, 'Отзыв снят с витрины')); });
+/* «Прочитано» — разобрать очередь, ничего не ломая.
+ *
+ * Отзыв остаётся у автора и не выходит на витрину; из очереди он уходит. Это
+ * третье действие появилось потому, что первых двух не хватало: неудачный отзыв
+ * приходилось либо публиковать, либо УДАЛЯТЬ — а удаление стирает его насовсем,
+ * вместе с фотографиями и вместе с тем, что видел автор. Подпись говорит ровно
+ * то, что произошло: покупатель свой отзыв по-прежнему видит. */
+app.post('/admin/reviews/:id/seen', (req, res) => { if (!guardAdmin(req, res)) return; db.setReviewStatus(req.params.id, 'seen'); res.redirect(reviewsBackUrl(req.body, 'Отзыв прочитан — автор его видит, на витрине его нет')); });
 app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res)) return; db.deleteReview(req.params.id); res.redirect(reviewsBackUrl(req.body, 'Отзыв удалён')); });
 
 /* ---------- Заказы ---------- */
@@ -5206,9 +5295,19 @@ app.post('/admin/settings', async (req, res) => {
    */
   const logo = await resolveLogo(req, current.logoImage);
   patch.logoImage = logo.value;
+  /* Снимки магазина: отмеченные крестиком уходят, новые дописываются в конец.
+   * Обработка та же, что у фото товара (WebP, метаданные снимаются), но БЕЗ
+   * `square`: у витрины и зала кадр свой, и вписывать их в товарную рамку с
+   * серым полем незачем. Загрузка идёт здесь же, после последнего отказа, —
+   * иначе неудачное сохранение оставляло бы в хранилище сироту. */
+  const dropped = new Set([].concat(req.body.dropStorePhoto || []).map(v => String(v || '')));
+  const keep = R.storePhotos(current).filter(name => !dropped.has(name));
+  const added = await optimizeUploads(req.filesFor('storePhotos').slice(0, R.STORE_PHOTOS_MAX), 1600);
+  patch.storePhotos = keep.concat(added).slice(0, R.STORE_PHOTOS_MAX);
 
   db.saveSettings(patch);
   if (logo.obsolete) db.deleteUploadIfUnused(logo.obsolete);
+  for (const name of dropped) db.deleteUploadIfUnused(name);
   // Списки способов кэшированы под ключи прежних касс — после смены ключей они
   // бы ещё пять минут отвечали за чужие.
   PAYMENTS.forgetMethods();
@@ -5221,9 +5320,22 @@ app.post('/admin/settings', async (req, res) => {
 
 /* =========================== 404 =========================== */
 app.notFound = (req, res) => {
+  const path = String(req.pathname || req.url || '').split('?')[0];
   // Прежняя панель владельца жила на /owner, и её адреса остались в закладках.
   // Уводим на новую панель, а не показываем «не найдено».
-  if (/^\/owner(?:\/|$)/.test(String(req.pathname || req.url || '').split('?')[0])) return res.redirect('/admin');
+  if (/^\/owner(?:\/|$)/.test(path)) return res.redirect('/admin');
+  /* Промахнувшийся адрес ПАНЕЛИ у вошедшего владельца — тоже не 404 витрины
+   * (см. `adminMissing` выше). Ссылка на раздел устаревает и попадает в
+   * закладки, а страница «Вернуться в каталог» уводит владельца из панели в
+   * магазин — и заодно записывает его работу просмотром `/404`. Возвращаем в
+   * панель, как это делают все прочие «не нашлось» внутри неё.
+   *
+   * Условие именно на ЖИВУЮ сессию: посетитель, простукивающий `/admin/…`, —
+   * настоящий посетитель, и получить он должен обычное «не найдено» и попасть
+   * в метрику как все. */
+  if (/^\/admin(?:\/|$)/.test(path) && adminAuthorized(req)) {
+    return adminMissing(res, '/admin', 'Такой страницы в панели нет');
+  }
   sendNotFound(req, res);
 };
 
@@ -5295,6 +5407,20 @@ const httpServer = app.listen(PORT, HOST, () => {
    * этого при старте магазину незачем.
    */
   if (PAYMENTS.configured(s)) livePayMethods(s).catch(() => {});
+
+  /* Карта магазина собирается ЗАРАНЕЕ, а не при первом открытии «О компании».
+   *
+   * Склейка тянет тайлы у OSM и зовёт ImageMagick — секунды работы, и платить
+   * ими должен процесс при старте, а не покупатель, открывший страницу. Пока
+   * картинки нет, страница честно рисует прежнюю плитку тайлов, поэтому провал
+   * сборки ничего не ломает: ни адреса, ни карты магазин не теряет.
+   */
+  const storePt = R.storePoint(s);
+  if (storePt && !MAP.posterReady(db.DATA_DIR, storePt)) {
+    MAP.buildPoster(db.DATA_DIR, storePt, IMG)
+      .then(name => { if (name) console.log('  Карта магазина собрана: ' + name); })
+      .catch(() => {});
+  }
   console.log('');
 });
 
@@ -5329,3 +5455,23 @@ function shutdown() {
 }
 process.once('SIGTERM', shutdown);
 process.once('SIGINT', shutdown);
+
+/* Необработанное отклонение промиса НЕ роняет магазин.
+ *
+ * По умолчанию Node печатает ошибку и завершает процесс, а процесс здесь один
+ * на весь магазин. Цена такого падения — не только секунда простоя до
+ * перезапуска pm2: метрика живёт в памяти и уходит на диск раз в полминуты,
+ * переписка чата — раз в три секунды, и `shutdown()` выше существует ровно
+ * затем, чтобы при ОСТАНОВКЕ их сохранить. Падение этот путь обходит: до
+ * получаса заходов посетителей и последние реплики покупателей исчезают молча,
+ * а разорванные SSE-каналы панели и чата приходится переоткрывать всем.
+ *
+ * Поэтому отклонение пишем в лог и продолжаем работать. Молчаливым это не
+ * делает: строка видна в `pm2 logs` вместе со стеком, как и была. А вот
+ * `uncaughtException` мы НЕ перехватываем намеренно — после него состояние
+ * процесса уже неизвестно, и там перезапуск честнее.
+ */
+process.on('unhandledRejection', (reason) => {
+  console.error('Необработанное отклонение промиса (магазин продолжает работу):',
+    (reason && reason.stack) || reason);
+});
