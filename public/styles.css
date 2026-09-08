@@ -1865,6 +1865,32 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .legal-table tr:last-child td{border-bottom:0}
 .legal-table code{padding:2px 6px;border-radius:6px;background:var(--bg2);font-size:12px}
 .legal-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+/* Выделенная плашка правовой страницы. Отвечает на самый частый вопрос обеих —
+   куда придут деньги, — и потому вынута из общего потока: документ читают по
+   диагонали и находят взглядом выделенное, а не строку перечня.
+
+   Текст один на «Гарантию» и «Возврат» (REFUND_NOTE в lib/render.js): двумя
+   копиями формулировка разъехалась бы молча.
+
+   Тон — АКЦЕНТ МАГАЗИНА, а не зашитый цвет: он у каждой витрины свой. Считается
+   через `color-mix`, который поддерживают не все версии Safari, доходящие до
+   витрины, — поэтому основой лежит обычная светлая подложка, а тонирование идёт
+   под `@supports`. Полоса слева при этом акцентная в обоих случаях: она и есть
+   то, чем плашка выделяется. */
+.legal-note{display:flex;align-items:flex-start;gap:13px;margin:0 0 16px;padding:15px 17px;
+  border:1px solid var(--border-soft);border-left:3px solid var(--accent);border-radius:14px;background:var(--surface-soft)}
+@supports (background:color-mix(in srgb,#000 6%,#fff)){
+  .legal-note{border-color:color-mix(in srgb,var(--accent) 20%,#fff);border-left-color:var(--accent);
+    background:color-mix(in srgb,var(--accent) 6%,#fff)}
+}
+.legal-note-ico{flex:none;width:27px;height:27px;margin-top:1px;color:var(--accent)}
+/* Селектор с `.legal-section` — не украшение: у абзацев раздела свои цвет и
+   отступ той же специфичности, и без него плашка набиралась бы обычным серым
+   текстом с полем снизу. */
+   Полужирная в плашке ровно одна фраза — та, ради которой её и читают; набери
+   мы весь текст одним весом, выделять было бы нечего. */
+.legal-section .legal-note p{margin:0;color:var(--text);font-weight:500}
+.legal-note b{font-weight:700}
 
 /* «О компании». Раскладка та же, что у правовых страниц: разделы карточкой,
    волосяные линии между ними. Своего здесь две вещи — контакты со значками и
@@ -1881,6 +1907,35 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .legal-section .about-contacts{display:grid;justify-items:start;gap:12px;margin:0;padding:0;list-style:none}
 .about-contacts li{display:flex;align-items:center;gap:9px;margin:0;color:var(--footer-link);font-size:15px;line-height:1.45}
 .about-contacts .msg-link{font-size:15px}
+/* Кнопки на «Гарантию» и «Возврат» — плитки во всю ширину раздела, а не строчные
+   ссылки: это второй вопрос страницы после «кто продаёт», и попадать в них надо
+   пальцем, не целясь.
+
+   Сетка `auto-fit`, а не две дорожки: в узкой колонке и на телефоне плитки
+   встают друг под друга сами, без медиазапроса. */
+.about-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:12px}
+.about-link{display:flex;align-items:center;gap:14px;padding:15px 16px;
+  border:1px solid var(--border-soft);border-radius:18px;background:#fff;color:var(--text);text-decoration:none;
+  transition:border-color .18s ease,box-shadow .18s ease,transform .18s var(--ease-out)}
+/* Значок в мягком квадрате тоном акцента — тот же приём, что у разделов
+   настроек в панели. `color-mix` под `@supports`, основой лежит нейтральный
+   фон: без него квадрат остался бы прозрачным. */
+.about-link-ico{flex:none;width:46px;height:46px;padding:9px;border-radius:14px;background:var(--bg2);color:var(--accent)}
+@supports (background:color-mix(in srgb,#000 9%,#fff)){
+  .about-link-ico{background:color-mix(in srgb,var(--accent) 9%,#fff)}
+}
+.about-link-text{display:grid;gap:3px;min-width:0}
+.about-link-text b{font-size:16px;font-weight:640;letter-spacing:-.015em}
+.about-link-text span{color:var(--muted);font-size:13px;line-height:1.45}
+.about-link-go{flex:none;width:19px;height:19px;margin-left:auto;color:var(--muted)}
+.about-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Движение — только там, где есть мышь: на телефоне `:hover` залипает после
+   нажатия, и плитка так и осталась бы приподнятой (см. «Движение: наведение
+   только для мыши»). */
+@media (hover:hover) and (pointer:fine){
+  .about-link:hover{border-color:var(--accent);box-shadow:0 8px 22px rgba(17,17,26,.09);transform:translateY(-2px)}
+  .about-link:hover .about-link-go{color:var(--accent)}
+}
 /* Карта своя, на тайлах OpenStreetMap (см. lib/map-tiles.js). Слой тайлов стоит
    ЦЕНТРОМ на точке магазина: отрицательные поля от середины блока считает
    сервер, поэтому одна разметка годится любой ширине — лишнее обрезает рамка.
@@ -4000,6 +4055,13 @@ details.metric-rules{margin-bottom:14px}
   .legal-section{padding:22px 18px}
   .legal-section h2{font-size:21px}
   .legal-details>div{grid-template-columns:1fr;gap:4px}
+  .legal-note{gap:11px;padding:13px 14px}
+  /* Плитки на телефоне идут в столбик (это делает сама сетка), и всё, что не
+     текст, ужимается: значок, стрелка и поля забирали 125 px из 257, и подпись
+     разваливалась на четыре строки, а название переносилось надвое. */
+  .about-link{gap:12px;padding:14px}
+  .about-link-ico{width:40px;height:40px;padding:8px;border-radius:12px}
+  .about-link-go{width:17px;height:17px}
   /* Карта на телефоне ниже: в полный рост она занимала бы весь экран целиком. */
   .about-map{height:300px}
   .map-route{left:10px;bottom:10px;font-size:13px;padding:8px 13px}

@@ -3833,7 +3833,37 @@ test('гарантия и возврат — две отдельные стра�
   assert.match(css, /\.warranty-table td:nth-child\(2\)::before/);
 });
 
-test('«О компании» — реквизиты, контакты и карта, и ничего сверх', () => {
+test('куда придут деньги — выделенная плашка, и текст у обеих страниц один', () => {
+  const settings = { storeName: 'a:Market', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
+  const warranty = render.warrantyPage(settings, { origin: '' });
+  const returns = render.returnsPage(settings, { origin: '' });
+
+  /* Плашка стоит на ОБЕИХ страницах: гарантия ведёт к возврату денег по ст. 18,
+   * возврат — тем более, а вопрос у покупателя один. */
+  const note = warranty.match(/<aside class="legal-note">[\s\S]*?<\/aside>/);
+  assert.ok(note, 'на странице гарантии нет плашки про реквизиты возврата');
+  assert.ok(returns.includes(note[0]), 'у возврата своя формулировка — тексты разъедутся молча');
+
+  // Главное — жирным, и оно называет оба случая: обычный возврат и отказ при получении.
+  assert.match(note[0], /<b>Деньги возвращаются на те же реквизиты, с которых была оплата, — в том числе при отказе от товара в момент получения\.<\/b>/);
+  assert.match(note[0], /свяжитесь с менеджером/);
+
+  /* В перечне «Возврат денежных средств» прежней строки про ту же карту больше
+   * нет: плашка говорит ровно это, а повторять одно и то же дважды на одном
+   * экране незачем. */
+  const money = returns.slice(returns.indexOf('id="money"'), returns.indexOf('id="seller"'));
+  assert.ok(money.includes('<aside class="legal-note">'));
+  assert.doesNotMatch(money, /<li>деньги возвращаются на ту же банковскую карту/);
+
+  /* Плашка выделяется акцентом магазина, а не зашитым цветом, и текст в ней
+   * набран полужирным — иначе она не отличалась бы от обычного абзаца. */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.legal-note\{[^}]*border-left:3px solid var\(--accent\)/);
+  assert.match(css, /\.legal-section \.legal-note p\{margin:0;color:var\(--text\);font-weight:500\}/);
+  assert.match(css, /\.legal-note b\{font-weight:700\}/);
+});
+
+test('«О компании» — реквизиты, условия, контакты и карта, и ничего сверх', () => {
   const settings = {
     storeName: 'a:Market', tagline: 'Оригинальная техника Apple', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
     contactPhone: '+79991234567', contactEmail: 'shop@example.test', contactTelegram: '@manager', contactHours: 'Ежедневно 10:00–21:00',
@@ -3844,13 +3874,33 @@ test('«О компании» — реквизиты, контакты и кар
 
   assert.match(html, /<link rel="canonical" href="https:\/\/example\.test\/about"/);
 
-  /* Разделов ровно три, и реквизиты продавца стоят ПЕРВЫМИ: страницу открывают,
-   * чтобы проверить продавца перед предоплатой, и листать ради этого не должно
-   * приходиться. */
+  /* Разделов ровно четыре, и реквизиты продавца стоят ПЕРВЫМИ: страницу
+   * открывают, чтобы проверить продавца перед предоплатой, и листать ради этого
+   * не должно приходиться. Условия покупки идут вторыми — «кто продаёт» и «на
+   * каких условиях» это половины одного решения; контакты и адрес отвечают на
+   * другой вопрос и стоят ниже. */
   assert.deepEqual((html.match(/<section class="legal-section" id="(\w+)"/g) || []),
-    ['<section class="legal-section" id="seller"', '<section class="legal-section" id="contacts"',
-      '<section class="legal-section" id="address"']);
+    ['<section class="legal-section" id="seller"', '<section class="legal-section" id="terms"',
+      '<section class="legal-section" id="contacts"', '<section class="legal-section" id="address"']);
   assert.match(html, /ИП &lt;Тест&gt;/);
+
+  /* Путь к гарантии и возврату — плитки, а не строчные ссылки, и глифы у них те
+   * же, что в бегущей строке главной и в блоке доверия: второго набора значков
+   * для тех же понятий в проекте быть не должно. Пересказа самих документов
+   * здесь нет — подпись говорит, что внутри, а читают уже на их страницах. */
+  const tiles = html.slice(html.indexOf('id="terms"'), html.indexOf('id="contacts"'));
+  assert.match(tiles, /<div class="about-links">/);
+  assert.match(tiles, /<a class="about-link" href="\/warranty"><svg class="about-link-ico"[\s\S]*?<b>Гарантия<\/b>/);
+  assert.match(tiles, /<a class="about-link" href="\/returns"><svg class="about-link-ico"[\s\S]*?<b>Возврат и обмен<\/b>/);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
+  const block = src.slice(src.indexOf('const ABOUT_LINKS_BLOCK'), src.indexOf('function aboutPage'));
+  assert.match(block, /glyphBody\(g\)/, 'плитки рисуют свои контуры вместо общих BENEFIT_GLYPHS');
+  /* Глиф вписан в общую рамку тем же способом, что и в бегущей строке главной:
+   * холст 35×35, а stroke-width поделён на масштаб — увеличенный глиф иначе
+   * приезжает жирнее соседнего, и один вес штриха на витрине теряет смысл. */
+  const fitted = [...tiles.matchAll(/<svg class="about-link-ico" viewBox="0 0 35 35"[^>]*><g transform="translate\([-\d. ]+\) scale\(([\d.]+)\)" stroke-width="([\d.]+)"/g)];
+  assert.equal(fitted.length, 2, 'глифы плиток не вписаны в общую рамку');
+  for (const [, s, w] of fitted) assert.ok(Math.abs(Number(s) * Number(w) - 1.2) < 0.005);
 
   /* Пересказа доставки, оплаты, гарантии и порядка покупки здесь нет: витрина
    * считает эти числа сама, а страница повторяла бы их словами и расходилась с
