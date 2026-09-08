@@ -2103,6 +2103,11 @@ function chatOrders(chat, limit) {
     .slice(0, limit || 10);
 }
 
+/* Сколько последних реплик покупателя перечитываем в поисках номера, пока он не
+ * опознан. Пять — это ровно тот разговор, где номер назвали в начале, а вопрос
+ * задали через пару фраз. */
+const PHONE_LOOKBACK = 5;
+
 /* Покупатель назвал номер телефона — находим по нему его заказы.
  *
  * ЗАЧЕМ ЭТО ВООБЩЕ НУЖНО. Заказы диалогу подбирала одна метка посетителя, а она
@@ -2127,16 +2132,31 @@ function chatOrders(chat, limit) {
  * номеру вместе с поиском в хранилище. Ключ опознания один — телефон.
  */
 function identifyByPhone(chat, text) {
-  if (!chat || !text || !CHAT.phoneTriesLeft(chat)) return false;
-  const numbers = PHONE.find(text);
+  if (!chat || !CHAT.phoneTriesLeft(chat)) return false;
+  const fresh = PHONE.find(text);
+  const numbers = fresh.slice();
+  /* Смотрим и НЕСКОЛЬКО ПРОШЛЫХ реплик покупателя, пока он не опознан. Номер
+   * почти никогда не стоит в том же сообщении, что и вопрос: сперва «мой номер
+   * такой-то», потом «ну что там с заказом», — а переспрашивать номер у того,
+   * кто его уже написал, это то же самое, что не уметь искать вовсе. */
+  if (!chat.phone) {
+    const own = (chat.messages || []).filter(m => m && m.role === 'user').slice(-PHONE_LOOKBACK);
+    for (const m of own) {
+      for (const n of PHONE.find(m.text)) if (!numbers.includes(n)) numbers.push(n);
+    }
+  }
   if (!numbers.length) return false;
   const orders = db.visibleOrders();
   for (const phone of numbers) {
     if (orders.some(o => o.phone === phone)) return CHAT.setPhone(chat, phone);
   }
-  // Номер назван, а заказов по нему нет. Это либо опечатка, либо чужой номер —
-  // различить их нечем, и обе тратят попытку.
-  CHAT.phoneMiss(chat);
+  /* Номер назван, а заказов по нему нет. Это либо опечатка, либо чужой номер —
+   * различить их нечем, и обе тратят попытку.
+   *
+   * Тратит её ТОЛЬКО номер из текущей реплики: прошлые перечитываются на каждом
+   * сообщении, и считай мы их, один неудачный номер съел бы весь предел за пять
+   * следующих фраз — вместе с правом покупателя назвать верный. */
+  if (fresh.length) CHAT.phoneMiss(chat);
   return false;
 }
 
