@@ -2406,6 +2406,11 @@ async function aiReply(chat, info) {
   // Выключенный галочкой консультант молчит, даже когда ключ на месте: все
   // вопросы уходят менеджеру, и это осознанный режим владельца.
   if (!AI.enabled(s)) return;
+  /* Разговор закончен прощанием — молчим. Проверка стоит ЗДЕСЬ, в единственной
+   * двери ответа: тот же вежливый пинг-понг иначе устраивал бы и консультант,
+   * вернувшийся по таймеру вместо менеджера. Стоит она и до `aiBusy`, и внутри
+   * очереди ниже — реплика могла прийти, пока шла печать предыдущего ответа. */
+  if (PROMPT.conversationClosed(chat)) return;
   /* Второе сообщение не запускаем поверх первого, но и не бросаем. Раньше
    * `aiBusy` просто выходил отсюда: покупатель дописывал «и в чёрном?», видел
    * ответ только на первый вопрос и оставался без продолжения до третьей
@@ -2422,6 +2427,7 @@ async function aiReply(chat, info) {
     while (current) {
       const currentSettings = settings();
       if (current.mode !== 'ai' || !AI.enabled(currentSettings)) break;
+      if (PROMPT.conversationClosed(current)) break;
       await aiAnswer(current, context, currentSettings);
       const next = aiQueued.get(chat.id);
       aiQueued.delete(chat.id);
