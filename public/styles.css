@@ -408,8 +408,6 @@ body.lb-open{overflow:hidden}
   .lb-btn{width:48px;height:48px;background:rgba(255,255,255,.16)}
   .lb-media{max-height:calc(100vh - 150px)}
 }
-.review-photos{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.review-photos img{width:74px;height:74px;object-fit:cover;border-radius:10px;border:1px solid var(--border)}
 .review-form-wrap{background:var(--bg2);border-radius:var(--radius);padding:20px}
 .rate-input{display:inline-flex;gap:4px;font-size:30px;line-height:1}
 .rate-star{background:none;border:none;cursor:pointer;color:#d2d2d7;padding:0;transition:color .1s;font-size:30px}
@@ -516,8 +514,6 @@ body.cart-open .cart-drawer{transform:translateX(0)}
 .cart-remove:hover{color:#d70015}
 .cart-foot{border-top:1px solid var(--border);padding:16px}
 .cart-total{display:flex;justify-content:space-between;font-size:18px;font-weight:600;margin-bottom:12px}
-.checkout-fields{display:none;margin-bottom:12px}
-.checkout-fields.show{display:block}
 
 /* ===== Тост ===== */
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;z-index:80;opacity:0;transition:opacity .25s var(--ease-out),transform .25s var(--ease-out);box-shadow:var(--shadow-lg);max-width:90vw;text-align:center}
@@ -660,12 +656,7 @@ body.admin{background:var(--bg2)}
 .a-actions .btn-danger:hover{background:#fdf3f3;border-color:#e6b8bb}
 .pill{display:inline-flex;align-items:center;font-size:14px;font-weight:500;padding:9px 14px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--muted);line-height:1.2}
 .pill.ok{border-color:#b7e0c4;background:#f3fbf6;color:#1a7f37}
-.inline-form{margin:0}
-.inline-form select,.a-table select{border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit}
-.review-cell .rc-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.rc-text{margin-top:6px;color:#333}
-.rc-photos{display:flex;gap:6px;margin-top:8px}
-.rc-photos img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+.a-table select{border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit}
 /* Постраничная навигация в панелях: списки отзывов и заказов длинные, целиком их не отдаём */
 .a-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:14px 10px 4px;border-top:1px solid var(--border);margin-top:4px}
 .a-page{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:34px;height:34px;padding:0 8px;
@@ -841,12 +832,6 @@ body.admin{background:var(--bg2)}
 .switch input:checked{background:var(--accent)}
 .switch input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s ease}
 .switch input:checked::after{transform:translateX(16px)}
-.price-inp{width:130px;border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:14px;font-family:inherit}
-.price-inp:focus{border-color:var(--accent);outline:none}
-/* Непринятое значение в таблице: та же палитра, что у ошибок формы товара. */
-.price-inp.has-error{border-color:#c8102e;background:#fff8f8}
-.a-table tr.row-error>td{background:#fff8f8}
-.a-table tr.row-error .muted.small{color:#c8102e}
 /* Скрытый с витрины товар в списке каталога: строка гасится целиком, чтобы её
    было видно при беглом взгляде, но фото не мешало отличать её от удалённой. */
 .a-table tr.row-off>td{opacity:.62}
@@ -1936,6 +1921,19 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
   .about-link:hover{border-color:var(--accent);box-shadow:0 8px 22px rgba(17,17,26,.09);transform:translateY(-2px)}
   .about-link:hover .about-link-go{color:var(--accent)}
 }
+/* Снимки магазина в настройках: плитка с крестиком-меткой. Отмеченный к
+   удалению гаснет чистым CSS — соседний селектор, без `:has()`, который знают
+   не все версии Safari, доходящие до панели. */
+.set-photos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:9px}
+.set-photo{position:relative;width:88px;height:88px;border-radius:10px;overflow:hidden;border:1px solid var(--border-soft)}
+.set-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.set-photo-drop{position:absolute;opacity:0;pointer-events:none}
+.set-photo-x{position:absolute;right:4px;top:4px;z-index:2;display:flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.9);color:#48484a;font-size:11px;cursor:pointer}
+.set-photo-x:hover{background:#fff;color:#b42318}
+.set-photo-drop:checked ~ img{opacity:.25;filter:grayscale(1)}
+.set-photo-drop:checked ~ .set-photo-x{background:#b42318;color:#fff}
+
 /* Карта своя, на тайлах OpenStreetMap (см. lib/map-tiles.js). Слой тайлов стоит
    ЦЕНТРОМ на точке магазина: отрицательные поля от середины блока считает
    сервер, поэтому одна разметка годится любой ширине — лишнее обрезает рамка.
@@ -1943,15 +1941,89 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .about-map{position:relative;height:380px;overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:var(--bg2)}
 .map-layer{position:absolute;left:50%;top:50%}
 .map-tile{position:absolute;display:block;width:256px;height:256px;border:0}
+/* Готовая картинка карты. Стоит центром на точке магазина — как и плитка,
+   отрицательные поля считает сервер. Размеры заданы в разметке: файл вдвое
+   плотнее CSS-пикселя, и без них браузер показал бы карту вдвое крупнее. */
+.map-poster{position:absolute;left:50%;top:50%;display:block;max-width:none;border:0}
 /* Остриё метки приходится ровно на центр блока — то есть на точку магазина.
    Нажатий она не ловит: под ней карта, а не ссылка. */
 .map-pin{position:absolute;left:50%;top:50%;width:32px;height:44px;transform:translate(-50%,-100%);pointer-events:none;
   filter:drop-shadow(0 2px 4px rgba(0,0,0,.28))}
-/* Наша кнопка вместо чужих: одна, своим словом и своим видом. */
-.map-route{position:absolute;left:12px;bottom:12px;display:inline-flex;align-items:center;
-  padding:9px 15px;border-radius:999px;background:#fff;color:var(--text);font-size:14px;font-weight:560;
-  text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-.map-route:hover{color:var(--accent)}
+/* Карточка магазина рядом с картой — сделана по карточке организации в
+   картах-справочниках (снято с живой страницы Яндекс.Карт 7 сентября 2026).
+   Порядок там такой и держится на нём: сначала СНИМКИ места, потом крупное имя
+   с категорией, оценка строкой, статус «открыто» цветным текстом, ряд крупных
+   кнопок — и только потом адрес с часами разделами. Первый заход был списком
+   строк «значок + значение», и карточка читалась как выписка из настроек.
+
+   Слева карточка, справа карта: карта отвечает «где это», карточка — «что это
+   за место». Ниже 860 px они встают друг под друга, карточка первой. */
+.place{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:16px;align-items:start}
+.place-card{overflow:hidden;border:1px solid var(--border-soft);border-radius:16px;background:#fff}
+
+/* Обложка: крупный первый снимок и лента остальных под ним. Ровно так место и
+   узнают — по одному кадру не понять, а сеткой из шести карточка превращается
+   в фотоальбом. */
+.place-cover{display:flex;flex-direction:column;gap:2px;background:var(--bg2)}
+.place-cover-main{display:block;aspect-ratio:16/10;overflow:hidden}
+.place-cover-rest{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.place-cover-thumb{position:relative;display:block;aspect-ratio:1/1;overflow:hidden}
+.place-cover img{width:100%;height:100%;object-fit:cover;display:block}
+/* «+N» на последней плитке — счётчик того, что осталось за кадром. */
+.place-cover-more{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);color:#fff;font-size:15px;font-weight:600}
+.place-cover-rest a[hidden]{display:none!important}
+
+.place-body{display:flex;flex-direction:column;gap:6px;padding:15px 16px 16px}
+.place-name{font-size:22px;font-weight:650;line-height:1.2}
+.place-kind{color:#6e6e73;font-size:13.5px;margin-top:-3px}
+/* Оценка: звёзды, крупное число, серым — сколько оценок и по чему они. */
+.place-rate{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px 8px;margin-top:3px}
+.place-rate .stars{font-size:15px}
+.place-rate b{font-size:17px;font-weight:650}
+.place-rate-note{color:#6e6e73;font-size:13px}
+/* Статус — цветной ТЕКСТ, а не плашка: в справочнике «Закрыто» видно первым, и
+   видно именно цветом. Зелёный — цвет подписи наличия, красный — тот же, каким
+   подписано «осталось несколько штук». */
+.place-state{color:#b42318;font-size:14.5px;font-weight:560}
+.place-state.is-open{color:#0b7a37}
+
+/* Ряд действий: с карточки звонят и пишут, а не читают её. */
+.place-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.place-act{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;
+  border-radius:999px;background:#f2f3f5;color:var(--text);font-size:14.5px;font-weight:560;text-decoration:none}
+.place-act svg{width:17px;height:17px;fill:currentColor}
+.place-act-main{padding:0 17px;background:var(--accent);color:#fff}
+.place-act-main:hover{opacity:.9;color:#fff}
+/* Знак мессенджера на главной кнопке белый, а деталь внутри него ВЫРЕЗАЕТСЯ
+   цветом поверхности (`--msg-cut`, см. подвал). На акцентной заливке этот вырез
+   обязан быть акцентным — с белым по умолчанию самолётик слился бы с диском, и
+   от знака остался бы просто белый кружок. */
+.place-act-main{--msg-cut:var(--accent)}
+.place-act-round{width:40px;padding:0}
+/* Мессенджеры красятся фирменным цветом на наведении — как в подвале: в покое
+   ряд остаётся спокойным, а не превращается в три цветных пятна. */
+.place-act-round:hover{background:var(--msg-brand,var(--accent));color:#fff}
+.place-act-round:hover .msg-cut{fill:var(--msg-brand,var(--accent))}
+.place-act-round .msg-ico{width:19px;height:19px}
+
+/* Адрес и часы — разделами с подписью, а не строчками в общий столбик: подпись
+   говорит, ЧТО это, значение идёт крупнее под ней. */
+.place-rows{margin-top:11px;padding-top:12px;border-top:1px solid var(--border-soft);display:flex;flex-direction:column;gap:11px}
+.place-row{display:flex;align-items:flex-start;gap:10px}
+.place-row svg{flex:none;width:17px;height:17px;margin-top:2px;fill:#86868b}
+.place-row>div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.place-row-title{color:#6e6e73;font-size:12.5px}
+.place-row-value{font-size:14.5px;line-height:1.35}
+
+/* Карта в этой паре тянется по высоте карточки, но не ниже своего минимума. */
+.place .about-map{height:100%;min-height:360px}
+@media(max-width:860px){
+  .place{grid-template-columns:minmax(0,1fr)}
+  .place .about-map{min-height:280px}
+  .place-name{font-size:20px}
+}
+
 /* Строку лицензии снимать НЕЛЬЗЯ: её требует лицензия данных OSM. Мелкая, в
    углу, на подложке — чтобы читалась поверх любого куска карты. */
 .map-credit{position:absolute;right:7px;bottom:6px;padding:2px 6px;border-radius:6px;
@@ -1974,7 +2046,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .cart-item-controls{margin-top:10px}
 .cart-foot{padding:18px 20px calc(18px + env(safe-area-inset-bottom));border-color:var(--border-soft);background:#fff}
 .cart-total{font-size:20px}
-.checkout-fields{padding-top:6px}
 .cart-items.cart-items-success{display:flex;align-items:center;padding:28px 20px}
 .order-success{width:100%;padding:30px 22px;border:1px solid #d9efe1;border-radius:24px;background:linear-gradient(180deg,#f4fbf7 0%,#fff 72%);text-align:center;outline:none}
 .order-success-check{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 18px;border-radius:50%;background:#21a366;color:#fff;box-shadow:0 12px 30px rgba(33,163,102,.2);font-size:34px;font-weight:700;line-height:1}
@@ -2859,17 +2930,6 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .o-recent-empty{margin:0;padding:4px 0 2px}
 
-/* Рабочие и удалённые заказы разделены как две короткие вкладки. Финансовая
-   запись из «Удалённых» остаётся доступна webhook, но не засоряет обычный
-   список; счётчик рядом показывает, что это обратимое действие. */
-.o-list-switch{display:flex;align-items:center;gap:7px;margin:0 0 14px}
-.o-list-switch a{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid var(--border-soft);
-  border-radius:11px;background:#fff;color:var(--muted);font-size:12.5px;line-height:1.35;transition:border-color .14s,color .14s,background .14s}
-.o-list-switch a:hover{border-color:#c7c7cc;color:var(--text)}
-.o-list-switch a[aria-current="page"]{border-color:var(--text);background:var(--text);color:#fff}
-.o-list-switch b{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;
-  background:#f1f1f4;color:var(--text);font-size:11px;font-variant-numeric:tabular-nums}
-.o-list-switch a[aria-current="page"] b{background:rgba(255,255,255,.2);color:#fff}
 .o-filters{display:grid;grid-template-columns:minmax(280px,1fr) minmax(170px,auto) auto auto;gap:8px;
   align-items:center;margin:0 0 14px;padding:10px;border:1px solid var(--border-soft);border-radius:14px;background:#fff}
 .o-filters label{min-width:0}
@@ -2886,11 +2946,6 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .o-list-title h2{margin:0;font-size:18px}
 .o-list-title span{color:var(--muted);font-size:12px;white-space:nowrap}
 .a-panel-edit-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto}
-/* «Очистить корзину» показывается тем же правилом, что и крестики у строк:
-   стереть весь архив из списка, открытого почитать, нельзя — сперва «Изменить».
-   Кнопка стоит в шапке режима, а не над списком, именно поэтому. */
-.o-purge-all{display:none}
-.edit-switch:checked ~ .a-panel-edit .o-purge-all{display:block}
 .edit-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:10px;
   border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12.5px;cursor:pointer;
   transition:border-color .12s,color .12s,background .12s;user-select:none}
@@ -2968,6 +3023,11 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
 .rv-who{font-size:14px;font-weight:650;overflow-wrap:anywhere}
 .rv-when{font-size:12px}
 .rv-tag{padding:2px 8px;border-radius:20px;background:#bf4800;color:#fff;font-size:11px;font-weight:650;line-height:1.55;white-space:nowrap}
+/* Прочитанный отзыв разобран, и красить его оранжевым «сделай что-нибудь» нельзя
+   — но и молчать о нём тоже: на витрине его нет. Отсюда спокойная серая плашка
+   на бледной подложке вместо тёплой подсветки всей строки. */
+.rv-tag-seen{background:#eef0f3;color:#48484a}
+.rv-row.is-seen{background:#fbfbfd}
 .rv-where{max-width:240px;margin-left:auto;overflow:hidden;color:#6e6e73;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 a.rv-where:hover{color:var(--text);text-decoration:underline}
 .rv-where-gone{color:#a1a1a6}
@@ -3211,13 +3271,6 @@ a.cmarks-link:hover .cmarks-go{color:var(--text)}
 .trends-head{align-items:center;margin-bottom:24px}
 .trends-head h2{display:flex;align-items:center;gap:9px;margin:0;font-size:20px;font-weight:500;letter-spacing:-.02em}
 .trends-help{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border:2px solid #9aa0a6;border-radius:50%;color:#70757a;font-size:12px;font-weight:700;line-height:1;cursor:help}
-/* У Google на этом месте стоит настоящий выпадающий список («Субъект РФ ▾»), и
-   первым заходом он был срисован вместе со стрелкой — кнопкой, которая ничего
-   не делает. Элемент, выглядящий нажимаемым и не нажимающийся, раздражает
-   каждый раз. Осталась подпись-плашка: она называет, ЧТО считает карта.
-   Селектор с двумя классами — чтобы перебить `.metric-panel-head>span` по
-   специфичности, а не `!important`. */
-.trends-head>.trends-scope{display:inline-flex;align-items:center;padding:7px 11px;border-radius:7px;background:#f1f3f4;color:#5f6368;font-size:12px}
 /* График — геометрия, сетка и наведение сняты с графика Google Trends.
    Числа ниже не «на глаз», а с их страницы: шесть подписей оси (0 20 40 60 80
    100), волосяная сетка одного тона, ПУНКТИРНАЯ направляющая во всю высоту
@@ -3507,7 +3560,6 @@ body.gcal-open{overflow:hidden}
 .gcal-day:disabled{color:rgba(0,0,0,.26);cursor:default}
 .gcal-day:focus-visible{outline:0}
 .gcal-day:focus-visible>span{box-shadow:inset 0 0 0 2px #4285f4}
-.gcal-pane-close{display:none}
 .gcal-last-week[hidden]{display:none}
 .gcal-last-week{display:grid;place-items:center;min-height:150px;color:#5f6368;font-size:13px;text-align:center}
 .gcal-last-week b{display:block;margin-bottom:7px;color:#1f1f1f;font-size:16px;font-weight:500}
@@ -3796,7 +3848,6 @@ details.metric-rules{margin-bottom:14px}
 .switch input{width:42px;height:24px}
 .switch input::after{width:20px;height:20px}
 .switch input:checked::after{transform:translateX(18px)}
-.price-inp{min-height:42px;border-radius:11px}
 
 /* Фото и редакторы в панели */
 .photo-upload-box{min-height:88px;padding:15px!important;border-color:#b9c9da;border-radius:16px;background:#f8fafc}
@@ -4002,13 +4053,21 @@ details.metric-rules{margin-bottom:14px}
   .footer-col{min-width:0}
   .footer-col-head{margin-bottom:9px;font-size:15px}
   .footer-col-list{gap:8px}
-  /* РАЗДЕЛЫ ССЫЛОК — РОВНЫМ СТОЛБЦОМ ПО ЛЕВОМУ КРАЮ, а сами столбцы стоят парой
-     по центру страницы. Ссылки тут разной длины («iPad» рядом с «Политикой
-     конфиденциальности», которая ещё и переносится на две строки), и по центру
-     каждая начиналась со своего отступа — список читался рваной лесенкой вместо
-     перечня. Единой оси это не рушит: пара столбцов центрируется вокруг неё же,
-     как магазин и контакты сверху и снизу. Контактов правило не касается — там
-     строки со значком, и левый край им задаёт сам значок.
+  /* НА ТЕЛЕФОНЕ РАЗДЕЛЫ ССЫЛОК ЦЕНТРИРУЮТСЯ ЦЕЛИКОМ — и заголовок, и пункты.
+     Весь остальной подвал здесь идёт по центру: знак магазина, слоган, адрес,
+     реквизиты, контакты, знаки оплаты и копирайт. Пока списки стояли по левому
+     краю (а стояли они так ради ровного столбца), два раздела читались
+     съехавшими влево посреди центрированной колонки — владелец это и увидел на
+     своём телефоне.
+
+     Цена решения названа честно: пункты разной длины («iPad» рядом с «Политикой
+     конфиденциальности»), и края у списка получаются рваными. На узкой колонке
+     подвала это читается как обычный центрированный перечень, а вот на широком
+     экране было бы заметно — поэтому правило живёт ТОЛЬКО в мобильном блоке, а
+     на десктопе колонки остаются выровненными по левому краю.
+
+     Контактов правило не касается — там строки со значком, и левый край им
+     задаёт сам значок.
 
      Своя строка у пары обязательна (`.footer-navs`, на десктопе её нет вовсе):
      перенос во flex решается ДО сжатия, поэтому в общем ряду на 360 px, где паре
@@ -4016,7 +4075,7 @@ details.metric-rules{margin-bottom:14px}
      колонкой. В своей строке с `nowrap` она вместо этого ужимается, и подписи
      переносятся по словам. */
   .footer-navs{display:flex;flex:0 0 100%;justify-content:center;gap:16px;width:100%}
-  .footer-col:not(.footer-contacts){flex:0 1 auto;text-align:left}
+  .footer-col:not(.footer-contacts){flex:0 1 auto;text-align:center}
   .foot-brand{font-size:22px}
   /* Слоган в подвале — тоже одна строка, тем же способом, что в заголовке
      первого экрана (--fit считает footFit() в lib/render.js). Кегль падает
@@ -4064,7 +4123,6 @@ details.metric-rules{margin-bottom:14px}
   .about-link-go{width:17px;height:17px}
   /* Карта на телефоне ниже: в полный рост она занимала бы весь экран целиком. */
   .about-map{height:300px}
-  .map-route{left:10px;bottom:10px;font-size:13px;padding:8px 13px}
   .legal-table-wrap{overflow:hidden}
   .legal-table,.legal-table tbody,.legal-table tr,.legal-table td{display:block;width:100%;min-width:0}
   .legal-table thead{display:none}
@@ -4461,8 +4519,7 @@ details.metric-rules{margin-bottom:14px}
   .trends-panel{margin-bottom:10px;padding:18px 15px;border-radius:16px}
   .trends-head{align-items:flex-start;gap:10px;margin-bottom:15px}
   .trends-head h2{font-size:16px}
-  .trends-head>span:not(.trends-scope){max-width:118px;text-align:right;line-height:1.35}
-  .trends-head>.trends-scope{padding:5px 8px;font-size:10.5px}
+  .trends-head>span{max-width:118px;text-align:right;line-height:1.35}
   /* График не листается вбок и не ужимается в кашу: линия по определению
      помещается в любую ширину, а подписей оси на телефоне рисуется меньше. */
   .metric-chart{gap:5px 8px}
@@ -5685,17 +5742,10 @@ details.metric-rules{margin-bottom:14px}
 .chat-me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
 .chat-me a{color:#fff;text-decoration:underline}
 .chat-them{align-self:flex-start;background:#fff;border:1px solid var(--border);border-bottom-left-radius:5px}
-/* Ссылка в ответе Ксении обязана выглядеть ссылкой даже у магазина с другим
-   акцентным цветом: общий `a` выше намеренно сбрасывает браузерное оформление. */
+/* Ссылка в ответе консультанта обязана выглядеть ссылкой даже у магазина с
+   другим акцентным цветом: общий `a` выше намеренно сбрасывает браузерное
+   оформление. */
 .chat-them .chat-link{color:#06c;text-decoration:underline;text-underline-offset:2px}
-/* Системная строка («менеджер подключился») — не реплика, а отметка: она идёт
-   по центру и мельче, иначе читается как ещё один собеседник. */
-/* Отметка о смене собеседника («Менеджер подключился к разговору») и прочие
-   служебные строки. Не реплика, а событие: идёт по центру, мельче и серым —
-   иначе читается как ещё один собеседник. Воздух сверху и снизу нужен, чтобы
-   строка не липла к соседнему пузырю и читалась как отбивка между ними. */
-.chat-sys{align-self:center;max-width:100%;background:transparent;border:0;color:var(--muted);
-  font-size:12.5px;line-height:1.4;text-align:center;padding:4px 8px}
 .chat-who{display:block;font-size:11.5px;font-weight:600;color:var(--accent);margin-bottom:2px}
 .chat-me .chat-who{color:rgba(255,255,255,.85)}
 
@@ -6107,7 +6157,6 @@ details.metric-rules{margin-bottom:14px}
 .chat-edit-form textarea{width:100%;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:10px;
   resize:vertical;font-family:inherit}
 .chat-edit-acts{display:flex;gap:6px}
-.chat-edit-drop{color:#b42318}
 /* ---- Что сделать с репликой: меню по удержанию на ней ----
    Раньше рядом с каждой репликой висел карандаш — полтора десятка одинаковых
    кнопок читались как содержание, а пальцем в него ещё надо было попасть.
