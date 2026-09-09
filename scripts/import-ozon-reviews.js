@@ -42,6 +42,18 @@ const numArg = (name, def) => {
 const VIDEOS_MAX = numArg('max-videos', 0);
 const LIMIT = numArg('limit', 0);
 const MAX_PHOTOS = numArg('max-photos', 6);
+const KEEP_MARKET = args.includes('--keep-marketplace');
+
+// ОТЗЫВ, НАЗЫВАЮЩИЙ ЧУЖУЮ ПЛОЩАДКУ, НА НАШУ ВИТРИНУ НЕ ИДЁТ. «Заказывала на
+// озоне», «при вскрытии пакета на озон», «Озон и продавцу спасибо» — покупатель
+// читает в карточке НАШЕГО магазина рассказ о покупке в другом месте. Это ровно
+// то, что в демо-наборе запрещено отдельным правилом («конкретные сети и
+// маркетплейсы не называем»), и привезённые отзывы не исключение.
+//
+// Отсев, а не правка текста: переписывать чужой отзыв — подделка, а выбросить
+// его честно. Цена невелика — на боевых данных таких около 2 %.
+// `--keep-marketplace` оставляет их, если однажды понадобится.
+const MARKETPLACE_RE = /озон|ozon|вайлдберриз|wildberries|\bwb\b|яндекс\s*маркет|алиэкспресс|aliexpress|\bдns\b|днс|мвидео|м\.видео|эльдорадо|ситилинк/i;
 
 if (!file) {
   console.error('Укажите файл пакета: node scripts/import-ozon-reviews.js bundle.json --apply');
@@ -283,7 +295,16 @@ async function fetchTo(url, dest, tries) {
 }
 
 (async () => {
-  const list = LIMIT ? bundle.reviews.slice(0, LIMIT) : bundle.reviews;
+  // Отсев площадки идёт ДО предела `--limit`: иначе выброшенные отзывы съедали
+  // бы места в выборке, и на витрину приехало бы меньше, чем просили.
+  const incoming = bundle.reviews || [];
+  const clean = KEEP_MARKET ? incoming : incoming.filter(rv => !MARKETPLACE_RE.test(String(rv.text || '')));
+  const dropped = incoming.length - clean.length;
+  if (dropped) {
+    console.log(`Отсеяно отзывов с упоминанием чужой площадки: ${dropped} из ${incoming.length}` +
+      ' (оставить — ключ --keep-marketplace)');
+  }
+  const list = LIMIT ? clean.slice(0, LIMIT) : clean;
   // Мест под ролики столько, сколько их в раскладке ленты этого товара.
   const capacity = VIDEOS_MAX > 0 ? VIDEOS_MAX : DATES.videoCapacity(list.length);
   // Раздаём места по кругу между цветами: иначе один цвет с сотней роликов
