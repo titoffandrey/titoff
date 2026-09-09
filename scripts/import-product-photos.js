@@ -19,8 +19,15 @@
 //
 // Чем это отличается от `import-watch-photos.js`. Там у снимка две привязки —
 // цвет корпуса и вариация ремешка, — и половина скрипта занята тем, чтобы свести
-// апловские идентификаторы с нашими названиями. Здесь привязок нет вовсе: у кабеля
-// один цвет и два кадра, и порядок в галерее — это порядок на странице Apple.
+// апловские идентификаторы с нашими названиями. Здесь привязка одна и приходит
+// готовой: цвет карточки записан в манифест выгрузки (у кабеля его нет вовсе,
+// у чехла он есть, и снимки этой расцветки достаются именно ему).
+//
+// **Папок на карточку бывает несколько.** У чехла каждая расцветка — своя
+// страница Apple, то есть своя папка выгрузки, а карточка одна: заливка идёт
+// подряд, фото добавляются к уже лежащим, и `imageColors` набирается по частям.
+// Поэтому `--replace` снимает прежние снимки ОДИН раз на карточку, а не на папку:
+// иначе вторая расцветка стёрла бы первую.
 //
 // Обработка идёт ровно теми же вызовами, что и маршрут `/admin/products/:id/images/add`:
 // сигнатура файла → `IMG.optimizeMany(UPLOAD_DIR, …, 1200, {square:true})` → `IMG.makeCards`.
@@ -72,7 +79,7 @@ function jobsOf(src, forced) {
     // Порядок кадров задаёт манифест: он повторяет порядок галереи на apple.com,
     // где первым идёт сам товар, а дальше ракурсы и кадры «в работе».
     const files = (m.images || []).map(i => i.file).filter(f => fs.existsSync(path.join(dir, f)));
-    return { dir, product, name: m.name || path.basename(dir), files };
+    return { dir, product, color: m.color || '', name: m.name || path.basename(dir), files };
   };
   const self = one(src);
   if (self) return [self];
@@ -86,16 +93,24 @@ function jobsOf(src, forced) {
   return out;
 }
 
-async function importOne(job, opt) {
+async function importOne(job, opt, wiped) {
   const product = db.getProduct(job.product);
   if (!product) { console.warn('  ! карточки ' + (job.product || '—') + ' нет в каталоге, пропущено'); return 0; }
-  const already = opt.replace ? 0 : (product.images || []).length;
+  // Цвет из манифеста обязан существовать у товара: иначе снимок получил бы
+  // привязку к варианту, которого нет, и галерея не показала бы его никогда.
+  const color = job.color && (product.colors || []).some(c => c.name === job.color) ? job.color : '';
+  if (job.color && !color) console.warn('  ! у карточки нет цвета «' + job.color + '» — снимки лягут общими');
+  // `--replace` снимает прежние фото один раз на карточку: у чехла папок столько
+  // же, сколько расцветок, и вторая иначе стёрла бы залитое первой.
+  const wipe = opt.replace && !wiped.has(product.id);
+  const already = wipe ? 0 : (product.images || []).length;
   const room = Math.max(0, PRODUCT_IMAGE_MAX - already);
   const take = job.files.slice(0, room);
-  console.log(product.name + ' (' + product.id + '): в карточке ' + (product.images || []).length +
-    ', заливаем ' + take.length + ' из ' + job.files.length);
+  console.log(product.name + ' (' + product.id + ')' + (color ? ' · ' + color : '') + ': в карточке ' +
+    (product.images || []).length + ', заливаем ' + take.length + ' из ' + job.files.length);
   if (take.length < job.files.length) console.warn('  ! потолок ' + PRODUCT_IMAGE_MAX + ' фото — лишние кадры пропущены');
   if (!opt.apply || !take.length) return take.length;
+  wiped.add(product.id);
 
   // ── та же цепочка, что и у ручной загрузки ──
   const names = [];
@@ -111,10 +126,12 @@ async function importOne(job, opt) {
   for (const f of optimized) await IMG.makeCards(db.UPLOAD_DIR, f);
 
   const current = db.getProduct(product.id);
-  const keep = opt.replace ? [] : (current.images || []);
-  db.updateProduct(current.id, { images: keep.concat(optimized) });
+  const keep = wipe ? [] : (current.images || []);
+  const imageColors = Object.assign({}, wipe ? {} : (current.imageColors || {}));
+  if (color) for (const f of optimized) imageColors[f] = color;
+  db.updateProduct(current.id, { images: keep.concat(optimized), imageColors });
   // Снятые фото убираем с диска — как это делает панель.
-  if (opt.replace) for (const f of (current.images || [])) db.deleteUploadIfUnused(f);
+  if (wipe) for (const f of (current.images || [])) db.deleteUploadIfUnused(f);
 
   let bytes = 0;
   for (const f of optimized) {
@@ -152,9 +169,10 @@ async function main() {
   }
 
   let total = 0;
+  const wiped = new Set();
   for (const job of jobs) {
     if (!job.product) continue;
-    total += await importOne(job, opt);
+    total += await importOne(job, opt, wiped);
   }
   console.log('\nГотово. Карточек: ' + jobs.filter(j => j.product).length + ' · снимков: ' + total +
     (opt.apply ? '' : '. Это только план — тот же вызов с --apply запишет.'));

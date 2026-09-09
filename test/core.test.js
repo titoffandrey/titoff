@@ -253,7 +253,12 @@ test('поиск разбирает запрос на слова и знает �
 
   // Русский магазин — русские слова. Ноль карточек по «айфон» при четырнадцати
   // айфонах в каталоге и был той самой потерянной покупкой.
-  assert.equal(names('айфон').length, 14);
+  // «Айфон» — это и телефоны, и чехлы с плёнками к ним: у чехла модель стоит в
+  // названии, и без этого слова «чехол на айфон 17» не нашёл бы ничего (условия
+  // складываются по И). Телефоны при этом идут первыми — так они стоят в каталоге.
+  const phones = list.filter(p => p.category === 'iPhone').map(p => p.name);
+  assert.deepEqual(names('айфон').slice(0, phones.length).sort(), phones.slice().sort());
+  assert.ok(names('чехол айфон 17 про макс').every(n => n.includes('17 Pro Max')));
   assert.equal(names('макбук').length, 5);
   assert.deepEqual(names('колонка').sort(), ['HomePod (2-е поколение)', 'HomePod mini']);
   assert.equal(names('часы').length, 7);
@@ -2420,7 +2425,7 @@ test('кнопка WhatsApp открывает диалог с покупате�
   assert.match(adminViews.ordersList(SETTINGS, {
     getOrders: () => [order], visibleOrders: () => [order],
     getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
-  }, null, 1), /class="o-wa"/, 'панель зовёт ту же разметку строки заказа');
+  }, null, 1), /class="of-contact of-whatsapp"/, 'список заказов показывает быстрый контакт WhatsApp');
 
   /* Деньги в сообщении считает `moneyText()` — без экранирования: у магазина с
    * «&» в названии валюты в реплике стояло бы «&amp;». В разметке при этом
@@ -5609,7 +5614,7 @@ test('подпись корпуса на фото ремешка читаетс�
   assert.match(html, /<div class="img-chip-media" data-case="Чёрный титан">/);
 });
 
-test('строка заказа: оплата собрана одним блоком, длинное — под раскрытием', () => {
+test('строка заказа: оплата собрана одним блоком, товары и доставка видны сразу', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const long = {
     id: 'o1', number: '482913', createdAt: Date.now(), status: 'new',
@@ -5631,21 +5636,24 @@ test('строка заказа: оплата собрана одним блок
     // Менеджер не ведёт «выполнение» вручную. Состояние и способ оплаты — один
     // понятный блок, сумма остаётся отдельно.
     assert.doesNotMatch(html, /Выполнение|orderStatus|o-flow/, name);
-    assert.match(html, /<th>Оплата<\/th>/, name);
-    assert.match(html, /<td class="o-payment">/, name);
+    assert.match(html, /<article class="of-order" aria-labelledby="client-o1">/, name);
+    assert.match(html, /<span class="sr-only">Статус оплаты<\/span>/, name);
+    assert.match(html, /<div class="o-payment of-payment">/, name);
     assert.match(html, /class="o-payment-state"/, name);
     assert.match(html, /class="o-payment-method"/, name);
-    assert.match(html, /<td class="o-sum"><b>/, name);
-    // Сумма в своей ячейке одна: значок состояния к ней больше не приписан.
-    const sumCell = html.slice(html.indexOf('<td class="o-sum">'), html.indexOf('</td>', html.indexOf('<td class="o-sum">')));
-    assert.doesNotMatch(sumCell, /pay-tag|СБП/, 'в ячейке суммы только сумма: ' + name);
-    // Клиент раскрывается: адрес пункта выдачи бывает длиннее всей строки.
-    // Имя и контакты — разные элементы, а не одна строка через «·»: набраны они
-    // по-разному, и разделитель рисует CSS. Слитно строка читалась одним пятном.
-    assert.match(html, /<details class="o-who"><summary><span class="o-head"><b class="o-name">Анна Смирнова<\/b><span class="o-contact">@anna<\/span><\/span><\/summary>/, name);
-    assert.doesNotMatch(html, /o-name">[^<]*·/, 'разделитель не должен уезжать в текст: ' + name);
-    // Длинный заказ сворачивается после трёх позиций.
-    assert.match(html, /class="o-rest"><summary>ещё 3 позиции<\/summary>/, name);
+    assert.match(html, /<div class="o-sum of-sum"><span class="sr-only">Сумма заказа<\/span><b>/, name);
+    // Сумма в своём блоке одна: значок состояния к ней не приписан.
+    const sumCell = html.slice(html.indexOf('<div class="o-sum of-sum">'), html.indexOf('</div>', html.indexOf('<div class="o-sum of-sum">')));
+    assert.doesNotMatch(sumCell, /pay-tag|СБП/, 'в блоке суммы только сумма: ' + name);
+    // Имя и контакты доступны сразу и набраны разными элементами. Устройство
+    // обозначено иконкой, адрес и все позиции доступны без общей свёртки.
+    assert.match(html, /<h2 id="client-o1">Анна Смирнова<a class="of-device"/, name);
+    assert.match(html, /class="of-contact-values"><span>@anna<\/span>/, name);
+    assert.doesNotMatch(html, /id="client-o1">[^<]*·/, 'разделитель не должен уезжать в текст: ' + name);
+    assert.match(html, /<div class="of-delivery">[\s\S]*Краснодарский край/, name);
+    assert.match(html, /<details class="of-payment-details"><summary>Реквизиты и действия[\s\S]*class="o-payment-method"/, name);
+    assert.doesNotMatch(html, /<details class="of-order-details"|class="o-rest"/, name);
+    for (const item of long.items) assert.ok(html.includes(item.name), 'длинный заказ показывает каждую позицию: ' + name);
     // Свёртки «Откуда зашёл» больше нет: строка значков и есть ссылка в метрику,
     // а IP с провайдером лежат там же, в карточке посетителя.
     assert.doesNotMatch(html, /Откуда зашёл|o-tech/, name);
@@ -10469,7 +10477,7 @@ test('состояние оплаты видно в обеих панелях и
     assert.match(html, /pay-ok/);
     assert.match(html, /pay-warn/);
     assert.doesNotMatch(html, /Выполнение|name="orderStatus"|Собирается/);
-    assert.match(html, /<th>Оплата<\/th>/);
+    assert.match(html, /<span class="sr-only">Статус оплаты<\/span>/);
     assert.match(html, /class="o-payment-state"[\s\S]*class="o-payment-method"/);
   }
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
@@ -14313,7 +14321,7 @@ test('Enter отправляет, а время с галочкой держат
    * экран. Прежнее `!matchMedia('(pointer:coarse)')` считало сенсорным и
    * ноутбук с тач-экраном, и окно браузера в режиме телефона: Enter молча
    * переставал работать там, где его нажимают клавишей. */
-  assert.match(shop, /e\.key === 'Enter' && !e\.shiftKey\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*send\(input\.value\)/);
+  assert.match(shop, /e\.key === 'Enter' && !e\.shiftKey && !e\.isComposing && e\.keyCode !== 229\) \{\s*\n\s*e\.preventDefault\(\);\s*\n\s*send\(input\.value\)/);
   assert.doesNotMatch(shop, /'Enter'[\s\S]{0,80}pointer:coarse/, 'сенсорный экран Enter больше не отменяет');
 
   /* ТО ЖЕ ПРАВИЛО У МЕНЕДЖЕРА В ПАНЕЛИ. Разговор один, и клавиша в нём обязана
@@ -14398,13 +14406,16 @@ test('чат звучит одинаково у покупателя и у ме�
    * Место у сигнала ОДНО — `arrived()`, куда сходятся оба пути входящей реплики
    * (обычный `append` и дописанный ответ консультанта). Второе такое место
    * рано или поздно разошлось бы с первым. */
-  assert.match(shop, /function arrived\(\)[\s\S]{0,140}sound\('in'\);[\s\S]{0,120}if \(state\.open\) seen\(\); else bumpUnread\(\)/);
+  assert.match(shop, /function arrived\(\)[\s\S]{0,140}sound\('in'\);[\s\S]{0,120}if \(state\.open && document\.visibilityState !== 'hidden'\) seen\(\); else bumpUnread\(\)/);
   assert.equal((shop.match(/sound\('in'\)/g) || []).length, 1, 'входящий сигнал ровно в одном месте');
   assert.equal((shop.match(/\barrived\(\)/g) || []).length, 3, 'оба пути входящей реплики идут через него');
   assert.doesNotMatch(shop, /function bumpUnread\(\)[\s\S]{0,120}sound\(/, 'значок непрочитанного звука не касается');
-  // Отправка звучит вместе с появлением пузыря, а не после ответа сети: над
-  // Tor он приходит через секунды, и подтверждение опаздывало бы за нажатием.
-  assert.match(shop, /clearPicks\(\);[\s\S]{0,240}sound\('out'\)/);
+  // Отправка звучит вместе с появлением пузыря, до открытия диалога и POST.
+  // Очистка черновика теперь ждёт подтверждения, поэтому она не является
+  // маркером мгновенного действия. Порядок звука проверяем относительно сети.
+  const sending = shop.slice(shop.indexOf('function send(text)'), shop.indexOf("form.addEventListener('submit'"));
+  assert.ok(sending.indexOf("append({ role: 'user'") < sending.indexOf("sound('out')"));
+  assert.ok(sending.indexOf("sound('out')") < sending.indexOf('var go ='));
 
   /* В панели звук идёт ДО проверки на открытый диалог, а не после неё — это
    * две разные вещи. Карточка отвечает «что случилось» и про открытый диалог

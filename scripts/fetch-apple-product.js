@@ -16,9 +16,15 @@
 //                пробел можно указать id карточки каталога — он уедет в manifest,
 //                и `scripts/import-product-photos.js` зальёт папку в эту карточку
 //                без второй таблицы соответствий где-то ещё. Третьей колонкой —
-//                порядок кадров («3,1,2»), см. ниже
+//                порядок кадров («3,1,2»), см. ниже; четвёртой — название цвета
+//                карточки, к которому эти кадры относятся (у чехлов их до
+//                одиннадцати, и снимки в галерее фильтруются по цвету)
 //   --id ID      то же самое для одиночного адреса
 //   --order N,N  порядок кадров для одиночного адреса
+//   --color NAME цвет карточки для одиночного адреса
+//   --max N      сколько кадров брать (по умолчанию все). У чехла их до восьми на
+//                каждую расцветку, а расцветок одиннадцать: без предела в карточку
+//                уехало бы под сотню почти одинаковых снимков
 //
 // **Порядок кадров у Apple — не всегда «сначала товар».** У адаптера на 20 Вт первым
 // в галерее идёт кадр с айфоном рядом, у кабеля USB-C / Lightning — один штекер
@@ -53,31 +59,40 @@ function fail(msg) {
 // ────────────────────────────── аргументы ──────────────────────────────
 
 function parseArgs(argv) {
-  const o = { urls: [], out: '', list: '', id: '', order: '', width: 2000, dry: false, force: false };
+  const o = { urls: [], out: '', list: '', id: '', order: '', color: '', width: 2000, max: 0, dry: false, force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--out') o.out = argv[++i] || '';
     else if (a === '--list') o.list = argv[++i] || '';
     else if (a === '--id') o.id = argv[++i] || '';
     else if (a === '--order') o.order = argv[++i] || '';
+    else if (a === '--color') o.color = argv[++i] || '';
     else if (a === '--width') o.width = Number(argv[++i]) || 2000;
+    else if (a === '--max') o.max = Number(argv[++i]) || 0;
     else if (a === '--dry') o.dry = true;
     else if (a === '--force') o.force = true;
     else if (a.startsWith('--')) fail('неизвестный ключ ' + a);
-    else o.urls.push({ url: a, product: '', order: '' });
+    else o.urls.push({ url: a, product: '', order: '', color: '' });
   }
-  if (o.id || o.order) {
-    if (o.urls.length !== 1) fail('--id и --order задаются одному адресу; для списка пишите их колонками');
+  if (o.id || o.order || o.color) {
+    if (o.urls.length !== 1) fail('--id, --order и --color задаются одному адресу; для списка пишите их колонками');
     if (o.id) o.urls[0].product = o.id;
     if (o.order) o.urls[0].order = o.order;
+    if (o.color) o.urls[0].color = o.color;
   }
   if (o.list) {
     const raw = fs.readFileSync(o.list, 'utf8');
     for (const line of raw.split('\n')) {
       const s = line.trim();
       if (!s || s.startsWith('#')) continue;
-      const [url, product, order] = s.split(/\s+/);
-      o.urls.push({ url, product: product || '', order: order || '' });
+      // Колонки разделяются двумя и более пробелами: в названии цвета бывает свой
+      // («Светлый мох»), и по одному пробелу строка развалилась бы посередине.
+      // ПУСТУЮ КОЛОНКУ ПРОПУСКАТЬ НЕЛЬЗЯ — она схлопывается вместе с пробелами, и
+      // цвет уезжает в порядок кадров: манифест выходит без цвета, а фото ложатся
+      // в карточку общими. Пропуск пишется прочерком.
+      const [url, product, order, color] = s.split(/\s{2,}/);
+      const skip = v => (!v || v === '-' ? '' : v.trim());
+      o.urls.push({ url, product: skip(product), order: skip(order), color: skip(color) });
     }
   }
   if (!o.urls.length) fail('не задан ни один адрес товара');
@@ -236,9 +251,12 @@ async function one(item, opt) {
   const html = await getText(url);
   const info = parsePage(url, html);
   info.product = item.product;
+  info.color = item.color;
+  if (opt.max > 0) info.shots = info.shots.slice(0, opt.max);
   const dir = path.resolve(opt.out || 'apple-photos', info.slug);
 
-  console.log('\n' + info.name + '  [' + info.sku + ']' + (info.product ? ' → ' + info.product : ''));
+  console.log('\n' + info.name + '  [' + info.sku + ']' + (info.product ? ' → ' + info.product : '') +
+    (info.color ? ' · ' + info.color : ''));
   console.log('  ' + url);
   console.log('  цена: $' + info.price.toFixed(2) + ' · кадров: ' + info.shots.length);
   for (const s of info.sections) {

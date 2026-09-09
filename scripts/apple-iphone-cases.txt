@@ -1,0 +1,147 @@
+# Чехлы Apple и защитные стёкла Belkin для iPhone из раздела apple.com
+# «Cases & Protection». Каждая расцветка у Apple — отдельная страница, у нас это
+# ОДИН товар с выбором цвета, поэтому строк здесь больше, чем карточек: 132 на 43.
+#
+# Колонки через два и более пробела: адрес, id карточки, порядок кадров, цвет.
+# Пропуск пишется ПРОЧЕРКОМ — пустая колонка схлопнулась бы вместе с пробелами,
+# и цвет уехал бы в порядок кадров (проверено: манифесты вышли без цвета).
+#
+#   node scripts/fetch-apple-product.js --list scripts/apple-iphone-cases.txt \
+#     --out apple-photos/iphone-cases --max 3 --width 1400
+#   STORE_DATA_DIR=… node scripts/import-product-photos.js --src apple-photos/iphone-cases --apply
+#
+# Цены в catalog.js — долларовые цены с этих страниц по курсу 90 ₽/$ плюс 20 %.
+# Цвета кружков сняты с официальных образцов Apple: scripts/apple-swatch-color.js.
+
+https://www.apple.com/shop/product/mgfd4ll/a/iphone-17-pro-max-techwoven-case-with-magsafe-green  case-techwoven-17-pro-max  -  Зелёный
+https://www.apple.com/shop/product/mgf84ll/a/iphone-17-pro-max-techwoven-case-with-magsafe-black  case-techwoven-17-pro-max  -  Чёрный
+https://www.apple.com/shop/product/mgf94ll/a/iphone-17-pro-max-techwoven-case-with-magsafe-blue  case-techwoven-17-pro-max  -  Синий
+https://www.apple.com/shop/product/mgfa4ll/a/iphone-17-pro-max-techwoven-case-with-magsafe-purple  case-techwoven-17-pro-max  -  Фиолетовый
+https://www.apple.com/shop/product/mgfc4ll/a/iphone-17-pro-max-techwoven-case-with-magsafe-sienna  case-techwoven-17-pro-max  -  Сиена
+https://www.apple.com/shop/product/mgf54ll/a/iphone-17-pro-techwoven-case-with-magsafe-purple  case-techwoven-17-pro  -  Фиолетовый
+https://www.apple.com/shop/product/mgf74ll/a/iphone-17-pro-techwoven-case-with-magsafe-green  case-techwoven-17-pro  -  Зелёный
+https://www.apple.com/shop/product/mgf44ll/a/iphone-17-pro-techwoven-case-with-magsafe-blue  case-techwoven-17-pro  -  Синий
+https://www.apple.com/shop/product/mgf34ll/a/iphone-17-pro-techwoven-case-with-magsafe-black  case-techwoven-17-pro  -  Чёрный
+https://www.apple.com/shop/product/mgf64ll/a/iphone-17-pro-techwoven-case-with-magsafe-sienna  case-techwoven-17-pro  -  Сиена
+https://www.apple.com/shop/product/mgfl4zm/a/iphone-17-pro-max-silicone-case-with-magsafe-orange  case-silicone-17-pro-max  -  Оранжевый
+https://www.apple.com/shop/product/mgfr4zm/a/iphone-17-pro-max-silicone-case-with-magsafe-black  case-silicone-17-pro-max  -  Чёрный
+https://www.apple.com/shop/product/mgfq4zm/a/iphone-17-pro-max-silicone-case-with-magsafe-terra-cotta  case-silicone-17-pro-max  -  Терракотовый
+https://www.apple.com/shop/product/mgfn4zm/a/iphone-17-pro-max-silicone-case-with-magsafe-purple-fog  case-silicone-17-pro-max  -  Пурпурный туман
+https://www.apple.com/shop/product/mhw64zm/a/iphone-17-pro-max-silicone-case-with-magsafe-bright-guava  case-silicone-17-pro-max  -  Яркая гуава
+https://www.apple.com/shop/product/mgfp4zm/a/iphone-17-pro-max-silicone-case-with-magsafe-midnight  case-silicone-17-pro-max  -  Полуночный
+https://www.apple.com/shop/product/mhw54zm/a/iphone-17-pro-max-silicone-case-with-magsafe-vanilla  case-silicone-17-pro-max  -  Ванильный
+https://www.apple.com/shop/product/mhvq4zm/a/iphone-17-silicone-case-with-magsafe-bright-guava  case-silicone-17  -  Яркая гуава
+https://www.apple.com/shop/product/mgex4zm/a/iphone-17-silicone-case-with-magsafe-light-moss  case-silicone-17  -  Светлый мох
+https://www.apple.com/shop/product/mhvm4zm/a/iphone-17-silicone-case-with-magsafe-vanilla  case-silicone-17  -  Ванильный
+https://www.apple.com/shop/product/mgf14zm/a/iphone-17-silicone-case-with-magsafe-black  case-silicone-17  -  Чёрный
+https://www.apple.com/shop/product/mgf04zm/a/iphone-17-silicone-case-with-magsafe-purple-fog  case-silicone-17  -  Пурпурный туман
+https://www.apple.com/shop/product/mgew4zm/a/iphone-17-silicone-case-with-magsafe-anchor-blue  case-silicone-17  -  Якорный синий
+https://www.apple.com/shop/product/mhvt4zm/a/iphone-17-silicone-case-with-magsafe-electric-lavender  case-silicone-17  -  Лавандовый
+https://www.apple.com/shop/product/mgfe4zm/a/iphone-17-pro-silicone-case-with-magsafe-orange  case-silicone-17-pro  -  Оранжевый
+https://www.apple.com/shop/product/mgfk4zm/a/iphone-17-pro-silicone-case-with-magsafe-black  case-silicone-17-pro  -  Чёрный
+https://www.apple.com/shop/product/mhvx4zm/a/iphone-17-pro-silicone-case-with-magsafe-vanilla  case-silicone-17-pro  -  Ванильный
+https://www.apple.com/shop/product/mgfj4zm/a/iphone-17-pro-silicone-case-with-magsafe-terra-cotta  case-silicone-17-pro  -  Терракотовый
+https://www.apple.com/shop/product/mhw04zm/a/iphone-17-pro-silicone-case-with-magsafe-bright-guava  case-silicone-17-pro  -  Яркая гуава
+https://www.apple.com/shop/product/mgfg4zm/a/iphone-17-pro-silicone-case-with-magsafe-purple-fog  case-silicone-17-pro  -  Пурпурный туман
+https://www.apple.com/shop/product/mgfh4zm/a/iphone-17-pro-silicone-case-with-magsafe-midnight  case-silicone-17-pro  -  Полуночный
+https://www.apple.com/shop/product/mgfw4ll/a/iphone-17-pro-max-clear-case-with-magsafe  case-clear-17-pro-max  -  -
+https://www.apple.com/shop/product/mgft4ll/a/iphone-17-pro-clear-case-with-magsafe  case-clear-17-pro  -  -
+https://www.apple.com/shop/product/mgf24ll/a/iphone-17-clear-case-with-magsafe  case-clear-17  -  -
+https://www.apple.com/shop/product/mgh24ll/a/iphone-air-case-with-magsafe-shadow  case-air  -  Тёмно-серый
+https://www.apple.com/shop/product/mgh34ll/a/iphone-air-case-with-magsafe-frost  case-air  -  Морозный
+https://www.apple.com/shop/product/mh024zm/a/iphone-air-bumper-light-blue  bumper-air  -  Голубой
+https://www.apple.com/shop/product/mh014zm/a/iphone-air-bumper-light-gray  bumper-air  -  Светло-серый
+https://www.apple.com/shop/product/mh004zm/a/iphone-air-bumper-black  bumper-air  -  Чёрный
+https://www.apple.com/shop/product/mh044zm/a/iphone-air-bumper-tan  bumper-air  -  Песочный
+https://www.apple.com/shop/product/mhwj4zm/a/iphone-17e-silicone-case-with-magsafe-soft-pink  case-silicone-17e  -  Нежно-розовый
+https://www.apple.com/shop/product/mhwh4zm/a/iphone-17e-silicone-case-with-magsafe-bright-guava  case-silicone-17e  -  Яркая гуава
+https://www.apple.com/shop/product/mhwg4zm/a/iphone-17e-silicone-case-with-magsafe-vanilla  case-silicone-17e  -  Ванильный
+https://www.apple.com/shop/product/mhwd4zm/a/iphone-17e-silicone-case-with-magsafe-black  case-silicone-17e  -  Чёрный
+https://www.apple.com/shop/product/mhwf4zm/a/iphone-17e-silicone-case-with-magsafe-light-moss  case-silicone-17e  -  Светлый мох
+https://www.apple.com/shop/product/mhwe4zm/a/iphone-17e-silicone-case-with-magsafe-anchor-blue  case-silicone-17e  -  Якорный синий
+https://www.apple.com/shop/product/mhwc4zm/a/iphone-17e-clear-case-with-magsafe  case-clear-17e  -  -
+https://www.apple.com/shop/product/myy63zm/a/iphone-16-silicone-case-with-magsafe-ultramarine  case-silicone-16  -  Ультрамарин
+https://www.apple.com/shop/product/mdgq4zm/a/iphone-16-silicone-case-with-magsafe-periwinkle  case-silicone-16  -  Барвинок
+https://www.apple.com/shop/product/myy13zm/a/iphone-16-silicone-case-with-magsafe-black  case-silicone-16  -  Чёрный
+https://www.apple.com/shop/product/myy43zm/a/iphone-16-silicone-case-with-magsafe-plum  case-silicone-16  -  Слива
+https://www.apple.com/shop/product/mdgp4zm/a/iphone-16-silicone-case-with-magsafe-aquamarine  case-silicone-16  -  Аквамарин
+https://www.apple.com/shop/product/myy73zm/a/iphone-16-silicone-case-with-magsafe-star-fruit  case-silicone-16  -  Карамбола
+https://www.apple.com/shop/product/myy23zm/a/iphone-16-silicone-case-with-magsafe-denim  case-silicone-16  -  Джинсовый
+https://www.apple.com/shop/product/myy53zm/a/iphone-16-silicone-case-with-magsafe-fuchsia  case-silicone-16  -  Фуксия
+https://www.apple.com/shop/product/mdgn4zm/a/iphone-16-silicone-case-with-magsafe-tangerine  case-silicone-16  -  Мандарин
+https://www.apple.com/shop/product/myy83zm/a/iphone-16-silicone-case-with-magsafe-lake-green  case-silicone-16  -  Зелёное озеро
+https://www.apple.com/shop/product/myyh3zm/a/iphone-16-plus-silicone-case-with-magsafe-lake-green  case-silicone-16-plus  -  Зелёное озеро
+https://www.apple.com/shop/product/mdgt4zm/a/iphone-16-plus-silicone-case-with-magsafe-tangerine  case-silicone-16-plus  -  Мандарин
+https://www.apple.com/shop/product/myy93zm/a/iphone-16-plus-silicone-case-with-magsafe-black  case-silicone-16-plus  -  Чёрный
+https://www.apple.com/shop/product/mdgv4zm/a/iphone-16-plus-silicone-case-with-magsafe-periwinkle  case-silicone-16-plus  -  Барвинок
+https://www.apple.com/shop/product/myyc3zm/a/iphone-16-plus-silicone-case-with-magsafe-stone-gray  case-silicone-16-plus  -  Серый камень
+https://www.apple.com/shop/product/myyg3zm/a/iphone-16-plus-silicone-case-with-magsafe-star-fruit  case-silicone-16-plus  -  Карамбола
+https://www.apple.com/shop/product/mdgu4zm/a/iphone-16-plus-silicone-case-with-magsafe-aquamarine  case-silicone-16-plus  -  Аквамарин
+https://www.apple.com/shop/product/myya3zm/a/iphone-16-plus-silicone-case-with-magsafe-denim  case-silicone-16-plus  -  Джинсовый
+https://www.apple.com/shop/product/myyf3zm/a/iphone-16-plus-silicone-case-with-magsafe-ultramarine  case-silicone-16-plus  -  Ультрамарин
+https://www.apple.com/shop/product/myyd3zm/a/iphone-16-plus-silicone-case-with-magsafe-plum  case-silicone-16-plus  -  Слива
+https://www.apple.com/shop/product/myye3zm/a/iphone-16-plus-silicone-case-with-magsafe-fuchsia  case-silicone-16-plus  -  Фуксия
+https://www.apple.com/shop/product/myyk3zm/a/iphone-16-pro-silicone-case-with-magsafe-denim  case-silicone-16-pro  -  Джинсовый
+https://www.apple.com/shop/product/myyn3zm/a/iphone-16-pro-silicone-case-with-magsafe-fuchsia  case-silicone-16-pro  -  Фуксия
+https://www.apple.com/shop/product/mdfy4zm/a/iphone-16-pro-silicone-case-with-magsafe-tangerine  case-silicone-16-pro  -  Мандарин
+https://www.apple.com/shop/product/mdg04zm/a/iphone-16-pro-silicone-case-with-magsafe-aquamarine  case-silicone-16-pro  -  Аквамарин
+https://www.apple.com/shop/product/mdfx4zm/a/iphone-16-pro-silicone-case-with-magsafe-peony  case-silicone-16-pro  -  Пион
+https://www.apple.com/shop/product/myyj3zm/a/iphone-16-pro-silicone-case-with-magsafe-black  case-silicone-16-pro  -  Чёрный
+https://www.apple.com/shop/product/myym3zm/a/iphone-16-pro-silicone-case-with-magsafe-plum  case-silicone-16-pro  -  Слива
+https://www.apple.com/shop/product/myyl3zm/a/iphone-16-pro-silicone-case-with-magsafe-stone-gray  case-silicone-16-pro  -  Серый камень
+https://www.apple.com/shop/product/mdg14zm/a/iphone-16-pro-silicone-case-with-magsafe-periwinkle  case-silicone-16-pro  -  Барвинок
+https://www.apple.com/shop/product/myyr3zm/a/iphone-16-pro-silicone-case-with-magsafe-lake-green  case-silicone-16-pro  -  Зелёное озеро
+https://www.apple.com/shop/product/myyt3zm/a/iphone-16-pro-max-silicone-case-with-magsafe-black  case-silicone-16-pro-max  -  Чёрный
+https://www.apple.com/shop/product/myyy3zm/a/iphone-16-pro-max-silicone-case-with-magsafe-ultramarine  case-silicone-16-pro-max  -  Ультрамарин
+https://www.apple.com/shop/product/myyv3zm/a/iphone-16-pro-max-silicone-case-with-magsafe-stone-gray  case-silicone-16-pro-max  -  Серый камень
+https://www.apple.com/shop/product/mdgw4zm/a/iphone-16-pro-max-silicone-case-with-magsafe-peony  case-silicone-16-pro-max  -  Пион
+https://www.apple.com/shop/product/mdgy4zm/a/iphone-16-pro-max-silicone-case-with-magsafe-aquamarine  case-silicone-16-pro-max  -  Аквамарин
+https://www.apple.com/shop/product/myyw3zm/a/iphone-16-pro-max-silicone-case-with-magsafe-plum  case-silicone-16-pro-max  -  Слива
+https://www.apple.com/shop/product/mdgx4zm/a/iphone-16-pro-max-silicone-case-with-magsafe-tangerine  case-silicone-16-pro-max  -  Мандарин
+https://www.apple.com/shop/product/ma7v4zm/a/iphone-16-pro-max-silicone-case-with-magsafe-lake-green  case-silicone-16-pro-max  -  Зелёное озеро
+https://www.apple.com/shop/product/mdh04zm/a/iphone-16-pro-max-silicone-case-with-magsafe-periwinkle  case-silicone-16-pro-max  -  Барвинок
+https://www.apple.com/shop/product/myyu3zm/a/iphone-16-pro-max-silicone-case-with-magsafe-denim  case-silicone-16-pro-max  -  Джинсовый
+https://www.apple.com/shop/product/ma6a4zm/a/iphone-16-clear-case-with-magsafe  case-clear-16  -  -
+https://www.apple.com/shop/product/ma7d4zm/a/iphone-16-plus-clear-case-with-magsafe  case-clear-16-plus  -  -
+https://www.apple.com/shop/product/ma7f4zm/a/iphone-16-pro-max-clear-case-with-magsafe  case-clear-16-pro-max  -  -
+https://www.apple.com/shop/product/ma7e4zm/a/iphone-16-pro-clear-case-with-magsafe  case-clear-16-pro  -  -
+https://www.apple.com/shop/product/mgyw4zm/a/iphone-16e-silicone-case-neon-yellow  case-silicone-16e  -  Неоновый жёлтый
+https://www.apple.com/shop/product/md3w4zm/a/iphone-16e-silicone-case-fuchsia  case-silicone-16e  -  Фуксия
+https://www.apple.com/shop/product/md3n4zm/a/iphone-16e-silicone-case-black  case-silicone-16e  -  Чёрный
+https://www.apple.com/shop/product/md3q4zm/a/iphone-16e-silicone-case-winter-blue  case-silicone-16e  -  Зимний синий
+https://www.apple.com/shop/product/md3p4zm/a/iphone-16e-silicone-case-white  case-silicone-16e  -  Белый
+https://www.apple.com/shop/product/md3x4zm/a/iphone-16e-silicone-case-lake-green  case-silicone-16e  -  Зелёное озеро
+https://www.apple.com/shop/product/mw523zm/a/iphone-14-plus-silicone-case-with-magsafe-chalk-pink  case-silicone-14-plus  -  Меловой розовый
+https://www.apple.com/shop/product/mw4y3zm/a/iphone-14-plus-silicone-case-with-magsafe-midnight  case-silicone-14-plus  -  Полуночный
+https://www.apple.com/shop/product/mw513zm/a/iphone-14-plus-silicone-case-with-magsafe-productred  case-silicone-14-plus  -  (PRODUCT)RED
+https://www.apple.com/shop/product/mw5v3zm/a/iphone-14-silicone-case-with-magsafe-chalk-pink  case-silicone-14  -  Меловой розовый
+https://www.apple.com/shop/product/mw5u3zm/a/iphone-14-silicone-case-with-magsafe-productred  case-silicone-14  -  (PRODUCT)RED
+https://www.apple.com/shop/product/mw5t3zm/a/iphone-14-silicone-case-with-magsafe-storm-blue  case-silicone-14  -  Штормовой синий
+https://www.apple.com/shop/product/mw5r3zm/a/iphone-14-silicone-case-with-magsafe-midnight  case-silicone-14  -  Полуночный
+https://www.apple.com/shop/product/mt1p3zm/a/iphone-15-pro-max-silicone-case-with-magsafe-storm-blue  case-silicone-15-pro-max  -  Штормовой синий
+https://www.apple.com/shop/product/mt1u3zm/a/iphone-15-pro-max-silicone-case-with-magsafe-light-pink  case-silicone-15-pro-max  -  Светло-розовый
+https://www.apple.com/shop/product/mxph3zm/a/iphone-15-silicone-case-with-magsafe-light-pink  case-silicone-15  -  Светло-розовый
+https://www.apple.com/shop/product/mxpg3zm/a/iphone-15-silicone-case-with-magsafe-clay  case-silicone-15  -  Глиняный
+https://www.apple.com/shop/product/mxpd3zm/a/iphone-15-silicone-case-with-magsafe-black  case-silicone-15  -  Чёрный
+https://www.apple.com/shop/product/mxpf3zm/a/iphone-15-silicone-case-with-magsafe-storm-blue  case-silicone-15  -  Штормовой синий
+https://www.apple.com/shop/product/mxqu3zm/a/iphone-15-plus-silicone-case-with-magsafe-clay  case-silicone-15-plus  -  Глиняный
+https://www.apple.com/shop/product/mxqr3zm/a/iphone-15-plus-silicone-case-with-magsafe-black  case-silicone-15-plus  -  Чёрный
+https://www.apple.com/shop/product/mxqv3zm/a/iphone-15-plus-silicone-case-with-magsafe-light-pink  case-silicone-15-plus  -  Светло-розовый
+https://www.apple.com/shop/product/mxqt3zm/a/iphone-15-plus-silicone-case-with-magsafe-storm-blue  case-silicone-15-plus  -  Штормовой синий
+https://www.apple.com/shop/product/mw4t3zm/a/iphone-14-plus-clear-case-with-magsafe  case-clear-14-plus  -  -
+https://www.apple.com/shop/product/mw5q3zm/a/iphone-14-clear-case-with-magsafe  case-clear-14  -  -
+https://www.apple.com/shop/product/mxrk3zm/a/iphone-15-clear-case-with-magsafe  case-clear-15  -  -
+https://www.apple.com/shop/product/mxrl3zm/a/iphone-15-plus-clear-case-with-magsafe  case-clear-15-plus  -  -
+https://www.apple.com/shop/product/hs832zm/a/belkin-ultraglass-2-screen-protector-for-iphone-17-pro  glass-belkin-17-pro  -  -
+https://www.apple.com/shop/product/hsdx2zm/a/belkin-ultraglass-2-screen-protector-for-iphone-air  glass-belkin-air  -  -
+https://www.apple.com/shop/product/hs852zm/a/belkin-ultraglass-2-screen-protector-for-iphone-17-pro-max  glass-belkin-17-pro-max  -  -
+https://www.apple.com/shop/product/hru02zm/a/belkin-ultraglass-2-screen-protector-for-iphone-17-iphone-16-pro  glass-belkin-17  -  -
+https://www.apple.com/shop/product/hru22zm/a/belkin-ultraglass-2-screen-protector-for-iphone-16-pro-max  glass-belkin-16-pro-max  -  -
+https://www.apple.com/shop/product/hpqe2zm/a/belkin-ultraglass-screen-protector-for-iphone-17e  glass-belkin-17e  -  -
+https://www.apple.com/shop/product/hs872zm/a/belkin-ultraglass-2-privacy-screen-protector-for-iphone-17-pro  glass-belkin-privacy-17-pro  -  -
+https://www.apple.com/shop/product/hse62zm/a/belkin-ultraglass-2-privacy-screen-protector-for-iphone-air  glass-belkin-privacy-air  -  -
+https://www.apple.com/shop/product/hse52zm/a/belkin-ultraglass-2-privacy-screen-protector-for-iphone-17  glass-belkin-privacy-17  -  -
+https://www.apple.com/shop/product/hs892zm/a/belkin-ultraglass-2-privacy-screen-protector-for-iphone-17-pro-max  glass-belkin-privacy-17-pro-max  -  -
+https://www.apple.com/shop/product/hs672zm/a/belkin-ultraglass-2-privacy-screen-protector-for-iphone-17e  glass-belkin-privacy-17e  -  -
+https://www.apple.com/shop/product/hr262zm/a/belkin-ultraglass-2-screen-protector-for-iphone-16-15  glass-belkin-16  -  -
+https://www.apple.com/shop/product/hr282zm/a/belkin-ultraglass-2-screen-protector-for-iphone-16-plus-15-plus  glass-belkin-16-plus  -  -

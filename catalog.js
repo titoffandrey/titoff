@@ -574,6 +574,146 @@ const ZEISS_INSERTS = {
   ]
 };
 
+/* ================= Чехлы и защита для iPhone: цвета ==================
+ * ЦВЕТА СНЯТЫ С ОФИЦИАЛЬНЫХ ОБРАЗЦОВ APPLE (`<артикул>_SW_COLOR` у Scene7)
+ * скриптом `scripts/apple-swatch-color.js`. Подобрать «Терракотовый», «Пурпурный
+ * туман» или «Барвинок» на глаз нельзя, а кружок цвета — первое, по чему
+ * покупатель выбирает чехол. Тот же приём, что у ремешков Hermès.
+ * Правишь цвет — перемеряй, а не подкручивай число: у Apple это конкретный
+ * оттенок конкретного изделия.
+ */
+const CC = {
+  productred: { name: '(PRODUCT)RED', hex: '#d52e36' },
+  anchorblue: { name: 'Якорный синий', hex: '#5f6b75' },
+  aquamarine: { name: 'Аквамарин', hex: '#d2e5d7' },
+  black: { name: 'Чёрный', hex: '#535353' },
+  blue: { name: 'Синий', hex: '#444b55' },
+  brightguava: { name: 'Яркая гуава', hex: '#fd747a' },
+  chalkpink: { name: 'Меловой розовый', hex: '#f7d9d4' },
+  clay: { name: 'Глиняный', hex: '#8d8478' },
+  denim: { name: 'Джинсовый', hex: '#4d5b6d' },
+  electriclavender: { name: 'Лавандовый', hex: '#e192c7' },
+  frost: { name: 'Морозный', hex: '#f6f7f6' },
+  fuchsia: { name: 'Фуксия', hex: '#b04778' },
+  green: { name: 'Зелёный', hex: '#70735a' },
+  lakegreen: { name: 'Зелёное озеро', hex: '#516463' },
+  lightblue: { name: 'Голубой', hex: '#b6bfc7' },
+  lightgray: { name: 'Светло-серый', hex: '#cbccca' },
+  lightmoss: { name: 'Светлый мох', hex: '#8b9973' },
+  lightpink: { name: 'Светло-розовый', hex: '#fbe6e2' },
+  midnight: { name: 'Полуночный', hex: '#3c4654' },
+  neonyellow: { name: 'Неоновый жёлтый', hex: '#eff69a' },
+  orange: { name: 'Оранжевый', hex: '#ff7d4b' },
+  peony: { name: 'Пион', hex: '#fc89c2' },
+  periwinkle: { name: 'Барвинок', hex: '#7887c1' },
+  plum: { name: 'Слива', hex: '#533e4e' },
+  purple: { name: 'Фиолетовый', hex: '#5b5361' },
+  purplefog: { name: 'Пурпурный туман', hex: '#665e77' },
+  shadow: { name: 'Тёмно-серый', hex: '#6f7170' },
+  sienna: { name: 'Сиена', hex: '#905a47' },
+  softpink: { name: 'Нежно-розовый', hex: '#fde6e2' },
+  starfruit: { name: 'Карамбола', hex: '#eedf50' },
+  stonegray: { name: 'Серый камень', hex: '#6c6a66' },
+  stormblue: { name: 'Штормовой синий', hex: '#4f5865' },
+  tan: { name: 'Песочный', hex: '#c2b9ae' },
+  tangerine: { name: 'Мандарин', hex: '#fd7968' },
+  terracotta: { name: 'Терракотовый', hex: '#b7674a' },
+  ultramarine: { name: 'Ультрамарин', hex: '#475195' },
+  vanilla: { name: 'Ванильный', hex: '#fff1de' },
+  white: { name: 'Белый', hex: '#f7f7f7' },
+  winterblue: { name: 'Зимний синий', hex: '#7996b5' }
+};
+const cc = (...keys) => keys.map(k => CC[k]);
+
+/* ============== Чехлы и защита для iPhone: сами карточки ==============
+ * У Apple каждая расцветка — отдельный товар со своей страницей, а у нас это
+ * ОДНА карточка с выбором цвета: снимки привязаны к цвету (`imageColors`), как
+ * у часов с ремешками. Иначе каталог получил бы сто тридцать две почти
+ * одинаковые карточки, между которыми покупателю нечего выбирать.
+ *
+ * Тексты у всех моделей одинаковы — меняется только имя модели, поэтому
+ * карточки собираются фабриками. Сорок три копии одного описания разъехались бы
+ * на первой же правке, а увидеть это можно только глазами.
+ *
+ * Категория своя, «Чехлы и защита»: в «Аксессуарах» лежат кабели и адаптеры, и
+ * вперемешку с полусотней чехлов раздел перестал бы читаться.
+ */
+const CASE_CAT = 'Чехлы и защита';
+const CASE = {
+  // Силиконовый с MagSafe — основной чехол Apple.
+  silicone: (id, model, colors, price, day) => ({
+    id, name: `Силиконовый чехол для ${model} с MagSafe`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Мягкий силикон снаружи, микрофибра внутри, магниты MagSafe.',
+    description: `Чехол Apple для ${model}: снаружи шелковистый силикон (45 % переработанного материала), внутри мягкая подкладка из микрофибры. Работает с Camera Control — в чехол вклеено сапфировое стекло с проводящим слоем, поэтому кнопка чувствует движения пальца как обычно. Встроенные магниты точно совпадают с магнитами ${model}: зарядка MagSafe и Qi2 на 25 Вт идёт прямо через чехол. Две точки крепления держат ремешок Crossbody Strap, если носить телефон через плечо.`,
+    specs: `Материал: силикон, 45 % переработанного, внутри микрофибра\nКрепление: кольцо MagSafe по кругу\nЗарядка: MagSafe и Qi2 до 25 Вт, не снимая чехла\nУправление: работает с Camera Control\nРемешок: две точки крепления для Crossbody Strap\nПрочность: тысячи часов испытаний на царапины и удары`,
+    colors, storages: [], images: [], createdAt: now - day * DAY
+  }),
+  // У iPhone 16e чехол без MagSafe и без Camera Control — у самой модели их нет.
+  siliconePlain: (id, model, colors, price, day) => ({
+    id, name: `Силиконовый чехол для ${model}`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Мягкий силикон снаружи и микрофибра внутри.',
+    description: `Чехол Apple для ${model}: снаружи шелковистый силикон (55 % переработанного материала), внутри мягкая подкладка из микрофибры. Как и любой чехол Apple, проходит тысячи часов испытаний — на царапины, падения и износ.`,
+    specs: `Материал: силикон, 55 % переработанного, внутри микрофибра\nПрочность: тысячи часов испытаний на царапины и удары\nПосадка: точно по корпусу, кнопки закрыты чехлом`,
+    colors, storages: [], images: [], createdAt: now - day * DAY
+  }),
+  // TechWoven — тканый, дороже силиконового на десять долларов у Apple.
+  techwoven: (id, model, colors, price, day) => ({
+    id, name: `Тканый чехол TechWoven для ${model} с MagSafe`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Ткань с объёмным плетением, алюминиевые кнопки, MagSafe.',
+    description: `Чехол Apple из фирменной технической ткани: разноцветные нити сотканы на жаккардовом станке, поэтому у поверхности есть объём и глубина цвета. Ткань — 100 % переработанный полиэстер, боковины покрыты слегка шероховатым TPU для хвата, кнопки сделаны из анодированного алюминия и нажимаются чётко. Магниты совпадают с магнитами ${model}, зарядка MagSafe и Qi2 работает через чехол, а две точки крепления держат ремешок Crossbody Strap.`,
+    specs: `Материал: техническая ткань, 100 % переработанный полиэстер\nОтделка: боковины из TPU, кнопки из анодированного алюминия\nКрепление: кольцо MagSafe по кругу\nЗарядка: MagSafe и Qi2 до 25 Вт, не снимая чехла\nУправление: работает с Camera Control\nРемешок: две точки крепления для Crossbody Strap`,
+    colors, storages: [], images: [], createdAt: now - day * DAY
+  }),
+  // Прозрачный — цвета у него нет вовсе, поэтому и списка цветов не принимает.
+  clear: (id, model, price, day) => ({
+    id, name: `Прозрачный чехол для ${model} с MagSafe`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Показывает цвет телефона и не желтеет со временем.',
+    description: `Тонкий и лёгкий чехол Apple, который не прячет цвет ${model}: оптически прозрачный поликарбонат с гибкими вставками, покрытие снаружи и внутри защищает от царапин, а материалы подобраны так, чтобы чехол не желтел со временем. Работает с Camera Control через сапфировое стекло с проводящим слоем, а магниты MagSafe видны сквозь заднюю стенку и совпадают с магнитами телефона.`,
+    specs: `Материал: прозрачный поликарбонат с гибкими вставками\nСтойкость: слой от царапин снаружи и внутри, не желтеет со временем\nКрепление: кольцо MagSafe по кругу\nЗарядка: MagSafe и Qi2 до 25 Вт, не снимая чехла\nУправление: работает с Camera Control`,
+    colors: [], storages: [], images: [], createdAt: now - day * DAY
+  }),
+  // Чехол под iPhone Air: он тоньше остальных, поэтому и описание про толщину.
+  airCase: (id, model, colors, price, day) => ({
+    id, name: `Чехол для ${model} с MagSafe`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Ультратонкий полупрозрачный чехол под сам iPhone Air.',
+    description: `Чехол сделан под тонкий корпус ${model}: задняя панель всего 0,9 мм, усилена поликарбонатной рамкой. Внутри лёгкая матовость, снаружи глянец; кнопки нажимаются коротко и чётко. Работает с Camera Control, держит зарядку MagSafe и Qi2 через чехол, а две точки крепления рассчитаны на ремешок Crossbody Strap.`,
+    specs: `Толщина: задняя панель 0,9 мм\nМатериал: полупрозрачный пластик с поликарбонатной рамкой\nКрепление: кольцо MagSafe по кругу\nЗарядка: MagSafe и Qi2 до 25 Вт, не снимая чехла\nУправление: работает с Camera Control\nРемешок: две точки крепления для Crossbody Strap`,
+    colors, storages: [], images: [], createdAt: now - day * DAY
+  }),
+  // Бампер: рамка по краям, спинка открыта — MagSafe у него своего нет.
+  bumper: (id, model, colors, price, day) => ({
+    id, name: `Бампер для ${model}`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Рамка по краям корпуса — спинка телефона остаётся открытой.',
+    description: `Тонкая рамка из усиленного поликарбоната закрывает грани ${model} и оставляет заднюю панель на виду — видно, какой телефон тонкий. Кнопки нажимаются чётко, Camera Control работает через сапфировое стекло с проводящим слоем, а две точки крепления держат ремешок Crossbody Strap.`,
+    specs: `Материал: усиленный поликарбонат\nРазмер: тонкая рамка по периметру, спинка открыта\nУправление: работает с Camera Control\nРемешок: две точки крепления для Crossbody Strap`,
+    colors, storages: [], images: [], createdAt: now - day * DAY
+  }),
+  // Стекло Belkin. Это НЕ товар Apple: гарантию по нему даёт производитель,
+  // и в названии карточки бренд стоит прямо — покупатель должен это видеть.
+  glass: (id, model, price, day) => ({
+    id, name: `Защитное стекло Belkin UltraGlass 2 для ${model}`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'Литий-алюмосиликатное стекло 0,29 мм с рамкой для наклейки.',
+    description: `Стекло для ${model} из литий-алюмосиликата, закалённое двойным ионным обменом: до 25 раз прочнее обычного защитного стекла и выдерживает падение с высоты до 2,2 м. Толщина 0,29 мм, поэтому экран отзывается на касания как без стекла. В коробке рамка Easy Align — с ней стекло клеится ровно с первого раза, — салфетка и стикер для пыли.`,
+    specs: `Материал: литий-алюмосиликатное стекло\nТолщина: 0,29 мм\nПрочность: до 25× прочнее обычного стекла, испытание с высоты 2,2 м\nЭкран: полное покрытие, совместимо с Dynamic Island\nПокрытие: устойчиво к царапинам и отпечаткам`,
+    colors: [], storages: [], images: [], createdAt: now - day * DAY
+  }),
+  glassPrivacy: (id, model, price, day) => ({
+    id, name: `Защитное стекло Belkin UltraGlass 2 Privacy для ${model}`, category: CASE_CAT,
+    price, inStock: true,
+    shortDesc: 'То же стекло, но с фильтром: экран виден только владельцу.',
+    description: `Стекло для ${model} с фильтром приватности: соседу сбоку экран кажется тёмным, а вам виден как обычно. Основа та же — литий-алюмосиликат двойной закалки, до 25 раз прочнее обычного защитного стекла, падение с высоты до 2,2 м, толщина 0,29 мм. В коробке рамка Easy Align, салфетка и стикер для пыли.`,
+    specs: `Экран: фильтр приватности, содержимое видно только вам\nМатериал: литий-алюмосиликатное стекло\nТолщина: 0,29 мм\nПрочность: до 25× прочнее обычного стекла, испытание с высоты 2,2 м\nПокрытие: устойчиво к царапинам и отпечаткам`,
+    colors: [], storages: [], images: [], createdAt: now - day * DAY
+  })
+};
+
 /* --------------------------- Прайс поставщика ---------------------------
  * У iPhone 17 Pro Max, 17 Pro, Air, 17 и 16 цены пришли прайс-листом (eSIM и
  * SIM+eSIM, по цветам и объёмам) и поставлены со скидкой 30 % от него.
@@ -1223,7 +1363,57 @@ const products = [
     specs: 'Разъёмы: Lightning и USB (Type-A)\nПередача данных: USB 2, до 480 Мбит/с\nДлина: 1 м\nПодключение: iPhone, iPad и iPod с разъёмом Lightning\nОсобенность: двусторонний разъём Lightning',
     colors: [C.white], storages: [],
     images: [], createdAt: now - 3.93 * DAY
-  }
+  },
+
+  /* ---------------------- Чехлы и защита для iPhone ---------------------
+   * Собираются фабриками CASE выше: тексты у всех моделей одни и те же, разное
+   * только имя модели и набор расцветок. Каждая расцветка у Apple — отдельный
+   * товар, у нас — цвет внутри карточки; снимки привязаны к цвету заливкой
+   * (scripts/import-product-photos.js по списку scripts/apple-iphone-cases.txt).
+   */
+  CASE.techwoven('case-techwoven-17-pro-max', 'iPhone 17 Pro Max', cc('green', 'black', 'blue', 'purple', 'sienna'), 6390, 4.00),
+  CASE.techwoven('case-techwoven-17-pro', 'iPhone 17 Pro', cc('purple', 'green', 'blue', 'black', 'sienna'), 6390, 4.01),
+  CASE.silicone('case-silicone-17-pro-max', 'iPhone 17 Pro Max', cc('orange', 'black', 'terracotta', 'purplefog', 'brightguava', 'midnight', 'vanilla'), 5390, 4.02),
+  CASE.silicone('case-silicone-17', 'iPhone 17', cc('brightguava', 'lightmoss', 'vanilla', 'black', 'purplefog', 'anchorblue', 'electriclavender'), 5390, 4.03),
+  CASE.silicone('case-silicone-17-pro', 'iPhone 17 Pro', cc('orange', 'black', 'vanilla', 'terracotta', 'brightguava', 'purplefog', 'midnight'), 5390, 4.04),
+  CASE.clear('case-clear-17-pro-max', 'iPhone 17 Pro Max', 5390, 4.05),
+  CASE.clear('case-clear-17-pro', 'iPhone 17 Pro', 5390, 4.06),
+  CASE.clear('case-clear-17', 'iPhone 17', 5390, 4.07),
+  CASE.airCase('case-air', 'iPhone Air', cc('shadow', 'frost'), 5390, 4.08),
+  CASE.bumper('bumper-air', 'iPhone Air', cc('lightblue', 'lightgray', 'black', 'tan'), 4290, 4.09),
+  CASE.silicone('case-silicone-17e', 'iPhone 17e', cc('softpink', 'brightguava', 'vanilla', 'black', 'lightmoss', 'anchorblue'), 5390, 4.10),
+  CASE.clear('case-clear-17e', 'iPhone 17e', 5390, 4.11),
+  CASE.silicone('case-silicone-16', 'iPhone 16', cc('ultramarine', 'periwinkle', 'black', 'plum', 'aquamarine', 'starfruit', 'denim', 'fuchsia', 'tangerine', 'lakegreen'), 5390, 4.12),
+  CASE.silicone('case-silicone-16-plus', 'iPhone 16 Plus', cc('lakegreen', 'tangerine', 'black', 'periwinkle', 'stonegray', 'starfruit', 'aquamarine', 'denim', 'ultramarine', 'plum', 'fuchsia'), 5390, 4.13),
+  CASE.silicone('case-silicone-16-pro', 'iPhone 16 Pro', cc('denim', 'fuchsia', 'tangerine', 'aquamarine', 'peony', 'black', 'plum', 'stonegray', 'periwinkle', 'lakegreen'), 5390, 4.14),
+  CASE.silicone('case-silicone-16-pro-max', 'iPhone 16 Pro Max', cc('black', 'ultramarine', 'stonegray', 'peony', 'aquamarine', 'plum', 'tangerine', 'lakegreen', 'periwinkle', 'denim'), 5390, 4.15),
+  CASE.clear('case-clear-16', 'iPhone 16', 5390, 4.16),
+  CASE.clear('case-clear-16-plus', 'iPhone 16 Plus', 5390, 4.17),
+  CASE.clear('case-clear-16-pro-max', 'iPhone 16 Pro Max', 5390, 4.18),
+  CASE.clear('case-clear-16-pro', 'iPhone 16 Pro', 5390, 4.19),
+  CASE.siliconePlain('case-silicone-16e', 'iPhone 16e', cc('neonyellow', 'fuchsia', 'black', 'winterblue', 'white', 'lakegreen'), 4290, 4.20),
+  CASE.silicone('case-silicone-14-plus', 'iPhone 14 Plus', cc('chalkpink', 'midnight', 'productred'), 5390, 4.21),
+  CASE.silicone('case-silicone-14', 'iPhone 14', cc('chalkpink', 'productred', 'stormblue', 'midnight'), 5390, 4.22),
+  CASE.silicone('case-silicone-15-pro-max', 'iPhone 15 Pro Max', cc('stormblue', 'lightpink'), 5390, 4.23),
+  CASE.silicone('case-silicone-15', 'iPhone 15', cc('lightpink', 'clay', 'black', 'stormblue'), 5390, 4.24),
+  CASE.silicone('case-silicone-15-plus', 'iPhone 15 Plus', cc('clay', 'black', 'lightpink', 'stormblue'), 5390, 4.25),
+  CASE.clear('case-clear-14-plus', 'iPhone 14 Plus', 5390, 4.26),
+  CASE.clear('case-clear-14', 'iPhone 14', 5390, 4.27),
+  CASE.clear('case-clear-15', 'iPhone 15', 5390, 4.28),
+  CASE.clear('case-clear-15-plus', 'iPhone 15 Plus', 5390, 4.29),
+  CASE.glass('glass-belkin-17-pro', 'iPhone 17 Pro', 4390, 4.30),
+  CASE.glass('glass-belkin-air', 'iPhone Air', 4390, 4.31),
+  CASE.glass('glass-belkin-17-pro-max', 'iPhone 17 Pro Max', 4390, 4.32),
+  CASE.glass('glass-belkin-17', 'iPhone 17', 4390, 4.33),
+  CASE.glass('glass-belkin-16-pro-max', 'iPhone 16 Pro Max', 4390, 4.34),
+  CASE.glass('glass-belkin-17e', 'iPhone 17e', 4390, 4.35),
+  CASE.glassPrivacy('glass-belkin-privacy-17-pro', 'iPhone 17 Pro', 4890, 4.36),
+  CASE.glassPrivacy('glass-belkin-privacy-air', 'iPhone Air', 4890, 4.37),
+  CASE.glassPrivacy('glass-belkin-privacy-17', 'iPhone 17', 4890, 4.38),
+  CASE.glassPrivacy('glass-belkin-privacy-17-pro-max', 'iPhone 17 Pro Max', 4890, 4.39),
+  CASE.glassPrivacy('glass-belkin-privacy-17e', 'iPhone 17e', 4890, 4.40),
+  CASE.glass('glass-belkin-16', 'iPhone 16', 4390, 4.41),
+  CASE.glass('glass-belkin-16-plus', 'iPhone 16 Plus', 4390, 4.42),
 ];
 
 // Товары, которых может не быть в живом каталоге, — их доливает `node add-novinki.js`.
@@ -1244,7 +1434,22 @@ const NOVELTY_IDS = [
   'usb-c-cable-60w-1m', 'usb-c-cable-240w-2m', 'power-adapter-20w', 'power-adapter-40w-dynamic',
   'power-adapter-35w-dual', 'magsafe-3-cable-2m', 'power-adapter-140w', 'power-adapter-96w',
   'usb-c-to-usb-adapter', 'usb-c-digital-av-adapter', 'thunderbolt-3-to-2-adapter',
-  'usb-c-lightning-cable-1m', 'usb-c-lightning-cable-2m', 'lightning-usb-cable-1m'
+  'usb-c-lightning-cable-1m', 'usb-c-lightning-cable-2m', 'lightning-usb-cable-1m',
+  'case-techwoven-17-pro-max', 'case-techwoven-17-pro', 'case-silicone-17-pro-max',
+  'case-silicone-17', 'case-silicone-17-pro', 'case-clear-17-pro-max',
+  'case-clear-17-pro', 'case-clear-17', 'case-air',
+  'bumper-air', 'case-silicone-17e', 'case-clear-17e',
+  'case-silicone-16', 'case-silicone-16-plus', 'case-silicone-16-pro',
+  'case-silicone-16-pro-max', 'case-clear-16', 'case-clear-16-plus',
+  'case-clear-16-pro-max', 'case-clear-16-pro', 'case-silicone-16e',
+  'case-silicone-14-plus', 'case-silicone-14', 'case-silicone-15-pro-max',
+  'case-silicone-15', 'case-silicone-15-plus', 'case-clear-14-plus',
+  'case-clear-14', 'case-clear-15', 'case-clear-15-plus',
+  'glass-belkin-17-pro', 'glass-belkin-air', 'glass-belkin-17-pro-max',
+  'glass-belkin-17', 'glass-belkin-16-pro-max', 'glass-belkin-17e',
+  'glass-belkin-privacy-17-pro', 'glass-belkin-privacy-air', 'glass-belkin-privacy-17',
+  'glass-belkin-privacy-17-pro-max', 'glass-belkin-privacy-17e', 'glass-belkin-16',
+  'glass-belkin-16-plus'
 ];
 
 /* ЦЕНЫ ВЫШЕ ЗАПИСАНЫ ТАК, КАК ИХ ДАЁТ ПРАЙС ПОСТАВЩИКА, — то есть то, за что
