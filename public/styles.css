@@ -6158,7 +6158,12 @@ details.metric-rules{margin-bottom:14px}
    данных две заявки так съедали пол-экрана до первой реплики. */
 .chat-order-low{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .chat-order-low .chat-order-items{flex:1 1 140px}
-.chat-order-low .chat-order-state{flex:none;margin-top:0}
+/* Состояние СЖИМАЕТСЯ, а не держит свою ширину любой ценой. С `flex:none` строка
+   «не оплачен · вышло время · 09.09 в 14:07 · Банк: Операция отклонена (-2014)»
+   вырастала до 486 px в колонке 375 и распирала весь раскрытый профиль на 123 px
+   шире экрана — панель начинала таскаться вбок, и у неё срезало левый край.
+   `min-width:0` обязателен: без него флекс-элемент не сжимается ниже содержимого. */
+.chat-order-low .chat-order-state{flex:0 1 auto;min-width:0;margin-top:0}
 /* Сумма прижата к правому краю: деньги сравнивают столбиком сверху вниз, а не
    ищут глазами после состава. */
 .chat-order-sum{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
@@ -6168,6 +6173,10 @@ details.metric-rules{margin-bottom:14px}
    («срок вышел · 26.08 в 13:04») идут в строку с ней: в переписке это справка,
    а не содержание страницы. */
 .chat-order-state .o-when,.chat-order-state .o-left,.chat-order-state .o-note{display:inline;margin-left:7px}
+/* В списке заказов плашка с припиской идут одной нерушимой строкой — там под них
+   отведён свой столбец. Здесь ширина всего одна, экранная, поэтому строке
+   разрешено переноситься: обрезанная приписка банка хуже перенесённой. */
+.chat-order-state .o-payment-state{white-space:normal}
 .chat-order:hover .chat-order-top b{color:var(--accent)}
 
 /* Лента. Своя рамка снизу продолжает шапку — переписка и собеседник читаются
