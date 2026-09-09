@@ -15,8 +15,17 @@
 //   --list FILE  файл со списком адресов, по одному на строку; после адреса через
 //                пробел можно указать id карточки каталога — он уедет в manifest,
 //                и `scripts/import-product-photos.js` зальёт папку в эту карточку
-//                без второй таблицы соответствий где-то ещё
+//                без второй таблицы соответствий где-то ещё. Третьей колонкой —
+//                порядок кадров («3,1,2»), см. ниже
 //   --id ID      то же самое для одиночного адреса
+//   --order N,N  порядок кадров для одиночного адреса
+//
+// **Порядок кадров у Apple — не всегда «сначала товар».** У адаптера на 20 Вт первым
+// в галерее идёт кадр с айфоном рядом, у кабеля USB-C / Lightning — один штекер
+// крупным планом, а сам товар целиком снят третьим. В карточке каталога первый кадр
+// — главный, и покупатель видит его в сетке товаров: там обязан быть общий вид.
+// Поэтому у таких товаров в списке стоит третья колонка с порядком кадров, а
+// применяется он ЗДЕСЬ, при записи манифеста: заливке остаётся читать список как есть.
 //   --width N    длинная сторона кадра (по умолчанию 2000; наш пайплайн ужмёт до 1200)
 //   --dry        не качать файлы, только разобрать страницу
 //   --force      перекачать уже скачанное
@@ -44,29 +53,31 @@ function fail(msg) {
 // ────────────────────────────── аргументы ──────────────────────────────
 
 function parseArgs(argv) {
-  const o = { urls: [], out: '', list: '', id: '', width: 2000, dry: false, force: false };
+  const o = { urls: [], out: '', list: '', id: '', order: '', width: 2000, dry: false, force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--out') o.out = argv[++i] || '';
     else if (a === '--list') o.list = argv[++i] || '';
     else if (a === '--id') o.id = argv[++i] || '';
+    else if (a === '--order') o.order = argv[++i] || '';
     else if (a === '--width') o.width = Number(argv[++i]) || 2000;
     else if (a === '--dry') o.dry = true;
     else if (a === '--force') o.force = true;
     else if (a.startsWith('--')) fail('неизвестный ключ ' + a);
-    else o.urls.push({ url: a, product: '' });
+    else o.urls.push({ url: a, product: '', order: '' });
   }
-  if (o.id) {
-    if (o.urls.length !== 1) fail('--id задаётся одному адресу; для списка пишите id второй колонкой');
-    o.urls[0].product = o.id;
+  if (o.id || o.order) {
+    if (o.urls.length !== 1) fail('--id и --order задаются одному адресу; для списка пишите их колонками');
+    if (o.id) o.urls[0].product = o.id;
+    if (o.order) o.urls[0].order = o.order;
   }
   if (o.list) {
     const raw = fs.readFileSync(o.list, 'utf8');
     for (const line of raw.split('\n')) {
       const s = line.trim();
       if (!s || s.startsWith('#')) continue;
-      const [url, product] = s.split(/\s+/);
-      o.urls.push({ url, product: product || '' });
+      const [url, product, order] = s.split(/\s+/);
+      o.urls.push({ url, product: product || '', order: order || '' });
     }
   }
   if (!o.urls.length) fail('не задан ни один адрес товара');
@@ -168,6 +179,22 @@ function scaleUrl(src, longSide) {
 
 const slugOf = url => url.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').pop();
 
+// «3,1,2» — какие кадры и в каком порядке идут первыми. Неназванные остаются
+// следом в исходном порядке: перечислять весь список ради одной перестановки
+// незачем, а забытый кадр иначе молча пропал бы из карточки.
+function reorder(files, order) {
+  const want = String(order || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!want.length) return files;
+  const rest = files.slice();
+  const head = [];
+  for (const n of want) {
+    const i = rest.findIndex(f => f.file === n + '.jpg');
+    if (i === -1) { console.log('  ! в порядке назван кадр ' + n + ', которого нет'); continue; }
+    head.push(rest.splice(i, 1)[0]);
+  }
+  return head.concat(rest);
+}
+
 // ─────────────────────────────── разбор ────────────────────────────────
 
 function parsePage(url, html) {
@@ -231,10 +258,13 @@ async function one(item, opt) {
     console.log('  ✓ ' + name + ' · ' + Math.round(size / 1024) + ' КБ');
   }
 
+  const ordered = reorder(files, item.order);
+  if (ordered !== files) console.log('  порядок кадров: ' + ordered.map(f => f.file).join(' → '));
+
   if (!opt.dry) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'manifest.json'),
-      JSON.stringify(Object.assign({}, info, { shots: undefined, images: files }), null, 2));
+      JSON.stringify(Object.assign({}, info, { shots: undefined, images: ordered }), null, 2));
   }
   return info;
 }
