@@ -1,0 +1,24 @@
+# Откуда взяты карточки зарядок, кабелей и переходников из раздела «Аксессуары».
+# Формат: адрес страницы товара apple.com и id карточки каталога через пробел.
+# Список читают ОБА скрипта — выгрузка и заливка, — поэтому второй таблицы
+# соответствий «папка → товар» в проекте нет: id уезжает в manifest.json выгрузки.
+#
+#   node scripts/fetch-apple-product.js --list scripts/apple-accessories.txt --out apple-photos/accessories
+#   STORE_DATA_DIR=… node scripts/import-product-photos.js --src apple-photos/accessories --apply
+#
+# Цены в catalog.js — долларовые цены с этих страниц по курсу 90 ₽/$ плюс 20 %.
+
+https://www.apple.com/shop/product/mw493am/a/60w-usb-c-charge-cable-1-m                        usb-c-cable-60w-1m
+https://www.apple.com/shop/product/myqt3am/a/240w-usb-c-charge-cable-2-m                       usb-c-cable-240w-2m
+https://www.apple.com/shop/product/mwvv3am/a/20w-usb-c-power-adapter                           power-adapter-20w
+https://www.apple.com/shop/product/mgkn4am/a/40w-dynamic-power-adapter-with-60w-max            power-adapter-40w-dynamic
+https://www.apple.com/shop/product/mw2h3am/a/35w-dual-usb-c-port-compact-power-adapter         power-adapter-35w-dual
+https://www.apple.com/shop/product/mw613am/a/usb-c-to-magsafe-3-cable-2-m-silver               magsafe-3-cable-2m
+https://www.apple.com/shop/product/mw2m3am/a/140w-usb-c-power-adapter                          power-adapter-140w
+https://www.apple.com/shop/product/mw2l3am/a/96w-usb-c-power-adapter                           power-adapter-96w
+https://www.apple.com/shop/product/mw5l3am/a/usb-c-to-usb-adapter                              usb-c-to-usb-adapter
+https://www.apple.com/shop/product/mw5m3am/a/usb-c-digital-av-multiport-adapter                usb-c-digital-av-adapter
+https://www.apple.com/shop/product/myh93am/a/thunderbolt-3-usb%E2%80%91c-to-thunderbolt-2-adapter  thunderbolt-3-to-2-adapter
+https://www.apple.com/shop/product/muq93am/a/usb-c-to-lightning-cable-1-m                      usb-c-lightning-cable-1m
+https://www.apple.com/shop/product/mw2r3am/a/usb-c-to-lightning-cable-2-m                      usb-c-lightning-cable-2m
+https://www.apple.com/shop/product/muqw3am/a/lightning-to-usb-cable-1-m                        lightning-usb-cable-1m

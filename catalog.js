@@ -1086,6 +1086,143 @@ const products = [
     colors: [{ name: 'Белый', hex: '#f5f5f5' }], storages: [],
     options: [AIRTAG_PACK],
     images: [], createdAt: now - 3.7 * DAY
+  },
+
+  /* ------------------- Зарядка, кабели и переходники --------------------
+   * Состав, описания и характеристики сняты со страниц товаров apple.com
+   * (сентябрь 2026) скриптом `scripts/fetch-apple-product.js`; он же приносит
+   * фотографии галереи. Цена — долларовая цена Apple по курсу 90 ₽/$ плюс 20 %,
+   * округлённая вверх до ближайшего «…90». Скидки у этих карточек нет: цена
+   * и так закупочная, а промоакция режет её процентом (см. lib/promo.js).
+   */
+  {
+    id: 'usb-c-cable-60w-1m', name: 'Кабель USB-C для зарядки 60 Вт (1 м)', category: 'Аксессуары',
+    price: 2090, inStock: true,
+    shortDesc: 'Плетёный кабель USB-C — USB-C: зарядка до 60 Вт и передача данных.',
+    description: 'Метровый кабель в плетёной оплётке с разъёмами USB-C на обоих концах — для зарядки, синхронизации и передачи данных между устройствами с USB-C. Держит зарядку мощностью до 60 Вт и передаёт данные на скорости USB 2. В паре с подходящим адаптером питания USB-C заряжает от розетки и поддерживает быструю зарядку. Адаптер питания приобретается отдельно.',
+    specs: 'Разъёмы: USB-C и USB-C\nЗарядка: до 60 Вт\nПередача данных: USB 2, до 480 Мбит/с\nДлина: 1 м\nМатериал: плетёная оплётка\nПодключение: iPhone, iPad, Mac и другие устройства с USB-C',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.8 * DAY
+  },
+  {
+    id: 'usb-c-cable-240w-2m', name: 'Кабель USB-C для зарядки 240 Вт (2 м)', category: 'Аксессуары',
+    price: 3190, inStock: true,
+    shortDesc: 'Плетёный кабель USB-C — USB-C на два метра, зарядка до 240 Вт.',
+    description: 'Двухметровый кабель в плетёной оплётке с разъёмами USB-C на обоих концах — для зарядки, синхронизации и передачи данных между устройствами с USB-C. Держит зарядку мощностью до 240 Вт, поэтому подходит и мощным ноутбукам, а данные передаёт на скорости USB 2. В паре с подходящим адаптером питания USB-C поддерживает быструю зарядку. Адаптер питания приобретается отдельно.',
+    specs: 'Разъёмы: USB-C и USB-C\nЗарядка: до 240 Вт\nПередача данных: USB 2, до 480 Мбит/с\nДлина: 2 м\nМатериал: плетёная оплётка\nПодключение: MacBook Pro, iPad, iPhone и другие устройства с USB-C',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.81 * DAY
+  },
+  {
+    id: 'power-adapter-20w', name: 'Адаптер питания USB-C, 20 Вт', category: 'Аксессуары',
+    price: 2090, inStock: true,
+    shortDesc: 'Компактный адаптер для быстрой зарядки iPhone и iPad.',
+    description: 'Адаптер питания Apple на 20 Вт быстро и экономно заряжает дома, в офисе и в дороге. С iPhone 8 и новее даёт быструю зарядку — до 50 % примерно за 35 минут, а с iPad Pro и iPad Air работает в оптимальном для них режиме. Кабель для зарядки приобретается отдельно.',
+    specs: 'Питание: 20 Вт\nРазъём: USB-C\nБыстрая зарядка: до 50 % примерно за 35 минут (iPhone 8 и новее)\nПодключение: iPhone, iPad и другие устройства с USB-C\nРазмер: компактный корпус',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.82 * DAY
+  },
+  {
+    id: 'power-adapter-40w-dynamic', name: 'Адаптер питания Dynamic Power, 40 Вт (до 60 Вт)', category: 'Аксессуары',
+    price: 4290, inStock: true,
+    shortDesc: 'Карманный адаптер, который подаёт до 60 Вт, когда это нужно.',
+    description: 'Адаптер выдаёт до 60 Вт, когда устройству нужен запас мощности, и остаётся при этом карманного размера. С iPhone 17, iPhone 17 Pro и iPhone 17 Pro Max заряжает до 50 % за 20 минут, с iPhone Air — за 30 минут, с iPad Pro 11″ — за 30 минут, с iPad Pro 13″ — за 35 минут. Подходит устройствам с USB-C; кабель для зарядки приобретается отдельно.',
+    specs: 'Питание: 40 Вт, динамически до 60 Вт\nРазъём: USB-C\nБыстрая зарядка: до 50 % за 20 минут (iPhone 17 Pro)\nПодключение: iPhone, iPad и другие устройства с USB-C\nРазмер: карманный корпус',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.83 * DAY
+  },
+  {
+    id: 'power-adapter-35w-dual', name: 'Компактный адаптер питания с двумя портами USB-C, 35 Вт', category: 'Аксессуары',
+    price: 6390, inStock: true,
+    shortDesc: 'Два порта USB-C: заряжает два устройства одновременно.',
+    description: 'Компактный адаптер на 35 Вт заряжает два устройства сразу — дома, в офисе и в дороге. Apple рекомендует его для MacBook Neo и MacBook Air, когда нужен второй порт; подходит он и для iPhone, iPad, Apple Watch и AirPods. Кабели для зарядки приобретаются отдельно.',
+    specs: 'Питание: 35 Вт на два порта\nРазъёмы: два USB-C\nПодключение: MacBook Neo, MacBook Air, iPhone, iPad, Apple Watch, AirPods\nРазмер: компактный корпус',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.84 * DAY
+  },
+  {
+    id: 'magsafe-3-cable-2m', name: 'Кабель USB-C / MagSafe 3 (2 м)', category: 'Аксессуары',
+    price: 5390, inStock: true,
+    shortDesc: 'Магнитный кабель зарядки для ноутбуков Mac, плетёная оплётка.',
+    description: 'Двухметровый кабель с магнитным разъёмом MagSafe 3: он сам подводит штекер к разъёму ноутбука Mac. Магнит держит крепко, но отсоединяется, если кто-то заденет провод, — ноутбук остаётся на месте. Индикатор горит янтарным во время зарядки и зелёным, когда аккумулятор заряжен. Плетёная оплётка рассчитана на долгую службу. Адаптер питания USB-C приобретается отдельно.',
+    // «Крепление: магнитное…» здесь не написать: слово «магнитный» содержит «нит»,
+    // и подбор иконки уводит строку в правило яркости («600 нит») — рядом с кабелем
+    // это глиф солнца. Поэтому про магнит сказано ключом «Разъём».
+    specs: 'Разъёмы: USB-C и MagSafe 3\nРазъём MagSafe 3: держит крепко и отходит при рывке\nИндикатор: янтарный при зарядке, зелёный при полном заряде\nДлина: 2 м\nМатериал: плетёная оплётка\nПодключение: ноутбуки Mac с разъёмом MagSafe 3',
+    colors: [C.silver], storages: [],
+    images: [], createdAt: now - 3.85 * DAY
+  },
+  {
+    id: 'power-adapter-140w', name: 'Адаптер питания USB-C, 140 Вт', category: 'Аксессуары',
+    price: 10790, inStock: true,
+    shortDesc: 'Самый мощный адаптер Apple — для MacBook Pro 16″.',
+    description: 'Адаптер на 140 Вт быстро и экономно заряжает дома, в офисе и в дороге и совместим с большинством устройств и кабелей USB-C. Apple рекомендует его для MacBook Pro 16″ (2021 года и новее) в паре с кабелем USB-C / MagSafe 3 или кабелем USB-C на 240 Вт: до 50 % заряда примерно за 30 минут. Кабель для зарядки приобретается отдельно.',
+    specs: 'Питание: 140 Вт\nРазъём: USB-C\nБыстрая зарядка: до 50 % примерно за 30 минут (MacBook Pro 16″)\nПодключение: MacBook Pro, MacBook Air и другие устройства с USB-C',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.86 * DAY
+  },
+  {
+    id: 'power-adapter-96w', name: 'Адаптер питания USB-C, 96 Вт', category: 'Аксессуары',
+    price: 8590, inStock: true,
+    shortDesc: 'Мощный адаптер для MacBook Pro 14″ и других устройств с USB-C.',
+    description: 'Адаптер на 96 Вт быстро и экономно заряжает дома, в офисе и в дороге и совместим с большинством устройств и кабелей USB-C. Apple рекомендует его для MacBook Pro 14″ (2021 года и новее) в паре с кабелем USB-C / MagSafe 3 или кабелем USB-C для зарядки: до 50 % заряда примерно за 30 минут. Кабель для зарядки приобретается отдельно.',
+    specs: 'Питание: 96 Вт\nРазъём: USB-C\nБыстрая зарядка: до 50 % примерно за 30 минут (MacBook Pro 14″)\nПодключение: MacBook Pro, MacBook Air и другие устройства с USB-C',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.87 * DAY
+  },
+  {
+    id: 'usb-c-to-usb-adapter', name: 'Адаптер USB-C / USB', category: 'Аксессуары',
+    price: 2090, inStock: true,
+    shortDesc: 'Подключает обычные USB-аксессуары к порту USB-C.',
+    description: 'Переходник подключает привычные USB-аксессуары к Mac, iPad или iPhone с портом USB-C либо Thunderbolt 3 (USB-C). Вставьте его в порт USB-C — и подключайте флешку, камеру или другое USB-устройство. Через него же работает кабель Lightning / USB для синхронизации и зарядки iPhone, iPad и iPod.',
+    specs: 'Разъёмы: USB-C и USB (Type-A)\nПодключение: Mac, iPad и iPhone с портом USB-C или Thunderbolt 3\nНазначение: флешки, камеры и другие устройства USB\nРазмер: компактный переходник',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.88 * DAY
+  },
+  {
+    id: 'usb-c-digital-av-adapter', name: 'Многопортовый цифровой AV-адаптер USB-C', category: 'Аксессуары',
+    price: 7490, inStock: true,
+    shortDesc: 'HDMI, USB и зарядка через USB-C — три порта в одном переходнике.',
+    description: 'Адаптер выводит изображение с Mac, iPad или iPhone на телевизор или монитор с HDMI и одновременно даёт порт USB для аксессуара и порт USB-C для зарядки. С iPhone 15 и новее, iPad Pro и iPad Air на чипах Apple и с большинством современных Mac поддерживает 3840×2160 при 60 Гц; с более ранними моделями — 1080p при 60 Гц или 3840×2160 при 30 Гц. Кабель HDMI приобретается отдельно.',
+    specs: 'Разъёмы: HDMI, USB и USB-C\nВидео: 4K (3840×2160) при 60 кадрах/с\nПитание: сквозная зарядка через порт USB-C\nПодключение: Mac, iPad и iPhone с портом USB-C\nСистема: macOS 10.14.6 и новее, iOS 12.4 и новее',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.89 * DAY
+  },
+  {
+    id: 'thunderbolt-3-to-2-adapter', name: 'Адаптер Thunderbolt 3 (USB-C) / Thunderbolt 2', category: 'Аксессуары',
+    price: 5390, inStock: true,
+    shortDesc: 'Подключает устройства Thunderbolt 2 к портам Thunderbolt 3 и USB 4.',
+    description: 'Переходник подключает устройства Thunderbolt и Thunderbolt 2 — внешние диски, док-станции — к портам Thunderbolt 3 (USB-C) и USB 4 на Mac. Работает в обе стороны: устройства Thunderbolt 3 подключаются к Mac с портом Thunderbolt или Thunderbolt 2 на macOS Sierra и новее. Дисплеи Thunderbolt тоже поддерживаются, но Apple Thunderbolt Display потребует отдельного питания. Мониторы DisplayPort и Mini DisplayPort адаптер не поддерживает.',
+    specs: 'Разъёмы: Thunderbolt 3 (USB-C) и Thunderbolt 2\nПередача данных: Thunderbolt 2, до 20 Гбит/с\nПодключение: внешние диски, док-станции и дисплеи Thunderbolt\nСистема: macOS Sierra и новее\nРазмер: компактный переходник',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.9 * DAY
+  },
+  {
+    id: 'usb-c-lightning-cable-1m', name: 'Кабель USB-C / Lightning (1 м)', category: 'Аксессуары',
+    price: 2090, inStock: true,
+    shortDesc: 'Метровый кабель для зарядки и синхронизации устройств с Lightning.',
+    description: 'Кабель соединяет устройство с разъёмом Lightning с компьютером или iPad, у которых есть порт USB-C либо Thunderbolt 3 (USB-C), — для синхронизации и зарядки. В паре с адаптером питания Apple USB-C на 18, 20, 29, 30, 61, 87 или 96 Вт заряжает iPhone и iPad, а на подходящих моделях поддерживает быструю зарядку.',
+    specs: 'Разъёмы: USB-C и Lightning\nБыстрая зарядка: с адаптером питания USB-C от 18 Вт\nДлина: 1 м\nПодключение: iPhone, iPad и другие устройства с разъёмом Lightning',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.91 * DAY
+  },
+  {
+    id: 'usb-c-lightning-cable-2m', name: 'Кабель USB-C / Lightning (2 м)', category: 'Аксессуары',
+    price: 3190, inStock: true,
+    shortDesc: 'Двухметровый кабель для зарядки и синхронизации устройств с Lightning.',
+    description: 'Кабель соединяет устройство с разъёмом Lightning с компьютером или iPad, у которых есть порт USB-C либо Thunderbolt 3 (USB-C), — для синхронизации и зарядки. Двух метров хватает, чтобы дотянуться до розетки за диваном или за столом. В паре с адаптером питания Apple USB-C на 18, 20, 29, 30, 61, 87 или 96 Вт поддерживает быструю зарядку на подходящих моделях.',
+    specs: 'Разъёмы: USB-C и Lightning\nБыстрая зарядка: с адаптером питания USB-C от 18 Вт\nДлина: 2 м\nПодключение: iPhone, iPad и другие устройства с разъёмом Lightning',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.92 * DAY
+  },
+  {
+    id: 'lightning-usb-cable-1m', name: 'Кабель Lightning / USB (1 м)', category: 'Аксессуары',
+    price: 2090, inStock: true,
+    shortDesc: 'Классический кабель Lightning — USB для зарядки и синхронизации.',
+    description: 'Кабель USB 2 соединяет устройство с разъёмом Lightning с портом USB компьютера — для синхронизации и зарядки. Его же можно подключить к адаптеру питания Apple и заряжать от розетки. Разъём Lightning двусторонний: вставляется любой стороной.',
+    specs: 'Разъёмы: Lightning и USB (Type-A)\nПередача данных: USB 2, до 480 Мбит/с\nДлина: 1 м\nПодключение: iPhone, iPad и iPod с разъёмом Lightning\nОсобенность: двусторонний разъём Lightning',
+    colors: [C.white], storages: [],
+    images: [], createdAt: now - 3.93 * DAY
   }
 ];
 
@@ -1103,7 +1240,11 @@ const NOVELTY_IDS = [
   'watch-ultra-3', 'watch-ultra-2', 'watch-se-3',
   'airpods-pro-3', 'airpods-pro-2', 'airpods-4', 'airpods-3',
   'airpods-max-2', 'airpods-max',
-  'apple-tv-4k', 'homepod-mini', 'vision-pro-m5'
+  'apple-tv-4k', 'homepod-mini', 'vision-pro-m5',
+  'usb-c-cable-60w-1m', 'usb-c-cable-240w-2m', 'power-adapter-20w', 'power-adapter-40w-dynamic',
+  'power-adapter-35w-dual', 'magsafe-3-cable-2m', 'power-adapter-140w', 'power-adapter-96w',
+  'usb-c-to-usb-adapter', 'usb-c-digital-av-adapter', 'thunderbolt-3-to-2-adapter',
+  'usb-c-lightning-cable-1m', 'usb-c-lightning-cable-2m', 'lightning-usb-cable-1m'
 ];
 
 /* ЦЕНЫ ВЫШЕ ЗАПИСАНЫ ТАК, КАК ИХ ДАЁТ ПРАЙС ПОСТАВЩИКА, — то есть то, за что
