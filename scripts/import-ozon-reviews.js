@@ -53,7 +53,10 @@ const KEEP_MARKET = args.includes('--keep-marketplace');
 // Отсев, а не правка текста: переписывать чужой отзыв — подделка, а выбросить
 // его честно. Цена невелика — на боевых данных таких около 2 %.
 // `--keep-marketplace` оставляет их, если однажды понадобится.
-const MARKETPLACE_RE = /озон|ozon|вайлдберриз|wildberries|\bwb\b|яндекс\s*маркет|алиэкспресс|aliexpress|\bдns\b|днс|мвидео|м\.видео|эльдорадо|ситилинк/i;
+//
+// Само правило живёт в `lib/marketplace.js`: по нему же чистит уже залитое
+// `scripts/drop-marketplace-reviews.js`, и две копии разъехались бы молча.
+const { MARKETPLACE_RE } = require('../lib/marketplace');
 
 if (!file) {
   console.error('Укажите файл пакета: node scripts/import-ozon-reviews.js bundle.json --apply');

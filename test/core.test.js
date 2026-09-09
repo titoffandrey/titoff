@@ -14396,6 +14396,45 @@ test('раскрытый профиль собеседника не вылеза
   assert.match(css, /\.chat-order-state \.o-payment-state\{white-space:normal\}/);
   // В самом списке заказов строка состояния при этом осталась неразрывной.
   assert.match(css, /\.o-payment-state\{white-space:nowrap\}/);
+
+  /* Стрелки перехода в карточку посетителя в шапке диалога нет: она прижата
+   * `margin-left:auto`, а строка техники переносится — на узком экране стрелка
+   * оставалась одна на своей строке. Ссылкой остаётся вся строка. */
+  assert.match(css, /\.chat-head-meta \.cmarks-go\{display:none\}/);
+  // В списке заказов и в метрике она на месте — там строка не переносится.
+  assert.match(css, /\.cmarks-go\{margin-left:auto/);
+});
+
+test('упоминание чужой площадки описано ровно в одном месте', () => {
+  const MK = require('../lib/marketplace');
+  const importer = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'import-ozon-reviews.js'), 'utf8');
+  const cleanup = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'drop-marketplace-reviews.js'), 'utf8');
+
+  /* Правило одно на заливку и на чистку уже залитого. Своя копия регулярки в
+   * скрипте разъехалась бы с общей молча: витрина продолжала бы пускать то, что
+   * чистка считает чужим, и наоборот. */
+  for (const [name, src] of [['импортёр', importer], ['чистка', cleanup]]) {
+    assert.ok(/require\('\.\.\/lib\/marketplace'\)/.test(src),
+      `${name} обязан брать правило из lib/marketplace.js`);
+    assert.ok(!/вайлдберриз/.test(src),
+      `в ${name} не должно быть своей копии списка площадок`);
+  }
+
+  assert.ok(MK.mentionsMarketplace('Заказывала на озоне, пришло быстро'));
+  assert.ok(MK.mentionsMarketplace('Спасибо команде Озон'));
+  assert.ok(MK.mentionsMarketplace('брал в DNS дороже'),
+    'латинское написание ДНС ловится: прежде в правиле стояла кириллическая «д»');
+  assert.ok(!MK.mentionsMarketplace('Чехол отличный, сел идеально'));
+
+  /* Чистка трогает ТОЛЬКО привезённые отзывы. Отзыв покупателя восстановить
+   * неоткуда, а демо площадку не называет по построению. */
+  assert.match(cleanup, /rv\.source && !rv\.demo/);
+  // Файлы удаляет `deleteReview` — единственное место, знающее про ролики и
+  // превью; свой обход файлов стал бы второй копией этого знания.
+  assert.match(cleanup, /db\.deleteReview\(/);
+  assert.ok(!/reviewFiles/.test(cleanup), 'своего обхода файлов у чистки быть не должно');
 });
 
 test('чат звучит одинаково у покупателя и у менеджера, и только по делу', () => {

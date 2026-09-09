@@ -6136,6 +6136,13 @@ details.metric-rules{margin-bottom:14px}
 .chat-head-meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 16px;
   background:var(--bg2);border:1px solid var(--border);border-bottom:0;font-size:12px}
 .chat-head-meta .cmarks{gap:12px;font-size:12px}
+/* Стрелки перехода в карточку посетителя здесь нет. Она прижата к правому краю
+   (`margin-left:auto`), а строка техники переносится — и на узком экране стрелка
+   оставалась одна на своей строке, читаясь потерянной кнопкой. Ссылкой при этом
+   остаётся вся строка целиком, с подсказкой и подложкой на наведении, так что
+   уходит только украшение. В списке заказов и в метрике стрелка на месте: там
+   строка стоит в своём столбце и не переносится. */
+.chat-head-meta .cmarks-go{display:none}
 .chat-page{display:inline-flex;align-items:center;gap:5px;color:var(--accent);min-width:0}
 .chat-page span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-page svg{width:14px;height:14px;flex:none}

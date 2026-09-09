@@ -15,8 +15,15 @@
  * лишние ролики удаляются вместе с файлами: отзыв остаётся на месте, теряя
  * только вложенное видео.
  *
- *   node scripts/trim-review-videos.js           — показать, что изменится
- *   node scripts/trim-review-videos.js --apply   — сделать
+ *   node scripts/trim-review-videos.js               — показать, что изменится
+ *   node scripts/trim-review-videos.js --apply       — сделать
+ *   node scripts/trim-review-videos.js --only-extra  — снять лишние, длину не трогать
+ *
+ * `--only-extra` нужен после чистки отзывов: удаление сокращает ленту, а вместе
+ * с ней и число мест под ролики — и товар, где всё было по правилу, вдруг
+ * получает видео на четвёртой странице. Лишние там один-два, а полный прогон
+ * прогнал бы ffmpeg по четырёмстам уже обрезанным файлам и переписал бы их на
+ * месте ради ничего. Длину при этом не проверяем вовсе: её задаёт заливка.
  *
  * На сервере: STORE_DATA_DIR=/var/lib/apple-store node scripts/trim-review-videos.js --apply
  */
@@ -27,11 +34,14 @@ const PREV = require('../lib/review-previews');
 const DATES = require('../lib/review-dates');
 
 const apply = process.argv.includes('--apply');
+const onlyExtra = process.argv.includes('--only-extra');
 const mb = n => (n / 1048576).toFixed(1) + ' МБ';
 const sizeOf = f => { try { return fs.statSync(path.join(db.UPLOAD_DIR, f)).size; } catch (e) { return 0; } };
 
 (async () => {
-  if (!(await PREV.ffmpeg())) {
+  // Снятию лишних роликов ffmpeg не нужен вовсе — там только правка записи и
+  // уборка файлов, поэтому требуем его лишь тогда, когда правда режем длину.
+  if (!onlyExtra && !(await PREV.ffmpeg())) {
     console.error('ffmpeg не найден — обрезать ролики нечем.');
     process.exit(1);
   }
@@ -69,6 +79,7 @@ const sizeOf = f => { try { return fs.statSync(path.join(db.UPLOAD_DIR, f)).size
         if (apply) db.updateReview(rv.id, { videos: [] });
         continue;
       }
+      if (onlyExtra) continue;   // просили снять только лишние — длина не наше дело
       for (const f of files) {
         const before = sizeOf(f);
         if (!before) continue;
