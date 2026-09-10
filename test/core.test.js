@@ -13535,6 +13535,62 @@ test('реплику можно изменить и удалить, и поку�
   assert.match(html, /e\.submitter/);
 });
 
+test('о задержке посылки консультант говорит спокойно и с подробностями', () => {
+  /* Разговор с боевой витрины: «Что по моей доставке?» — а посылка в это время
+   * стоит в Москве с пометкой «задерживается». Сухое «Задерживается» теряет
+   * ровно то, чем утешают, — где она сейчас. */
+  const tracking = require('../lib/tracking');
+  const chatPrompt = require('../lib/chat-prompt');
+  const promptDb = { visibleProducts: () => [], visibleProduct: () => null, categories: () => [] };
+  const now = Date.now(), day = 86400000;
+  const shipment = tracking.normalize({
+    carrier: 'ozon', mode: 'pvz', token: 'a'.repeat(32), holdDays: 1,
+    steps: [
+      { title: 'Заказ собран на складе', place: 'Ноябрьск', kind: 'created', at: now - 5 * day },
+      { title: 'Прибыл в город получателя', place: 'Москва', kind: 'arrive', at: now - 2 * day, hold: true },
+      { title: 'Можно забирать', place: 'Москва', kind: 'ready', at: now + day }
+    ]
+  });
+  const late = { id: 'o-late', number: '131607', createdAt: now - 5 * day, total: 27200, items: [], shipment };
+
+  const withOrder = chatPrompt.placeText(promptDb, SETTINGS, { page: '/', orders: [late] });
+  // Состояние берётся из того же модуля, что рисует ленту покупателю.
+  assert.match(withOrder, /доставка: Задерживается/);
+  // Утешают конкретикой: «уже в Москве» — ответ, «задерживается» — тревога.
+  assert.match(withOrder, /Прибыл в город получателя, Москва/);
+  assert.match(withOrder, /Успокой покупателя/);
+  assert.match(withOrder, /новой даты доставки не называй/i,
+    'дату назначает перевозчик, а обещает менеджер');
+
+  // Едущая по расписанию посылка утешений не требует — лишних слов в фактах нет.
+  const onTime = chatPrompt.placeText(promptDb, SETTINGS, {
+    page: '/', orders: [Object.assign({}, late, {
+      shipment: tracking.normalize({
+        carrier: 'ozon', mode: 'pvz', token: 'b'.repeat(32),
+        steps: [
+          { title: 'Заказ собран на складе', place: 'Ноябрьск', kind: 'created', at: now - day },
+          { title: 'Можно забирать', place: 'Москва', kind: 'ready', at: now + day }
+        ]
+      })
+    })]
+  });
+  assert.doesNotMatch(onTime, /Успокой покупателя/);
+  assert.equal(chatPrompt.placeText(promptDb, SETTINGS, { page: '/', orders: [] }), '',
+    'нечего рассказать — нет и блока');
+
+  /* Тон разговора о задержке стоит ещё и в условиях магазина: они собираются
+   * всегда, даже когда владелец сохранил свою инструкцию и стандартные правила
+   * до модели не доезжают. Строка постоянная — изменчивая обнуляла бы кэш
+   * постоянной части промпта всему магазину. */
+  const conditions = chatPrompt.storeText(SETTINGS);
+  assert.match(conditions, /Задержки в пути — обычное дело/);
+  assert.match(conditions, /переживать не нужно/);
+  assert.equal(chatPrompt.storeText(SETTINGS), conditions, 'условия не зависят от момента вызова');
+
+  // И в стандартной инструкции — для магазина, который её ещё не переписывал.
+  assert.ok(chatPrompt.RULES.some(r => /Задержка доставки/.test(r)));
+});
+
 test('в диалоге видно, что покупатель заказал и что у него с оплатой', () => {
   /* Половина разговоров в чате про это и есть: «оплатил, а статус прежний»,
    * «счёт не открывается». Отвечать на такое, не видя заявки, означает
