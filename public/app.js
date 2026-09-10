@@ -2936,6 +2936,7 @@
     var revPager = document.getElementById('reviews-pager');
     if (revList && revList.dataset.product && (revToolbar || revPager)) {
       var revBusy = false;
+      var revRequestSeq = 0;
 
       function revState() {
         return {
@@ -2960,7 +2961,8 @@
 
       function revLoad(sort, page, opts) {
         opts = opts || {};
-        if (revBusy) return;
+        if (revBusy && !opts.replacePending) return;
+        var requestSeq = ++revRequestSeq;
         revBusy = true;
         revList.setAttribute('aria-busy', 'true');
         if (revPager) revPager.setAttribute('aria-busy', 'true');
@@ -2968,6 +2970,7 @@
           + '&sort=' + encodeURIComponent(sort) + '&page=' + encodeURIComponent(page))
           .then(function (r) { return r.json(); })
           .then(function (d) {
+            if (requestSeq !== revRequestSeq) return;
             if (!d || !d.ok) throw new Error('reviews');
             revBusy = false;
             revList.innerHTML = d.html;
@@ -2992,6 +2995,7 @@
             if (opts.scroll) revScrollToTop();
           })
           .catch(function () {
+            if (requestSeq !== revRequestSeq) return;
             revBusy = false;
             revList.removeAttribute('aria-busy');
             if (revPager) revPager.removeAttribute('aria-busy');
@@ -3020,8 +3024,11 @@
           s = { rsort: params.get('rsort') || 'new', rpage: Number(params.get('rpage')) || 1 };
         }
         var now = revState();
-        if (s.rsort === now.sort && s.rpage === now.page) return;
-        revLoad(s.rsort, s.rpage, { scroll: true });
+        // «Назад» меняет URL сразу, даже пока предыдущая страница грузится.
+        // Ответ от оставленного экрана не должен вернуть его разметку и
+        // записать новый pushState поверх уже выбранной истории.
+        if (s.rsort === now.sort && s.rpage === now.page && !revBusy) return;
+        revLoad(s.rsort, s.rpage, { scroll: true, replacePending: true, fallback: location.href });
       });
     }
 

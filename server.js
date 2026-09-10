@@ -196,7 +196,7 @@ const ordersBackUrl = (body, flash) => {
   const q = String(body && body.q || '').trim().slice(0, 100);
   if (q) params.push('q=' + encodeURIComponent(q));
   const pay = String(body && body.filterPay || '');
-  if (['ok', 'wait', 'warn', 'off', 'none', 'draft'].includes(pay)) {
+  if (['ok', 'wait', 'idle', 'warn', 'off', 'none', 'draft'].includes(pay)) {
     params.push('pay=' + encodeURIComponent(pay));
   }
   // Период — такой же охват страницы, как номер и режим правки: без него разбор
@@ -3903,6 +3903,14 @@ app.get('/admin/live', (req, res) => {
 // здесь нет — список допустимых значений закрыт в `R.orderPeriod`, и вторая
 // проверка того же параметра разъехалась бы с ней молча.
 app.get('/admin', (req, res) => { if (!guardAdmin(req, res)) return; res.send(A.dashboard(settings(), db, metrics.pulse(), req.query)); });
+// Сохранённые закладки прежней панели ведут в метрику магазина.
+for (const route of ['/admin/rybbit', '/admin/rybbit/1', '/admin/rybbit/1/main',
+  '/admin/rybbit/1/events', '/admin/rybbit/1/funnels', '/admin/rybbit/1/sessions']) {
+  app.get(route, (req, res) => {
+    if (!guardAdmin(req, res)) return;
+    res.redirect('/admin/analytics');
+  });
+}
 app.get('/admin/analytics', (req, res) => {
   if (!guardAdmin(req, res)) return;
   /* `reg` — страница рейтинга рядом с картой. Проверять её здесь нечем: сколько
@@ -4362,7 +4370,8 @@ app.post('/admin/reviews/:id/delete', (req, res) => { if (!guardAdmin(req, res))
 /* ---------- Заказы ---------- */
 app.get('/admin/orders', (req, res) => {
   if (!guardAdmin(req, res)) return;
-  const html = A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.edit, req.query);
+  const html = A.ordersList(settings(), db, req.query.flash, req.query.page, req.query.edit, req.query,
+    { origin: originOf(req) });
   /* Список открыт — заявки увидены, счётчик в шапке гаснет. Метка ставится ПОСЛЕ
    * сборки страницы: иначе бейдж пропадал бы на той самой странице, ради которой
    * его нажали, и «сколько пришло» разглядеть было бы негде.

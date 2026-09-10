@@ -31,7 +31,7 @@
   // Забрать свежую разметку и разобрать её — всё, что нужно для подмены блоков.
   // Канал сверх этого требует EventSource, но переход внутри страницы (см. `go`
   // ниже) работает и без него.
-  var canSwap = !!(window.fetch && window.DOMParser);
+  var canSwap = !!(topics && window.fetch && window.DOMParser);
 
   // Не чаще одного перезапроса в эту паузу. На витрине с трафиком метрика
   // меняется каждую секунду, а перерисовывать страницу столько раз незачем:
@@ -43,6 +43,8 @@
   var urgent = false;        // и одно из них — переход человека: его не откладываем
   var lastAt = 0;
   var timer = null;
+  var failures = 0;
+  var REQUEST_TIMEOUT = 20000;
 
   /* -------------------------------------- переход внутри одной и той же страницы
    *
@@ -71,7 +73,7 @@
    * там нет — её собрали подменой блоков. */
   window.addEventListener('popstate', function () { pull(true); });
 
-  if (!topics || !window.EventSource || !canSwap) return;
+  if (!canSwap) return;
 
   /* ---------------------------------------------------------------- перенос */
 
@@ -89,9 +91,9 @@
     return a.tagName === b.tagName && keyOf(a) === keyOf(b);
   }
 
-  // Поля ввода: их содержимое принадлежит человеку, а не серверу. Значение,
-  // отметку и выбранный пункт не трогаем никогда — иначе живое обновление
-  // стирало бы недописанный ответ на отзыв и выключало режим правки.
+  // Видимые поля ввода принадлежат человеку. Значение, отметку и выбранный
+  // пункт сохраняем, чтобы не стереть ответ на отзыв или режим правки.
+  // Скрытые поля — серверный контекст формы: период, фильтр, адрес возврата.
   var FIELDS = { INPUT: 1, TEXTAREA: 1, SELECT: 1, OPTION: 1 };
 
   function syncAttrs(from, to) {
@@ -110,6 +112,7 @@
 
   // Что человек уже решил сам: раскрыл свёртку, отметил галочку, выбрал пункт.
   function ownedByUser(el, name) {
+    if (el.tagName === 'INPUT' && el.type === 'hidden') return false;
     if (name === 'open' && el.tagName === 'DETAILS') return true;
     /* Приближённая карта — тоже его решение. Кадр живёт в `viewBox`, а метрика
      * перерисовывается на каждое движение на витрине: без этой строки карта
@@ -188,12 +191,15 @@
     var doc = new DOMParser().parseFromString(html, 'text/html');
     var parts = document.querySelectorAll('[data-live-part]');
     var changed = false;
+    var matched = 0;
     for (var i = 0; i < parts.length; i++) {
       var name = parts[i].getAttribute('data-live-part');
       var fresh = doc.querySelector('[data-live-part="' + name + '"]');
       // Свежая разметка есть, а старая и новая совпадают — не трогаем дерево
       // вовсе: это самый частый случай (метрика тикает чаще, чем меняется вид).
-      if (!fresh || fresh.innerHTML === parts[i].innerHTML) continue;
+      if (!fresh) continue;
+      matched++;
+      if (fresh.innerHTML === parts[i].innerHTML) continue;
       morph(parts[i], fresh);
       changed = true;
     }
@@ -205,6 +211,7 @@
        * знал ни об одном разделе панели: кому нужно, тот и подписывается. */
       document.dispatchEvent(new CustomEvent('admin-live:updated'));
     }
+    return matched > 0;
   }
 
   /* `force` — обновление начал человек (перешёл по ссылке отчёта, нажал
@@ -215,11 +222,22 @@
     if (busy) { pending = true; if (force) urgent = true; return; }
     var wait = THROTTLE - (Date.now() - lastAt);
     if (!force && (wait > 0 || blocked())) return later(wait > 0 ? wait : 900);
+    if (timer) { clearTimeout(timer); timer = null; }
     busy = true; lastAt = Date.now();
     // Адрес, за которым пошли: пока ответ идёт, человек мог перейти на другой
     // отчёт, и та разметка уже не про эту страницу.
     var asked = location.href;
-    fetch(asked, { credentials: 'same-origin', headers: {
+    var controller = window.AbortController ? new AbortController() : null;
+    var timeout;
+    // Ограничиваем и ожидание заголовков, и чтение тела. Иначе один зависший
+    // fetch навсегда держит busy, даже когда канал уже сообщает о новых заказах.
+    var expired = new Promise(function (resolve, reject) {
+      timeout = setTimeout(function () {
+        if (controller) controller.abort();
+        reject(new Error('Превышено время обновления панели'));
+      }, REQUEST_TIMEOUT);
+    });
+    var response = fetch(asked, { credentials: 'same-origin', signal: controller ? controller.signal : undefined, headers: {
       'X-Live': '1',
       // Скрытая вкладка получает свежую разметку, но человек её не видел. Для
       // чата это граница между «обновилось» и «прочитано менеджером».
@@ -229,21 +247,29 @@
         // Сессия кончилась: сервер увёл на вход, и показывать дальше нечего.
         if (r.redirected && r.url.indexOf('/admin/login') > -1) { location.reload(); return null; }
         return r.ok ? r.text() : null;
-      })
+      });
+    Promise.race([response, expired])
       // Пустой ответ — это либо 5xx, либо увод на вход: в обоих случаях свежего
       // мы не получили, и обещать обратное плашке нельзя. Ответ про прежний
       // адрес не показываем вовсе — вместо него сразу идём за нынешним.
       .then(function (html) {
         if (asked !== location.href) { pending = true; urgent = true; return; }
-        if (html) { apply(html); fresh(); } else stale();
+        if (html && apply(html)) { failures = 0; fresh(); }
+        else { failures++; stale(); }
       })
       // Сеть моргнула. Данные на экране с этого мгновения могли устареть, и
       // плашка обязана это сказать — но не сразу: одна неудачная попытка ещё
       // ничего не значит, ждём `stale()`.
-      .catch(function () { stale(); })
+      .catch(function () { failures++; stale(); })
       .then(function () {
+        clearTimeout(timeout);
         busy = false;
-        if (!pending) return;
+        // Номера версий уже получены, поэтому после 5xx новое событие может
+        // вовсе не прийти. Повторяем сам запрос с паузой даже при живом SSE.
+        if (!pending) {
+          if (failures) later(Math.min(30000, 3000 * Math.pow(2, Math.min(failures - 1, 4))));
+          return;
+        }
         pending = false;
         if (urgent) { urgent = false; pull(true); } else later(THROTTLE);
       });
@@ -286,6 +312,8 @@
 
   // Свежее: канал открылся или запрос прошёл. Отменяет ожидание разрыва.
   function fresh() {
+    // Живой канал не делает свежей разметку, которую не удалось получить.
+    if (failures) return;
     if (offTimer) { clearTimeout(offTimer); offTimer = null; }
     setOffline(false);
   }
@@ -417,34 +445,36 @@
     if (mark) titleOn = mark.getAttribute('title') || '';
   })();
 
-  var es = new EventSource('/admin/live?topics=' + encodeURIComponent(topics));
-  es.onmessage = function (e) {
-    var next; try { next = JSON.parse(e.data); } catch (x) { return; }
-    fresh();                                      // сообщение дошло — связь есть
-    heard(next);
-  };
-  es.onopen = fresh;
-  es.onerror = stale;
-  // Уведомление о событии — своим именем сообщения: номера версий отвечают
-  // «спроси страницу заново», а это карточка, которую надо просто показать.
-  es.addEventListener('note', function (e) {
-    var data; try { data = JSON.parse(e.data); } catch (x) { return; }
-    fresh();
-    if (data && data.html) noteShow(data.html);
-  });
-  // Люди на витрине — своим именем сообщения по той же причине: цифра в шапке
-  // меняется от каждого посетителя, а перерисовывать из-за неё страницу незачем.
-  es.addEventListener('visitors', function (e) {
-    var data; try { data = JSON.parse(e.data); } catch (x) { return; }
-    fresh();
-    if (data) setOnline(Number(data.n));
-  });
+  var es = window.EventSource ? new EventSource('/admin/live?topics=' + encodeURIComponent(topics)) : null;
+  if (es) {
+    es.onmessage = function (e) {
+      var next; try { next = JSON.parse(e.data); } catch (x) { return; }
+      fresh();                                      // сообщение дошло — связь есть
+      heard(next);
+    };
+    es.onopen = fresh;
+    es.onerror = stale;
+    // Уведомление о событии — своим именем сообщения: номера версий отвечают
+    // «спроси страницу заново», а это карточка, которую надо просто показать.
+    es.addEventListener('note', function (e) {
+      var data; try { data = JSON.parse(e.data); } catch (x) { return; }
+      fresh();
+      if (data && data.html) noteShow(data.html);
+    });
+    // Люди на витрине — своим именем сообщения по той же причине: цифра в шапке
+    // меняется от каждого посетителя, а перерисовывать из-за неё страницу незачем.
+    es.addEventListener('visitors', function (e) {
+      var data; try { data = JSON.parse(e.data); } catch (x) { return; }
+      fresh();
+      if (data) setOnline(Number(data.n));
+    });
+  }
 
   // Запасной путь. EventSource переподключается сам, но между попытками канал
   // мёртв, а сжимающий прокси может не пропустить поток вовсе — тогда страница
   // всё равно обязана обновляться, пусть и реже. Удачный опрос при этом и есть
   // доказательство, что данные свежие: `pull()` зовёт `fresh()` сам.
-  setInterval(function () { if (es.readyState !== 1) pull(); }, 20000);
+  setInterval(function () { if (!es || es.readyState !== 1) pull(); }, 20000);
   // Вернулись во вкладку — берём свежее сразу: пока она была скрыта, браузер мог
   // усыпить и таймеры, и сам канал.
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pull(); });

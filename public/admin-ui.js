@@ -70,7 +70,7 @@
  *
  * Данные по-прежнему живут в двух родных `<input type=date>` и уходят обычной
  * GET-формой. Этот слой отвечает только за вид и взаимодействие: диалог,
- * палитра, непрерывная лента месяцев и формат ДД.ММ.ГГГГ повторяют Google
+ * палитра, лента месяцев и формат ДД.ММ.ГГГГ повторяют Google
  * Trends. Не загрузился скрипт — остаются нативные рабочие поля, а не две
  * нарисованные кнопки без действия.
  *
@@ -275,8 +275,17 @@
     end = new Date(end.getFullYear(), end.getMonth(), 1, 12);
     var start = new Date(end.getFullYear(), end.getMonth() - 12, 1, 12);
     if (base < start) start = new Date(base.getFullYear(), base.getMonth(), 1, 12);
-    var cursor = new Date(start.getFullYear(), start.getMonth(), 1, 12);
     var guard = 0;
+    // Старинная дата из адреса не должна вытеснять сегодняшний месяц за
+    // предел 18 блоков. Оставляем выбранный месяц и последние 17: без этого
+    // после периода за 2024 год календарь заканчивался посреди 2025-го.
+    var oldest = new Date(end.getFullYear(), end.getMonth() - 17, 1, 12);
+    if (start < oldest) {
+      addMonth(monthList, start.getFullYear(), start.getMonth(), selected);
+      guard++;
+      start = new Date(end.getFullYear(), end.getMonth() - 16, 1, 12);
+    }
+    var cursor = new Date(start.getFullYear(), start.getMonth(), 1, 12);
     while (cursor <= end && guard++ < 18) {
       addMonth(monthList, cursor.getFullYear(), cursor.getMonth(), selected);
       cursor.setMonth(cursor.getMonth() + 1);

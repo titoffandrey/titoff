@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { products } = require('../catalog');
 const { generateDemoReviews, isDemoReview } = require('../lib/demo-reviews');
+const { shiftedReply } = require('../lib/review-reply-dates');
 
 const DATA_DIR = process.env.STORE_DATA_DIR
   ? path.resolve(process.env.STORE_DATA_DIR)
@@ -64,7 +65,8 @@ if (imported.size) {
   console.log(`Товаров с привезёнными отзывами: ${imported.size} — демо-набор для них не создаётся.`);
 }
 
-const generated = generateDemoReviews(demoProducts, { now: Date.now() }).map(review => {
+const now = Date.now();
+const generated = generateDemoReviews(demoProducts, { now }).map(review => {
   // Идентификаторы стабильны, поэтому добавленные вручную фото не пропадут при
   // повторном обновлении дат или текстов демо-набора.
   const previous = currentDemoById.get(review.id);
@@ -72,7 +74,7 @@ const generated = generateDemoReviews(demoProducts, { now: Date.now() }).map(rev
   // Ответ магазина писал человек, и пересборка набора его переживает — иначе он
   // пропадал бы с витрины в ближайшую ночь (cron в 01:20 UTC), а автор ответа
   // узнавал бы об этом случайно.
-  if (previous && previous.reply) review.reply = previous.reply;
+  if (previous && previous.reply) review.reply = shiftedReply(previous, review.createdAt, now);
   return review;
 });
 if (!apply) {

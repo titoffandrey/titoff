@@ -5984,6 +5984,12 @@ details.metric-rules{margin-bottom:14px}
   .chat-msg{max-width:88%}
 }
 
+/* На карточке товара чат не перекрывает липкую кнопку покупки и счётчик.
+   Признак страницы задаёт сервер: это работает и в Safari без :has(). */
+@media (max-width:720px){
+  .product-page .chat-widget{bottom:calc(90px + env(safe-area-inset-bottom,0px))}
+}
+
 @media (prefers-reduced-motion:reduce){
   .chat-panel,.chat-fab{transition:none}
   .chat-typing i,.chat-status::before{animation:none}

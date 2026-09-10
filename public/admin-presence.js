@@ -8,6 +8,16 @@
 (function () {
   'use strict';
   if (document.body.hasAttribute('data-live') || !window.EventSource) return;
-  var channel = new EventSource('/admin/live?topics=settings');
-  window.addEventListener('pagehide', function () { channel.close(); });
+  var channel = null;
+  function connect() {
+    if (!channel) channel = new EventSource('/admin/live?topics=settings');
+  }
+  connect();
+  window.addEventListener('pagehide', function () {
+    if (channel) channel.close();
+    channel = null;
+  });
+  // Возврат кнопкой «Назад» может восстановить тот же документ из bfcache.
+  // Скрипты повторно не запускаются, а закрытый EventSource сам не оживает.
+  window.addEventListener('pageshow', function (event) { if (event.persisted) connect(); });
 })();

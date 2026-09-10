@@ -1,0 +1,171 @@
+/* Только страница заказов. Оболочка панели и витрина сохраняют свой дизайн. */
+.orders-page{--of-text:#202124;--of-muted:#667085;--of-line:#e5e7eb;--of-radius:14px}
+.orders-page .of-toolbar{display:grid;grid-template-columns:auto minmax(260px,1fr);align-items:start;gap:24px;margin-bottom:20px}
+.orders-page .a-period{display:flex;align-items:start;gap:10px;margin:0;max-width:470px}
+.orders-page .of-filter{flex:1;min-width:0}
+.orders-page .of-filter-label{display:block;margin:0 0 7px 2px;font-size:12px;line-height:1.4;font-weight:500;color:var(--of-muted)}
+.orders-page .of-toolbar .g-pill{height:48px;min-width:180px;width:100%;padding:0 13px;border-radius:11px;border-color:#dce1e8;font-size:13px;gap:8px;line-height:1.3}
+.orders-page .of-toolbar .g-pill-text{flex:1;white-space:normal}
+.orders-page .of-toolbar .g-pill-ico,.orders-page .of-toolbar .g-chev{flex:none}
+.orders-page .of-toolbar .g-menu{min-width:260px;max-width:calc(100vw - 40px);border:1px solid var(--of-line);border-radius:13px}
+.orders-page .of-toolbar .g-opt{border-radius:8px;font-size:13px}
+.orders-page .of-filter-reset{flex-basis:100%;width:fit-content;margin:0 2px;color:#55647a;font-size:12px;line-height:1.5;text-decoration:underline;text-underline-offset:3px}
+.orders-page .of-search{min-width:0}
+.orders-page .o-filters{display:flex;align-items:center;margin:0;padding:5px;gap:5px;border:1px solid #dce1e8;border-radius:11px;box-shadow:none;min-height:48px}
+.orders-page .o-filters label{display:flex;align-items:center;gap:9px;flex:1;min-width:0;padding-left:8px;color:var(--of-muted)}
+.orders-page .o-filters label>svg{width:19px;height:19px;flex:none}
+.orders-page .o-filters input[type=search]{min-width:0;height:36px;padding:0;border:0;border-radius:0;background:transparent;font-size:14px;box-shadow:none}
+.orders-page .o-filters .btn{flex:none;min-height:36px;padding:8px 15px;border:0;background:#edf1f6;color:#344054;border-radius:7px;font-size:13px}
+.orders-page .o-filters .btn:hover{background:#e1e7f0}
+.orders-page .o-filters .link{flex:none;padding:8px;font-size:12px;white-space:nowrap}
+
+.a-topbar .of-orders-heading{display:flex;align-items:center;flex:1;min-width:0;gap:12px;flex-wrap:wrap}
+.a-topbar .of-orders-heading h1{flex:none}
+.a-topbar .of-paid-count{display:inline-flex;align-items:center;padding:5px 9px;border-radius:7px;background:#e5f5e9;color:#16733e;font-size:13px;font-weight:600;line-height:1.3;white-space:nowrap;font-variant-numeric:tabular-nums;text-decoration:none}
+.a-topbar .of-paid-count:hover{background:#d2ecda}
+.a-topbar .of-paid-count:focus-visible{outline:2px solid #16733e;outline-offset:3px}
+.orders-page .o-list-panel{padding:13px 16px 9px;border-radius:15px;box-shadow:none}
+.orders-page .a-panel-head{gap:8px;flex-wrap:wrap;margin-bottom:3px}
+.orders-page .o-list-title h2{font-size:17px;letter-spacing:-.025em}
+.orders-page .o-list-title>span{font-size:12px}
+.orders-page .o-list-title{flex:1;min-width:0;gap:4px 8px}
+.orders-page .a-panel-edit-actions{flex:0 0 auto}
+.orders-page .a-orders-focused{width:100%;min-width:0;border-collapse:separate;border-spacing:0 8px;table-layout:fixed}
+.orders-page .a-orders-focused tbody{display:table-row-group}
+.orders-page .a-orders-focused tr{display:table-row;padding:0;margin:0;border:0;box-shadow:none;background:none;--of-surface:#f7f8fa;--of-border:#e1e5eb}
+.orders-page .a-orders-focused tr.o-row-ok{--of-surface:#eaf7ee;--of-border:#c8e6d2}
+.orders-page .a-orders-focused tr.o-row-wait{--of-surface:#fff6da;--of-border:#eddba4}
+.orders-page .a-orders-focused tr.o-row-warn{--of-surface:#fff0e4;--of-border:#eed6c1}
+.orders-page .a-orders-focused tr.o-row-idle{--of-surface:#f1f3fa;--of-border:#dde1ed}
+.orders-page .a-orders-focused tr.o-row-draft{--of-surface:#f8f9fc}
+.orders-page .a-orders-focused td.of-order-cell{display:table-cell;padding:0;border:1px solid var(--of-border);border-radius:12px;vertical-align:top;background:var(--of-surface);box-shadow:none}
+.orders-page .a-orders-focused tr.o-row td:first-child{box-shadow:none}
+.orders-page .a-orders-focused tr.o-row:target td{background:var(--of-surface);outline:2px solid #859dbb;outline-offset:1px}
+.orders-page .of-order{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1.05fr) minmax(195px,.72fr);grid-template-areas:"client items finance" "contacts contacts contacts";align-items:start;gap:11px 22px;padding:15px 17px 11px;min-width:0}
+.orders-page .of-customer{grid-area:client;min-width:0}
+.orders-page .of-customer h2{display:flex;align-items:center;gap:7px;margin:0 0 6px;font-size:18px;font-weight:650;line-height:1.25;letter-spacing:-.022em;color:var(--of-text);overflow-wrap:anywhere}
+.orders-page .of-device{display:inline-flex;align-items:center;color:#647387;flex:none;text-decoration:none}
+.orders-page .of-device svg{width:17px;height:17px}
+.orders-page .of-city{display:flex;align-items:flex-start;gap:7px;margin:9px 0 7px;color:#344b68;font-size:13px;font-weight:550;line-height:1.45;overflow-wrap:anywhere}
+.orders-page .of-city svg{width:16px;height:16px;flex:none;margin-top:2px;color:#557ca8}
+.orders-page .of-city .of-flag{flex:none;font-size:15px;line-height:1.3}
+.orders-page .of-city.is-unknown{font-size:12px;font-weight:400;color:var(--of-muted)}
+.orders-page .of-order-meta{display:flex;flex-wrap:wrap;gap:2px 9px;align-items:center;font-size:11px;line-height:1.4;color:var(--of-muted)}
+.orders-page .of-order-meta b{font-size:11px;font-weight:550;color:#556071}
+.orders-page .of-label{display:block;margin:0 0 5px;color:#5b687a;font-size:11px;line-height:1.4;font-weight:500;letter-spacing:0}
+.orders-page .of-items{grid-area:items;min-width:0}
+.orders-page .of-items .o-items-list{font-size:13px;line-height:1.45;font-weight:550;color:#303b4b;overflow-wrap:anywhere}
+.orders-page .of-items .o-items-list>div+div{margin-top:5px}
+.orders-page .of-delivery{margin-top:11px;min-width:0}
+.orders-page .of-delivery-heading{display:flex;align-items:center;justify-content:space-between;gap:7px;flex-wrap:wrap;margin-bottom:5px}
+.orders-page .of-delivery-heading .of-label{margin:0}
+.orders-page .of-delivery-heading a{margin:0;padding:3px 6px;font-size:10px;line-height:1.3;background:rgba(255,255,255,.55)}
+.orders-page .of-delivery .o-line,.orders-page .of-delivery p{margin:0;font-size:12px;line-height:1.45;color:#526072;overflow-wrap:anywhere;white-space:normal}
+.orders-page .of-delivery .o-line+.o-line{margin-top:3px}
+.orders-page .of-finance{grid-area:finance;min-width:0}
+.orders-page .of-sum{text-align:left;white-space:normal;min-width:0;margin-bottom:9px}
+.orders-page .of-sum>b{display:block;font-size:23px;font-weight:650;line-height:1.2;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:var(--of-text)!important;white-space:nowrap}
+.orders-page .of-sum .o-promo{margin-top:4px;font-size:11px;line-height:1.4;color:#667085;white-space:normal}
+.orders-page .of-sum .o-promo b{font-size:11px;color:inherit;font-weight:550}
+.orders-page .of-payment{width:auto;min-width:0;padding:0;border:0}
+.orders-page .of-payment .o-payment-main{display:block}
+.orders-page .of-payment .o-payment-state{white-space:normal}
+.orders-page .of-payment .pay-tag{padding:5px 8px;border-radius:6px;font-size:12px;line-height:1.3;font-weight:600;white-space:normal;max-width:100%}
+.orders-page .pay-ok{background:#d1ecd9;color:#17643b}
+.orders-page .pay-wait{background:#f9e6a9;color:#70500a}
+.orders-page .pay-warn{background:#f9dac2;color:#81380f}
+.orders-page .pay-idle{background:#e1e7f7;color:#465d91}
+.orders-page .pay-off,.orders-page .pay-none,.orders-page .pay-draft{background:#e9ecf0;color:#566171}
+.orders-page .pay-tag i{background:currentColor;width:5px;height:5px;flex:0 0 5px}
+.orders-page .of-payment .o-when,.orders-page .of-payment .o-left{margin-top:5px;font-size:11px;line-height:1.4;color:#657083;white-space:normal}
+.orders-page .of-bank{margin-top:8px;min-width:0}
+.orders-page .of-bank .bank-mark{display:flex;align-items:center;gap:7px;font-size:13px;line-height:1.4;font-weight:600;color:#344054}
+.orders-page .of-bank .bank-name{overflow-wrap:anywhere}
+.orders-page .of-bank img.bank-logo{width:21px;height:24px;object-fit:contain;flex:none}
+.orders-page .of-bank svg{height:22px;width:auto;max-width:90px;flex:none}
+.orders-page .of-contact-values{display:flex;flex-wrap:wrap;gap:3px 10px;font-size:12px;line-height:1.4;color:#667085;overflow-wrap:anywhere}
+.orders-page .of-contacts{grid-area:contacts;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0;padding-top:9px;border-top:1px solid rgba(93,113,132,.14)}
+.orders-page .of-contact-actions{display:flex;flex-wrap:wrap;gap:6px;margin:0}
+.orders-page .of-contact{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 9px;border:1px solid #d8dde4;border-radius:7px;background:rgba(255,255,255,.7);color:#344054;font-size:12px;font-weight:550;line-height:1.2;white-space:nowrap;text-decoration:none;transition:background .15s,border-color .15s}
+.orders-page .of-contact:hover{background:#fff;border-color:#b8c1ce}
+.orders-page .of-contact svg{display:block;width:15px;height:15px;flex:0 0 15px}
+.orders-page .of-telegram{border-color:#c7ddf5;color:#165c9f}
+.orders-page .of-whatsapp{border-color:#b9d9c3;color:#1b7144;--msg-cut:#f5fbf7}
+.orders-page .of-chat{border-color:#d4cbe9;color:#594394}
+.orders-page .of-contact .msg-ico{color:inherit;background:none}
+.orders-page .of-payment-details{margin-top:9px;max-width:100%;font-size:12px}
+.orders-page .of-payment-details>summary{display:flex;align-items:center;gap:6px;list-style:none;cursor:pointer;color:#505d70;font-size:11px;font-weight:500;line-height:1.5}
+.orders-page .of-payment-details>summary::-webkit-details-marker{display:none}
+.orders-page .of-payment-details>summary::before{content:"";width:5px;height:5px;flex:0 0 5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);margin-right:2px}
+.orders-page .of-payment-details[open]>summary::before{transform:rotate(45deg)}
+.orders-page .of-payment-details>summary:hover{color:#1d4e8c}
+.orders-page .of-payment-details>div{margin-top:9px;padding-top:9px;border-top:1px solid rgba(93,113,132,.18)}
+.orders-page .o-payment-method{font-size:12px;line-height:1.5;color:#4b5565;text-align:left}
+.orders-page .o-payment-method .o-req{margin-top:7px}
+.orders-page .o-req-list{min-width:0;max-width:none}
+.orders-page .o-req-list div{display:block;margin-top:6px}
+.orders-page .o-req-list b,.orders-page .o-req-list a{display:block;text-align:left;overflow-wrap:anywhere}
+.orders-page .of-bank-note{margin:9px 0;font-size:11px;line-height:1.5;color:#4b5565;overflow-wrap:anywhere}
+.orders-page .of-bank-note>span{display:block;margin-bottom:3px;font-weight:600}
+.orders-page .of-payment-actions{display:flex;flex-wrap:wrap;align-items:flex-start;gap:7px;margin-top:9px}
+.orders-page .of-payment-actions:empty{display:none}
+.orders-page .of-payment-actions .o-reconcile{margin:0}
+.orders-page .of-payment-actions .btn{min-height:34px;padding:7px 9px;font-size:11px;border-radius:7px;white-space:normal;box-shadow:none;line-height:1.4}
+.orders-page .of-order .o-act{grid-column:1/-1;display:none;width:auto;border:0;margin:0;padding:0}
+.orders-page .edit-switch:checked~.a-orders .o-act{display:flex;justify-content:flex-end;border-top:1px solid var(--of-border);padding-top:9px}
+.orders-page .o-acts .btn-danger{min-width:34px;min-height:34px;border-radius:7px}
+.orders-page .o-empty{padding:30px 16px;text-align:center;font-size:14px;background:#fff}
+.orders-page :is(a,button,summary,input,select):focus-visible{outline:2px solid #2367ba;outline-offset:3px}
+@media(max-width:1050px){
+  .orders-page .of-toolbar{grid-template-columns:1fr;gap:12px}
+  .orders-page .a-period{max-width:none}
+  .orders-page .of-filter{flex:0 1 240px}
+  .orders-page .of-order{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(175px,.74fr);gap:10px 15px;padding:13px}
+  .orders-page .of-customer h2{font-size:17px}
+  .orders-page .of-sum>b{font-size:22px}
+}
+@media(max-width:800px){
+  .a-topbar .of-orders-heading{gap:5px 8px}
+  .a-topbar .of-orders-heading h1{font-size:19px}
+  .a-topbar .of-paid-count{font-size:11px;padding:4px 6px}
+  .orders-page .o-list-panel{padding:10px 10px 5px;border-radius:13px}
+  .orders-page .o-list-title h2{flex-basis:100%;font-size:16px}
+  .orders-page .a-period{gap:9px}
+  .orders-page .of-filter{flex:1}
+  .orders-page .of-toolbar .g-pill{min-width:0;padding:0 10px;font-size:12px;gap:6px;height:46px}
+  .orders-page .gs-payment>.g-menu{left:auto;right:0;transform-origin:top right}
+  .orders-page .o-filters .link{padding:6px;font-size:11px}
+  .orders-page .o-filters .btn{min-height:40px;padding-inline:12px}
+  .orders-page .of-order{grid-template-columns:minmax(0,1fr);grid-template-areas:"client" "finance" "items" "contacts";gap:12px;padding:13px}
+  .orders-page .of-customer h2{font-size:18px}
+  .orders-page .of-city{margin:7px 0;font-size:12px}
+  .orders-page .of-finance{--of-column-gap:14px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--of-column-gap)}
+  .orders-page .of-finance>.of-sum{grid-area:auto;grid-column:1;grid-row:1}
+  .orders-page .of-finance>.of-payment{grid-area:auto;grid-column:2;grid-row:1}
+  .orders-page .of-sum{margin:0}
+  .orders-page .of-sum>b{font-size:22px}
+  .orders-page .of-payment .pay-tag{font-size:11px;padding:5px 7px}
+  .orders-page .of-payment .o-when,.orders-page .of-payment .o-left{font-size:10px}
+  .orders-page .of-bank .bank-mark{font-size:12px;gap:6px}
+  .orders-page .of-bank img.bank-logo{width:18px;height:21px}
+  .orders-page .of-items{padding-top:10px;border-top:1px solid rgba(93,113,132,.14)}
+  .orders-page .of-items .o-items-list{font-size:13px}
+  .orders-page .of-delivery{margin-top:9px}
+  .orders-page .of-contact-values{font-size:11px}
+  .orders-page .of-contacts{display:block;padding-top:10px}
+  .orders-page .of-contact-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .orders-page .of-contact{min-height:44px;padding:8px;font-size:12px}
+  .orders-page .of-payment-details{margin-top:8px}
+  .orders-page .of-payment-details>summary{font-size:11px}
+  .orders-page .of-payment-details[open]>div{width:calc(200% + var(--of-column-gap));margin-left:calc(-100% - var(--of-column-gap))}
+  .orders-page .of-payment-actions .btn{min-height:42px;max-width:100%}
+}
+@media(max-width:380px){
+  .a-topbar .of-orders-heading{column-gap:5px}
+  .orders-page .of-order{padding:11px}
+  .orders-page .of-sum>b{font-size:21px}
+  .orders-page .of-contact{padding:8px 5px;font-size:11px}
+}
+@media(pointer:coarse){.orders-page .of-contact{min-height:44px}}
+@media(pointer:coarse),(max-width:800px){.orders-page .o-filters input[type=search]{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.orders-page .of-contact{transition:none}}

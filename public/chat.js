@@ -50,7 +50,7 @@
     streamTimer: null,   // канал обязан прислать ready; иначе прокси его буферизует
     sid: '',             // номер своего канала: по нему сервер не шлёт нам эхо своей же реплики
     pollTimer: null,     // запасной опрос, когда канал не открылся
-    pollBusy: false,     // медленный Tor-запрос не должен обрастать параллельными опросами
+    pollBusy: false,     // медленный запрос не должен обрастать параллельными опросами
     pollGeneration: 0,  // ответ остановленного опроса не вмешивается в живой канал
     opening: null,       // один /open на все быстрые show/send/call
     since: 0,            // время последней показанной реплики (для опроса)
@@ -282,7 +282,7 @@
    * сервера. Своего представления о доставке у браузера быть не может: он знает
    * только то, что его запрос ушёл. */
   var SVG = 'http://www.w3.org/2000/svg';
-  var TICKS = { wait: ['wait', 'отправляется'], sent: ['one', 'отправлено'],
+  var TICKS = { wait: ['wait', 'отправляется'], failed: ['wait', 'отправка не подтверждена'], sent: ['one', 'отправлено'],
     got: ['two', 'доставлено'], read: ['two', 'прочитано'] };
 
   function tickNode() {
@@ -317,7 +317,7 @@
   }
 
   function setTick(rec) {
-    var kind = !rec.at ? 'wait'
+    var kind = !rec.at ? (rec.failed ? 'failed' : 'wait')
       : rec.at <= state.read ? 'read'
       : rec.at <= state.got ? 'got' : 'sent';
     if (rec.kind === kind) return;
@@ -438,9 +438,11 @@
      *
      * Два одинаковых сообщения подряд («да», «да») от этого не теряются: оба
      * нарисованы здесь локально в момент отправки, подавляется только эхо. */
-    if (message.role === 'user' && state.echo && message.text === state.echo.text
+    var echoed = state.echo && mineOf(state.echo.row);
+    if (message.at && !quiet && message.role === 'user' && state.echo && message.text === state.echo.text
       && (message.photos ? message.photos.length : 0) === state.echo.shots
-      && Date.now() - state.echo.at < 15000) {
+      && (echoed && echoed.at ? Number(message.at) === echoed.at : Date.now() - state.echo.at < 120000)) {
+      if (echoed && message.at) { echoed.at = Number(message.at) || 0; setTick(echoed); }
       state.echo = null;
       if (message.at) state.since = message.at;
       return;
@@ -563,7 +565,7 @@
    * только значок непрочитанного. */
   function arrived() {
     sound('in');
-    if (state.open) seen(); else bumpUnread();
+    if (state.open && document.visibilityState !== 'hidden') seen(); else bumpUnread();
   }
 
   function bumpUnread() {
@@ -579,7 +581,7 @@
     }
   }
   function clearUnread() {
-    if (!state.unread) return;
+    if (!state.unread || document.visibilityState === 'hidden') return;
     state.unread = 0;
     paintBadge();
     if (state.id) post('/api/chat/read', {});
@@ -598,7 +600,7 @@
     if (!state.started || seenTimer) return;
     seenTimer = setTimeout(function () {
       seenTimer = null;
-      if (state.open) post('/api/chat/read', {});
+      if (state.open && document.visibilityState !== 'hidden') post('/api/chat/read', {});
     }, 900);
   }
 
@@ -615,14 +617,31 @@
 
   /* ---------------------------------- Запросы ---------------------------------- */
 
+  // Лимит охватывает и заголовки, и чтение JSON: соединение может зависнуть
+  // уже после ответа сервера. Ничего не повторяем автоматически — POST мог
+  // сохраниться, даже если его подтверждение потерялось по дороге.
+  function request(url, options, timeout) {
+    return new Promise(function (resolve) {
+      var controller = typeof AbortController === 'function' ? new AbortController() : null;
+      if (controller) options.signal = controller.signal;
+      var timer = setTimeout(function () {
+        if (controller) controller.abort();
+        finish({ ok: false, error: 'network' });
+      }, timeout || 30000);
+      function finish(result) { clearTimeout(timer); resolve(result); }
+      Promise.resolve().then(function () { return fetch(url, options); })
+        .then(function (r) { return r.json(); })
+        .then(finish, function () { finish({ ok: false, error: 'network' }); });
+    });
+  }
+
   function post(url, data) {
-    return fetch(url, {
+    return request(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify(data || {})
-    }).then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
-      .catch(function () { return { ok: false, error: 'network' }; });
+    });
   }
 
   /* Та же отправка, но со снимками: multipart вместо JSON.
@@ -640,9 +659,7 @@
       body.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
     });
     for (var i = 0; i < files.length; i++) body.append('photos', files[i]);
-    return fetch(url, { method: 'POST', credentials: 'same-origin', body: body })
-      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
-      .catch(function () { return { ok: false, error: 'network' }; });
+    return request(url, { method: 'POST', credentials: 'same-origin', body: body }, 90000);
   }
 
   // Где стоит покупатель и что у него в корзине — это уезжает с каждым
@@ -662,8 +679,8 @@
   }
 
   function open() {
-    if (state.started) return Promise.resolve(true);
     if (state.opening) return state.opening;
+    if (state.started) return Promise.resolve(true);
     var body = place();
     var request = post('/api/chat/open', body).then(function (d) {
       if (!d || !d.ok) return false;
@@ -789,8 +806,7 @@
     if (state.pollBusy || !state.pollTimer || !state.started) return;
     var generation = state.pollGeneration;
     state.pollBusy = true;
-    fetch('/api/chat/poll?since=' + encodeURIComponent(state.since), { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
+    request('/api/chat/poll?since=' + encodeURIComponent(state.since), { credentials: 'same-origin' }, 15000)
       .then(function (d) {
         if (generation !== state.pollGeneration || !d || !d.ok) return;
         if (d.mode) setMode(d.mode);
@@ -869,16 +885,6 @@
     }
   }
 
-  function clearPicks() {
-    state.files = [];
-    // Адреса самой полосы освобождаем, а адреса отправленной реплики — нет: по
-    // ним показан снимок в ленте, пока не приедут настоящие.
-    for (var b = 0; b < state.blobs.length; b++) URL.revokeObjectURL(state.blobs[b]);
-    state.blobs = [];
-    if (picksBox) { picksBox.textContent = ''; picksBox.hidden = true; }
-    if (fileInput) fileInput.value = '';
-  }
-
   if (fileInput) {
     fileInput.addEventListener('change', function () {
       pickShots(fileInput.files ? [].slice.call(fileInput.files) : []);
@@ -901,6 +907,7 @@
 
   function send(text) {
     var body = String(text || '').trim();
+    var draft = input.value;
     var files = state.files.slice();
     // Реплика без слов законна, когда к ней приложен снимок.
     if ((!body && !files.length) || state.sending) return;
@@ -921,10 +928,27 @@
      * при следующем открытии окна, а до тех пор картинка уже в ленте. */
     var localShots = files.map(function (f) { return URL.createObjectURL(f); });
     var row = append({ role: 'user', text: body, photos: localShots, local: true });
-    state.echo = { text: body, shots: files.length, at: Date.now() };
-    input.value = '';
-    clearPicks();
-    resize();
+    state.echo = { text: body, shots: files.length, at: Date.now(), row: row };
+    // Черновик очищается только после подтверждения. При обрыве соединения
+    // текст и исходные File остаются в поле, а новые правки во время запроса
+    // не стираются его запоздавшим ответом.
+    function acceptedDraft() {
+      if (input.value === draft) input.value = '';
+      state.files = state.files.filter(function (file) { return files.indexOf(file) === -1; });
+      renderPicks();
+      resize();
+    }
+    function failed(d) {
+      state.sending = false;
+      if (sendBtn) sendBtn.disabled = false;
+      var rec = row && mineOf(row);
+      // Собственное эхо уже подтвердило сохранение, даже если POST оборвался.
+      if (rec && rec.at) { acceptedDraft(); return; }
+      hideTyping();
+      if (rec) { rec.failed = true; setTick(rec); }
+      append({ role: 'system', text: d && d.error && d.error !== 'network' ? d.error
+        : 'Не удалось подтвердить отправку. Текст и фото сохранены в поле. Проверьте переписку перед повтором.' });
+    }
     // Звук отправки — здесь, вместе с появлением пузыря: покупатель нажал, и
     // подтверждение должно прийти в тот же миг, а не через ответ сети. Ошибку,
     // если она случится, он увидит отдельной строкой в ленте.
@@ -933,9 +957,7 @@
     var go = state.started ? Promise.resolve(true) : open();
     go.then(function (ok) {
       if (!ok) {
-        state.sending = false;
-        if (sendBtn) sendBtn.disabled = false;
-        return append({ role: 'system', text: 'Не удалось отправить сообщение. Проверьте соединение.' });
+        return failed({ error: 'Не удалось отправить сообщение. Текст и фото сохранены в поле. Проверьте соединение.' });
       }
       var payload = place();
       payload.text = body;
@@ -950,10 +972,9 @@
         state.sending = false;
         if (sendBtn) sendBtn.disabled = false;
         if (!d || !d.ok) {
-          hideTyping();
-          append({ role: 'system', text: (d && d.error) || 'Сообщение не отправлено. Попробуйте ещё раз.' });
-          return;
+          return failed(d);
         }
+        acceptedDraft();
         if (d.mode) setMode(d.mode);
         /* Сервер мог завести новый разговор прямо маршрутом отправки — например,
          * прежний диалог менеджер удалил, пока окно покупателя оставалось
@@ -1000,7 +1021,7 @@
    * потерять сообщение нажатием Enter нельзя ни в одном из случаев.
    */
   input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
       e.preventDefault();
       send(input.value);
     }
@@ -1065,7 +1086,7 @@
     // Фокус в поле ставим только на большом экране: на телефоне он поднимает
     // клавиатуру поверх только что открытого окна, и покупатель видит вместо
     // приветствия одну строку ввода.
-    if (!matchMedia('(pointer:coarse)').matches) setTimeout(function () { input.focus(); }, 60);
+    if (!matchMedia('(pointer:coarse)').matches) setTimeout(function () { if (state.open) input.focus(); }, 60);
   }
 
   function hide() {
@@ -1110,10 +1131,6 @@
   var waiting = Math.max(0, Number(root.getAttribute('data-chat-waiting')) || 0);
   if (waiting) {
     state.unread = waiting;
-    // Дальше разговор живёт по обычным правилам: следующий заход подключит
-    // канал сам, даже если менеджер больше ничего не написал.
-    state.started = true;
-    remember();
   }
   if (recall() || waiting) {
     var restoring = post('/api/chat/open', place()).then(function (d) {
@@ -1130,7 +1147,9 @@
       (Array.isArray(d.messages) ? d.messages : []).forEach(function (m) { append(m, true); });
       state.unread = Math.max(0, Number(d.unread) || 0);
       paintBadge();
+      if (state.open) clearUnread();
       scroll(true);
+      remember();
       connect();
       return true;
     });
@@ -1145,6 +1164,8 @@
 
   // Вкладку вернули из фона — канал мог оборваться, пока её усыпляли.
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && state.started && !state.stream) connect();
+    if (document.visibilityState !== 'visible') return;
+    if (state.open) { if (state.unread) clearUnread(); else seen(); }
+    if (state.started && !state.stream) connect();
   });
 })();

@@ -1482,7 +1482,8 @@ test('отчёт метрики по умолчанию — сегодняшни
   /* График — линия с точкой на каждом делении, а не столбцы: столбец отвечает
    * «сколько было в этот день», а у посещаемости вопрос «куда идёт». Точек
    * ровно столько, сколько делений, иначе часть дня просто не нарисована. */
-  assert.equal((html.match(/class="mc-dot/g) || []).length, 24);
+  assert.equal((html.match(/class="mc-dot/g) || []).length, new Date(today.generatedAt + 3 * 3600000).getUTCHours() + 1,
+    'будущие часы остаются на оси без выдуманных нулевых точек');
   assert.match(html, /<path class="mc-line"[^>]*vector-effect="non-scaling-stroke"/, 'штрих линии не должен тянуться вместе с шириной');
   assert.doesNotMatch(html, /class="metric-day"/, 'столбцов в графике больше нет');
 
@@ -1830,7 +1831,7 @@ test('ось графика — шесть целых подписей, как �
    * крайние точки, и на графике посещаемости появляется отрицательный провал —
    * нарисованное число, которого не было. */
   const spike = analyticsView.dashboard({
-    days: 1, online: 0, unique: 9, generatedAt: Date.now(), regions: [], daily: [], hasHours: true,
+    days: 1, online: 0, unique: 9, generatedAt: Date.parse('2026-09-09T18:50:00Z'), regions: [], daily: [], hasHours: true,
     prev: { visitors: 0, orders: 0, visits: 0, activeSeconds: 0 },
     hourly: [0, 0, 0, 0, 0, 0, 9, 0].map((v, h) => ({ hour: h, visitors: v }))
   }, { rangeBase: '/admin/analytics?days=' });
@@ -2395,10 +2396,10 @@ test('кнопка WhatsApp открывает диалог с покупате�
   // То, ради чего пишут: какой заказ, что в нём, куда едет и сколько платить.
   assert.match(text, /Здравствуйте, Иван!/);
   assert.match(text, /№482913 от 08\.09\.2026/);
-  assert.match(text, /iPhone 17 Pro Max 512 ГБ — 79\s490\s₽/);
-  assert.match(text, /AirTag — 2 × 3\s490\s₽/, '«× 1» не пишем, а количество больше одного — обязательно');
-  assert.match(text, /Пункт выдачи: SVX123 — Свердловская/);
-  assert.match(text, /Промокод SALE — выгода 4\s340\s₽/);
+  assert.match(text, /iPhone 17 Pro Max 512 ГБ - 79\s490\s₽/);
+  assert.match(text, /AirTag - 2 × 3\s490\s₽/, '«× 1» не пишем, а количество больше одного — обязательно');
+  assert.match(text, /Пункт выдачи: SVX123 - Свердловская/);
+  assert.match(text, /Промокод SALE - выгода 4\s340\s₽/);
   assert.match(text, /Итого: 87\s180\s₽/);
   // НО НЕ служебная сводка менеджера: город по IP, устройство и браузер человеку
   // слать незачем — он и так знает, с какого телефона заказывал.
@@ -2675,9 +2676,43 @@ test('блок и исключение живут в карточке посет
   assert.match(clean, /никого не блокировали и не исключали/);
 });
 
+test('метрика магазина работает самостоятельно даже при оставшихся настройках внешнего сервиса', () => {
+  const legacyEnv = {
+    RYBBIT_PUBLIC_URL: 'http://127.0.0.1:49842', RYBBIT_FRONTEND_URL: 'http://127.0.0.1:49844',
+    RYBBIT_SITE_ID: '1', RYBBIT_API_KEY: 'unused-ingest-secret', RYBBIT_READ_API_KEY: 'unused-read-secret'
+  };
+  const previous = Object.fromEntries(Object.keys(legacyEnv).map(key => [key, process.env[key]]));
+  Object.assign(process.env, legacyEnv);
+  try {
+    const shop = render.layout(SETTINGS, { body: '', canonicalPath: '/' });
+    const dashboard = adminViews.analyticsPage(SETTINGS, { getProducts: () => [] }, {
+      generatedAt: Date.now(), days: 1, daily: [], hourly: [], visitors: [], bots: {}
+    });
+    assert.match(dashboard, /href="\/admin\/analytics"[^>]*aria-current="page"/);
+    assert.match(dashboard, /href="\/admin\/analytics\/visitors/);
+    assert.match(dashboard, /href="\/static\/admin-metrics\.css\?v=/);
+    assert.doesNotMatch(shop + dashboard, /rybbit|unused-(?:ingest|read)-secret/i,
+      'оставшиеся переменные не подключают скрипт, новую панель или ключи');
+    for (const file of ['lib/rybbit.js', 'lib/rybbit-admin.js', 'public/rybbit.js']) {
+      assert.equal(fs.existsSync(path.join(__dirname, '..', file)), false);
+    }
+    const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    const client = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
+    const db = fs.readFileSync(path.join(__dirname, '..', 'lib/db.js'), 'utf8');
+    assert.doesNotMatch(server, /require\([^)]*rybbit|\/api\/analytics\/rybbit|rybbitOrderCreated|rybbitTrackingAllowed/);
+    assert.doesNotMatch(client + db, /rybbit/i);
+    assert.match(server, /app\.post\('\/api\/analytics\/start'/);
+    assert.match(server, /app\.get\('\/admin\/analytics\/visitors'/);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
 test('витрина закрыта заблокированному, а панель и владелец — нет', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const gate = source.slice(source.indexOf('function blockedRequest('), source.indexOf('app.before(blockedRequest)'));
+  const gate = source.slice(source.indexOf('function blockedRequest('), source.indexOf('app.before(', source.indexOf('function blockedRequest(')));
 
   /* Проверка стоит перед ВСЕМИ маршрутами (`app.before`), а не на каждом по
    * отдельности: забытый маршрут и был бы дырой в блоке. */
@@ -5324,12 +5359,6 @@ test('ответ магазина хранится с датой и снимае
 
   // Пустой текст — это удаление ответа.
   assert.equal(store.updateReview(rv.id, { reply: { text: '' } }).reply, null);
-
-  // У привезённого отзыва показанная дата каждую ночь раздаётся заново, и
-  // оставшийся на месте ответ оказался бы написан раньше самого отзыва.
-  const shifter = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'shift-review-dates.js'), 'utf8');
-  assert.match(shifter, /rv\.reply\.at \+= next - \(Number\(rv\.createdAt\) \|\| next\)/,
-    'ответ обязан ехать вместе с датой отзыва');
 
   // Поле не пришло вовсе — ответ остаётся как был (updateReview меняет только
   // пришедшее, и правка имени не должна стирать ответ).
@@ -17988,7 +18017,7 @@ test('в списке заказов не осталось мёртвых вет
    * `?view=archive`. */
   const source = require('../lib/minify').js(raw);
   assert.doesNotMatch(source, /archiveView/);
-  assert.match(source, /function ordersList\(settings, db, flash, page, edit, filters\)/,
+  assert.match(source, /function ordersList\(settings, db, flash, page, edit, filters, opts\)/,
     'параметра view у списка больше нет');
   const listDb = {
     getOrders: () => [], visibleOrders: () => [], archivedOrders: () => [],

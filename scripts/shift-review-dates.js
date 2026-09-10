@@ -8,43 +8,55 @@
 //
 //   node scripts/shift-review-dates.js          # показать, сколько сдвинется
 //   node scripts/shift-review-dates.js --apply  # сдвинуть
+//   node scripts/shift-review-dates.js --repair-replies          # проверить ответы
+//   node scripts/shift-review-dates.js --repair-replies --apply  # исправить только их даты
 //
 // Считается всегда от исходной даты отзыва (`sourceDate`), поэтому повторный
 // запуск ничего не ломает и сдвиг не накапливается.
 
 const db = require('../lib/db');
 const { plannedDates } = require('../lib/review-dates');
+const { shiftedReply } = require('../lib/review-reply-dates');
 
-function shift(now) {
-  const list = db.getReviews();
-  const plan = plannedDates(list, now);
-  if (!plan.size) return 0;
+function updates(list, now, opts) {
+  // Одна отметка времени для плана и ответов, в том числе на границе суток.
+  const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  const plan = opts && opts.repairRepliesOnly ? new Map() : plannedDates(list, at);
+  const changed = [];
   for (const rv of list) {
-    if (!plan.has(rv.id)) continue;
-    const next = plan.get(rv.id);
-    // Ответ магазина едет вместе с отзывом: даты привезённых отзывов раздаются
-    // заново каждую ночь, и оставшийся на месте ответ рано или поздно оказался
-    // бы написан раньше самого отзыва. Сдвигается он ровно на ту же величину,
-    // поэтому «ответили в тот же день» остаётся правдой. То же правило, что у
-    // `sourceDate` при ручной правке даты в панели (db.updateReview).
-    if (rv.reply && Number(rv.reply.at) > 0) rv.reply.at += next - (Number(rv.createdAt) || next);
-    rv.createdAt = next;
+    const next = plan.has(rv.id) ? plan.get(rv.id) : rv.createdAt;
+    const reply = shiftedReply(rv, next, at);
+    // Проверяем и отзывы без сдвига: ошибочная дата ответа могла сохраниться
+    // ещё до исправления, в том числе у демо-отзыва без sourceDate.
+    if (plan.has(rv.id) || reply !== rv.reply) changed.push({ rv, next, reply });
   }
-  db.saveReviews(list);
-  return plan.size;
+  return changed;
 }
 
-function preview(now) {
-  return plannedDates(db.getReviews(), now).size;
+function shift(now, opts) {
+  const list = db.getReviews();
+  const changed = updates(list, now, opts);
+  if (!changed.length) return 0;
+  for (const { rv, next, reply } of changed) {
+    rv.createdAt = next;
+    if (reply !== rv.reply) rv.reply = reply;
+  }
+  db.saveReviews(list);
+  return changed.length;
+}
+
+function preview(now, opts) {
+  return updates(db.getReviews(), now, opts).length;
 }
 
 if (require.main === module) {
   const apply = process.argv.includes('--apply');
+  const opts = { repairRepliesOnly: process.argv.includes('--repair-replies') };
   if (apply) {
-    const n = shift();
-    console.log(`Сдвинуто дат: ${n}`);
+    const n = shift(undefined, opts);
+    console.log(`${opts.repairRepliesOnly ? 'Исправлено дат ответов' : 'Обновлено отзывов'}: ${n}`);
   } else {
-    console.log(`К сдвигу: ${preview()} (добавьте --apply, чтобы записать)`);
+    console.log(`К обновлению: ${preview(undefined, opts)} (добавьте --apply, чтобы записать)`);
   }
 }
 
