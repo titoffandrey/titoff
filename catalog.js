@@ -916,7 +916,7 @@ const products = [
        живая: характеристики, фото и цену видно, кнопка гаснет. Появился товар —
        снимается одно слово. */
     id: 'iphone-duo', name: 'iPhone Duo', category: 'iPhone',
-    price: 114690, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Складной: экран 7.6", A20 Pro, титановая петля.',
     description: 'Первый складной iPhone: раскрытый экран 7.6 дюйма с нанотекстурой — самый большой в линейке, внешний 5.4 дюйма для быстрых дел не раскрывая. Титановая рама и крышка петли, чип A20 Pro, двойная камера 48 Мп и фронтальная камера под экраном.',
     specs: 'Экран: 7.6" Super Retina XDR, складной, нанотекстура, ProMotion 120 Гц\nВнешний экран: 5.4" Super Retina XDR, Always-On, Dynamic Island\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ\nФронталка: 12 Мп Center Stage, под экраном\nАвтономность: до 44 ч видео на внешнем экране, до 31 ч на внутреннем\nПамять: от 256 ГБ до 2 ТБ\nКорпус: титановая рама и крышка петли\nЗащита: IP68\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, Smart Take, Duo Preview\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -926,7 +926,7 @@ const products = [
   },
   {
     id: 'iphone-18-pro-max', name: 'iPhone 18 Pro Max', category: 'iPhone',
-    price: 74530, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'A20 Pro, переменная диафрагма, 6.9", до 45 ч видео.',
     description: 'Самая большая и самая автономная модель линейки: 6.9 дюйма, до 45 часов видео и чип A20 Pro с 7-ядерным GPU. Тройная система камер 48 Мп, где главная получила переменную диафрагму от ƒ/1.48 до ƒ/4.0, и фронтальная камера 18 Мп Center Stage.',
     specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, Always-On\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, Pro-режимы\nДиафрагма: переменная, ƒ/1.48, ƒ/1.8, ƒ/2.8 и ƒ/4.0\nФронталка: 18 Мп Center Stage\nАвтономность: до 45 ч видео\nПамять: от 256 ГБ до 2 ТБ\nКорпус: алюминиевый унибоди, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, кинематографические эффекты\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -936,7 +936,7 @@ const products = [
   },
   {
     id: 'iphone-18-pro', name: 'iPhone 18 Pro', category: 'iPhone',
-    price: 68790, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'A20 Pro, переменная диафрагма, 6.3".',
     description: 'Вся мощь Pro в корпусе 6.3 дюйма. Чип A20 Pro, тройная система камер 48 Мп с переменной диафрагмой у главной, фронтальная камера 18 Мп Center Stage и цельный алюминиевый корпус.',
     specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, Always-On\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, Pro-режимы\nДиафрагма: переменная, ƒ/1.48, ƒ/1.8, ƒ/2.8 и ƒ/4.0\nФронталка: 18 Мп Center Stage\nАвтономность: до 45 ч видео\nПамять: от 256 ГБ до 2 ТБ\nКорпус: алюминиевый унибоди, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, кинематографические эффекты\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
@@ -1258,7 +1258,7 @@ const products = [
      Продажи с 18 сентября 2026 — отсюда inStock: false (см. iPhone выше). */
   {
     id: 'watch-series-12-alu', name: 'Apple Watch Series 12 (алюминий)', category: 'Apple Watch',
-    price: 22890, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Экран LTPO3 до 2000 нит, гипертония, оценка сна.',
     description: 'Часы, которые следят за здоровьем всерьёз: уведомления о признаках гипертонии, оценка качества сна и апноэ, ЭКГ и кислород в крови, приложение «Показатели» с пульсом, дыханием и температурой. Экран Always-On до 2000 нит, до 24 часов работы и связь 5G.',
     specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 24 ч, до 38 ч в экономном режиме\nНавигация: GPS L1\nЗащита: WR50, IP6X\nВода: плавание и снорклинг, глубиномер до 6 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 30 минут\nСистема: watchOS 26 с Apple Intelligence',
@@ -1270,7 +1270,7 @@ const products = [
   },
   {
     id: 'watch-series-12-titan', name: 'Apple Watch Series 12 (титан)', category: 'Apple Watch',
-    price: 40110, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Полированный титан, браслет, 5G в базе.',
     description: 'Series 12 в полированном титановом корпусе: те же функции здоровья, что у алюминия, плюс премиальный материал, стальные и кожаные ремешки и связь 5G с самого начала — версии без Cellular у титана нет.',
     specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 24 ч, до 38 ч в экономном режиме\nНавигация: GPS L1\nЗащита: WR50, IP6X\nВода: плавание и снорклинг, глубиномер до 6 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 30 минут\nСистема: watchOS 26 с Apple Intelligence',
@@ -1280,7 +1280,7 @@ const products = [
   },
   {
     id: 'watch-series-12-ceramic', name: 'Apple Watch Series 12 (керамика)', category: 'Apple Watch',
-    price: 51580, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Керамический корпус — впервые в линейке, 5G в базе.',
     description: 'Впервые в Apple Watch — корпус из полированной керамики: не царапается, не тускнеет и не холодит руку, как металл. Внутри те же Series 12: гипертония, оценка сна, ЭКГ и кислород в крови, экран до 2000 нит и связь 5G.',
     specs: 'Корпус: керамика 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 24 ч, до 38 ч в экономном режиме\nНавигация: GPS L1\nЗащита: WR50, IP6X\nВода: плавание и снорклинг, глубиномер до 6 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 30 минут\nСистема: watchOS 26 с Apple Intelligence',
@@ -1290,7 +1290,7 @@ const products = [
   },
   {
     id: 'watch-ultra-4', name: 'Apple Watch Ultra 4', category: 'Apple Watch',
-    price: 45840, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Титан 49 мм, спутник, до 50 часов, WR100.',
     description: 'Часы для спорта и приключений: титановый корпус 49 мм, самый яркий экран Apple Watch — до 3000 нит, спутниковая связь и экстренный вызов SOS без сотовой сети. До 50 часов работы и до 84 часов в экономном режиме, погружения до 40 метров и сирена на 86 децибел.',
     specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 50 ч, до 84 ч в экономном режиме\nНавигация: двухчастотный GPS\nСпутник: экстренный вызов SOS через спутник\nЗащита: WR100, IP6X, MIL-STD 810H\nВода: плавание, снорклинг и дайвинг, глубиномер до 40 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, сирена 86 дБ, Fall Detection\nСвязь: 5G, Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 45 минут\nСистема: watchOS 26 с Apple Intelligence',
@@ -1379,7 +1379,7 @@ const products = [
   {
     // Продажи с 18 сентября 2026 — отсюда inStock: false (см. iPhone выше).
     id: 'airpods-5', name: 'AirPods 5', category: 'AirPods',
-    price: 7400, discountPercent: 15, inStock: false,
+    price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Шумодав в 1,5 раза сильнее, открытая посадка.',
     description: 'Активное шумоподавление теперь и в открытых AirPods — до полутора раз сильнее, чем у AirPods 4 с шумоподавлением. Переработанная акустика и адаптивный эквалайзер нового поколения, живой перевод и Siri AI. Ничего не давит в ухе: посадка открытая, без амбушюр.',
     specs: 'Шумоподавление: активное, до 1,5× сильнее AirPods 4\nЗвук: новая акустическая архитектура, Adaptive EQ нового поколения\nАудио: пространственное с отслеживанием головы\nПосадка: открытая, без амбушюр\nАвтономность: до 4 ч с шумоподавлением, до 5 ч с футляром беспроводной зарядки\nФутляр: зарядка USB-C, у версии с беспроводной — Qi и зарядка Apple Watch\nУправление: сенсор нажатия, у версии с беспроводным футляром — проведение по громкости\nПеревод: Live Translation на Apple Intelligence\nSiri: Siri AI, «Привет, Siri» и Siri Interactions\nМикрофон: Voice Isolation\nЗащита: IP54\nСвязь: Bluetooth',

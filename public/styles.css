@@ -1474,6 +1474,14 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    ровная линия поверх цифр читается как опечатка, наклонная — как пометка. */
 .card-price .old-price::before{content:"";position:absolute;left:0;top:calc(50% - 1px);width:100%;height:1px;background:var(--price-was);transform:rotate(-3deg)}
 .card-price .save{margin-left:4px;font-size:14px;line-height:20px;letter-spacing:0}
+/* Карточка без ценника. «Цена уточняется» набрана заметно легче и тише самой
+   цены: это не сумма, а объяснение, почему её нет, — и рядом с настоящими
+   ценниками соседних карточек она не должна спорить с ними за внимание.
+   Высоту ряда держим прежней (line-height как у цены), иначе карточки без цены
+   вставали бы в сетке на пару пикселей ниже соседних. */
+.card-price-none,.product-price-none{color:var(--price-was);font-weight:600}
+.card-price-none{font-size:15px;line-height:24px;letter-spacing:0}
+.product-price-none{font-size:19px;letter-spacing:0}
 .card-add{padding:10px 13px 13px}
 /* «Пилюля», как у остальных кнопок витрины: прежние 13px выбивались из общего
    языка. Высота срезана только на десктопе — в @media(max-width:800px) она

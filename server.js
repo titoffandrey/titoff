@@ -420,7 +420,19 @@ function validateProduct(body) {
   const price = Number(body.price);
   if (!String(body.name || '').trim()) errors.push({ field: 'name', text: 'Укажите название товара' });
   if (!String(body.category || '').trim()) errors.push({ field: 'category', text: 'Укажите категорию' });
-  if (!Number.isFinite(price) || price <= 0 || price > PRICE_MAX) errors.push({ field: 'price', text: 'Базовая цена должна быть числом больше нуля' });
+  /* У карточки без ценника («Не показывать цену») цены может не быть ВООБЩЕ —
+   * это законное состояние, а не пустое поле по забывчивости: модель объявлена,
+   * прайс не пришёл, продавать её всё равно нельзя. Без этой поблажки владелец
+   * не смог бы сохранить даже правку описания у такого товара, пока не выдумает
+   * сумму, — то есть форма требовала бы ровно того числа, от которого галочка и
+   * избавляет. Цену больше потолка не пускаем в обоих случаях. */
+  const noPrice = body.hidePrice !== undefined;
+  const priceEmpty = !String(body.price == null ? '' : body.price).trim();
+  if (!(noPrice && (priceEmpty || price === 0))) {
+    if (!Number.isFinite(price) || price <= 0 || price > PRICE_MAX) errors.push({ field: 'price', text: 'Базовая цена должна быть числом больше нуля' });
+  } else if (Number.isFinite(price) && price > PRICE_MAX) {
+    errors.push({ field: 'price', text: 'Базовая цена должна быть числом больше нуля' });
+  }
   // Скидка — процент, и зачёркнутая цена выводится из него. Сравнение с NaN
   // всегда ложно, поэтому «abc» проверяем явно: иначе мусор молча становился бы
   // нулём, и скидка исчезала бы без объяснения.
@@ -4062,6 +4074,7 @@ function productFields(req) {
     inStock: req.body.inStock !== undefined, visible: req.body.visible !== undefined, stockLevel: req.body.stockLevel,
     // Снятая галочка приходит отсутствием поля — как у inStock и visible.
     noPriceFloat: req.body.noPriceFloat !== undefined,
+    hidePrice: req.body.hidePrice !== undefined,
     shortDesc: req.body.shortDesc, description: req.body.description, specs: req.body.specs,
     colors: parseColors(req.body.colors), storages: parseStorages(req.body.storages),
     bands: parseBands(req.body.bands), options: parseOptions(req.body.options)

@@ -43,20 +43,31 @@ for (const src of catalog.products) {
   const cur = byId.get(src.id) || byName.get(src.name);
   if (!cur) { console.log('• нет в живом каталоге:', src.name); missing++; continue; }
 
-  const next = { price: money(src.price), discountPercent: pctOf(src.discountPercent) };
+  /* Галочка «Не показывать цену» едет вместе с ценой, а не отдельным скриптом:
+   * это такое же состояние ценника, как сама сумма и процент. Без переноса
+   * товар, у которого в catalog.js цены нет, на витрине продолжал бы стоять со
+   * старой — то есть ровно с той, которую и убирали. */
+  const next = {
+    price: money(src.price),
+    discountPercent: pctOf(src.discountPercent),
+    hidePrice: src.hidePrice === true
+  };
   // У товара на сервере процента может ещё не быть — тогда он выводится из
   // сохранённой пары цен, ровно как это делает витрина. Иначе первый же прогон
   // отчитался бы об изменении скидки у каждого товара подряд.
-  const now = { price: money(cur.price), discountPercent: D.discountPct(cur) };
+  const now = { price: money(cur.price), discountPercent: D.discountPct(cur), hidePrice: cur.hidePrice === true };
   const diff = Object.keys(next).filter(k => next[k] !== now[k]);
   if (!diff.length) continue;
 
-  if (!next.price) { console.log(`! ${cur.name}: цена в catalog.js нулевая. Пропускаем.`); skipped++; continue; }
+  /* Нулевая цена — почти всегда промах в catalog.js, и затирать ею живую цену
+   * нельзя. НО у карточки без ценника ноль законен: цены у товара правда нет.
+   * Поэтому пропускаем только ноль БЕЗ галочки. */
+  if (!next.price && !next.hidePrice) { console.log(`! ${cur.name}: цена в catalog.js нулевая. Пропускаем.`); skipped++; continue; }
 
-  const show = (k, v) => (k === 'price' ? rub(v) : (v ? '−' + v + '%' : 'нет'));
+  const show = (k, v) => (k === 'price' ? rub(v) : k === 'hidePrice' ? (v ? 'скрыта' : 'видна') : (v ? '−' + v + '%' : 'нет'));
   console.log(`✓ ${cur.name}: ` + diff.map(k => `${k} ${show(k, now[k])} → ${show(k, next[k])}`).join(', '));
 
-  if (apply) db.updateProduct(cur.id, { price: next.price, discountPercent: next.discountPercent });
+  if (apply) db.updateProduct(cur.id, { price: next.price, discountPercent: next.discountPercent, hidePrice: next.hidePrice });
   changed++;
 }
 

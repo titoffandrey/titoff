@@ -166,9 +166,57 @@ test('повторяющиеся глифы карточки лежат в сп�
   assert.equal(html.split(star).length - 1, 1, 'контур звезды скопирован в карточки');
 });
 
+test('карточка без цены не называет её нигде и не продаётся', () => {
+  const settings = dbCore.defaultSettings();
+  const base = catalog.products.find(p => p.id === 'iphone-17-pro');
+  const hidden = Object.assign({}, base, { id: 'no-price-demo', hidePrice: true, inStock: true });
+  const db = Object.assign({}, CATALOG_DB, {
+    getProducts: () => [hidden],
+    visibleProducts: () => [hidden],
+    visibleProduct: () => hidden
+  });
+  const page = render.productPage(settings, db, hidden, { origin: 'https://shop.example' });
+  const card = render.homePage(settings, db, { origin: 'https://shop.example' });
+  const priced = render.productPage(settings, CATALOG_DB, base, { origin: 'https://shop.example' });
+
+  // Сумма не должна встретиться ни в одном виде: ни в ценнике, ни в доплатах
+  // вариантов, ни в разметке для поисковика.
+  const money = /\d[\d   ]{2,}\s*(?:₽|&#8381;|руб)/;
+  assert.doesNotMatch(page, money, 'на странице товара без цены осталась сумма');
+  assert.doesNotMatch(card, money, 'в карточке каталога без цены осталась сумма');
+  assert.match(priced, money, 'у обычного товара цена пропала — проверка ничего не значит');
+
+  for (const html of [page, card]) assert.match(html, /Цена уточняется/);
+  // Предложения в JSON-LD нет вовсе: `Offer` без цены схема не описывает, а
+  // подставить туда скрытую сумму значило бы отдать её поисковику.
+  assert.doesNotMatch(page, /"offers"/);
+  assert.match(priced, /"offers"/);
+
+  // Цену не показываем — значит и не продаём: корзина считает её сама и
+  // показала бы ровно ту сумму, которую карточка скрыла.
+  assert.equal(render.sellable(hidden, settings), false);
+  assert.equal(render.sellable(base, settings), true);
+  assert.match(card, /Нет в наличии/);
+
+  // Консультант в чате берёт цены теми же функциями — и тоже молчит. Смотрим
+  // СТРОКУ ЭТОГО ТОВАРА в таблице каталога, а не весь промпт: в постоянных
+  // правилах стоит пример оформления суммы («90 410 ₽»), и он к товару
+  // отношения не имеет.
+  const prompt = require('../lib/chat-prompt').build(db, settings, null, {})[0].content;
+  const row = prompt.split('\n').find(l => l.includes('|' + hidden.id));
+  assert.ok(row, 'товара нет в таблице каталога для консультанта');
+  assert.match(row, /цена уточняется/);
+  assert.doesNotMatch(row, /\d{4,}/, 'в строке товара осталась сумма');
+  assert.doesNotMatch(prompt, /^цены: /m, 'у товара без цены не должно быть строки цен сборок');
+});
+
 test('карточка товара для поисковика полна, а крошки идут отдельным блоком', () => {
   const settings = dbCore.defaultSettings();
-  const product = CATALOG_DB.visibleProducts()[0];
+  // Именно товар С ЦЕНОЙ, а не первый в каталоге: у карточки без ценника
+  // предложения в разметке нет вовсе (это проверяет соседний тест), и «первым»
+  // она оказалась ровно тогда, когда в каталог легли новинки без прайса.
+  const product = CATALOG_DB.visibleProducts().find(p => !render.priceHidden(p));
+  assert.ok(product, 'в каталоге не осталось товаров с ценой');
   const html = render.productPage(settings, CATALOG_DB, product, { origin: 'https://shop.example' });
   const blocks = (html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [])
     .map(s => JSON.parse(s.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '')));
