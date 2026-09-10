@@ -17023,17 +17023,28 @@ test('отправлениям без ключа ссылка выдаётся �
   assert.equal(db.getOrder(order.id).shipment.token, token, 'ключ сменился сам собой');
 });
 
-test('отправление готовится само при оплате: срок максимальный, показ — за менеджером', () => {
+test('отправление готовится само при оплате: срок максимальный, покупателю видно сразу', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const prepare = source.slice(source.indexOf('function prepareShipment('),
     source.indexOf('/* Реквизитов не дала ни одна касса.'));
 
   // Идемпотентность: повторный вебхук кассы не вправе затереть правки менеджера.
   assert.match(prepare, /if \(!order \|\| order\.shipment\) return null;/);
-  /* Покупателю заготовка не показывается: «Принят на склад» у коробки, которая
-   * лежит на столе, — обещание, которого никто не давал. Публикует маршрут
-   * человек галочкой в форме отправления. */
-  assert.match(prepare, /shipment\.visible = false;/);
+  // Проверяем сохранённое отправление: покупателю доступно сразу после создания.
+  const prepareAuto = require('node:vm').runInNewContext('(' + prepare.trim() + ')', {
+    DELIVERY: require('../lib/delivery'), TRACK: tracking,
+    SHIPDAYS: require('../lib/delivery-days'), settings: () => ({}),
+    Date, db: { setOrderShipment: (id, shipment) => ({ ok: true, shipment: tracking.normalize(shipment) }) }
+  });
+  const autoOrder = { id: 'auto-visible', delivery: 'cdek', deliveryMode: 'pvz',
+    address: 'г Казань, ул Баумана, д 7', deliveryZone: 'pfo' };
+  const autoShipment = prepareAuto(autoOrder);
+  assert.equal(autoShipment.visible, true);
+  assert.equal(tracking.shownToBuyer(autoShipment), true);
+  assert.equal(tracking.stateText(autoShipment), 'Ожидает отправки');
+  const hiddenShipment = { ...autoShipment, visible: false };
+  assert.equal(prepareAuto({ ...autoOrder, shipment: hiddenShipment }), null);
+  assert.equal(tracking.shownToBuyer(hiddenShipment), false);
   // Начало маршрута — день передачи перевозчику, а не момент оплаты.
   assert.match(prepare, /startedAt: SHIPDAYS\.handoverAt\(/);
   // Своего срока здесь нет: его берёт `TRACK.build` по зоне, и второй ответ на
