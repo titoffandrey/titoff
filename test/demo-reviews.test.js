@@ -36,9 +36,14 @@ test('у каждого товара своё число отзывов, а ме
   assert.equal(Object.keys(RELEASE_DATES).length, products.length);
   // Одинаковые счётчики у соседних товаров сразу выдают сгенерированный набор.
   assert.equal(new Set(Object.values(REVIEW_COUNTS)).size, products.length);
+  // Товар, который на момент прогона ещё не вышел, отзывов не получает вовсе:
+  // писать их было некому, а датировались бы они будущим числом. Число в
+  // таблице у него всё равно задано — оно понадобится в день выхода.
+  const released = product => Date.parse(`${RELEASE_DATES[product.id]}T09:00:00+03:00`) <= NOW;
+  assert.ok(products.some(p => !released(p)), 'в каталоге не осталось ещё не вышедших товаров — проверять нечего');
   for (const product of products) {
     assert.ok(REVIEW_COUNTS[product.id] >= 50 && REVIEW_COUNTS[product.id] <= 300);
-    assert.equal(counts.get(product.id), REVIEW_COUNTS[product.id], product.id);
+    assert.equal(counts.get(product.id), released(product) ? REVIEW_COUNTS[product.id] : undefined, product.id);
   }
 
   for (const review of reviews) {
@@ -91,6 +96,12 @@ test('даты отзывов покрывают период от релиза 
   for (const product of products) {
     const list = reviews.filter(review => review.productId === product.id);
     const release = Date.parse(`${RELEASE_DATES[product.id]}T09:00:00+03:00`);
+    // Ещё не вышедший товар набора не получает — проверять у него нечего, а
+    // Math.min() от пустого списка дал бы Infinity и прошёл бы молча.
+    if (release > NOW) {
+      assert.equal(list.length, 0, product.id);
+      continue;
+    }
     const dates = list.map(review => review.createdAt);
     assert.ok(Math.min(...dates) >= release, product.id);
     assert.ok(Math.max(...dates) <= NOW, product.id);

@@ -54,7 +54,11 @@ const GALLERY_DIMS = ['dimensionScreensize', 'dimensionColor', 'dimensionCase', 
 // Миниатюры галереи и служебные картинки страницы кадрами товара не являются.
 // AppleCare, обмен и рассрочка попадают в тот же поток адресов и в большом
 // размере — по одному лишь размеру их от кадра товара не отличить.
-const SKIP_NAMES = /thumb|swatch|-og-|icon|logo|compare|badge|unselect|applecare|tradein|trade-in|financing|carrier|setup|payment/i;
+// `storage-select` — тот же самый кадр, что и `finish-select`, только показанный
+// на шаге выбора памяти: у iPhone 18 Pro оба файла совпадают побайтно
+// (sha1 07003de1b70d…), у Duo это он же в jpeg. В галерее товара он давал бы
+// второй такой же снимок первым номером.
+const SKIP_NAMES = /thumb|swatch|-og-|icon|logo|compare|badge|unselect|storage-select|applecare|tradein|trade-in|financing|carrier|setup|payment/i;
 
 function fail(msg) {
   console.error('Ошибка: ' + msg);

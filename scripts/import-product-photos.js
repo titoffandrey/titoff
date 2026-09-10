@@ -13,9 +13,16 @@
 //   --src DIR       папка выгрузки. С manifest.json внутри — один товар; без него
 //                   обходятся подпапки, и каждая заливается в свою карточку
 //   --product ID    карточка каталога; без него берётся `product` из manifest.json
+//   --color NAME    цвет карточки; без него берётся `color` из manifest.json
 //   --apply         записать; без него — только план
 //   --replace       сначала снять с карточки все прежние фото
 //   --files         перечень путей для передачи на сервер (stdout, для `tar -T`)
+//
+// **`--color` нужен выгрузкам с buy-страниц семейства.** `fetch-apple-buy-photos.js`
+// оставляет `product` и `color` в манифесте пустыми намеренно: карточек этих
+// товаров в каталоге на момент выгрузки ещё нет, а вписать апловское имя цвета
+// значит привязать снимки к варианту, которого магазин не продаёт. Соответствие
+// и проставляется здесь — по папке на цвет.
 //
 // Чем это отличается от `import-watch-photos.js`. Там у снимка две привязки —
 // цвет корпуса и вариация ремешка, — и половина скрипта занята тем, чтобы свести
@@ -55,7 +62,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const o = { src: '', product: '', apply: false, replace: false, files: false };
+  const o = { src: '', product: '', color: '', apply: false, replace: false, files: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--apply') o.apply = true;
@@ -63,6 +70,7 @@ function parseArgs(argv) {
     else if (a === '--files') o.files = true;
     else if (a === '--src') o.src = argv[++i] || '';
     else if (a === '--product') o.product = argv[++i] || '';
+    else if (a === '--color') o.color = argv[++i] || '';
     else fail('неизвестный ключ: ' + a);
   }
   if (!o.src) fail('нужен --src <папка выгрузки>');
@@ -70,7 +78,7 @@ function parseArgs(argv) {
 }
 
 // Папки к заливке: сама `--src`, если в ней лежит manifest.json, иначе её подпапки.
-function jobsOf(src, forced) {
+function jobsOf(src, forced, forcedColor) {
   const one = dir => {
     const file = path.join(dir, 'manifest.json');
     if (!fs.existsSync(file)) return null;
@@ -79,7 +87,7 @@ function jobsOf(src, forced) {
     // Порядок кадров задаёт манифест: он повторяет порядок галереи на apple.com,
     // где первым идёт сам товар, а дальше ракурсы и кадры «в работе».
     const files = (m.images || []).map(i => i.file).filter(f => fs.existsSync(path.join(dir, f)));
-    return { dir, product, color: m.color || '', name: m.name || path.basename(dir), files };
+    return { dir, product, color: forcedColor || m.color || '', name: m.name || path.basename(dir), files };
   };
   const self = one(src);
   if (self) return [self];
@@ -144,7 +152,7 @@ async function importOne(job, opt, wiped) {
 
 async function main() {
   const opt = parseArgs(process.argv.slice(2));
-  const jobs = jobsOf(opt.src, opt.product);
+  const jobs = jobsOf(opt.src, opt.product, opt.color);
   if (!jobs.length) fail('в ' + opt.src + ' не нашлось ни одной выгрузки с manifest.json');
 
   // Перечень для передачи на сервер считается ТЕМ ЖЕ обходом, что и заливка,

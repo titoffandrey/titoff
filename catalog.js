@@ -29,6 +29,20 @@ const C = {
   yellow: { name: 'Жёлтый', hex: '#efe6c4' }
 };
 
+// Цвета новинок сняты с ОФИЦИАЛЬНЫХ ОБРАЗЦОВ Apple (`<имя>_SW_COLOR` у Scene7)
+// тем же скриптом `scripts/apple-swatch-color.js`, что и чехлы с ремешками, —
+// подобранный по названию оттенок всегда мимо: «Glacier» и «Night Sky» на глаз
+// не угадать.
+const IPHONE_DUO = [
+  { name: 'Звёздно-белый', hex: '#eae9e9' },
+  { name: 'Ночное небо', hex: '#394452' }
+];
+const IPHONE_18_PRO = [
+  { name: 'Бордовый', hex: '#4d1821' },
+  { name: 'Ледниковый', hex: '#e8f2ff' },
+  C.silver,
+  { name: 'Чёрный', hex: '#3c3c3c' }
+];
 const IPHONE_17_PRO = [
   { name: 'Космический оранжевый', hex: '#c2571f' },
   { name: 'Глубокий синий', hex: '#1f3a5f' },
@@ -94,6 +108,30 @@ const IMAC = [
 const IPAD_PRO = [C.spaceBlack, C.silver];
 const IPAD_AIR = [C.spaceGray, C.blue, C.purple, C.starlight];
 const IPAD_11 = [C.blue, C.pink, C.yellow, C.silver];
+
+// Series 12 у Apple продаётся в трёх материалах, и палитра у каждого своя:
+// алюминий — четыре матовых цвета, титан и керамика — по два полированных.
+// У полированных образец Apple рисует двухтонным (зеркало ловит и свет, и тень),
+// поэтому медиана по всему кружку у «Night Blue» давала серый — там взята
+// медиана тёмной половины, то есть самого цвета. Остальные замерены как есть.
+const W12_ALU = [
+  { name: 'Чёрный', hex: '#433f3e' },
+  { name: 'Тёмная бронза', hex: '#58473c' },
+  { name: 'Светлое золото', hex: '#a79482' },
+  { name: 'Серый космос', hex: '#8b8887' }
+];
+const W12_TITAN = [
+  { name: 'Натуральный титан', hex: '#cec8c1' },
+  { name: 'Сияющее золото', hex: '#efe0bb' }
+];
+const W12_CERAMIC = [
+  { name: 'Ночной синий', hex: '#2a3040' },
+  { name: 'Жемчужно-белый', hex: '#e6dfda' }
+];
+const W_ULTRA4 = [
+  { name: 'Натуральный титан', hex: '#e0d5ca' },
+  { name: 'Чёрный титан', hex: '#363433' }
+];
 
 const W_ALU = [
   { name: 'Серый космос', hex: '#6f7073' },
@@ -222,6 +260,126 @@ const BANDS = {
       { name: 'Midnight Purple', hex: '#4a3a54', add: 12000 }
     ] }
   ],
+  /* Набор Series 12 снят с buy-watch/apple-watch (сентябрь 2026): 10 коллекций,
+     53 вариации. Цвета замерены по официальным образцам `_SW_COLOR`, но КОЛЬЦОМ,
+     а не по всему кружку: у Nike Sport Band в центре образца лежит контрастная
+     плашка, и медиана по всей плашке давала цвет дырки, а не ремешка. Берётся
+     освещённая часть материала (верхние квартили яркости) — у стального
+     миланского иначе выходит тень между звеньями, то есть «серебро» цвета кофе.
+
+     Доплаты разнесены ПО АНАЛОГИИ с Series 11 (плетёный 4000, миланский 7000,
+     магнитный 9000, Modern Buckle 12000, браслет 30000): цен на ремешки Apple
+     на странице не отдаёт, и их нужно сверить с прайсом поставщика.
+
+     Из 53 вариаций в набор не взята одна — Pride Edition: витрина российская, и
+     радужный ремешок на ней создаёт магазину правовой риск, а не выбор. Решение
+     владельца, а не техническое: вернуть его — это две строки. */
+  series12: [
+    { name: 'Sport Band', sizes: SPORT_SIZES, options: [
+      { name: 'Black', hex: '#404040', add: 0 },
+      { name: 'Burgundy', hex: '#52343c', add: 0 },
+      { name: 'Olive', hex: '#8c8064', add: 0 },
+      { name: 'Navy Blue', hex: '#4a4f56', add: 0 },
+      { name: 'Wildflower Blue', hex: '#7895be', add: 0 },
+      { name: 'Magenta', hex: '#a24389', add: 0 },
+      { name: 'Sand', hex: '#d5cebe', add: 0 },
+      { name: 'Pale Succulent', hex: '#d7d7bd', add: 0 }
+    ] },
+    { name: 'Sport Loop', sizes: ONE_SIZE, options: [
+      { name: 'Burgundy', hex: '#5c4150', add: 0 },
+      { name: 'Burgundy Plaid', hex: '#6e4f58', add: 0 },
+      { name: 'Olive', hex: '#8f7d61', add: 0 },
+      { name: 'Magenta', hex: '#9f746d', add: 0 },
+      { name: 'Light Umber Plaid', hex: '#a0815d', add: 0 },
+      { name: 'Chambray Blue', hex: '#aea099', add: 0 },
+      { name: 'Limestone', hex: '#d2c7b9', add: 0 },
+      { name: 'Black Unity', hex: '#514e46', add: 0 }
+    ] },
+    { name: 'Solo Loop', sizes: SOLO_SIZES, options: [
+      { name: 'Black', hex: '#4f5151', add: 0 },
+      { name: 'Burgundy', hex: '#62474e', add: 0 },
+      { name: 'Olive', hex: '#908467', add: 0 },
+      { name: 'Navy Blue', hex: '#4d5159', add: 0 },
+      { name: 'Wildflower Blue', hex: '#7895be', add: 0 }
+    ] },
+    { name: 'Braided Solo Loop', sizes: SOLO_SIZES, options: [
+      { name: 'Black', hex: '#353033', add: 4000 },
+      { name: 'Burgundy', hex: '#613140', add: 4000 },
+      { name: 'Olive', hex: '#958668', add: 4000 },
+      { name: 'Navy Blue', hex: '#3f4250', add: 4000 },
+      { name: 'Wildflower Blue', hex: '#8ea7d5', add: 4000 },
+      { name: 'Magenta', hex: '#942694', add: 4000 },
+      { name: 'Black Unity', hex: '#5d4238', add: 4000 }
+    ] },
+    { name: 'Nike Sport Band', sizes: SPORT_SIZES, options: [
+      { name: 'After Dark Black', hex: '#464544', add: 0 },
+      { name: 'Pavement Grey', hex: '#938b87', add: 0 },
+      { name: 'Chalk Calm', hex: '#cecfcd', add: 0 },
+      { name: 'Essential White', hex: '#d1d9bb', add: 0 },
+      { name: 'Green Spark', hex: '#afd0a4', add: 0 }
+    ] },
+    { name: 'Nike Sport Loop', sizes: ONE_SIZE, options: [
+      { name: 'After Dark Black', hex: '#5c5854', add: 0 },
+      { name: 'Pavement Grey', hex: '#cfc9c6', add: 0 },
+      { name: 'Chalk Calm', hex: '#ece7d5', add: 0 },
+      { name: 'Essential White', hex: '#e4e5df', add: 0 },
+      { name: 'Green Spark', hex: '#c1f2bd', add: 0 }
+    ] },
+    { name: 'Milanese Loop', sizes: SML, options: [
+      { name: 'Natural', hex: '#bcb2a7', add: 7000 },
+      { name: 'Radiant Gold', hex: '#ba9f79', add: 7000 },
+      { name: 'Dark Bronze', hex: '#706053', add: 7000 }
+    ] }
+  ],
+  // Титану и керамике добавляются кожаные и магнитные — как у Series 11, где
+  // магнитная застёжка и Modern Buckle идут сверх общего набора. Сама
+  // buy-страница про такое ограничение молчит: галерея Apple рисует ЛЮБУЮ пару
+  // «корпус + ремешок» (проверено на выгрузке — у Series 11 тоже 52 из 52),
+  // поэтому по картинкам совместимость не определить, и разделение взято
+  // прежнее, каталожное.
+  series12Steel: [
+    { name: 'Magnetic Link', sizes: SPORT_SIZES, options: [
+      { name: 'Midnight', hex: '#5f5c61', add: 9000 },
+      { name: 'Burgundy', hex: '#60444c', add: 9000 },
+      { name: 'Wildflower Blue', hex: '#7a8db5', add: 9000 },
+      { name: 'Camel', hex: '#a4896b', add: 9000 }
+    ] },
+    { name: 'Modern Buckle', sizes: SML, options: [
+      { name: 'Navy Blue', hex: '#5b585a', add: 12000 },
+      { name: 'Mulberry', hex: '#865f76', add: 12000 },
+      { name: 'Sage', hex: '#aba189', add: 12000 },
+      { name: 'Camel', hex: '#bea381', add: 12000 }
+    ] }
+  ],
+  // Браслет Apple подбирает в цвет титанового корпуса — отсюда forColor, как у
+  // титанового миланского у Ultra.
+  series12Link: [
+    { name: 'Link Bracelet', sizes: ONE_SIZE, options: [
+      { name: 'Natural', hex: '#aaa199', add: 30000, forColor: 'Натуральный титан' },
+      { name: 'Radiant Gold', hex: '#b9a183', add: 30000, forColor: 'Сияющее золото' }
+    ] }
+  ],
+  ultra4: [
+    { name: 'Trail Loop', sizes: SPORT_SIZES, options: [
+      { name: 'Dark Umber', hex: '#68544e', add: 0 },
+      { name: 'Burgundy', hex: '#674344', add: 0 },
+      { name: 'Sand', hex: '#c0a78e', add: 0 }
+    ] },
+    { name: 'Alpine Loop', sizes: SML, options: [
+      { name: 'Dark Olive', hex: '#6a614f', add: 0 },
+      { name: 'Burgundy', hex: '#694740', add: 0 },
+      { name: 'Desert', hex: '#92795d', add: 0 }
+    ] },
+    { name: 'Ocean Band', sizes: ONE_SIZE, options: [
+      { name: 'Translucent Black', hex: '#61615e', add: 0 },
+      { name: 'Translucent Kelp', hex: '#908665', add: 0 },
+      { name: 'Translucent Gray', hex: '#acaaa1', add: 0 }
+    ] },
+    { name: 'Titanium Milanese Loop', sizes: SML, options: [
+      { name: 'Natural', hex: '#a79c90', add: 25000, forColor: 'Натуральный титан' },
+      { name: 'Black', hex: '#5b5656', add: 25000, forColor: 'Чёрный титан' }
+    ] }
+  ],
   se: [
     { name: 'Sport Band', sizes: SPORT_SIZES, options: [
       { name: 'Black', hex: '#1c1c1e', add: 0 },
@@ -290,6 +448,11 @@ const ST = {
   // Пять iPhone переведены на прайс поставщика (см. «Прайс поставщика» ниже):
   // доплата за память посчитана по его же ценам, и общая сетка ST.ph* им больше
   // не подходит — у поставщика шаг за память заметно меньше типового.
+  // Новинки сентября 2026 прайсом поставщика ещё не приходили, поэтому и цена,
+  // и шаги за память посчитаны от долларовых Apple по курсу 90 ₽/$ минус 25 % —
+  // той самой скидке, по которой в прайсах идут телефоны и часы (см. «Цены»).
+  // Шаг у 18 Pro, Pro Max и Duo один и тот же: $200 / $600 / $1200 к базовой.
+  ph18: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 11500 }, { label: '1 ТБ', add: 34400 }, { label: '2 ТБ', add: 68900 }],
   ph17pm: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 11500 }, { label: '1 ТБ', add: 22500 }, { label: '2 ТБ', add: 32000 }],
   ph17p: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 12000 }, { label: '1 ТБ', add: 20500 }],
   ph17air: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 5000 }, { label: '1 ТБ', add: 9500 }],
@@ -350,6 +513,8 @@ const ST = {
   // между ними там куда меньше типовых 4000 ₽.
   watch42s10: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 750 }],
   watch42s11: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 1500 }],
+  // У Series 12 разница между диагоналями та же во всех трёх материалах — $50.
+  watch42s12: [{ label: '42 мм', add: 0 }, { label: '46 мм', add: 2900 }],
   vision: [{ label: '256 ГБ', add: 0 }, { label: '512 ГБ', add: 25000 }, { label: '1 ТБ', add: 50000 }],
   tv: [{ label: '64 ГБ', add: 0 }, { label: '128 ГБ', add: 3000 }]
 };
@@ -558,6 +723,18 @@ const AIRPODS_4_ANC = {
     { label: 'С шумоподавлением', add: 2250 }
   ]
 };
+// У AirPods 5 шумоподавление есть в обеих версиях, а различает их ФУТЛЯР: во
+// второй он с беспроводной зарядкой и динамиком для поиска, к нему добавлен
+// сенсор нажатия с проведением по громкости, и наушники в нём живут дольше
+// (5 ч против 4 ч на одном заряде). У Apple это один товар с выбором — значит и
+// у нас одна карточка, как у AirPods 4.
+const AIRPODS_5_CASE = {
+  name: 'Футляр', hint: 'Беспроводная зарядка, динамик для поиска и час автономности сверху',
+  values: [
+    { label: 'Зарядный футляр USB-C', add: 0 },
+    { label: 'Футляр с беспроводной зарядкой', add: 1150 }
+  ]
+};
 const AIRTAG_PACK = {
   name: 'Комплект', hint: 'Одна метка или набор из четырёх — выгоднее, чем по одной',
   values: [
@@ -727,6 +904,46 @@ const CASE = {
 const products = [
 
   /* ============================== iPhone ============================== */
+  {
+    /* НОВИНКИ СЕНТЯБРЯ 2026 — iPhone Duo, iPhone 18 Pro и 18 Pro Max.
+       Состав, цвета, объёмы и характеристики сняты с buy-страниц apple.com
+       10 сентября 2026; фотографии — оттуда же (`apple-photos/`).
+
+       inStock: false у всех трёх НЕ ошибка: на 10 сентября ни одна из моделей
+       ещё не вышла — 18 Pro уходит в предзаказ 12-го, Duo продаётся с 23 октября.
+       Магазин работает по предоплате, и «в наличии» на телефоне, которого нет ни
+       у кого в мире, — это обещание, которого не сдержать. Карточка при этом
+       живая: характеристики, фото и цену видно, кнопка гаснет. Появился товар —
+       снимается одно слово. */
+    id: 'iphone-duo', name: 'iPhone Duo', category: 'iPhone',
+    price: 114690, discountPercent: 15, inStock: false,
+    shortDesc: 'Складной: экран 7.6", A20 Pro, титановая петля.',
+    description: 'Первый складной iPhone: раскрытый экран 7.6 дюйма с нанотекстурой — самый большой в линейке, внешний 5.4 дюйма для быстрых дел не раскрывая. Титановая рама и крышка петли, чип A20 Pro, двойная камера 48 Мп и фронтальная камера под экраном.',
+    specs: 'Экран: 7.6" Super Retina XDR, складной, нанотекстура, ProMotion 120 Гц\nВнешний экран: 5.4" Super Retina XDR, Always-On, Dynamic Island\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ\nФронталка: 12 Мп Center Stage, под экраном\nАвтономность: до 44 ч видео на внешнем экране, до 31 ч на внутреннем\nПамять: от 256 ГБ до 2 ТБ\nКорпус: титановая рама и крышка петли\nЗащита: IP68\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, Smart Take, Duo Preview\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_DUO, storages: ST.ph18,
+    options: [OPT.sim(5000)],
+    images: [], createdAt: now - 0.05 * DAY
+  },
+  {
+    id: 'iphone-18-pro-max', name: 'iPhone 18 Pro Max', category: 'iPhone',
+    price: 74530, discountPercent: 15, inStock: false,
+    shortDesc: 'A20 Pro, переменная диафрагма, 6.9", до 45 ч видео.',
+    description: 'Самая большая и самая автономная модель линейки: 6.9 дюйма, до 45 часов видео и чип A20 Pro с 7-ядерным GPU. Тройная система камер 48 Мп, где главная получила переменную диафрагму от ƒ/1.48 до ƒ/4.0, и фронтальная камера 18 Мп Center Stage.',
+    specs: 'Экран: 6.9" Super Retina XDR, ProMotion 120 Гц, Always-On\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, Pro-режимы\nДиафрагма: переменная, ƒ/1.48, ƒ/1.8, ƒ/2.8 и ƒ/4.0\nФронталка: 18 Мп Center Stage\nАвтономность: до 45 ч видео\nПамять: от 256 ГБ до 2 ТБ\nКорпус: алюминиевый унибоди, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, кинематографические эффекты\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_18_PRO, storages: ST.ph18,
+    options: [OPT.sim(5000)],
+    images: [], createdAt: now - 0.06 * DAY
+  },
+  {
+    id: 'iphone-18-pro', name: 'iPhone 18 Pro', category: 'iPhone',
+    price: 68790, discountPercent: 15, inStock: false,
+    shortDesc: 'A20 Pro, переменная диафрагма, 6.3".',
+    description: 'Вся мощь Pro в корпусе 6.3 дюйма. Чип A20 Pro, тройная система камер 48 Мп с переменной диафрагмой у главной, фронтальная камера 18 Мп Center Stage и цельный алюминиевый корпус.',
+    specs: 'Экран: 6.3" Super Retina XDR, ProMotion 120 Гц, Always-On\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Fusion + 48 Мп СШУ + 48 Мп теле, Pro-режимы\nДиафрагма: переменная, ƒ/1.48, ƒ/1.8, ƒ/2.8 и ƒ/4.0\nФронталка: 18 Мп Center Stage\nАвтономность: до 45 ч видео\nПамять: от 256 ГБ до 2 ТБ\nКорпус: алюминиевый унибоди, Ceramic Shield 2\nЗащита: IP68\nКнопки: Действие\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, кинематографические эффекты\nРазъём: USB-C 3 (10 Гбит/с)\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    colors: IPHONE_18_PRO, storages: ST.ph18,
+    options: [OPT.sim(5000)],
+    images: [], createdAt: now - 0.07 * DAY
+  },
   {
     id: 'iphone-17-pro-max', name: 'iPhone 17 Pro Max', category: 'iPhone',
     price: 67990, discountPercent: 15, inStock: true,
@@ -1033,6 +1250,54 @@ const products = [
   },
 
   /* =========================== Apple Watch =========================== */
+  /* Series 12 — ОДНА buy-страница и ТРИ карточки, как это уже сделано у
+     Series 11: у материалов свои цвета, своя цена и свой набор ремешков, а
+     выбор материала на витрине — это выбор товара, а не вариации.
+     Керамика у Apple появилась впервые; титан и керамика идут только с
+     Cellular, поэтому группы «Связь» у них нет вовсе.
+     Продажи с 18 сентября 2026 — отсюда inStock: false (см. iPhone выше). */
+  {
+    id: 'watch-series-12-alu', name: 'Apple Watch Series 12 (алюминий)', category: 'Apple Watch',
+    price: 22890, discountPercent: 15, inStock: false,
+    shortDesc: 'Экран LTPO3 до 2000 нит, гипертония, оценка сна.',
+    description: 'Часы, которые следят за здоровьем всерьёз: уведомления о признаках гипертонии, оценка качества сна и апноэ, ЭКГ и кислород в крови, приложение «Показатели» с пульсом, дыханием и температурой. Экран Always-On до 2000 нит, до 24 часов работы и связь 5G.',
+    specs: 'Корпус: алюминий 42 или 46 мм\nЭкран: Always-On Retina, до 2000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 24 ч, до 38 ч в экономном режиме\nНавигация: GPS L1\nЗащита: WR50, IP6X\nВода: плавание и снорклинг, глубиномер до 6 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G (опция), Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 30 минут\nСистема: watchOS 26 с Apple Intelligence',
+    colors: W12_ALU, storages: ST.watch42s12,
+    bands: BANDS.series12,
+    // алюминиевые Series 12 продаются в двух версиях: GPS и GPS + Cellular
+    options: [OPT.watchCellular(5700)],
+    images: [], createdAt: now - 2.34 * DAY
+  },
+  {
+    id: 'watch-series-12-titan', name: 'Apple Watch Series 12 (титан)', category: 'Apple Watch',
+    price: 40110, discountPercent: 15, inStock: false,
+    shortDesc: 'Полированный титан, браслет, 5G в базе.',
+    description: 'Series 12 в полированном титановом корпусе: те же функции здоровья, что у алюминия, плюс премиальный материал, стальные и кожаные ремешки и связь 5G с самого начала — версии без Cellular у титана нет.',
+    specs: 'Корпус: титан 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 24 ч, до 38 ч в экономном режиме\nНавигация: GPS L1\nЗащита: WR50, IP6X\nВода: плавание и снорклинг, глубиномер до 6 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 30 минут\nСистема: watchOS 26 с Apple Intelligence',
+    colors: W12_TITAN, storages: ST.watch42s12,
+    bands: BANDS.series12.concat(BANDS.series12Steel, BANDS.series12Link),
+    images: [], createdAt: now - 2.35 * DAY
+  },
+  {
+    id: 'watch-series-12-ceramic', name: 'Apple Watch Series 12 (керамика)', category: 'Apple Watch',
+    price: 51580, discountPercent: 15, inStock: false,
+    shortDesc: 'Керамический корпус — впервые в линейке, 5G в базе.',
+    description: 'Впервые в Apple Watch — корпус из полированной керамики: не царапается, не тускнеет и не холодит руку, как металл. Внутри те же Series 12: гипертония, оценка сна, ЭКГ и кислород в крови, экран до 2000 нит и связь 5G.',
+    specs: 'Корпус: керамика 42 или 46 мм, сапфировое стекло\nЭкран: Always-On Retina, до 2000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 24 ч, до 38 ч в экономном режиме\nНавигация: GPS L1\nЗащита: WR50, IP6X\nВода: плавание и снорклинг, глубиномер до 6 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, Fall Detection, Crash Detection\nСвязь: 5G, Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 30 минут\nСистема: watchOS 26 с Apple Intelligence',
+    colors: W12_CERAMIC, storages: ST.watch42s12,
+    bands: BANDS.series12.concat(BANDS.series12Steel),
+    images: [], createdAt: now - 2.36 * DAY
+  },
+  {
+    id: 'watch-ultra-4', name: 'Apple Watch Ultra 4', category: 'Apple Watch',
+    price: 45840, discountPercent: 15, inStock: false,
+    shortDesc: 'Титан 49 мм, спутник, до 50 часов, WR100.',
+    description: 'Часы для спорта и приключений: титановый корпус 49 мм, самый яркий экран Apple Watch — до 3000 нит, спутниковая связь и экстренный вызов SOS без сотовой сети. До 50 часов работы и до 84 часов в экономном режиме, погружения до 40 метров и сирена на 86 децибел.',
+    specs: 'Корпус: титан 49 мм\nЭкран: Always-On Retina, до 3000 нит, широкоугольный OLED LTPO3\nЧип: S11 SiP, жесты взмахом и двойным нажатием\nАвтономность: до 50 ч, до 84 ч в экономном режиме\nНавигация: двухчастотный GPS\nСпутник: экстренный вызов SOS через спутник\nЗащита: WR100, IP6X, MIL-STD 810H\nВода: плавание, снорклинг и дайвинг, глубиномер до 40 м\nДатчики: Vitals — пульс, дыхание, температура, сон\nЗдоровье: уведомления о гипертонии, ЭКГ, кислород в крови\nСон: оценка сна и уведомления об апноэ\nБезопасность: Emergency SOS, сирена 86 дБ, Fall Detection\nСвязь: 5G, Wi-Fi, Bluetooth\nЗарядка: быстрая, до 80 % за 45 минут\nСистема: watchOS 26 с Apple Intelligence',
+    colors: W_ULTRA4, storages: [],
+    bands: BANDS.ultra4,
+    images: [], createdAt: now - 2.37 * DAY
+  },
   {
     id: 'watch-series-11-alu', name: 'Apple Watch Series 11 (алюминий)', category: 'Apple Watch',
     price: 23250, discountPercent: 15, inStock: true,
@@ -1111,6 +1376,17 @@ const products = [
   },
 
   /* ============================== AirPods ============================== */
+  {
+    // Продажи с 18 сентября 2026 — отсюда inStock: false (см. iPhone выше).
+    id: 'airpods-5', name: 'AirPods 5', category: 'AirPods',
+    price: 7400, discountPercent: 15, inStock: false,
+    shortDesc: 'Шумодав в 1,5 раза сильнее, открытая посадка.',
+    description: 'Активное шумоподавление теперь и в открытых AirPods — до полутора раз сильнее, чем у AirPods 4 с шумоподавлением. Переработанная акустика и адаптивный эквалайзер нового поколения, живой перевод и Siri AI. Ничего не давит в ухе: посадка открытая, без амбушюр.',
+    specs: 'Шумоподавление: активное, до 1,5× сильнее AirPods 4\nЗвук: новая акустическая архитектура, Adaptive EQ нового поколения\nАудио: пространственное с отслеживанием головы\nПосадка: открытая, без амбушюр\nАвтономность: до 4 ч с шумоподавлением, до 5 ч с футляром беспроводной зарядки\nФутляр: зарядка USB-C, у версии с беспроводной — Qi и зарядка Apple Watch\nУправление: сенсор нажатия, у версии с беспроводным футляром — проведение по громкости\nПеревод: Live Translation на Apple Intelligence\nSiri: Siri AI, «Привет, Siri» и Siri Interactions\nМикрофон: Voice Isolation\nЗащита: IP54\nСвязь: Bluetooth',
+    colors: [{ name: 'Белый', hex: '#f5f5f5' }], storages: [],
+    options: [AIRPODS_5_CASE],
+    images: [], createdAt: now - 2.89 * DAY
+  },
   {
     id: 'airpods-pro-3', name: 'AirPods Pro 3', category: 'AirPods',
     price: 13000, discountPercent: 15, inStock: true,
@@ -1420,6 +1696,9 @@ const products = [
 // Это не только свежие релизы: прошлые поколения, добавленные в catalog.js после
 // первого запуска, попадают на витрину тем же способом.
 const NOVELTY_IDS = [
+  'iphone-duo', 'iphone-18-pro-max', 'iphone-18-pro',
+  'watch-series-12-alu', 'watch-series-12-titan', 'watch-series-12-ceramic',
+  'watch-ultra-4', 'airpods-5',
   'iphone-17-pro-max', 'iphone-17-pro', 'iphone-air', 'iphone-17', 'iphone-17e',
   'iphone-16-pro-max', 'iphone-16-pro', 'iphone-16-plus', 'iphone-16e',
   'iphone-15-pro-max', 'iphone-15-pro', 'iphone-15-plus', 'iphone-15',
