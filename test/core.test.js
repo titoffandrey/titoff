@@ -6132,6 +6132,49 @@ test('осознанный sparkles отличается от промаха п�
   assert.deepEqual(misses, [], 'у каждой характеристики каталога есть своё правило');
 });
 
+test('глифы складного айфона: экран, чип, рама и диафрагма подбираются своими', () => {
+  const icons = require('../lib/spec-icons');
+  // Строки сняты с apple.com/shop/buy-iphone/iphone-duo — там же, откуда сами глифы.
+  assert.equal(icons.pickIcon('Экран', '7,6″ Super Retina XDR, складной, нанотекстура'), 'display-76');
+  assert.equal(icons.pickIcon('Чип', 'A20 Pro'), 'chip-a20-pro');
+  assert.equal(icons.pickIcon('Чип', 'A20'), 'chip', 'бейджа у не-Pro версии у Apple нет — общий контур чипа');
+  assert.equal(icons.pickIcon('Корпус', 'титановая рама и крышка петли'), 'frame');
+  assert.equal(icons.pickIcon('Материал', 'алюминиевый unibody'), 'frame');
+  assert.equal(icons.pickIcon('Диафрагма', 'переменная ƒ/1.48, ƒ/1.8, ƒ/2.8, ƒ/4.0'), 'aperture');
+
+  // Материал корпуса рядом со стеклом остаётся щитом — так эта строка читается у
+  // всего нынешнего каталога, и новый глиф не имеет права её переписать.
+  assert.equal(icons.pickIcon('Материал', 'титан, Ceramic Shield 2'), 'shield');
+
+  // Ключ важнее значения: у складного и время работы, и режимы называют экран.
+  assert.equal(icons.pickIcon('Автономность', 'до 44 ч видео на внешнем экране'), 'battery');
+  assert.notEqual(icons.pickIcon('Конструкция', 'режимы книги, тента и ноутбука'), 'storage',
+    '«тб» внутри «ноутбука» не делает строку накопителем');
+
+  // Кавычку дюйма набирают и копируют по-разному — глиф диагонали обязан найтись всюду.
+  for (const q of ['"', '”', '″']) {
+    assert.equal(icons.pickIcon('Экран', `6,9${q} Super Retina XDR`), 'display-69', 'кавычка ' + q);
+  }
+});
+
+test('набор глифов красится цветом текста и не тащит мусор экспорта', () => {
+  const dir = path.join(__dirname, '..', 'public', 'spec-icons');
+  const bad = { color: [], broken: [], backdrop: [] };
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.svg')) continue;
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    // Жёсткий цвет перебивает currentColor: глиф остался бы тёмным на тёмном фоне.
+    if (/fill="#[0-9a-f]{3,8}"/i.test(src)) bad.color.push(f);
+    // Подложка Sketch по размеру холста закрасила бы весь квадрат.
+    if (/<(polygon|rect)\b[^>]*\/?>(?!<\/)/i.test(src) && /points="0 0 /i.test(src)) bad.backdrop.push(f);
+    const open = (src.match(/<g\b/g) || []).length, close = (src.match(/<\/g>/g) || []).length;
+    if (!/^<svg\b/.test(src.trim()) || !/<\/svg>\s*$/.test(src) || open !== close) bad.broken.push(f);
+  }
+  assert.deepEqual(bad.color, [], 'глифы красятся currentColor');
+  assert.deepEqual(bad.backdrop, [], 'подложки-прямоугольника в глифе быть не должно');
+  assert.deepEqual(bad.broken, [], 'каждый глиф — целый svg с парными группами');
+});
+
 /* ------------------------------ Онлайн-оплата ------------------------------ */
 
 test('оплата выключена по умолчанию и не включается без ключей кассы', () => {
