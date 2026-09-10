@@ -919,7 +919,7 @@ const products = [
     price: 0, hidePrice: true, inStock: false,
     shortDesc: 'Складной: экран 7.6", A20 Pro, титановая петля.',
     description: 'Первый складной iPhone: раскрытый экран 7.6 дюйма с нанотекстурой — самый большой в линейке, внешний 5.4 дюйма для быстрых дел не раскрывая. Титановая рама и крышка петли, чип A20 Pro, двойная камера 48 Мп и фронтальная камера под экраном.',
-    specs: 'Экран: 7.6" Super Retina XDR, складной, нанотекстура, ProMotion 120 Гц\nВнешний экран: 5.4" Super Retina XDR, Always-On, Dynamic Island\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ\nФронталка: 12 Мп Center Stage, под экраном\nАвтономность: до 44 ч видео на внешнем экране, до 31 ч на внутреннем\nПамять: от 256 ГБ до 2 ТБ\nКорпус: титановая рама и крышка петли\nЗащита: IP68\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, Smart Take, Duo Preview\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
+    specs: 'Экран: 7.6" Super Retina XDR, складной, нанотекстура, ProMotion 120 Гц\nВнешний экран: 5.4" Super Retina XDR, Always-On, Dynamic Island\nЧип: A20 Pro, 7-ядерный GPU, двойной 16-ядерный Neural Engine\nКамеры: 48 Мп Dual Fusion + 48 Мп СШУ, Smart Take и Duo Preview\nФронталка: 12 Мп Center Stage, под экраном\nАвтономность: до 44 ч видео на внешнем экране, до 31 ч на внутреннем\nПамять: от 256 ГБ до 2 ТБ\nКорпус: титановая рама и крышка петли\nЗащита: IP68\nCamera Control: быстрый доступ к съёмке\nВидео: Dolby Vision 4K120, кинематографические эффекты\nРазъём: USB-C\nСвязь: 5G, Wi-Fi 7\nСистема: iOS 26 с Apple Intelligence',
     colors: IPHONE_DUO, storages: ST.ph18,
     options: [OPT.sim(5000)],
     images: [], createdAt: now - 0.05 * DAY
