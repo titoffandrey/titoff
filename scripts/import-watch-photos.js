@@ -54,6 +54,10 @@ const STYLE_ALIAS = {
   modernbuckle: 'modbuckle',
   milaneseloop: 'milanese',
   linkbracelet: 'link',
+  // Титановый миланский Apple зовёт `ti_milaneseloop` — нормализацией из нашего
+  // «Titanium Milanese Loop» это не выходит, и без строки ремешок Ultra остаётся
+  // вовсе без снимков (у Ultra 4 это 4 пары из 22).
+  titaniummilaneseloop: 'timilaneseloop',
 };
 
 // Цвет корпуса у нас по-русски, у Apple — латиницей. Нормализацией это не берётся,
@@ -72,8 +76,27 @@ const CASE_COLOR = {
   'золотой титан': 'gold',
   'сланцевый титан': 'slate',
   'черный титан': 'black',
+  // Series 12 (сентябрь 2026): у алюминия своя четвёрка, у титана к натуральному
+  // добавилось «сияющее золото», а керамика появилась впервые.
+  'черный': 'black',
+  'темная бронза': 'darkbronze',
+  'светлое золото': 'lightgold',
+  'сияющее золото': 'radiantgold',
+  'ночной синий': 'nightblue',
+  'жемчужно-белый': 'pearlwhite',
   // У Hermès корпус один, и Apple зовёт его цвет `silver`.
   'титан hermes': 'silver',
+};
+
+// У части ремешков идентификатор Apple и подпись расходятся: в выборе стоит
+// «Limestone», а в адресе кадра `limestonewhite`; «Black Unity» — это два разных
+// ремешка с одним именем («Unity Rhythm» у Sport Loop и «Unity Connection» у
+// плетёного), и различает их только хвост идентификатора. Поэтому ключ здесь —
+// пара «стиль + наш цвет»: одним цветом эти два не развести.
+const BAND_COLOR_ALIAS = {
+  'sportloop|limestone': 'limestonewhite',
+  'sportloop|blackunity': 'blackunityunityrhythm',
+  'braidedsololoop|blackunity': 'blackunityunityconnection'
 };
 
 // У Apple цвет ремешка бывает привязан к цвету корпуса: спортивный «Black»
@@ -214,7 +237,12 @@ async function main() {
     for (const g of product.bands || []) {
       const style = styleOf(g.name);
       for (const o of g.options || []) {
-        const want = apCase + '|' + style + '|' + bandColorKey(o.name);
+        // Псевдоним цвета ремешка ищется двумя таблицами: по паре «стиль + цвет»
+        // (расхождение подписи и идентификатора у Apple) и по тройке с корпусом
+        // (один и тот же ремешок под разными именами у разных корпусов).
+        const ourColor = bandColorKey(o.name);
+        const byStyle = BAND_COLOR_ALIAS[style + '|' + ourColor];
+        const want = apCase + '|' + style + '|' + (byStyle || ourColor);
         const alias = BAND_COLOR_BY_CASE[want];
         const key = alias ? apCase + '|' + style + '|' + alias : want;
         const label = c.name + ' · ' + g.name + ' · ' + o.name;
