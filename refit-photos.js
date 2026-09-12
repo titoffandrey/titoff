@@ -52,36 +52,40 @@ const MAX = 1200;
 
     const full = await IMG.imageSize(bin, file);
     const box = await IMG.contentBox(bin, file);
-    const fit = IMG.targetContentSize(box, MAX);
     const levels = await IMG.backgroundLevels(bin, file, box);
-    const longest = box ? Math.max(box.w, box.h) : 0;
-    // Трогать нечего, только если кадр УЖЕ приведён к MAX×MAX, товар занимает его почти
-    // целиком И фон исходника внутри совпадает с плитой. Размер товара тут в пикселях
-    // исходника, поэтому сравнивать его с порогом от MAX, не проверив холст, нельзя: у
-    // снимка 5120×2880 товар заведомо крупнее 1096 px, и файл, которому обработка нужнее
-    // всего, считался бы «уже в кадре». Ровно так скрипт и молчал про необработанные фото.
+    // Приведён ли кадр к MAX×MAX — по самому холсту, а не по размеру товара: у снимка
+    // 5120×2880 товар заведомо крупнее 1096 px, и файл, которому обработка нужнее
+    // всего, считался бы «уже в кадре». Ровно так скрипт когда-то молчал про
+    // необработанные фото.
+    // У файла, уже приведённого к кадру, размер товара не пересматривается: решение об
+    // увеличении принято при загрузке по исходному разрешению, а растянуть
+    // перекодированные 1200 px второй раз — значит размылить (см. photo-doctor:
+    // «мелкий исходник — перезалить, refit только размылит»). Такому файлу refit
+    // приводит только фон. Не приведённый к кадру файл вписывается целиком, как при загрузке.
     const framed = full && full.w === MAX && full.h === MAX;
-    const fitted = framed && (!box || longest >= Math.round(MAX * IMG.CONTENT_RATIO) - 8);
-    if (fitted && !levels) {
-      // Фон внутри светлый, но множителя нет — углы рамки разошлись или ушли за
+    const fit = IMG.targetContentSize(box, MAX, { upscale: !framed });
+    if (framed && !levels) {
+      // Фон внутри СВЕТЛЫЙ, но множителя нет — углы рамки разошлись или ушли за
       // границы. Такой файл остаётся как есть, и владелец должен об этом знать:
       // молча пропущенный светлый прямоугольник ничем не отличим от исправленного.
+      // Тёмный угол — это товар, дошедший до угла своей рамки, и про него молчим.
       const spots = IMG.boxCorners(full, box);
       const inner = spots ? await IMG.cornerColors(bin, file, spots) : null;
-      if (inner && inner.corners.some(p => p.some((v, c) => Math.abs(v - IMG.PLATE_RGB[c]) > 6)))
+      const light = p => p.every(v => v >= 200), offPlate = p => p.some((v, c) => Math.abs(v - IMG.PLATE_RGB[c]) > 6);
+      if (inner && inner.corners.some(p => light(p) && offPlate(p)))
         console.log(`• фон внутри не определился (оставлен как есть): ${name} углы ${JSON.stringify(inner.corners)}`);
       skipped++; continue;
     }
 
     const size = full ? `${full.w}×${full.h}` : 'размер неизвестен';
     const plan = [];
-    if (!fitted) plan.push(box ? `товар ${box.w}×${box.h} → ${fit}px` : 'фон не отделяется, только вписываем');
+    if (!framed) plan.push(box ? `товар ${box.w}×${box.h} → ${fit}px` : 'фон не отделяется, только вписываем');
     if (levels) plan.push(`фон → плита (×${levels.map(f => f.toFixed(3)).join('/')})`);
     console.log(`${apply ? '✓' : '•'} ${name}: ${size}, ${plan.join(', ')} в кадре ${MAX}×${MAX}`);
     if (!apply) { fixed++; continue; }
 
     try {
-      const out = await IMG.optimizeToWebp(db.UPLOAD_DIR, name, MAX, { square: true });
+      const out = await IMG.optimizeToWebp(db.UPLOAD_DIR, name, MAX, { square: true, upscale: !framed });
       if (out !== name) throw new Error('обработка вернула другое имя: ' + out);
       // Уменьшенные копии для карточки сделаны с прежнего кадра, а мы только что
       // его переписали: не пересобрать их — значит оставить на витрине именно

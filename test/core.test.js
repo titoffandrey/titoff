@@ -582,6 +582,10 @@ test('товарное фото щадяще очищается от полей 
   assert.equal(images.targetContentSize({ w: 900, h: 700 }, 1200), size);
   assert.equal(images.targetContentSize({ w: 100, h: 80 }, 1200), Math.round(100 * images.MAX_UPSCALE));
   assert.equal(images.targetContentSize(null, 1200), null);
+  // Повторная обработка готового кадра (refit) мелкий товар не увеличивает: решение
+  // об увеличении принято при загрузке, а растянуть 1200 px второй раз — размылить.
+  assert.equal(images.targetContentSize({ w: 704, h: 344 }, 1200, { upscale: false }), 704);
+  assert.equal(images.targetContentSize({ w: 1300, h: 900 }, 1200, { upscale: false }), size, 'уменьшать по-прежнему можно');
 });
 
 test('фон исходника приводится к плите множителем, а не срезается', () => {
