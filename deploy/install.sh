@@ -116,13 +116,21 @@ if [ -z "$REPO" ]; then
   #
   # Каталог данных, `.git` и загруженные фото rsync не трогает вовсе — они
   # исключены и здесь, и в самом архиве: `--delete` без этого снёс бы их.
-  # `.claude` исключён не для порядка: там лежат worktree рабочих сессий, и на
-  # боевой сервер за одну выкатку уезжало 91 МБ чужих копий проекта вместе с
-  # локальными настройками Claude Code. Витрине из этого не нужно ничего.
-  COPYFILE_DISABLE=1 tar --no-xattrs -czf - -C "$ROOT" \
-    --exclude='./data' --exclude='./.git' --exclude='./.claude' \
-    --exclude='./apple_svg' --exclude='./apple-photos' \
-    --exclude='./node_modules' --exclude='./.DS_Store' --exclude='._*' --exclude='*.tmp' . \
+  #
+  # В АРХИВ ИДЁТ ТОЛЬКО ТО, ЧТО ЗНАЕТ GIT: отслеживаемые файлы плюс новые, не
+  # попавшие в .gitignore. Раньше архив собирался из всего каталога с ручным
+  # списком исключений, и список этот отставал от жизни: `.claude` с worktree
+  # рабочих сессий уехал на боевой сервер 91 мегабайтом чужих копий проекта, а
+  # следом — `tmp/` и `output/` с документами для банка и PDF-отчётами по
+  # заказам (77 МБ), которые к витрине не имеют отношения и на сервере лежать
+  # не должны. Правило одно: что не в репозитории, того нет и на сервере, —
+  # а список исключений живёт в одном месте, в .gitignore.
+  #
+  # Файл, удалённый из дерева, но ещё числящийся в индексе, отсеивается
+  # проверкой `-f`: tar на нём упал бы целиком.
+  (cd "$ROOT" && git ls-files -z --cached --others --exclude-standard \
+    | while IFS= read -r -d '' f; do [ -f "$f" ] && printf '%s\0' "$f"; done \
+    | COPYFILE_DISABLE=1 tar --no-xattrs --null -T - -czf -) \
     | ssh -o BatchMode=yes "$ALIAS" \
       'set -e; id -u titoff >/dev/null 2>&1 || adduser --disabled-password --gecos "" titoff;
        rm -rf /home/titoff/istore.new && mkdir -p /home/titoff/istore.new /home/titoff/istore;

@@ -186,6 +186,20 @@ sudo -u "$USER_NAME" -H bash -lc "(crontab -l 2>/dev/null | grep -v sync-pickup-
 sudo -u "$USER_NAME" -H bash -lc "cd $PROJECT && STORE_DATA_DIR=$DATA_DIR /usr/local/bin/node scripts/sync-pickup-points.js --apply" \
   || echo 'список пунктов выдачи не скачался — обновится ночью по cron'
 
+say 'База «IP → город» и её ежемесячное обновление'
+# Без неё метрика работает, но города у посетителей нет — и это ничем себя не
+# проявляет (см. «Город посетителя — своей базой» в CLAUDE.md). На первом
+# сервере cron ставили руками; второй сайт с тем же кодом обязан получить его
+# из установки, иначе у него города не будет никогда. Первый прогон — только
+# когда базы ещё нет: она весит десятки мегабайт, а установка идемпотентна и
+# запускается на каждую выкатку.
+CRON_GEO="10 3 3 * * { date -Is; cd $PROJECT && STORE_DATA_DIR=$DATA_DIR /usr/local/bin/node scripts/sync-geoip.js --apply; } >> /home/$USER_NAME/geoip.log 2>&1"
+sudo -u "$USER_NAME" -H bash -lc "(crontab -l 2>/dev/null | grep -v sync-geoip.js; echo '$CRON_GEO') | crontab -"
+if [ ! -f "$DATA_DIR/geoip.bin" ]; then
+  sudo -u "$USER_NAME" -H bash -lc "cd $PROJECT && STORE_DATA_DIR=$DATA_DIR /usr/local/bin/node scripts/sync-geoip.js --apply" \
+    || echo 'база городов не скачалась — обновится по cron третьего числа'
+fi
+
 say 'Проверка'
 sleep 2
 CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/" || echo '000')

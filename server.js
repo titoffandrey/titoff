@@ -87,8 +87,7 @@ const TYPING = require('./lib/chat-typing');
 const { App } = require('./lib/server-lib');
 LIVE.watch(db.DATA_DIR);
 
-// Возвращает отчёт, если рядом лежала установка прежней мультидоменной версии.
-const migration = db.ensureSeeded();
+db.ensureSeeded();
 /* Город посетителя определяется СВОЕЙ базой (`lib/geoip.js`, собирается
  * `scripts/sync-geoip.js`). Внешний сервис остаётся запасным и по умолчанию
  * выключен: у него тысяча запросов в сутки — при нынешнем трафике город
@@ -579,6 +578,7 @@ function brandFields(body) {
     contactEmail: short(body.contactEmail, 160).trim(), contactHours: short(body.contactHours, 120).trim(),
     storeAddress: short(body.storeAddress, 300).trim(),
     storeGeo: short(body.storeGeo, 60).trim(),
+    storeSinceYear: short(body.storeSinceYear, 8).trim(),
     footerNote: short(body.footerNote, 500),
     /* Реквизиты продавца. Прежнее `legalDetails` («ИНН/ОГРН» одной строкой)
      * форма больше не пишет: подвалу нужны отдельные строки с подписями, а
@@ -5046,6 +5046,12 @@ app.post('/admin/settings', async (req, res) => {
   if (patch.storeGeo && !R.storePoint({ storeGeo: patch.storeGeo })) {
     return fail('Координаты — широта и долгота через запятую, например: 55.751244, 37.618423');
   }
+  /* Год открытия точки уезжает в факты консультанта числом: «работает второй
+   * год» считается от него. Опечатка тут не сломает витрину, но заставит бота
+   * называть покупателям выдуманный срок — поэтому проверяем до записи. */
+  if (patch.storeSinceYear && !PROMPT.validStoreYear(patch.storeSinceYear)) {
+    return fail('Год открытия офлайн-точки — четыре цифры, не раньше 1990 и не позже следующего года');
+  }
   for (const [field, label] of [['contactEmail', 'Почта магазина'], ['privacyEmail', 'E-mail для обращений по персональным данным']]) {
     const value = String(patch[field] || '').trim();
     // Проверка нарочно грубая: адрес должен выглядеть адресом, а не быть
@@ -5455,18 +5461,6 @@ const httpServer = app.listen(PORT, HOST, () => {
   console.log(`\n  «${s.storeName}» запущен на порту ${PORT}`);
   console.log(`  Витрина:  http://localhost:${PORT}`);
   console.log(`  Панель:   http://localhost:${PORT}/admin`);
-  if (migration && migration.site) {
-    // Переезд с мультидоменной версии случается ровно один раз, и молча его
-    // делать нельзя: у магазина поменялся и адрес панели, и пароль от неё.
-    console.log(`\n  ПЕРЕЕЗД НА ОДИН МАГАЗИН выполнен по домену «${migration.site}»`
-      + (migration.hosts.length ? ` (${migration.hosts.join(', ')})` : ''));
-    console.log(`  · настройки домена перенесены в общие, товаров пересчитано: ${migration.products}`
-      + (migration.multiplier !== 1 ? `, множитель цен ×${migration.multiplier} вбит в цены` : ''));
-    if (migration.hidden) console.log(`  · скрытых на домене отзывов возвращено в модерацию: ${migration.hidden}`);
-    if (migration.dropped.length) console.log(`  · настройки прочих доменов не перенесены: ${migration.dropped.join(', ')}`);
-    console.log(`  · вход теперь один — /admin, с ЛОГИНОМ И ПАРОЛЕМ ПРЕЖНЕГО ВЛАДЕЛЬЦА (/owner)`);
-    console.log(`  · прежний sites.json сохранён рядом как sites.migrated.json`);
-  }
   if (auth.verifyPassword('admin', s.adminPasswordHash)) {
     console.warn(`\n  ВНИМАНИЕ: у панели демонстрационный пароль (admin / admin).`);
     console.warn('  Смените его в /admin/settings до публикации сайта или задайте ADMIN_PASSWORD при первом запуске.');

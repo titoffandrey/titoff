@@ -533,9 +533,8 @@ test('цена товара — БЕЗ скидки, а скидка счита�
   assert.equal(deals.salePrice({ price: 100 }), 100);
   assert.equal(deals.saleFor(100, 0), 100);
   assert.equal(deals.saleFor(100, 95), 100, 'больше 90% — опечатка, а не скидка');
-  /* Обратный ход остался ради перевода старых данных, где в `price` стояла цена
-   * СО скидкой: им работают `scripts/full-price.js` и переезд с мультидоменной
-   * версии. Пара функций сходится в обе стороны. */
+  /* Обратный ход остался ради чтения старых данных, где в `price` стояла цена
+   * СО скидкой (`fromLegacy`). Пара функций сходится в обе стороны. */
   assert.equal(deals.compareFor(67990, 20), 84990);
   assert.equal(deals.saleFor(deals.compareFor(67990, 20), 20), 67990);
   assert.equal(deals.compareFor(100, 0), 0);
@@ -3334,59 +3333,6 @@ test('выключенная промоакция убирает скидку ц
   assert.match(panel, /name="price"[^>]*value="84990"/, 'в поле цены — сумма без скидки');
 });
 
-test('перевод каталога на цены без скидки сохраняет цены сборок и не идёт дважды', t => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-fullprice-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  /* Товар записан в СТАРОЙ модели: `price` — цена со скидкой, доплаты тоже.
-   * После перевода цена и доплаты становятся полными, а покупатель при
-   * работающей акции платит ровно столько же, сколько платил вчера. */
-  const before = {
-    id: 'ph', name: 'Телефон', category: 'iPhone', price: 67990, discountPercent: 20, inStock: true,
-    images: [], colors: [{ name: 'Чёрный', hex: '#111' }],
-    storages: [{ label: '256 ГБ', add: 0 }, { label: '1 ТБ', add: 22500 }],
-    options: [{ name: 'SIM-карта', values: [{ label: 'Только eSIM', add: 0 }, { label: 'eSIM + SIM', add: 8500 }] }]
-  };
-  const plain = { id: 'tag', name: 'Метка', category: 'Аксессуары', price: 3490, inStock: true, images: [], colors: [], storages: [] };
-  fs.writeFileSync(path.join(dir, 'products.json'), JSON.stringify([before, plain]));
-  fs.writeFileSync(path.join(dir, 'reviews.json'), '[]');
-
-  const script = path.join(__dirname, '..', 'scripts', 'full-price.js');
-  const run = (args) => execFileSync(process.execPath, [script].concat(args || []), {
-    encoding: 'utf8', env: Object.assign({}, process.env, { STORE_DATA_DIR: dir })
-  });
-  run(['--apply']);
-
-  const after = JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8'));
-  const ph = after.find(x => x.id === 'ph');
-  assert.equal(ph.price, 84990, 'цена стала полной');
-  assert.equal(ph.discountPercent, 20, 'процент не тронут');
-  // Цены всех сборок остаются прежними — с точностью до десятки округления.
-  const combos = [[0, 0], [22500, 0], [0, 8500], [22500, 8500]];
-  combos.forEach(([st, opt], i) => {
-    const was = before.price + st + opt;
-    const now = deals.saleFor(ph.price + ph.storages[i > 1 ? i - 2 : i].add * 0 + (st ? ph.storages[1].add : 0) + (opt ? ph.options[0].values[1].add : 0), 20);
-    assert.ok(Math.abs(now - was) <= 10, `сборка ${was} уехала в ${now}`);
-  });
-  // Товар без скидки не тронут вовсе: у него цена и была полной.
-  assert.equal(after.find(x => x.id === 'tag').price, 3490);
-
-  /* Второй прогон поднял бы цены ещё раз, поэтому скрипт помечает каталог и
-   * отказывается работать повторно: отличить переведённый от старого по самим
-   * числам нельзя. */
-  const settings = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-  assert.ok(settings.fullPriceAt > 0, 'метка перевода не поставлена');
-  assert.throws(() => run(['--apply']), /уже переведён/i);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'products.json'), 'utf8')).find(x => x.id === 'ph').price, 84990);
-
-  // Свежая установка получает метку сразу: catalog.js уже отдаёт полные цены.
-  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'store-fullprice-new-'));
-  t.after(() => fs.rmSync(fresh, { recursive: true, force: true }));
-  execFileSync(process.execPath, ['-e', 'require(process.argv[1]).ensureSeeded()', path.join(__dirname, '..', 'lib', 'db.js')], {
-    encoding: 'utf8', env: Object.assign({}, process.env, { STORE_DATA_DIR: fresh })
-  });
-  assert.ok(JSON.parse(fs.readFileSync(path.join(fresh, 'settings.json'), 'utf8')).fullPriceAt > 0);
-});
-
 test('страница товара: строка отзывов как в карточке, белый текст в выбранной кнопке', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const settings = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
@@ -4643,89 +4589,6 @@ test('доп. характеристики обязательны к выбор�
   assert.equal(variants.optionFits(view.options[0].values[0], '256 ГБ'), true);
   // товар без доп. характеристик работает как раньше
   assert.equal(variants.variantMissing({ colors: [], storages: [], bands: [] }, {}), false);
-});
-
-test('переезд на один магазин переносит домен в общие настройки, не меняя витрину', t => {
-  // Главное правило переноса: витрина обязана выглядеть так же, как выглядела.
-  // Поэтому множитель домена и его ручные цены вбиваются в сам товар, а не
-  // «берутся из каталога заново».
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-single-site-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const write = (name, data) => fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data));
-  write('settings', {
-    storeName: 'Старое', sessionSecret: 'x'.repeat(48),
-    adminUsername: 'admin', adminPasswordHash: auth.hashPassword('слабый-от-домена'),
-    ownerUsername: 'chief', ownerPasswordHash: auth.hashPassword('пароль-владельца')
-  });
-  write('products', [
-    { id: 'a', name: 'A', category: 'C', price: 1000, oldPrice: 1200, hotDeal: true, hotDealPrice: 900,
-      storages: [{ label: '1 ТБ', add: 100 }], colors: [], bands: [],
-      options: [{ name: 'Связь', hint: 'подсказка', values: [{ label: 'Wi-Fi', add: 0 }, { label: 'Cellular', add: 200 }] }] },
-    { id: 'b', name: 'B', category: 'C', price: 500, storages: [], colors: [], bands: [], options: [] },
-    { id: 'c', name: 'C', category: 'C', price: 700, storages: [], colors: [], bands: [], options: [] }
-  ]);
-  write('reviews', [
-    { id: 'r1', productId: 'a', rating: 5, status: 'approved', createdAt: 1 },
-    { id: 'r2', productId: 'a', rating: 1, status: 'approved', createdAt: 2 }
-  ]);
-  write('orders', [{ id: 'o1', number: '1', siteId: 'live', createdAt: Date.now(), items: [], total: 1 }]);
-  write('sites', [
-    { id: 'dead', hosts: [], storeName: 'Заброшенный', priceMultiplier: 3, overrides: {}, hiddenReviews: [] },
-    { id: 'live', hosts: ['shop.test', 'www.shop.test'], storeName: 'Живой', tagline: 'слоган',
-      accentColor: '#ff2d55', logoText: '{Ж}ивой', telegramBotToken: 'бот', notifyReviews: false,
-      priceMultiplier: 1.5, overrides: { b: { price: 444 }, c: { enabled: false } }, hiddenReviews: ['r2'] }
-  ]);
-
-  const store = freshDb(dir);
-  const report = store.ensureSeeded();
-  assert.equal(report.site, 'Живой', 'выигрывает домен, на котором шла торговля');
-  assert.deepEqual(report.hosts, ['shop.test'], 'www — то же имя, в отчёте оно одно');
-  assert.deepEqual(report.dropped, ['Заброшенный']);
-
-  const settings = store.getSettings();
-  assert.equal(settings.storeName, 'Живой');
-  assert.equal(settings.accentColor, '#ff2d55');
-  assert.equal(settings.logoText, '{Ж}ивой');
-  assert.equal(settings.notifyReviews, false, 'снятая галочка переезжает снятой');
-  // Полный доступ был у владельца — его учётка и становится единственной.
-  // Пароль от урезанной админки домена права получить не должен.
-  assert.equal(settings.adminUsername, 'chief');
-  assert.ok(auth.verifyPassword('пароль-владельца', settings.adminPasswordHash));
-  assert.ok(!auth.verifyPassword('слабый-от-домена', settings.adminPasswordHash));
-  assert.equal(settings.ownerPasswordHash, undefined, 'вторая учётка из файла убрана');
-
-  const byId = Object.fromEntries(store.getProducts().map(p => [p.id, p]));
-  // Товар «a» продавался по горящей акции за 900 при базовой 1000 — значит на
-  // витрине стояло 900 и «−10%». После переезда это 1350 (множитель 1.5) и тот
-  // же процент: скидка переехала процентом, а не суммой.
-  /* Множитель вбит в цену, а сама цена хранится БЕЗ скидки: 900 × 1.5 = 1350
-   * платили на прежней витрине, значит без −10% это 1500. Покупатель после
-   * переезда платит те же 1350, пока промоакция работает. */
-  assert.equal(byId.a.price, 1500, 'множитель вбит в цену, а скидка вынута из неё');
-  assert.equal(deals.saleFor(byId.a.price, byId.a.discountPercent), 1350, 'цена продажи не изменилась');
-  assert.equal(byId.a.discountPercent, 10);
-  assert.equal(byId.a.oldPrice, undefined, 'сумма старой цены снята вместе со старой моделью');
-  assert.equal(byId.a.hotDealPrice, undefined);
-  // Доплаты едут тем же путём: множитель, а следом обратный ход по проценту.
-  assert.equal(byId.a.storages[0].add, deals.compareFor(150, 10), 'доплата за память масштабируется так же');
-  assert.equal(byId.a.options[0].values[1].add, deals.compareFor(300, 10));
-  assert.equal(byId.a.options[0].hint, 'подсказка', 'остальные поля не теряются');
-  assert.equal(byId.b.price, 444, 'ручная цена домена становится базовой');
-  assert.equal(byId.b.discountPercent, 0, 'у ручной цены скидки не было и не появится');
-  assert.equal(byId.c.visible, false, 'снятая на домене видимость стала флагом товара');
-  assert.equal(store.visibleProducts().length, 2);
-
-  // Скрытый на домене отзыв возвращается в модерацию: удалять нельзя, а
-  // показывать — значит вернуть на витрину то, что убрали руками.
-  const reviews = Object.fromEntries(store.getReviews().map(r => [r.id, r.status]));
-  assert.deepEqual(reviews, { r1: 'approved', r2: 'pending' });
-
-  // Файл не удалён, а сохранён: другой копии прежних настроек нет.
-  assert.ok(fs.existsSync(path.join(dir, 'sites.migrated.json')));
-  assert.ok(!fs.existsSync(path.join(dir, 'sites.json')));
-  // Повторный запуск ничего не пересчитывает второй раз.
-  assert.equal(freshDb(dir).ensureSeeded(), null);
-  assert.equal(freshDb(dir).getProducts().find(p => p.id === 'a').price, 1500);
 });
 
 test('страница товара показывает доп. характеристики и прячет несовместимые значения', () => {
@@ -14931,7 +14794,11 @@ test('консультант не повторяется и не отговар�
   assert.doesNotMatch(rules, /Не знаешь ответа или вопрос требует человека/);
   assert.match(rules, /Передавай менеджеру только то, чего нет/);
   assert.match(rules, /«в карточке не указано»/, 'отговорка названа прямо');
-  assert.match(rules, /официальный эквайринг Альфа-Банка/);
+  /* Правило про СБП называет эквайринг, но НЕ банк: имя банка — факт о кассе
+   * и стоит в условиях, а правила у обоих сайтов одни. Начало строки при этом
+   * прежнее — по нему `missingRules` узнаёт правило в сохранённой инструкции. */
+  assert.match(rules, /Рассказывая об оплате по СБП, формулируй точно: она проходит через официальный эквайринг банка/);
+  assert.doesNotMatch(rules, /Альфа-Банк/);
   assert.match(rules, /расчётный счёт ИП-продавца/);
 
   /* Условия отвечают на то, на что консультант отвечать не мог. Всё снято с тех
@@ -14941,8 +14808,15 @@ test('консультант не повторяется и не отговар�
   }));
   assert.match(store, /самовывоза нет/, 'офлайн-точек нет — это спрашивают через один диалог');
   assert.match(store, /Оплаты при получении и наложенного платежа нет/);
-  assert.match(store, /Оплата по СБП проходит через официальный эквайринг Альфа-Банка/);
-  assert.match(store, /не на личную карту/);
+  /* Чей эквайринг — факт о включённой КАССЕ, а не о магазине: с одной CrocoPAY
+   * про Альфа-Банк не говорится ни слова, у второго сайта касса может быть
+   * другой. Включили Альфу — строка есть. */
+  assert.doesNotMatch(store, /Альфа-Банка/);
+  const alfa = chatPrompt.storeText(Object.assign({}, SETTINGS, {
+    alfabankEnabled: true, alfabankLogin: 'shop-api', alfabankPassword: 'секрет'
+  }));
+  assert.match(alfa, /Оплата по СБП проходит через официальный эквайринг Альфа-Банка/);
+  assert.match(alfa, /не на личную карту/);
   const offline = chatPrompt.storeText(Object.assign({}, SETTINGS, {
     storeAddress: 'г. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»'
   }));
@@ -14956,6 +14830,15 @@ test('консультант не повторяется и не отговар�
   assert.match(offline, /Офлайн-точка работает по этому адресу второй год/);
   assert.equal(chatPrompt.storeYearsText(Date.UTC(2027, 0, 1, 0, 0)), 'третий год', 'в 2027-м строка меняется сама');
   assert.equal(chatPrompt.storeYearsText(Date.UTC(2026, 11, 31, 21, 30)), 'третий год', 'по московскому календарю: 00:30 МСК 1 января');
+  // Год открытия — настройка: у второго сайта с тем же кодом точка своя.
+  assert.equal(chatPrompt.storeYearsText(Date.UTC(2026, 8, 1), { storeSinceYear: '2021' }), 'шестой год');
+  assert.equal(chatPrompt.storeYearsText(Date.UTC(2026, 8, 1), { storeSinceYear: 'мусор' }), 'второй год', 'мусор в поле — год по умолчанию');
+  assert.equal(chatPrompt.validStoreYear('2025'), true);
+  assert.equal(chatPrompt.validStoreYear('1989'), false);
+  assert.equal(chatPrompt.validStoreYear('2999'), false);
+  assert.equal(chatPrompt.validStoreYear(''), false);
+  assert.match(chatPrompt.storeText(Object.assign({}, SETTINGS, { storeAddress: 'г. Тюмень, ул. Ленина, 1', storeSinceYear: '2024' })),
+    /работает по этому адресу третий год/);
 
   /* Оплата описывается ПО РЕЖИМУ ВИТРИНЫ, а не развилкой «касса или заявка».
    * Магазин на своих реквизитах попадал во вторую ветку, и консультант обещал
