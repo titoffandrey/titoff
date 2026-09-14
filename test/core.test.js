@@ -3082,7 +3082,8 @@ test('добавление в корзину сразу уводит в корз
   assert.match(add, /слишком много разных товаров'\); return false;/);
   assert.match(add, /return true;\s*\},/);
   assert.match(js, /var added = Cart\.add\(/);
-  assert.match(js, /if \(added\) goToCheckout\(\);/);
+  // Уход в корзину ждёт цель Метрики «в корзину» (без счётчика — сразу).
+  assert.match(js, /if \(added\) reachGoal\('cart', \{\}, '', goToCheckout\);/);
   // Всплывающей подсказки на успехе больше нет — она гасла вместе со страницей.
   assert.doesNotMatch(add, /toast\(name/);
 });
@@ -4279,13 +4280,19 @@ test('карта «О компании» своя, и тайлы к ней от�
      плата за карту, у которой всё остальное наше. */
   assert.match(html, /class="map-credit" href="https:\/\/www\.openstreetmap\.org\/copyright"/);
   // Скрипта у карты нет вовсе: разметку рисует сервер, и она работает без JS.
-  assert.doesNotMatch(js, /initStoreMap|yandex|map-open|map-tile/);
+  assert.doesNotMatch(js, /initStoreMap|yandex\.ru\/map|map-widget|map-open|map-tile/);
 
-  /* ЧУЖИХ ХОСТОВ В CSP НЕ ОСТАЛОСЬ. Прежний `frame-src` с яндексовым доменом
-     стоял ради виджета; карта теперь своя, и тайлы проходят обычным
-     `img-src 'self'`. */
+  /* ЧУЖОЙ ХОСТ В CSP РОВНО ОДИН — счётчик Яндекс Метрики, и только в трёх
+     директивах (скрипт, его запросы, пиксель). Прежний `frame-src` с яндексовым
+     доменом стоял ради виджета карты; карта теперь своя, и тайлы проходят
+     обычным `img-src 'self'`. `frame-src`/`child-src` не открыты: они нужны
+     вебвизору, а он выключен. */
   const csp = lib.match(/'Content-Security-Policy': "([^"]+)"/)[1];
-  assert.doesNotMatch(csp, /yandex|frame-src|openstreetmap/);
+  assert.doesNotMatch(csp, /frame-src|child-src|openstreetmap|yandex\.ru\/map/);
+  assert.deepEqual(csp.match(/[\w.-]*yandex[\w.-]*/g), ['mc.yandex.ru', 'mc.yandex.ru', 'mc.yandex.ru']);
+  for (const directive of ['img-src', 'script-src', 'connect-src']) {
+    assert.match(csp, new RegExp(directive + " [^;]*https://mc\\.yandex\\.ru"), directive + ' обязан пускать счётчик');
+  }
   assert.match(csp, /img-src 'self' data: blob:/);
 
   /* Маршрут отдаёт ТОЛЬКО тайлы вокруг самого магазина и только на одном
@@ -8010,11 +8017,11 @@ test('витрина уводит на свою страницу оплаты т
    * банка (`payNow` от сервера): там наша страница показала бы одну кнопку и
    * таймер, то есть лишний экран между «Оплатить» и оплатой. Без `payNow`
    * поведение прежнее, и это первая строка функции. */
-  assert.match(js, /function startPayment\(orderId, payNow\) \{/);
+  assert.match(js, /function startPayment\(orderId, payNow, total\) \{/);
   assert.match(js, /if \(!payNow\) \{ location\.href = fallback; return; \}/);
   // Запрос к кассе с оформления возможен ТОЛЬКО по указанию сервера: своей
   // догадки о способах у витрины нет и быть не должно.
-  const direct = js.slice(js.indexOf('function startPayment(orderId, payNow)'), js.indexOf('function directRequestId'));
+  const direct = js.slice(js.indexOf('function startPayment(orderId, payNow, total)'), js.indexOf('function directRequestId'));
   assert.ok(direct.indexOf('if (!payNow)') < direct.indexOf("fetch('/api/pay/start'"),
     'без payNow до платёжки дело не доходит');
   assert.doesNotMatch(js, /crocopay\.tech|client_secret|Client-Secret/);
@@ -8183,7 +8190,7 @@ test('настройки идут разделами, и свёрнутая ст
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
   assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'domains', 'pay', 'price',
-    'chat', 'telegram', 'reviews', 'dadata', 'legal', 'access']);
+    'chat', 'telegram', 'reviews', 'dadata', 'ym', 'legal', 'access']);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
    * описывает, что внутри: описание читают один раз, а видят каждый день. */
@@ -8794,8 +8801,9 @@ test('при единственном способе с оплатой на ст
   assert.match(server, /!lastInChain && !PAY\.isHosted\(method\)/);
 
   // Витрина: передаёт способ, уходит на банк и всегда имеет запасной путь.
-  assert.match(app, /startPayment\(d\.id, d\.payNow\)/);
-  assert.match(app, /location\.href = d\.hostedUrl/);
+  assert.match(app, /startPayment\(d\.id, d\.payNow, d\.total\)/);
+  // Переход на банк ждёт цель Метрики «заказ», а без счётчика идёт сразу.
+  assert.match(app, /var go = function \(\) \{ location\.href = hosted \|\| fallback; \};/);
   assert.match(app, /\/\^https:\\\/\\\/\[\^\\s\/\]\+\/i\.test/,
     'адрес уезжает в location — проверяем его и на витрине, а не верим на слово');
   // Заминка любой природы — обычная страница оплаты: там покупатель увидит, что
@@ -18678,4 +18686,222 @@ test('панель: «Сохранено» не повторяется при о
   const views = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
   assert.match(views, /flashErr \? `<div class="a-flash err" data-flash>/,
     'ошибка остаётся плашкой в потоке, а не карточкой в углу');
+});
+
+/* ======================= Яндекс Метрика ======================= */
+
+test('счётчик Метрики отдаётся только пришедшим из Яндекса и никогда — владельцу', () => {
+  const YM = require('../lib/yandex-metrika');
+  const on = { ymCounterId: '12345678' };
+  const req = (extra) => Object.assign({ pathname: '/', query: {}, headers: {} }, extra || {});
+
+  // Номер — только цифры: он уезжает в разметку и в адрес скрипта.
+  assert.equal(YM.counterId(on), '12345678');
+  assert.equal(YM.counterId({ ymCounterId: ' 12345678 ' }), '12345678');
+  assert.equal(YM.counterId({ ymCounterId: '12ab' }), '', 'мусор в настройках читается как «нет счётчика»');
+  assert.equal(YM.counterId({}), '');
+  assert.equal(YM.parseCounter(''), '', 'пустое поле — «стереть», а не ошибка');
+  assert.equal(YM.parseCounter('123 456'), '123456');
+  assert.equal(YM.parseCounter('abc'), null, 'негодный номер форма обязана назвать, а не стереть');
+  // Поля нет — «только из Яндекса»: магазин, который не просил, всех не отдаёт.
+  assert.equal(YM.onlyYandex({}), true);
+  assert.equal(YM.onlyYandex({ ymOnlyYandex: false }), false);
+
+  // Откуда пришёл: метка Директа, UTM-источник, переход с самого Яндекса.
+  assert.equal(YM.fromYandex(req({ query: { yclid: '123' } })), true);
+  assert.equal(YM.fromYandex(req({ query: { utm_source: 'yandex' } })), true);
+  assert.equal(YM.fromYandex(req({ query: { utm_source: 'Yandex_direct' } })), true);
+  assert.equal(YM.fromYandex(req({ headers: { referer: 'https://yandex.ru/search/?text=iphone' } })), true);
+  assert.equal(YM.fromYandex(req({ headers: { referer: 'https://www.yandex.com.tr/' } })), true);
+  assert.equal(YM.fromYandex(req({ headers: { referer: 'https://ya.ru/' } })), true);
+  assert.equal(YM.fromYandex(req({ headers: { referer: 'https://www.google.com/' } })), false);
+  assert.equal(YM.fromYandex(req({ headers: { referer: 'https://notyandex.ru/' } })), false);
+  assert.equal(YM.fromYandex(req({ headers: { referer: 'мусор' } })), false);
+  assert.equal(YM.fromYandex(req()), false);
+
+  // Метка: first-party, HttpOnly, живёт окно атрибуции.
+  assert.equal(YM.marked(req({ headers: { cookie: 'sess=x; am_ym=1' } })), true);
+  assert.equal(YM.marked(req({ headers: { cookie: 'am_ym=0' } })), false);
+  assert.match(YM.cookieHeader(true), /^am_ym=1; Path=\/; HttpOnly; SameSite=Lax; Max-Age=7776000; Secure$/);
+  assert.equal(YM.SOURCE_DAYS, 90);
+  assert.equal(YM.markNeeded(on, req({ query: { yclid: '1' } })), true);
+  assert.equal(YM.markNeeded(on, req({ query: { yclid: '1' }, headers: { cookie: 'am_ym=1' } })), false, 'уже помечен');
+  assert.equal(YM.markNeeded(on, req()), false, 'не из Яндекса');
+  assert.equal(YM.markNeeded({ ymCounterId: '1', ymOnlyYandex: false }, req({ query: { yclid: '1' } })), false,
+    'в режиме «все посетители» метка не нужна');
+  assert.equal(YM.markNeeded({}, req({ query: { yclid: '1' } })), false, 'без счётчика метки нет');
+
+  // Куда не отдаётся никогда.
+  for (const p of ['/admin', '/admin/orders', '/track', '/track/abc', '/receipt/o1', '/api/cart', '/internal/tls-ask', '/static/app.js']) {
+    assert.equal(YM.pageAllowed(p), false, p);
+  }
+  for (const p of ['/', '/product/iphone-17', '/checkout', '/pay/o1', '/about', '/privacy', '/tracking-x']) {
+    assert.equal(YM.pageAllowed(p), true, p);
+  }
+
+  // Решение целиком.
+  assert.deepEqual(YM.decide(on, req({ query: { yclid: '1' } }), false), { id: '12345678' });
+  assert.equal(YM.decide(on, req(), false), null, 'пришёл не из Яндекса и не помечен');
+  assert.deepEqual(YM.decide(on, req({ headers: { cookie: 'am_ym=1' } }), false), { id: '12345678' }, 'помечен — считаем и на возврате');
+  assert.equal(YM.decide(on, req({ query: { yclid: '1' } }), true), null, 'владелец, правило «не считать» или отказ от метрики');
+  assert.equal(YM.decide(on, req({ pathname: '/track/abc', query: { yclid: '1' } }), false), null);
+  assert.equal(YM.decide({}, req({ query: { yclid: '1' } }), false), null, 'счётчика нет');
+  assert.deepEqual(YM.decide({ ymCounterId: '77', ymOnlyYandex: false }, req(), false), { id: '77' }, 'режим «все посетители»');
+});
+
+test('разметка витрины со счётчиком подключает ym.js раньше app.js, а без него не знает про Яндекс', () => {
+  const on = Object.assign({}, SETTINGS, { ymCounterId: '12345678' });
+  const html = render.layout(on, { body: '', canonicalPath: '/', ym: { id: '12345678' } });
+  assert.match(html, /<html lang="ru" data-ym="12345678">/);
+  assert.ok(html.indexOf('/static/ym.js?v=') < html.indexOf('/static/app.js?v='),
+    'ym.js стоит раньше app.js: window.ymGoal должен существовать к моменту, когда app.js отметит цель');
+  // Номер экранируется: он из настроек, а те правят и руками.
+  assert.match(render.layout(on, { body: '', ym: { id: '1"2' } }), /data-ym="1&quot;2"/);
+  // Без решения сервера ни номера, ни скрипта, ни слова про Яндекс — даже если
+  // счётчик в настройках задан: отдавать ли его, решает `opts.ym`.
+  const off = render.layout(on, { body: '', canonicalPath: '/' });
+  assert.doesNotMatch(off, /data-ym|ym\.js|yandex/i);
+  assert.doesNotMatch(render.layout(SETTINGS, { body: '', canonicalPath: '/' }), /yandex/i);
+
+  // Все страницы витрины протаскивают `ym` в layout, кроме отслеживания и чека:
+  // там в адресе секретный ключ либо документ о покупке, и уехать в чужую
+  // статистику они не должны, даже если обвязка страницы признак передала.
+  const product = { id: 'p1', name: 'Товар', category: 'Категория', price: 100, inStock: true, images: [], colors: [], storages: [] };
+  const shop = {
+    getProducts: () => [product], visibleProducts: () => [product],
+    categories: () => ['Категория'], visibleCategories: () => ['Категория'],
+    ratingFor: () => ({ avg: 0, count: 0 }), reviewsForProduct: () => []
+  };
+  const order = { id: 'o1', number: 482913, total: 68200, items: [{ id: 'p1', name: 'Товар', price: 68200, qty: 1 }], createdAt: Date.now() };
+  const ym = { id: '12345678' };
+  const pages = {
+    'главная': render.homePage(on, shop, { category: '', q: '', origin: '', ym }, null),
+    'товар': render.productPage(on, shop, product, { origin: '', ym }),
+    'оформление': render.checkoutPage(on, { origin: '', ym }),
+    'оплата': render.payPage(on, order, { origin: '', ym }),
+    'политика': render.privacyPage(on, { origin: '', ym }),
+    'согласие': render.personalDataConsentPage(on, { origin: '', ym }),
+    'гарантия': render.warrantyPage(on, { origin: '', ym }),
+    'возврат': render.returnsPage(on, { origin: '', ym }),
+    'о компании': render.aboutPage(on, { origin: '', ym }),
+    'не найдено': render.notFoundPage(on, { origin: '', ym })
+  };
+  for (const [name, page] of Object.entries(pages)) assert.match(page, /data-ym="12345678"/, name);
+  const closed = {
+    'чек': render.receiptPage(on, Object.assign({}, order, { payment: { status: 'paid' } }), { origin: '', ym }),
+    'отслеживание': render.trackingPage(on, { origin: '', ym, orders: [] })
+  };
+  for (const [name, page] of Object.entries(closed)) assert.doesNotMatch(page, /data-ym|ym\.js|yandex/i, name);
+
+  // Обвязку признак собирает вместе с остальными — а решение принимает та же
+  // пара, что исключает владельца из своей метрики.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const opts = server.slice(server.indexOf('function pageOpts('), server.indexOf('function sendNotFound('));
+  assert.match(opts, /ym: ymFor\(req\)/);
+  assert.match(opts, /YM\.decide\(settings\(\), req, metrics\.trackingDisabled\(req\) \|\| metricsSkipped\(req\)\)/);
+  // Метка «из Яндекса» ставится там же, где cookie своей метрики, и с теми же
+  // исключениями (владелец, отказ, технический запрос).
+  const track = server.slice(server.indexOf('function trackPage('), server.indexOf('function loginBlocked('));
+  assert.match(track, /if \(!technical && YM\.markNeeded\(settings\(\), req\)\) cookies\.push\(YM\.cookieHeader\(secure\)\)/);
+  assert.ok(track.indexOf('if (metrics.trackingDisabled(req) || metricsSkipped(req)) return;') < track.indexOf('YM.markNeeded'));
+});
+
+test('страница оплаты несёт сумму и состав заказа для целей Метрики только у оплаченного', () => {
+  const on = Object.assign({}, SETTINGS, { ymCounterId: '12345678' });
+  const items = [{ id: 'p1', name: 'Товар "с кавычкой"', price: 68200, qty: 2 }];
+  const base = { id: 'o1', number: 482913, total: 137100, items, createdAt: Date.now() };
+  const unpaid = render.payPage(on, base, { origin: '' });
+  assert.match(unpaid, /id="pay-page"[^>]*data-total="137100"/);
+  assert.match(unpaid, /data-number="482913"/);
+  assert.doesNotMatch(unpaid, /data-paid|data-items/, 'состав кладём только у оплаченного');
+  const paid = render.payPage(on, Object.assign({}, base, { payment: { status: 'paid' } }), { origin: '' });
+  assert.match(paid, /data-paid="1"/);
+  const attr = paid.match(/data-items="([^"]*)"/)[1];
+  const parsed = JSON.parse(attr.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+  assert.deepEqual(parsed, [{ id: 'p1', name: 'Товар "с кавычкой"', price: 68200, quantity: 2 }]);
+  // Ручная отметка менеджера — тоже оплачено.
+  const manual = render.payPage(on, Object.assign({}, base, { manualPaid: { at: Date.now(), by: 'admin' } }), { origin: '' });
+  assert.match(manual, /data-paid="1"/);
+});
+
+test('цели Метрики: загрузчик без вебвизора, а витрина ждёт отправку цели перед уходом со страницы', () => {
+  const ym = fs.readFileSync(path.join(__dirname, '..', 'public', 'ym.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const pay = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  // Единственное место, знающее адрес Яндекса, — загрузчик; сам он ничего не
+  // делает без номера в разметке.
+  assert.match(ym, /https:\/\/mc\.yandex\.ru\/metrika\/tag\.js/);
+  assert.match(ym, /getAttribute\('data-ym'\)/);
+  assert.match(ym, /if \(!id\) return;/);
+  assert.doesNotMatch(app + pay, /mc\.yandex|tag\.js/);
+  // Вебвизор и карта кликов выключены: поля оформления Яндексу не уходят.
+  assert.match(ym, /webvisor: false/);
+  assert.match(ym, /clickmap: false/);
+  assert.match(ym, /trackLinks: false/);
+  assert.match(ym, /accurateTrackBounce: true/);
+  assert.match(ym, /ecommerce: 'dataLayer'/);
+  // Ключ одноразовости и колбэк «отправлено» в любом исходе.
+  assert.match(ym, /w\.ymGoal = function \(name, params, once, done\)/);
+  assert.match(ym, /var timer = setTimeout\(finish, GOAL_WAIT\)/);
+  assert.match(ym, /w\.ym\(id, 'reachGoal', String\(name\), params \|\| \{\}, function \(\) \{ clearTimeout\(timer\); finish\(\); \}\)/);
+  assert.match(ym, /w\.ymPurchase = function \(order, once\)/);
+  // Цели витрины: «в корзину», «заказ» (только у настоящего заказа, с суммой) и
+  // «оплачено» с покупкой — и уход со страницы ждёт колбэка.
+  assert.match(app, /reachGoal\('cart', \{\}, '', goToCheckout\)/);
+  assert.match(app, /if \(d\.id && !d\.draft\) reachGoal\('order', \{ order_price: Number\(d\.total\) \|\| 0, currency: 'RUB' \}, 'order:' \+ d\.id, next\);/);
+  assert.match(app, /if \(d && \(d\.ok \|\| d\.placed\)\) reachGoal\('order', \{ order_price: Number\(total\) \|\| 0, currency: 'RUB' \}, 'order:' \+ orderId, go\);/);
+  assert.match(pay, /reachGoal\('paid', \{ order_price: total, currency: 'RUB' \}, 'paid:' \+ orderId, null\)/);
+  assert.match(pay, /window\.ymPurchase\(\{ id: page\.dataset\.number \|\| orderId, revenue: total, products: [^}]+\}, 'purchase:' \+ orderId\)/);
+  assert.match(pay, /reachGoal\('order', \{ order_price: total, currency: 'RUB' \}, 'order:' \+ orderId, function \(\) \{ location\.href = safePayUrl\(d\.url\); \}\)/);
+  // Без счётчика оба идут дальше сразу — договор один на витрину и оплату.
+  for (const src of [app, pay]) {
+    assert.match(src, /if \(typeof window\.ymGoal === 'function'\) window\.ymGoal\(name, params, once, done\);\s*else if \(typeof done === 'function'\) done\(\);/);
+  }
+  // Отказ от метрики стирает и cookie Метрики: на нашем домене, сервер до них
+  // не дотянется.
+  assert.match(app, /function dropYmCookies\(\)/);
+  assert.match(app, /_ym_uid/);
+  const withdraw = app.slice(app.indexOf("fetch('/api/analytics/withdraw'"), app.indexOf("disable.textContent = 'Метрика отключена'"));
+  assert.match(withdraw, /dropYmCookies\(\)/);
+});
+
+test('номер счётчика — настройка сайта: сбрасывается при переносе, правится в панели, названа в политике', () => {
+  const { SITE_FIELDS } = require('../scripts/import-store');
+  assert.ok(Object.values(SITE_FIELDS).flat().includes('ymCounterId'),
+    'второй сайт с тем же номером был бы публично связан с первым');
+  const defaults = dbCore.defaultSettings();
+  assert.equal(defaults.ymCounterId, '');
+  assert.equal(defaults.ymOnlyYandex, true);
+
+  // Панель: свёрнутая строка называет номер и режим.
+  const db = { pendingReviewCount: () => 0, getOrders: () => [] };
+  const base = Object.assign(dbCore.defaultSettings(), { storeName: 'iStore', legalOperator: 'ИП Иванов' });
+  assert.match(adminViews.settingsPage(base, db, null), /счётчика нет — витрина Яндексу ничего не отдаёт/);
+  const withId = adminViews.settingsPage(Object.assign({}, base, { ymCounterId: '12345678' }), db, null);
+  assert.match(withId, /счётчик 12345678 · только для пришедших из Яндекса/);
+  assert.match(withId, /name="ymForm" value="1"/);
+  assert.match(withId, /name="ymOnlyYandex" checked/);
+  assert.match(adminViews.settingsPage(Object.assign({}, base, { ymCounterId: '12345678', ymOnlyYandex: false }), db, null), /счётчик 12345678 · все посетители/);
+  // Форма: негодный номер — отказ до записи, снятая галочка узнаётся по признаку секции.
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /if \(counter === null\) return fail\('Номер счётчика Яндекс Метрики — только цифры/);
+  assert.match(server, /if \(req\.body\.ymForm !== undefined\)/);
+  assert.match(server, /patch\.ymOnlyYandex = req\.body\.ymOnlyYandex !== undefined/);
+  const form = server.slice(server.indexOf("app.post('/admin/settings'"));
+  assert.ok(form.indexOf("return fail('Номер счётчика") < form.indexOf('db.saveSettings(patch)'), 'проверка раньше записи');
+
+  // Политика: собираем — называем; не собираем — не обещаем.
+  const off = render.privacyPage(SETTINGS, { origin: '' });
+  assert.doesNotMatch(off, /Яндекс|yandex|am_ym/);
+  assert.match(off, /не использует сторонние рекламные cookie/);
+  const only = render.privacyPage(Object.assign({}, SETTINGS, { ymCounterId: '12345678' }), { origin: '' });
+  assert.match(only, /только у посетителей, пришедших из Яндекса/);
+  assert.match(only, /<code>am_ym<\/code>/);
+  assert.match(only, /_ym_uid/);
+  assert.match(only, /Вебвизор\) выключена/);
+  assert.match(only, /Сервер сайта в Яндекс ничего не отправляет/);
+  assert.doesNotMatch(only, /не использует сторонние рекламные cookie/);
+  const all = render.privacyPage(Object.assign({}, SETTINGS, { ymCounterId: '12345678', ymOnlyYandex: false }), { origin: '' });
+  assert.match(all, /у всех посетителей/);
+  assert.doesNotMatch(all, /<code>am_ym<\/code>/, 'в режиме «все посетители» метки нет');
 });

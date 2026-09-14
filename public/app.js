@@ -1977,6 +1977,15 @@
     location.href = '/checkout';
   }
 
+  /* Цель Яндекс Метрики. Счётчик грузит `public/ym.js` — только там, где сервер
+   * его подключил этому посетителю; без него `window.ymGoal` нет, и вызывающий
+   * просто идёт дальше. `done` зовётся ровно один раз в любом исходе, и уход со
+   * страницы ждёт его: `location.href` сразу за целью обрывал бы её запрос. */
+  function reachGoal(name, params, once, done) {
+    if (typeof window.ymGoal === 'function') window.ymGoal(name, params, once, done);
+    else if (typeof done === 'function') done();
+  }
+
   var toastTimer;
   function toast(msg) {
     var t = document.getElementById('toast'); if (!t) return;
@@ -2181,6 +2190,22 @@
       .catch(function () {});
   }
 
+  /* Отказ от метрики гасит и счётчик Яндекс Метрики: со следующей страницы
+   * сервер его не отдаст (та же cookie отказа), а уже поставленные им cookie
+   * стираем здесь — они первой стороны, на нашем домене, и сервер до них не
+   * дотянется. Метрика ставит их на домен верхнего уровня, поэтому перебираем и
+   * голое имя, и оба варианта домена. */
+  function dropYmCookies() {
+    var names = ['_ym_uid', '_ym_d', '_ym_isad', '_ym_visorc', '_ym_metrika_enabled', '_ym_debug'];
+    var host = location.hostname.replace(/^www\./, '');
+    var domains = ['', '; Domain=' + host, '; Domain=.' + host];
+    names.forEach(function (name) {
+      domains.forEach(function (domain) {
+        try { document.cookie = name + '=; Max-Age=0; Path=/' + domain; } catch (e) {}
+      });
+    });
+  }
+
   function initAnalyticsControls() {
     var disable = document.getElementById('analytics-disable');
     if (!disable) return;
@@ -2201,6 +2226,7 @@
           try { localStorage.setItem(ANALYTICS_DISABLED_KEY, '1'); } catch (e) {}
           if (analyticsTimer) clearInterval(analyticsTimer);
           analyticsTimer = null;
+          dropYmCookies();
           disable.textContent = 'Метрика отключена';
         }).catch(function () { disable.disabled = false; });
     });
@@ -2425,7 +2451,9 @@
           // подсказка и есть весь ответ.
           var added = Cart.add(id, btn.dataset.name, Number(btn.dataset.price), qty, { storage: btn.dataset.storage, color: btn.dataset.color,
             band: btn.dataset.band, bandSize: btn.dataset.bandSize, options: picked, img: btn.dataset.img });
-          if (added) goToCheckout();
+          // Цель «в корзину» — микроконверсия для Директа: заказов может быть
+          // мало для обучения стратегии, а добавлений в корзину хватает.
+          if (added) reachGoal('cart', {}, '', goToCheckout);
         }
         return;
       }
@@ -3116,7 +3144,7 @@
    * Любая заминка — обычный путь на `/pay/:id`: там покупатель увидит, что
    * случилось, и сможет повторить. Терять покупку на отказе кассы нельзя.
    */
-  function startPayment(orderId, payNow) {
+  function startPayment(orderId, payNow, total) {
     var fallback = '/pay/' + encodeURIComponent(orderId);
     if (!payNow) { location.href = fallback; return; }
     var requestId = directRequestId(orderId, payNow);
@@ -3134,11 +3162,14 @@
         // Ссылка банка приходит отдельным полем и уже проверена сервером
         // (только https и явный хост), но перед переходом смотрим ещё раз:
         // адрес уезжает в location, и доверять ему на слово нельзя.
-        if (d && d.ok && d.hostedUrl && /^https:\/\/[^\s/]+/i.test(String(d.hostedUrl))) {
-          location.href = d.hostedUrl;
-          return;
-        }
-        location.href = fallback;
+        var hosted = d && d.ok && d.hostedUrl && /^https:\/\/[^\s/]+/i.test(String(d.hostedUrl)) ? String(d.hostedUrl) : '';
+        var go = function () { location.href = hosted || fallback; };
+        // Способ выбран — черновик стал заказом (`placed` стоит и у отказа
+        // кассы: заказ записан, менеджер его видит). Это и есть цель «заказ»
+        // для Директа; на ту же страницу оплаты она не повторится — ключ
+        // одноразовости по заказу.
+        if (d && (d.ok || d.placed)) reachGoal('order', { order_price: Number(total) || 0, currency: 'RUB' }, 'order:' + orderId, go);
+        else go();
       })
       .catch(function () { location.href = fallback; });
   }
@@ -3337,8 +3368,18 @@
           if (page) {                       // страница оформления: показываем результат на всю ширину
             // Оплата — отдельный шаг поверх записанной заявки, поэтому уводим на
             // форму только после подтверждения, что заказ создан.
-            if (online && d.id) { startPayment(d.id, d.payNow); return; }
-            showOrderDone(d.number || '—');
+            //
+            // Цель «заказ» для Метрики — ТОЛЬКО у настоящего заказа: черновик
+            // (способ оплаты ещё не выбран) заказом не считается ни в панели,
+            // ни в своей метрике, и Яндексу его тоже не показываем — он станет
+            // целью при выборе способа (`startPayment`, pay.js). Уход на оплату
+            // ждёт отправки цели.
+            var next = function () {
+              if (online && d.id) { startPayment(d.id, d.payNow, d.total); return; }
+              showOrderDone(d.number || '—');
+            };
+            if (d.id && !d.draft) reachGoal('order', { order_price: Number(d.total) || 0, currency: 'RUB' }, 'order:' + d.id, next);
+            else next();
             return;
           }
           var items = document.getElementById('cart-items');

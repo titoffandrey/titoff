@@ -19,6 +19,29 @@
   // приезжает готовой — скрипт только передаёт её вместе со способом, чтобы
   // счёт вышел в той же валюте, сумму которой покупатель видел на странице.
   var currency = page.dataset.currency || '';
+  // Рублёвая сумма заказа — ценность целей для Метрики (`order_price`).
+  var total = Number(page.dataset.total || 0) || 0;
+
+  /* Цель Яндекс Метрики — тот же договор, что в app.js: `window.ymGoal` есть
+   * только там, где сервер подключил счётчик; без него идём дальше сразу. */
+  function reachGoal(name, params, once, done) {
+    if (typeof window.ymGoal === 'function') window.ymGoal(name, params, once, done);
+    else if (typeof done === 'function') done();
+  }
+
+  /* Страница пришла оплаченной — это цель «оплачено» и покупка для
+   * электронной коммерции, по разу на заказ (ключ одноразовости живёт в
+   * localStorage, см. public/ym.js): страницу оплаты открывают повторно, а
+   * платят один раз. Состав заказа сервер кладёт в разметку только у
+   * оплаченного. */
+  if (page.dataset.paid === '1') {
+    var items = [];
+    try { items = JSON.parse(page.dataset.items || '[]'); } catch (e) { items = []; }
+    reachGoal('paid', { order_price: total, currency: 'RUB' }, 'paid:' + orderId, null);
+    if (typeof window.ymPurchase === 'function') {
+      window.ymPurchase({ id: page.dataset.number || orderId, revenue: total, products: Array.isArray(items) ? items : [] }, 'purchase:' + orderId);
+    }
+  }
 
   /* ------------------------------ Копирование ------------------------------ */
   // Номер карты покупатель переносит в банковское приложение — это главное
@@ -240,9 +263,18 @@
          * напоминает полоса под шапкой (`payRemind` в server.js) — так что
          * второй такой же заказ покупатель оформит разве что нарочно. */
         if (d && d.ok && window.Cart && Cart.clear) Cart.clear();
+        // Способ выбран — черновик стал заказом, и это цель «заказ» для Директа.
+        // `placed` стоит и у отказа кассы (заказ записан, менеджер его видит),
+        // поэтому цель уходит и тогда; повтор по тому же заказу отсекает ключ
+        // одноразовости. Переход на выданный адрес ждёт отправки цели.
+        var placed = !!(d && (d.ok || d.placed));
         // Реквизиты рисует сервер, поэтому на успех открываем выданный им адрес.
         // Это заодно убирает из URL прежний выбор валюты.
-        if (d && d.ok) { location.href = safePayUrl(d.url); return; }
+        if (d && d.ok) {
+          reachGoal('order', { order_price: total, currency: 'RUB' }, 'order:' + orderId, function () { location.href = safePayUrl(d.url); });
+          return;
+        }
+        if (placed) reachGoal('order', { order_price: total, currency: 'RUB' }, 'order:' + orderId, null);
         var error = (d && d.error) || 'Не удалось выставить счёт';
         var next = null;
         if (d && d.suggestedMethod) {

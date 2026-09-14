@@ -27,6 +27,7 @@ const MERIDIAN = require('./lib/meridianpay');
 const ALFA = require('./lib/alfabank');
 const DELIVERY = require('./lib/delivery');
 const DOMAINS = require('./lib/domains');
+const YM = require('./lib/yandex-metrika');
 // Маршрут посылки: собирает и проверяет его этот модуль, хранит сам заказ, а
 // показывает `/track/:number` и раздел отправления в панели.
 const TRACK = require('./lib/tracking');
@@ -718,11 +719,18 @@ function trackPage(req, res, pathname, options) {
     context.botName = context.botName || 'HEAD-запрос';
   }
   const technical = !!(options.is404 || context.isBot);
+  const secure = originOf(req).startsWith('https://');
+  const cookies = [];
   let id = metrics.visitorId(req);
   if (!id) {
     id = metrics.newVisitorId();
-    if (!technical) res.setHeader('Set-Cookie', metrics.cookieHeader(id, originOf(req).startsWith('https://')));
+    if (!technical) cookies.push(metrics.cookieHeader(id, secure));
   }
+  /* Метка «пришёл из Яндекса» для счётчика Метрики — там же, где ставится
+   * cookie своей метрики, и с теми же исключениями: владелец, отказавшийся от
+   * метрики и технический запрос её не получают (см. lib/yandex-metrika.js). */
+  if (!technical && YM.markNeeded(settings(), req)) cookies.push(YM.cookieHeader(secure));
+  if (cookies.length) res.setHeader('Set-Cookie', cookies);
   metrics.recordPageView({
     id, path: pathname, host: req.headers.host,
     requestedPath: options.requestedPath, is404: !!options.is404, provisional: !options.is404,
@@ -903,8 +911,20 @@ function pageOpts(req, extra) {
     origin: originOf(req),
     categories: db.visibleCategories(),
     payRemind: payRemind(req),
-    chatWaiting: chatWaiting(req)
+    chatWaiting: chatWaiting(req),
+    ym: ymFor(req)
   }, extra || {});
+}
+
+/* Отдавать ли этому посетителю счётчик Яндекс Метрики.
+ *
+ * Кого счётчик не касается, решает ТА ЖЕ пара, что исключает человека из своей
+ * метрики: отказ от метрики (`trackingDisabled`) и `metricsSkipped` — живая
+ * сессия панели и правила «не считать». Второго списка исключений нет: иначе
+ * владелец, исключённый из своей метрики, продолжал бы уезжать в Яндекс. Всё
+ * остальное — номер, страницы, режим «только из Яндекса» — решает модуль. */
+function ymFor(req) {
+  return YM.decide(settings(), req, metrics.trackingDisabled(req) || metricsSkipped(req));
 }
 
 /* Сколько сообщений ждёт покупателя в чате.
@@ -5096,6 +5116,17 @@ app.post('/admin/settings', async (req, res) => {
   }
   // Ключ «Подсказок» dadata.ru. Пустое поле стирает ключ.
   if (req.body.dadataToken !== undefined) patch.dadataToken = String(req.body.dadataToken).trim().slice(0, 200);
+  /* Яндекс Метрика: номер счётчика и режим «только из Яндекса». Негодный номер
+   * — отказ с объяснением, а не молча стёртое поле: владелец увидел бы
+   * «Сохранено» и ждал конверсий в Директе, которых никто не считает. Снятая
+   * галочка приходит отсутствием поля, поэтому секцию узнаём по `ymForm` — то
+   * же правило, что у отзывов и способов оплаты. */
+  if (req.body.ymForm !== undefined) {
+    const counter = YM.parseCounter(req.body.ymCounterId);
+    if (counter === null) return fail('Номер счётчика Яндекс Метрики — только цифры, например 12345678');
+    patch.ymCounterId = counter;
+    patch.ymOnlyYandex = req.body.ymOnlyYandex !== undefined;
+  }
   /* Дополнительные домены. Проверка идёт ДО записи и НАЗЫВАЕТ негодную строку,
    * как цена варианта и реквизиты продавца: имя уезжает в ответ прокси, а
    * оттуда — в запрос сертификата у Let's Encrypt. Молча выбросить строку было

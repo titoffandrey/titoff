@@ -59,6 +59,9 @@ const SITE_FIELDS = {
   'реквизиты продавца': ['legalOperator', 'legalInn', 'legalOgrn', 'legalDetails', 'legalAddress', 'privacyEmail',
     'bankAccount', 'bankName', 'bankBik', 'bankCorr', 'bankInn', 'bankKpp'],
   'Telegram': ['telegramBotToken', 'telegramChatId', 'chatChatId'],
+  // Номер счётчика стоит в HTML открытым текстом, и сервисы обратного поиска
+  // связывают сайты с одним номером ПУБЛИЧНО — у второго сайта он свой.
+  'Яндекс Метрика': ['ymCounterId'],
   'кассы и свои реквизиты': ['crocopayEnabled', 'crocopayClientId', 'crocopayClientSecret',
     'meridianpayEnabled', 'meridianpayApiKey', 'meridianpayMerchantId', 'meridianpaySecret',
     'alfabankEnabled', 'alfabankToken', 'alfabankLogin', 'alfabankPassword', 'alfabankTest',
