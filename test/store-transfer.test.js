@@ -209,6 +209,25 @@ test('что считать ссылкой на файл, решает одно 
   }
 });
 
+test('перенос каталога идёт через Tor частями, по своей цепочке каждая, с докачкой и сверкой', () => {
+  // Один scp на 2,4 ГБ по одной цепочке Tor — 140 КБ/с и обрыв с нуля (14 сентября 2026).
+  const clone = fs.readFileSync(path.join(ROOT, 'deploy', 'clone-data.sh'), 'utf8');
+  assert.match(clone, /tor-socks\.py/, 'части едут через ProxyCommand с логином SOCKS — свою цепочку Tor на каждую');
+  assert.match(clone, /split -n \$JOBS/, 'архив режется на части');
+  assert.match(clone, /rsync --partial --append/, 'обрыв докачивается с места, а не с нуля');
+  assert.match(clone, /setsid nohup[^\n]*export-store\.js/, 'экспорт отвязан от SSH-сессии');
+  assert.match(clone, /setsid nohup[\s\S]{0,200}import-store\.js[^\n]*--apply/, 'заливка отвязана от SSH-сессии: сорвавшаяся сессия не оставит её на половине');
+  assert.match(clone, /sha256sum '\$REMOTE'/, 'сумма архива сверяется на обоих концах');
+  assert.doesNotMatch(clone, /^\s*scp\b/m, 'одного scp на весь архив быть не должно');
+  // Серверы друг друга не касаются: всё едет через ноутбук.
+  assert.doesNotMatch(clone, /"\$FROM:[^"]*"\s+"\$TO:/, 'архив не идёт с сервера на сервер напрямую');
+  const proxy = fs.readFileSync(path.join(ROOT, 'deploy', 'tor-socks.py'), 'utf8');
+  assert.match(proxy, /TOR_SOCKS/, 'адрес SOCKS — переменная, по умолчанию Tor Browser');
+  assert.match(proxy, /127\.0\.0\.1:9150/, 'по умолчанию — SOCKS Tor Browser');
+  assert.match(proxy, /x01\\x02/, 'метод SOCKS5 с логином — им и изолируются цепочки');
+  assert.doesNotMatch(proxy, /create_connection\(\(host/, 'прямого подключения мимо Tor у прокси-команды нет');
+});
+
 test('выкатка заливает на сервер только то, что знает git', () => {
   const install = fs.readFileSync(path.join(ROOT, 'deploy', 'install.sh'), 'utf8');
   assert.match(install, /git ls-files -z --cached --others --exclude-standard/);
