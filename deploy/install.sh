@@ -155,10 +155,33 @@ if [ -z "$REPO" ]; then
   else
     DEPLOY_STATE='clean'
   fi
-  {
+  MARK_BODY="$(
     echo "$DEPLOY_COMMIT $DEPLOY_BRANCH $DEPLOY_STATE $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     git -C "$ROOT" status --porcelain 2>/dev/null | sed 's/^/  /' | head -40
-  } | ssh -o BatchMode=yes "$ALIAS" "mkdir -p \"\$(dirname '$MARK')\" && cat > '$MARK'"
+  )"
+  # Это ОТДЕЛЬНОЕ соединение через Tor, и оно вправе не подняться с первого
+  # раза (SOCKS error, «timed out during banner exchange» — обычное дело у
+  # onion). Сама выкатка к этому моменту уже прошла, и один сорвавшийся
+  # сокет не должен превращать её в «не выкачен»: 14 сентября 2026 ровно так
+  # deploy-all.sh отчитался ✗ при живом новом коде на сервере, а отметка
+  # осталась старой. Поэтому три попытки с паузой; не вышло — говорим об этом
+  # прямо и выходим своим кодом 2, чтобы deploy-all.sh отличил «не выкачен»
+  # от «выкачен, но отметка не записана».
+  MARK_OK=0
+  for attempt in 1 2 3; do
+    if printf '%s\n' "$MARK_BODY" | ssh -o BatchMode=yes "$ALIAS" "mkdir -p \"\$(dirname '$MARK')\" && cat > '$MARK'"; then
+      MARK_OK=1; break
+    fi
+    echo "  отметка выкатки не записалась (попытка $attempt из 3), повторяю…"
+    sleep 5
+  done
+  if [ "$MARK_OK" != 1 ]; then
+    echo
+    echo "ВЫКАТКА ПРОШЛА, НО ОТМЕТКА НЕ ЗАПИСАНА: $MARK на сервере остался прежним."
+    echo 'Запишите её руками, иначе следующая выкатка будет сверяться со старым коммитом:'
+    echo "  echo '$DEPLOY_COMMIT $DEPLOY_BRANCH $DEPLOY_STATE' | ssh $ALIAS \"cat > '$MARK'\""
+    exit 2
+  fi
 fi
 
 cat <<DONE

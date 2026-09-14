@@ -44,8 +44,15 @@ while read -r ALIAS DOMAIN _; do
   FOUND=$((FOUND + 1))
   echo
   echo "################ $DOMAIN ($ALIAS) ################"
-  if "$ROOT/deploy/install.sh" "$ALIAS" "$DOMAIN"; then
+  "$ROOT/deploy/install.sh" "$ALIAS" "$DOMAIN"
+  CODE=$?
+  if [ "$CODE" = 0 ]; then
     RESULTS+=("  ✓ $DOMAIN")
+  elif [ "$CODE" = 2 ]; then
+    # install.sh выходит двойкой ровно в одном случае: код на сервере уже
+    # новый, а отметку выкатки записать не удалось (см. его хвост).
+    RESULTS+=("  ⚠ $DOMAIN — выкачен, но отметка deployed-from.txt не записана (см. выше, запишите руками)")
+    FAILED=$((FAILED + 1))
   else
     RESULTS+=("  ✗ $DOMAIN — НЕ ВЫКАЧЕН")
     FAILED=$((FAILED + 1))
