@@ -218,10 +218,16 @@ test('выкатка заливает на сервер только то, чт�
   for (const dir of ['data/', '.claude/', 'apple_svg/', 'apple-photos/', 'tmp/', 'output/']) {
     assert.ok(ignore.split('\n').includes(dir), '.gitignore обязан знать ' + dir);
   }
-  // Список сайтов и выкатка на все разом.
+  // Список сайтов и выкатка на все разом. Сам список локальный: домены разных
+  // магазинов не должны стоять рядом в открытом репозитории — в git только образец.
   const all = fs.readFileSync(path.join(ROOT, 'deploy', 'deploy-all.sh'), 'utf8');
   assert.match(all, /sites\.txt/);
+  assert.match(all, /sites\.example\.txt/, 'без списка скрипт показывает, откуда его взять');
   assert.match(all, /install\.sh/);
-  const sites = fs.readFileSync(path.join(ROOT, 'deploy', 'sites.txt'), 'utf8');
-  assert.match(sites, /^istore2-onion\s+adcappl\.com\s*$/m, 'первый сайт записан');
+  assert.ok(ignore.split('\n').includes('deploy/sites.txt'), 'настоящий список сайтов в git не идёт');
+  assert.ok(!fs.existsSync(path.join(ROOT, '.git')) || !require('child_process').execSync('git ls-files deploy/sites.txt', { cwd: ROOT }).toString().trim(),
+    'deploy/sites.txt не должен быть на учёте git');
+  const example = fs.readFileSync(path.join(ROOT, 'deploy', 'sites.example.txt'), 'utf8');
+  assert.match(example, /^#\s+<ssh-алиас>\s+<домен>\s*$/m, 'образец описывает формат строки');
+  assert.doesNotMatch(example, /^[^#\s]\S*\s+\S+\.\S+/m, 'в образце нет ни одного настоящего сайта');
 });

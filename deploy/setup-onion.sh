@@ -3,12 +3,24 @@
 # В консоли хостера набирать длинные строки нечем — вставка в текстовый tty невозможна,
 # поэтому вся настройка приезжает сюда одной короткой командой:
 #
-#   curl -sL <ссылка> | bash
+#   curl -sL <ссылка> | bash -s istore3
+#
+# Аргумент — ИМЯ КЛЮЧА из таблицы ниже. У каждого сервера свой ключ, и это не
+# перестраховка: сайты на этом коде — разные магазины, и общий ключ в
+# authorized_keys обеих машин был бы единственной ниткой между ними. Без
+# аргумента скрипт отказывает: положить не тот ключ молча хуже, чем не положить.
 #
 # Скрипт идемпотентен: повторный запуск ничего не ломает.
 set -euo pipefail
 
-KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJoROpTC90dT9Gfxbd1QyuxZOHCMmsEYt6wr8NtmxaO istore2-onion-2026-08-08'
+NAME="${1:-}"
+case "$NAME" in
+  istore2) KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJoROpTC90dT9Gfxbd1QyuxZOHCMmsEYt6wr8NtmxaO istore2-onion-2026-08-08';;
+  istore3) KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC3Nx7H/iFwtpeYZyY93DiwhY/hGRDLO/vuXnJFs6Afq istore3-onion-2026-09-14';;
+  *)
+    echo "Назовите ключ сервера: curl -sL <ссылка> | bash -s istore3   (известны: istore2, istore3)"
+    exit 1;;
+esac
 
 [ "$(id -u)" -eq 0 ] || { echo 'Нужен root'; exit 1; }
 
