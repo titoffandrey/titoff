@@ -1670,22 +1670,20 @@ function rememberOwnOrder(req, order) {
  * платят ли по нему на стороне банка.
  */
 function directPayMethod(s) {
-  if (PAYMENTS.mode(s) !== 'cashbox') return '';
-  const own = Array.isArray(s && s.payMethods) ? s.payMethods : PAY.DEFAULT_IDS;
   /* Отмеченного владельцем мало: галочки остаются стоять и у способов
    * ВЫКЛЮЧЕННЫХ касс. На боевой витрине так и было — отмечены «СБП», «Перевод
    * на карту» и «Банковская карта», при том что включена одна касса и умеет она
    * только карту. Покупателю показывался один способ, а сокращать путь мы не
    * брались, потому что считали по галочкам.
    *
-   * Поэтому спрашиваем сами кассы — но `supports()`, а не живой список: это
-   * чистая функция, никакой сети, а знание «умеет ли касса такой способ вообще»
-   * у неё точное. Живой ответ (что включено у кассы прямо сейчас) остаётся делом
-   * `payContext()`; если он что-то отсеет, `/api/pay/start` откажет и витрина
-   * уйдёт на обычную страницу оплаты. */
-  const providers = PAYMENTS.enabledProviders(s);
-  const real = own.filter(id => providers.some(p => p.supports(id)));
-  return real.length === 1 && PAY.isHosted(real[0]) ? String(real[0]) : '';
+   * Поэтому список считает `PAYMENTS.offeredMethods()` — по тому, что умеют
+   * включённые кассы (`supports()`, чистая функция без сети). Тот же список
+   * читает консультант в чате, описывая покупателю оплату: второй расчёт
+   * разошёлся бы с этим молча. Живой ответ кассы (что у неё включено прямо
+   * сейчас) остаётся делом `payContext()`; если он что-то отсеет,
+   * `/api/pay/start` откажет и витрина уйдёт на обычную страницу оплаты. */
+  const real = PAYMENTS.offeredMethods(s);
+  return real.length === 1 && PAY.isHosted(real[0].id) ? String(real[0].id) : '';
 }
 
 function orderApiBody(order, reused, s) {

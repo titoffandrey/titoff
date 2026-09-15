@@ -8789,8 +8789,17 @@ test('при единственном способе с оплатой на ст
   // на нашу страницу заказа, и она нужна — на неё банк вернёт покупателя.
   assert.match(server, /body\.hostedUrl = r\.invoice\.requisite/);
   assert.match(server, /url: '\/pay\/' \+ encodeURIComponent\(id\)/);
-  assert.match(server, /providers\.some\(p => p\.supports\(id\)\)/,
+  const payments = fs.readFileSync(path.join(__dirname, '..', 'lib', 'payments.js'), 'utf8');
+  assert.match(payments, /providers\.find\(x => x\.supports\(id\)\)/,
     'кассы спрашиваем supports(), а не живой список: сети на оформлении быть не должно');
+  assert.match(server, /const real = PAYMENTS\.offeredMethods\(s\)/,
+    'список один на оформление и на консультанта в чате — второй расчёт разошёлся бы молча');
+  assert.deepEqual(P.offeredMethods(Object.assign({}, alfa, croco, { payMethods: ['SBP', 'TO_CARD', 'CARD_ONLINE'] })),
+    [{ id: 'SBP', provider: 'crocopay' }, { id: 'TO_CARD', provider: 'crocopay' }, { id: 'CARD_ONLINE', provider: 'alfabank' }],
+    'способу приписывается первая по очереди касса, которая его умеет');
+  assert.deepEqual(P.offeredMethods(Object.assign({}, croco, { payMethods: ['CARD_ONLINE', 'SBP', 'SBP'] })),
+    [{ id: 'SBP', provider: 'crocopay' }], 'страницы банка у P2P-кассы нет, повторы схлопываются');
+  assert.deepEqual(P.offeredMethods({ payMethods: ['CARD_ONLINE'] }), [], 'режим заявок');
   assert.match(server, /payNow: pay && order && !order\.payment/,
     'у заказа с выставленным счётом второго счёта на те же деньги не выпускаем');
 
@@ -11380,6 +11389,9 @@ test('живой список банков MeridianPay превращается 
   assert.equal(mp.supports('NEW_FANCY_PAY'), false);
   assert.equal(mp.supports('SBP'), true);
   assert.equal(require('../lib/crocopay').supports('NEW_FANCY_PAY'), true);
+  // Способ с оплатой на странице банка — не её: CrocoPAY выдаёт реквизиты для
+  // перевода, платёжной страницы у неё нет.
+  assert.equal(require('../lib/crocopay').supports('CARD_ONLINE'), false);
 });
 
 test('очередь касс: отказ первой уводит ко второй, и покупатель этого не видит', () => {
@@ -13922,6 +13934,27 @@ test('новые правила проекта видно в панели и м�
   const page = adminViews.settingsPage(Object.assign({}, SETTINGS, saved), CATALOG_DB, '', '', {});
   assert.match(page, /name="chatRulesAppend"/, 'в панели есть кнопка дописать');
   assert.ok(page.includes(render.esc(missing[0])), 'и сами правила показаны целиком — решать, читая');
+
+  /* ОТОЗВАННОЕ ПРАВИЛО УХОДИТ ТОЙ ЖЕ КНОПКОЙ. Правило, дописанное однажды в
+   * инструкцию, живёт там вечно — а «СБП проходит через официальный эквайринг
+   * банка» на сайте со своими реквизитами стало неправдой. Панель показывает
+   * такие строки и убирает их вместе с дописыванием новых; сам текст владельца
+   * не трогается, пока он не нажмёт. */
+  const retired = chatPrompt.RETIRED_RULES[0];
+  const mixed = { chatPromptComplete: true, chatPrompt: '- ' + chatPrompt.RULES[0] + '\n- ' + retired + ' И моя приписка.\n- Моё собственное правило.' };
+  assert.deepEqual(chatPrompt.staleRules(mixed), ['- ' + retired + ' И моя приписка.'], 'устаревшее узнаётся по началу, как и новое');
+  assert.equal(chatPrompt.staleRules({ chatPromptComplete: false, chatPrompt: '- ' + retired }).length, 0, 'пока поле не сохраняли — предлагать нечего');
+  const refreshed = chatPrompt.withMissingRules(mixed);
+  assert.ok(!refreshed.includes('официальный эквайринг банка'), 'устаревшая строка убрана');
+  assert.ok(refreshed.startsWith('- ' + chatPrompt.RULES[0] + '\n- Моё собственное правило.\n'), 'остальное на своих местах, своё правило владельца цело');
+  assert.equal(chatPrompt.missingRules({ chatPromptComplete: true, chatPrompt: refreshed }).length, 0);
+  assert.equal(chatPrompt.staleRules({ chatPromptComplete: true, chatPrompt: refreshed }).length, 0);
+  assert.equal(chatPrompt.withMissingRules({ chatPromptComplete: true, chatPrompt: refreshed }), refreshed, 'нечего менять — текст возвращается до знака');
+  const stalePage = adminViews.settingsPage(Object.assign({}, SETTINGS, mixed), CATALOG_DB, '', '', {});
+  assert.match(stalePage, /от которых проект отказался/);
+  assert.ok(stalePage.includes(render.esc(retired)), 'устаревшее показано целиком');
+  assert.match(stalePage, /Дописать новые и убрать устаревшие/);
+  assert.ok(!chatPrompt.RULES.includes(retired), 'отозванное правило не лежит в стандартных');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(server, /if \(req\.body\.chatRulesAppend\)[\s\S]{0,220}withMissingRules\(\{ chatPrompt: patch\.chatPrompt/,
     'недостающие считаются от присланного текста, а не от сохранённого: владелец мог править поле прямо сейчас');
@@ -14752,12 +14785,16 @@ test('консультант не повторяется и не отговар�
    * же факты гарантии, реплика не дошла вовсе. Цена ошибки несимметрична:
    * лишний вызов модели покупатель не замечает, потерянный вопрос — сразу. */
   const mixed = { messages: [] };
-  for (const q of ['когда появяться белые и сколько гарантия?', 'есть 512 и какая гарантия', 'доставка сколько и гарантия какая']) {
+  // Состояние техники — тоже другая тема: «новый? активирован? запечатан?» с
+  // прицепом «и гарантия» иначе получал бы один срок гарантии, а про
+  // активацию — ничего (14 сентября 2026 про неё и так ответили «уточню»).
+  for (const q of ['когда появяться белые и сколько гарантия?', 'есть 512 и какая гарантия', 'доставка сколько и гарантия какая',
+    'айфон новый? с гарантией?', 'телефон не активирован? и гарантия сколько', 'он новый или б/у, и гарантия есть?']) {
     assert.equal(chatPrompt.warrantyAnswer(mixed, q), '', 'спросили не только про гарантию — отвечает модель: ' + q);
   }
   // ...а вопрос целиком про гарантию по-прежнему отвечается без API, даже когда
-  // вторая половина — уточнение о ней же.
-  for (const q of ['сколько гарантия?', 'сколько гарантия и что она покрывает?', 'какая гарантия и как обратиться?', 'сколько гарантии на 17 про макс']) {
+  // вторая половина — уточнение о ней же. «Снова» — не «новый».
+  for (const q of ['сколько гарантия?', 'сколько гарантия и что она покрывает?', 'какая гарантия и как обратиться?', 'сколько гарантии на 17 про макс', 'снова спрошу, какая гарантия?']) {
     assert.ok(chatPrompt.warrantyAnswer({ messages: [] }, q), 'один вопрос про гарантию — местный ответ: ' + q);
   }
 
@@ -14816,12 +14853,19 @@ test('консультант не повторяется и не отговар�
   assert.doesNotMatch(rules, /Не знаешь ответа или вопрос требует человека/);
   assert.match(rules, /Передавай менеджеру только то, чего нет/);
   assert.match(rules, /«в карточке не указано»/, 'отговорка названа прямо');
-  /* Правило про СБП называет эквайринг, но НЕ банк: имя банка — факт о кассе
-   * и стоит в условиях, а правила у обоих сайтов одни. Начало строки при этом
-   * прежнее — по нему `missingRules` узнаёт правило в сохранённой инструкции. */
-  assert.match(rules, /Рассказывая об оплате по СБП, формулируй точно: она проходит через официальный эквайринг банка/);
+  /* Как платят — знают только факты, и у каждого сайта они свои. Прежнее
+   * правило «СБП проходит через официальный эквайринг банка» было верно для
+   * сайта с Альфой и ложно для сайта на своих реквизитах; правила общие на оба
+   * сайта, поэтому оно отозвано, а конкретика ушла в «Об условиях». */
+  assert.doesNotMatch(rules, /через официальный эквайринг банка/);
   assert.doesNotMatch(rules, /Альфа-Банк/);
-  assert.match(rules, /расчётный счёт ИП-продавца/);
+  assert.match(rules, /Про оплату — способ, банк, страница оплаты, срок, сумма — говори строго по разделу «Об условиях»/);
+  assert.match(rules, /о точной сумме перевода говори, только если условия этого требуют/);
+  assert.ok(chatPrompt.RETIRED_RULES.some(r => r.startsWith('Рассказывая об оплате по СБП, формулируй точно')),
+    'старое правило отозвано — панель предложит убрать его из сохранённой инструкции');
+  // «Телефон активированный или нет?» → «уточню» (14 сентября 2026): ответ —
+  // факт условий, и правило называет его прямо.
+  assert.match(rules, /новый, запечатан, не активирован, ни к какому Apple ID не привязан/);
 
   /* Условия отвечают на то, на что консультант отвечать не мог. Всё снято с тех
    * же страниц витрины, что читает покупатель, — разойтись с ней им нечем. */
@@ -14839,6 +14883,34 @@ test('консультант не повторяется и не отговар�
   }));
   assert.match(alfa, /Оплата по СБП проходит через официальный эквайринг Альфа-Банка/);
   assert.match(alfa, /не на личную карту/);
+  /* ОПЛАТА ОПИСЫВАЕТСЯ ПО ВКЛЮЧЁННОМУ СПОСОБУ, а не одной фразой на всех.
+   * У Альфы покупатель платит по СБП на странице банка, сумма там уже стоит —
+   * «переведите точную сумму» здесь неправда (и страница оплаты её не пишет).
+   * У P2P-касс сумму набирает сам покупатель, и точная сумма — единственное
+   * требование, о котором надо сказать до перевода. Свои реквизиты — обычный
+   * перевод по СБП, без кассы, эквайринга и точной суммы. */
+  assert.match(alfa, /СБП на защищённой платёжной странице Альфа-Банка/);
+  assert.match(alfa, /сумма там уже указана — вводить и сверять её не нужно/);
+  assert.doesNotMatch(alfa, /ТОЧНУЮ СУММУ/);
+  assert.doesNotMatch(alfa, /перевод по реквизитам/, 'реквизитов у эквайринга нет — есть страница банка');
+  assert.match(store, /ПЕРЕВЕСТИ НУЖНО ТОЧНУЮ СУММУ ЗАКАЗА/);
+  assert.match(store, /перевод по реквизитам, которые страница оплаты выдаёт после выбора способа \(СБП, Перевод на карту\)/);
+  assert.doesNotMatch(store, /странице банка/, 'у CrocoPAY платёжной страницы нет — «Карта» из настроек по умолчанию не считается её способом');
+  assert.doesNotMatch(store, /CrocoPAY|MeridianPay/, 'имя P2P-кассы покупателю не называется — то же правило, что у страницы оплаты');
+  const both = chatPrompt.storeText(Object.assign({}, SETTINGS, {
+    alfabankEnabled: true, alfabankLogin: 'shop-api', alfabankPassword: 'секрет',
+    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret'
+  }));
+  assert.match(both, /Способы: СБП на защищённой платёжной странице Альфа-Банка/);
+  assert.match(both, /; перевод по реквизитам[^;]*ТОЧНУЮ СУММУ/, 'точная сумма стоит у перевода, а не у страницы банка');
+  // Касса включена, а способы владелец снял: платить нечем, и обещать нечего.
+  assert.match(chatPrompt.storeText(Object.assign({}, SETTINGS, {
+    alfabankEnabled: true, alfabankLogin: 'shop-api', alfabankPassword: 'секрет', payMethods: []
+  })), /способов оплаты не настроено/);
+  /* Состояние техники — отдельный факт, а не следствие «новая» в истории
+   * магазина: на «активирован или нет?» консультант отвечал «уточню». */
+  assert.match(store, /новая, оригинальная и не активированная — коробка запечатана/);
+  assert.match(store, /Спросили, активирован ли телефон/);
   const offline = chatPrompt.storeText(Object.assign({}, SETTINGS, {
     storeAddress: 'г. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»'
   }));
@@ -14868,12 +14940,20 @@ test('консультант не повторяется и не отговар�
   const own = chatPrompt.storeText(Object.assign({}, SETTINGS, {
     ownPayEnabled: true, ownPayPhone: '+7 985 157-67-97', ownPayOwner: 'Иван И.', ownPayBank: 'Т-Банк'
   }));
-  assert.match(own, /после оформления открывается страница оплаты/);
-  assert.match(own, new RegExp('в течение ' + render.PAY_WINDOW / 60000 + ' минут'), 'срок — из той же константы, что у витрины');
+  assert.match(own, /после оформления заказа открывается страница оплаты/);
+  assert.match(own, new RegExp('На оплату отводится ' + render.PAY_WINDOW / 60000 + ' минут'), 'срок — из той же константы, что у витрины');
   assert.match(own, /Оплаты при получении и наложенного платежа нет/);
+  assert.match(own, /по СБП на номер телефона получателя\. Получатель — Иван И\., банк получателя — Т-Банк\./);
+  assert.match(own, /обычный перевод по СБП, а не оплата на странице банка и не эквайринг/);
+  assert.doesNotMatch(own, /на карту получателя/, 'карты в настройках нет — и в фактах её нет');
+  assert.doesNotMatch(own, /ТОЧНУЮ СУММУ|эквайринг Альфа/);
+  assert.doesNotMatch(own, /157/, 'самих реквизитов консультант не знает: они показываются после оформления заказа');
+  assert.match(chatPrompt.storeText(Object.assign({}, SETTINGS, {
+    ownPayEnabled: true, ownPayCard: '5599002143815845', ownPayOwner: 'Иван И.'
+  })), /на карту получателя\. Получатель — Иван И\. Это обычный перевод на карту/);
   // Ни касс, ни своих реквизитов — заявку доводит менеджер, и обещать
   // страницу оплаты там нечем.
-  assert.match(chatPrompt.storeText(SETTINGS), /менеджер связывается и подтверждает заказ/);
+  assert.match(chatPrompt.storeText(SETTINGS), /менеджер связывается, подтверждает заказ и договаривается об оплате/);
   // Ремонта нет: консультант обязан говорить про возврат денег, а не про сроки ремонта.
   assert.doesNotMatch(store, /45 дней|ремонт до|продлевается/);
   assert.match(store, /Ремонтом и заменой магазин не занимается/);
