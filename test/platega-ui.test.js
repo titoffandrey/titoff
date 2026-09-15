@@ -27,7 +27,7 @@ function order(status) {
   const now = Date.now();
   const payment = {
     id: 'a'.repeat(24), attemptId: 'a'.repeat(24), provider: 'platega',
-    invoiceId: '00000000-0000-4000-8000-000000000002', method: 'SBP_ONLINE',
+    invoiceId: '00000000-0000-4000-8000-000000000002', method: 'ONLINE_PAYMENT',
     requisite: 'https://payment.example/invoice', status, amount: 67990, currency: 'RUB',
     startedAt: now - 60000, expiresAt: now + 600000, closedAt: status === 'refunded' ? now : 0,
     note: status === 'refunded' ? 'Возврат подтверждён сервисом' : ''
@@ -40,12 +40,12 @@ function order(status) {
 }
 
 test('онлайн-оплата доступна по умолчанию только у поддерживающей её кассы', () => {
-  assert.equal(PAY.isHosted('SBP_ONLINE'), true);
-  assert.equal(PAY.isDomestic('SBP_ONLINE'), true);
-  assert.ok(PAY.DEFAULT_IDS.includes('SBP_ONLINE'));
-  assert.equal(PAY.describe('SBP_ONLINE', 'platega').name, 'СБП');
-  assert.equal(CROCO.supports('SBP_ONLINE'), false);
-  assert.deepEqual(PAYMENTS.offeredMethods(settings()), [{ id: 'SBP_ONLINE', provider: 'platega' }]);
+  assert.equal(PAY.isHosted('ONLINE_PAYMENT'), true);
+  assert.equal(PAY.isDomestic('ONLINE_PAYMENT'), true);
+  assert.ok(PAY.DEFAULT_IDS.includes('ONLINE_PAYMENT'));
+  assert.equal(PAY.describe('ONLINE_PAYMENT', 'platega').name, 'Онлайн-оплата');
+  assert.equal(CROCO.supports('ONLINE_PAYMENT'), false);
+  assert.deepEqual(PAYMENTS.offeredMethods(settings()), [{ id: 'ONLINE_PAYMENT', provider: 'platega' }]);
 });
 
 test('в панели Platega есть доступ и инструкция callback, секрет остаётся скрытым', () => {
@@ -59,7 +59,7 @@ test('в панели Platega есть доступ и инструкция call
   assert.match(html, /https:\/\/docs\.platega\.io\//);
   assert.match(html, /Комиссия Platega, включённая в цены, %/);
   assert.match(html, /name="plategaFeePercent" type="number" min="0" max="100" step="0\.01" value="8\.5"/);
-  assert.match(html, /цены и итог для покупателя не увеличиваются, отдельная комиссия не показывается/);
+  assert.match(html, /внутри стоимости заказа, отдельная комиссия на сайте не показывается/);
   assert.doesNotMatch(html, /Комиссия сверху для покупателя/);
   assert.doesNotMatch(html, new RegExp(secret));
   const disabled = admin.settingsPage(s, {}, null, '', { draft: { storeName: s.storeName } });
@@ -67,7 +67,7 @@ test('в панели Platega есть доступ и инструкция call
 });
 
 test('статический список способов не выдаётся в панели за проверенную связь', () => {
-  const methods = ['SBP_ONLINE'];
+  const methods = ['ONLINE_PAYMENT'];
   const live = {
     ok: true, methods, currencies: ['RUB'], byCurrency: { RUB: methods },
     byProvider: { platega: { methods, currencies: ['RUB'], byCurrency: { RUB: methods } } },
@@ -76,30 +76,40 @@ test('статический список способов не выдаётся
   const html = admin.settingsPage(settings(), {}, null, '', { live });
   assert.match(html, /ключи заданы · связь ещё не проверена/);
   assert.doesNotMatch(html, /ни одна касса не отвечает|Молчит Platega/);
-  assert.match(html, /class="pay-method-check">\s*<input[^>]*value="SBP_ONLINE" checked/);
+  assert.match(html, /class="pay-method-check">\s*<input[^>]*value="ONLINE_PAYMENT" checked/);
 });
 
-test('витрина и консультант описывают сразу СБП на странице оплаты без имени кассы и ручного перевода', () => {
+test('витрина и консультант описывают выбор способа на странице оплаты без имени кассы и ручного перевода', () => {
   const s = settings();
   const pending = order('pending');
-  const html = R.payPage(s, pending, { origin: '', methods: [PAY.find('SBP_ONLINE')] });
+  const html = R.payPage(s, pending, { origin: '', methods: [PAY.find('ONLINE_PAYMENT')] });
   const card = html.slice(html.indexOf('<div class="pay-wrap">'), html.indexOf('<script', html.indexOf('<div class="pay-wrap">')));
-  assert.match(card, /Страница оплаты через СБП/);
+  assert.match(card, /Выберите доступный способ/);
   assert.match(card, /На оплату осталось/);
-  assert.doesNotMatch(card, /Выберите доступный способ|Открыть в приложении банка/);
+  assert.doesNotMatch(card, /Страница оплаты через СБП|Открыть в приложении банка/);
   assert.match(card, /target="_blank" rel="noopener noreferrer">Перейти к оплате/);
   assert.doesNotMatch(card, /странице банка|точную сумму|Оплата картой|Сумма перевода|Переведите сумму/i);
-  const choice = R.payPage(s, Object.assign({}, pending, { payment: null }), { origin: '', methods: [PAY.find('SBP_ONLINE')] });
+  const choice = R.payPage(s, Object.assign({}, pending, { payment: null }), { origin: '', methods: [PAY.find('ONLINE_PAYMENT')] });
   assert.match(choice, /id="pay-create">Перейти к оплате/);
   assert.match(choice, /data-hosted="1"/);
   const facts = prompt.storeText(s);
-  assert.match(facts, /СБП:.*сразу открывается защищённая страница оплаты через СБП/);
-  assert.doesNotMatch(facts, /выбирает доступный способ/);
+  assert.match(facts, /Онлайн-оплата:.*выбирает доступный способ/);
+  assert.doesNotMatch(facts, /сразу открывается защищённая страница оплаты через СБП/);
   assert.doesNotMatch(facts, /странице банка|ТОЧНУЮ СУММУ|эквайринг|перевод по реквизитам/);
   for (const page of [html, choice, R.checkoutPage(s, { origin: '', payOnline: true }), facts]) {
     assert.doesNotMatch(page, new RegExp(merchant + '|' + secret));
     assert.doesNotMatch(page, /Platega/i);
   }
+});
+
+test('старый счёт прямого СБП сохраняет ссылку и инструкции после перехода к выбору способов', () => {
+  const pending = order('pending');
+  pending.payment.method = 'SBP_ONLINE';
+  pending.payment.attempts[0].method = 'SBP_ONLINE';
+  const html = R.payPage(settings(), pending, { methods: [PAY.find('ONLINE_PAYMENT')] });
+  assert.match(html, /Страница оплаты через СБП/);
+  assert.match(html, /href="https:\/\/payment\.example\/invoice"/);
+  assert.doesNotMatch(html, /id="pay-create"/);
 });
 
 test('возврат закрывает оплату, не показывает реквизиты и исключается из выручки', () => {
@@ -113,7 +123,7 @@ test('возврат закрывает оплату, не показывает 
   assert.equal(R.orderTone(refunded), 'off');
   assert.match(R.orderStatus(refunded), /возврат платежа/);
   assert.match(R.orderStatus(refunded), /Возврат подтверждён сервисом/);
-  const html = R.payPage(settings(), refunded, { origin: '', methods: [PAY.find('SBP_ONLINE')] });
+  const html = R.payPage(settings(), refunded, { origin: '', methods: [PAY.find('ONLINE_PAYMENT')] });
   assert.match(html, /Платёж возвращён/);
   assert.doesNotMatch(html, /id="pay-create"|id="pay-recheck"|data-paid="1"|Платёж получен|Товарный чек|Перейти к оплате/);
   assert.equal(R.orderStats([refunded]).revenue, 0);
@@ -155,7 +165,7 @@ test('выбор онлайн-оплаты ведёт на HTTPS-страниц�
     const goals = [];
     const start = make({
       orderId: 'order-ui', currency: 'RUB', total: 67990,
-      chosenMethod: () => hosted ? 'SBP_ONLINE' : 'SBP', chosenHosted: () => hosted,
+      chosenMethod: () => hosted ? 'ONLINE_PAYMENT' : 'SBP', chosenHosted: () => hosted,
       requestKey: () => 'request-key', paymentRequestId: () => 'a'.repeat(32),
       clearPaymentRequest() {}, showMsg() {}, window: {}, document: {}, location,
       fetch: async () => ({ status: 200, json: async () => ({ ok: true, url: '/pay/order-ui', hostedUrl }) }),
@@ -192,7 +202,7 @@ test('оформление получает процент только при �
   const s = { ...settings(), plategaFeePercent: 8.5 };
   const html = R.checkoutPage(s, { payOnline: true });
   assert.match(html, /data-payment-fee-percent="8\.5"/);
-  assert.match(html, /data-pay-flow="sbp"/);
+  assert.match(html, /data-pay-flow="choice"/);
   assert.ok(html.indexOf('/static/payment-fee.js?') < html.indexOf('/static/app.js?'));
   assert.match(R.checkoutPage({ ...s, plategaFeePercent: 0 }, { payOnline: true }), /data-payment-fee-percent="0"/);
   const mixed = R.checkoutPage({ ...s, crocopayEnabled: true, crocopayClientId: 'test', crocopayClientSecret: 'test' }, { payOnline: true });
@@ -369,7 +379,7 @@ test('включённая комиссия не видна на страниц�
   const paid = {
     ...order('paid'), itemsTotal: 900, deliveryPrice: 100, total: 1000,
     items: [{ id: 'p1', name: 'Товар', qty: 1, price: 900 }],
-    paymentFee: { provider: 'platega', method: 'SBP_ONLINE', ...FEE.included(1000, 8.5) }
+    paymentFee: { provider: 'platega', method: 'ONLINE_PAYMENT', ...FEE.included(1000, 8.5) }
   };
   paid.payment.amount = 1000;
   paid.payment.attempts[0].amount = 1000;

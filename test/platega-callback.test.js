@@ -243,7 +243,7 @@ function checkoutHarness(t, { total = 1000, paymentFee = null, feePercent = 0, e
   const PAY = require('../lib/pay-methods');
   const PAYMENTS = require('../lib/payments');
   const s = { ...settings, plategaEnabled: true, plategaFeePercent: feePercent,
-    payMethods: ['SBP_ONLINE'], ...extraSettings };
+    payMethods: ['ONLINE_PAYMENT'], ...extraSettings };
   const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
   const helpers = source.slice(source.indexOf('async function requestInvoiceFrom('), source.indexOf('const paymentStartJobs ='));
   const contextFrom = source.indexOf('async function payContext(');
@@ -261,7 +261,7 @@ function checkoutHarness(t, { total = 1000, paymentFee = null, feePercent = 0, e
   });
   const request = async (key = 'a'.repeat(32), patch = {}) => {
     let response;
-    await flow.start({ body: { orderId, method: 'SBP_ONLINE', requestId: key, ...patch } }, {
+    await flow.start({ body: { orderId, method: 'ONLINE_PAYMENT', requestId: key, ...patch } }, {
       json: (body, status = 200) => { response = { body, status }; }
     });
     return response;
@@ -279,8 +279,7 @@ test('Platega: отмена во время POST сохраняет поздни
   await inPost;
   assert.equal(db.setOrderVoided(orderId, true, 'customer').ok, true);
   release(new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
-    paymentMethod: 'SBPQR', paymentDetails: { amount: 1000, currency: 'RUB' },
-    redirect: 'https://pay.platega.io/pay/synthetic-cancel', expiresIn: '00:15:00' })));
+    url: 'https://pay.platega.io/pay/synthetic-cancel', expiresIn: '00:15:00' })));
   const result = await starting;
   assert.equal(result.status, 200);
   assert.equal(result.body.terminal, 'order_cancelled');
@@ -306,19 +305,18 @@ test('Platega: одновременные и повторные нажатия �
   let calls = 0;
   const link = 'https://pay.platega.io/?id=' + invoiceId + '&mh=' + 'x'.repeat(220);
   stubFetch(t, async (url, init) => {
-    assert.equal(url, 'https://app.platega.io/transaction/process');
+    assert.equal(url, 'https://app.platega.io/v2/transaction/process');
     assert.equal(init.method, 'POST');
     const data = JSON.parse(init.body);
     assert.deepEqual(data.paymentDetails, { amount: 1000, currency: 'RUB' });
-    assert.equal(data.paymentMethod, 2);
+    assert.equal(Object.hasOwn(data, 'paymentMethod'), false);
     assert.equal(data.return, 'https://shop.example/pay/' + orderId);
     assert.equal(data.failedUrl, data.return);
     assert.equal(data.id, undefined);
     calls++;
     await new Promise(resolve => setTimeout(resolve, 10));
     return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
-      paymentMethod: 'SBPQR', paymentDetails: { amount: 1000, currency: 'RUB' },
-      redirect: link, expiresIn: '00:15:00' }));
+      url: link, expiresIn: '00:15:00' }));
   });
   const first = await Promise.all([request(), request()]);
   assert.equal(first[0].status, 200);
@@ -327,24 +325,23 @@ test('Platega: одновременные и повторные нажатия �
   assert.equal((await request('b'.repeat(32))).status, 200);
   assert.equal(calls, 1);
   assert.equal(db.paymentAttempts(db.getOrder(orderId)).length, 1);
-  assert.equal(db.getOrder(orderId).payment.method, 'SBP_ONLINE');
+  assert.equal(db.getOrder(orderId).payment.method, 'ONLINE_PAYMENT');
   assert.equal(db.getOrder(orderId).payment.requisite, link, 'длинный URL не обрезан хранилищем');
 });
 
 test('Platega: сохранённая комиссия не начисляется повторно и сверяется в полном GET', async t => {
-  const paymentFee = { provider: 'platega', method: 'SBP_ONLINE', baseAmount: 1000, amount: 85, percent: 8.5 };
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', baseAmount: 1000, amount: 85, percent: 8.5 };
   const { db, orderId, request } = checkoutHarness(t, { total: 1085, paymentFee, feePercent: 12 });
   let creates = 0, statusChecks = 0, externalId;
   stubFetch(t, async (url, init) => {
     if (init.method === 'POST') {
       creates++;
-      assert.equal(url, 'https://app.platega.io/transaction/process');
+      assert.equal(url, 'https://app.platega.io/v2/transaction/process');
       const data = JSON.parse(init.body);
       externalId = data.payload;
       assert.deepEqual(data.paymentDetails, { amount: 1000, currency: 'RUB' });
       return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
-        paymentMethod: 'SBPQR', paymentDetails: { amount: 1085, currency: 'RUB' },
-        redirect: 'https://pay.platega.io/pay/synthetic-sbp', expiresIn: null }));
+        url: 'https://pay.platega.io/pay/synthetic-sbp', expiresIn: null }));
     }
     statusChecks++;
     assert.equal(url, 'https://app.platega.io/transaction/' + invoiceId);
@@ -373,19 +370,18 @@ test('Platega: комиссия внутри 1100 ₽ использует со�
     baseAmount: 1013.8249, amount: 86.18, percent: 8.5 };
   const { db, orderId, request } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 12,
     extraSettings: { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
-      alfabankPassword: 'synthetic-password', payMethods: ['SBP_ONLINE', 'CARD_ONLINE'] } });
+      alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] } });
   let creates = 0, statusChecks = 0, externalId;
   stubFetch(t, async (url, init) => {
     if (init.method === 'POST') {
       creates++;
-      assert.equal(url, 'https://app.platega.io/transaction/process');
+      assert.equal(url, 'https://app.platega.io/v2/transaction/process');
       const data = JSON.parse(init.body);
       externalId = data.payload;
       assert.deepEqual(data.paymentDetails, { amount: 1013.8249, currency: 'RUB' });
-      assert.equal(data.paymentMethod, 2);
+      assert.equal(Object.hasOwn(data, 'paymentMethod'), false);
       return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
-        paymentMethod: 'SBPQR', paymentDetails: { amount: 1100, currency: 'RUB' },
-        redirect: 'https://pay.platega.io/pay/synthetic-included', expiresIn: null }));
+        url: 'https://pay.platega.io/pay/synthetic-included', expiresIn: null }));
     }
     statusChecks++;
     assert.equal(url, 'https://app.platega.io/transaction/' + invoiceId);
@@ -411,7 +407,7 @@ test('Platega: комиссия внутри 1100 ₽ использует со�
 });
 
 test('Platega: сохранённые 0% не заменяются текущим тарифом при создании счёта', async t => {
-  const paymentFee = { provider: 'platega', method: 'SBP_ONLINE', mode: 'included',
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     baseAmount: 1100, amount: 0, percent: 0 };
   const { db, orderId, request } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 8.5 });
   let creates = 0;
@@ -419,8 +415,7 @@ test('Platega: сохранённые 0% не заменяются текущи�
     creates++;
     assert.deepEqual(JSON.parse(init.body).paymentDetails, { amount: 1100, currency: 'RUB' });
     return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
-      paymentMethod: 'SBPQR', paymentDetails: { amount: 1100, currency: 'RUB' },
-      redirect: 'https://pay.platega.io/pay/synthetic-zero', expiresIn: null }));
+      url: 'https://pay.platega.io/pay/synthetic-zero', expiresIn: null }));
   });
   assert.equal((await request()).status, 200);
   assert.equal(creates, 1);
@@ -429,13 +424,13 @@ test('Platega: сохранённые 0% не заменяются текущи�
 });
 
 test('снимок Platega внутри цены сохраняет выбор Alfa и передаёт ей обычный полный итог', async t => {
-  const paymentFee = { provider: 'platega', method: 'SBP_ONLINE', mode: 'included',
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     baseAmount: 1013.8249, amount: 86.18, percent: 8.5 };
   const { db, orderId, request, context } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 8.5,
     extraSettings: { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
-      alfabankPassword: 'synthetic-password', payMethods: ['SBP_ONLINE', 'CARD_ONLINE'] } });
+      alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] } });
   const ctx = await context();
-  assert.deepEqual(Array.from(ctx.methods, method => method.id), ['CARD_ONLINE', 'SBP_ONLINE']);
+  assert.deepEqual(Array.from(ctx.methods, method => method.id), ['CARD_ONLINE', 'ONLINE_PAYMENT']);
   assert.equal(ctx.amount, 1100);
   const ALFA = require('../lib/alfabank');
   const original = ALFA.createInvoice;
@@ -462,9 +457,9 @@ test('старый заказ с доплатой Platega по-прежнему 
   const paymentFee = { provider: 'platega', method: 'SBP_ONLINE', baseAmount: 1000, amount: 85, percent: 8.5 };
   const { db, orderId, request, context } = checkoutHarness(t, { total: 1085, paymentFee, feePercent: 8.5,
     extraSettings: { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
-      alfabankPassword: 'synthetic-password', payMethods: ['SBP_ONLINE', 'CARD_ONLINE'] } });
+      alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] } });
   const ctx = await context();
-  assert.deepEqual(Array.from(ctx.methods, method => method.id), ['SBP_ONLINE']);
+  assert.deepEqual(Array.from(ctx.methods, method => method.id), []);
   stubFetch(t, async () => assert.fail('недоступный способ не вызывает кассу'));
   assert.equal((await request('a'.repeat(32), { method: 'CARD_ONLINE' })).status, 400);
   assert.equal(db.getOrder(orderId).payment, null);
@@ -501,8 +496,7 @@ test('Platega: частичный ответ с ID и плохой ссылко�
   stubFetch(t, async () => {
     calls++;
     return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
-      paymentMethod: 'SBPQR', paymentDetails: { amount: 1000, currency: 'RUB' },
-      redirect: 'javascript:alert(1)', expiresIn: '00:15:00' }));
+      url: 'javascript:alert(1)', expiresIn: '00:15:00' }));
   });
   assert.equal((await request()).status, 502);
   assert.equal(db.getOrder(orderId).payment.invoiceId, invoiceId);

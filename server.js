@@ -3003,7 +3003,11 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   const id = order.id;
   const fee = order.paymentFee;
   if (fee && fee.mode !== 'included' && (p.id !== fee.provider || method !== fee.method || ctx.currency !== 'RUB')) return { code: 'method_unavailable' };
-  if (fee && p.id === 'platega' && (method !== fee.method || ctx.currency !== 'RUB'
+  // Снимок включённой комиссии старого прямого СБП остаётся действительным
+  // при переходе к выбору способа на странице Platega: цены заказа не меняются.
+  const feeMethodMatches = !fee || method === fee.method || (fee.mode === 'included'
+    && fee.method === 'SBP_ONLINE' && method === 'ONLINE_PAYMENT');
+  if (fee && p.id === 'platega' && (!feeMethodMatches || ctx.currency !== 'RUB'
     || ctx.amount !== order.total)) return { code: 'method_unavailable' };
   if (!fee && p.id === 'platega' && Number(s.plategaFeePercent) > 0) return { code: 'amount' };
   const attemptId = crypto.randomBytes(12).toString('hex');

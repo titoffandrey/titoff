@@ -13,7 +13,7 @@ const PAY = require('../lib/pay-methods');
 const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
 const plategaSettings = {
   plategaEnabled: true, plategaMerchantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-  plategaSecret: 'synthetic-secret', plategaFeePercent: 8.5, payMethods: ['SBP_ONLINE']
+  plategaSecret: 'synthetic-secret', plategaFeePercent: 8.5, payMethods: ['ONLINE_PAYMENT']
 };
 
 function freshDb(t) {
@@ -96,16 +96,16 @@ function orderHarness(t, { shipping = 100 } = {}) {
 
 test('снимок комиссии внутри цены относится к Platega и доступен при выборе касс', () => {
   assert.deepEqual(PAYMENTS.checkoutFee(plategaSettings, 1000), {
-    provider: 'platega', method: 'SBP_ONLINE', mode: 'included',
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     baseAmount: 921.659, amount: 78.34, percent: 8.5, total: 1000
   });
   assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, plategaEnabled: false }, 1000), null);
-  assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, payMethods: ['ONLINE_PAYMENT'] }, 1000), null);
+  assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, payMethods: ['SBP_ONLINE'] }, 1000), null);
   const unconfigured = { ...plategaSettings, plategaSecret: '' };
   assert.equal(PAYMENTS.checkoutFee(unconfigured, 1000), null);
   const multiple = { ...plategaSettings, alfabankEnabled: true,
     alfabankLogin: 'synthetic-login', alfabankPassword: 'synthetic-password',
-    payMethods: ['SBP_ONLINE', 'CARD_ONLINE'] };
+    payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] };
   assert.equal(PAYMENTS.offeredMethods(multiple).length, 2);
   assert.deepEqual(PAYMENTS.checkoutFee(multiple, 1000), PAYMENTS.checkoutFee(plategaSettings, 1000));
   assert.equal(PAYMENTS.checkoutFee({ ...multiple, payMethods: ['CARD_ONLINE'] }, 1000), null);
@@ -119,7 +119,7 @@ test('/api/order сохраняет прежние цены товара и до
   assert.equal(result.body.total, 1100);
   assert.equal(result.body.itemsTotal, 1000);
   assert.deepEqual(JSON.parse(JSON.stringify(result.body.paymentFee)), {
-    provider: 'platega', method: 'SBP_ONLINE', mode: 'included',
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     baseAmount: 1013.8249, amount: 86.18, percent: 8.5
   });
   const stored = db.getOrder(result.body.id);
@@ -256,7 +256,7 @@ test('/api/order фиксирует нулевой процент и не пер
   const first = await request({ paymentFeePercent: 0 });
   assert.equal(first.status, 200);
   assert.deepEqual(JSON.parse(JSON.stringify(first.body.paymentFee)), {
-    provider: 'platega', method: 'SBP_ONLINE', mode: 'included', baseAmount: 1100, amount: 0, percent: 0
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', baseAmount: 1100, amount: 0, percent: 0
   });
   settings.plategaFeePercent = 8.5;
   const repeated = await request({ paymentFeePercent: 0 });
@@ -269,7 +269,7 @@ test('/api/order фиксирует нулевой процент и не пер
 test('/api/order при нескольких кассах сохраняет прежний итог, а без Platega не требует её расчёт', async t => {
   const { db, settings, request } = orderHarness(t);
   Object.assign(settings, { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
-    alfabankPassword: 'synthetic-password', payMethods: ['SBP_ONLINE', 'CARD_ONLINE'] });
+    alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] });
   const mixed = await request();
   assert.equal(mixed.status, 200);
   assert.equal(mixed.body.total, 1100);
@@ -293,10 +293,13 @@ test('хранилище не принимает комиссию, не совп
 
 test('хранилище проверяет внутреннюю комиссию, базу и режим независимо от присланного снимка', t => {
   const db = freshDb(t);
-  const fee = { provider: 'platega', method: 'SBP_ONLINE', mode: 'included',
+  const fee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     baseAmount: 1013.8249, amount: 86.18, percent: 8.5 };
   const valid = db.createOrder({ total: 1100, paymentFee: fee });
   assert.deepEqual(db.getOrder(valid.id).paymentFee, fee);
+  const legacyFee = { ...fee, method: 'SBP_ONLINE' };
+  const legacy = db.createOrder({ total: 1100, paymentFee: legacyFee });
+  assert.deepEqual(db.getOrder(legacy.id).paymentFee, legacyFee, 'сохранённый прямой СБП не переписывается');
   for (const patch of [{ baseAmount: 1013.82 }, { baseAmount: 1013.825 }, { amount: 86.17 },
     { percent: 12 }, { mode: 'unknown' }, { mode: undefined }, { provider: 'alfabank' }, { method: 'CARD_ONLINE' }]) {
     const forged = db.createOrder({ total: 1100, paymentFee: { ...fee, ...patch } });

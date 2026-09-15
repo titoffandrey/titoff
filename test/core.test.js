@@ -6618,7 +6618,7 @@ test('способы оплаты — закрытый список, а пока
    * токен, включил кассу — и получил «оплатить нечем», не догадавшись отметить
    * галочку в соседнем разделе. Магазину на P2P-кассах он не мешает: список
    * пересекается с тем, что касса правда умеет, а этого кода она не вернёт. */
-  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'SBP_ONLINE']);
+  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT']);
   // Трансграничные по-прежнему спрятаны: правило «по умолчанию только нужное
   // покупателю из России» третья касса не отменяет.
   for (const id of ['TO_CARD_TRANSGRAN', 'SBP_TRANSGRAN', 'TRANSGRANCARD_TJS']) {
@@ -6702,7 +6702,7 @@ test('трансграничные способы скрыты по умолча
 
   // Свежая установка показывает способы для покупателя из России, а не все
   // двенадцать: два перевода и карта (единственный способ кассы Альфы).
-  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'SBP_ONLINE']);
+  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT']);
   assert.ok(pay.METHODS.length > 2, 'остальные способы никуда не делись — они просто скрыты');
   for (const m of pay.METHODS) {
     if (/TRANSGRAN/.test(m.id)) assert.equal(pay.DEFAULT_IDS.includes(m.id), false, 'трансграничный по умолчанию скрыт: ' + m.id);
