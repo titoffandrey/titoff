@@ -41,7 +41,11 @@ fi
 declare -a RESULTS=()
 FAILED=0
 FOUND=0
-while read -r ALIAS DOMAIN _; do
+# Список читаем с ОТДЕЛЬНОГО дескриптора (3), а install.sh даём stdin из
+# /dev/null: иначе его ssh выпивает остаток sites.txt из общего stdin цикла,
+# и второй сайт молча пропускается (первый прогон на два сайта выкатил только
+# первый). Ровно та тихая беда, от которой deploy-all и защищает.
+while read -r ALIAS DOMAIN _ <&3; do
   case "$ALIAS" in ''|'#'*) continue;; esac
   if [ "$#" -gt 0 ]; then
     WANT=0
@@ -51,7 +55,7 @@ while read -r ALIAS DOMAIN _; do
   FOUND=$((FOUND + 1))
   echo
   echo "################ $DOMAIN ($ALIAS) ################"
-  "$ROOT/deploy/install.sh" "$ALIAS" "$DOMAIN"
+  "$ROOT/deploy/install.sh" "$ALIAS" "$DOMAIN" </dev/null
   CODE=$?
   if [ "$CODE" = 0 ]; then
     RESULTS+=("  ✓ $DOMAIN")
@@ -64,7 +68,7 @@ while read -r ALIAS DOMAIN _; do
     RESULTS+=("  ✗ $DOMAIN — НЕ ВЫКАЧЕН")
     FAILED=$((FAILED + 1))
   fi
-done < "$LIST"
+done 3< "$LIST"
 
 if [ "$FOUND" = 0 ]; then
   echo 'Ни одного сайта не выбрано: проверьте deploy/sites.txt и аргументы.'
