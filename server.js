@@ -871,7 +871,7 @@ function payRemind(req) {
   });
   for (const id of ids) {
     const order = db.getOrder(String(id || ''));
-    if (!order || order.draft) continue;                       // черновик заказом ещё не стал
+    if (!order || order.draft || order.manualVoid) continue;   // отменённое не зовёт платить снова
     /* Срок оплаты вышел — напоминать не о чем: платить по такому заказу
      * покупатель уже не может (`R.payExpired`, полчаса от оформления). Раньше
      * полоса висела ещё сутки и звала на страницу, где ему предлагали выставить
@@ -1593,12 +1593,8 @@ function notifyNewOrder(order) {
   LIVE.note(A.noteOrder(ss, db, order));
 }
 
-// После отказа кассы покупатель часто возвращается на оформление и нажимает
-// кнопку ещё раз. Его подписанная сессия уже знает прежний заказ; если весь
-// нормализованный заказ совпадает, переиспользуем его вместо дубля и возвращаем
-// на ту же страницу оплаты. Изменился хоть один товар, контакт, адрес или тариф
-// — это уже новый заказ.
-const ORDER_REUSE_TTL = 24 * 60 * 60 * 1000;
+// Повтор потерянного ответа определяется только ключом запроса. Новое
+// оформление создаёт отдельный заказ, даже если прежний ещё не оплачен.
 
 /* ЗАКРЫТЫЙ ЗАКАЗ ВМЕСТО НОВОГО НЕ ОТДАЁМ НИКОГДА.
  *
@@ -1709,37 +1705,6 @@ function orderApiBody(order, reused, s) {
      * второй счёт на те же деньги нам не нужен. */
     payNow: pay && order && !order.payment ? directPayMethod(s || settings()) : ''
   };
-}
-
-function reusableOrder(req, data) {
-  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
-  const scalars = [
-    'total', 'itemsTotal', 'firstName', 'lastName', 'phone', 'contact', 'address',
-    'delivery', 'deliveryMode', 'deliveryPrice', 'deliveryZone', 'pickupCode', 'pickupAddress', 'comment',
-    // Промокод — часть заказа: сменил его покупатель, и это уже другой заказ,
-    // даже если сумма случайно совпала.
-    'promoCode'
-  ];
-  const itemKey = items => JSON.stringify((items || []).map(item => ({
-    id: item.id, name: item.name, price: item.price, qty: item.qty
-  })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
-  const now = Date.now();
-  for (const id of mine) {
-    const order = db.getOrder(id);
-    const pay = order && order.payment;
-    const age = order ? now - Number(order.createdAt || 0) : NaN;
-    if (!order || !Number.isFinite(age) || age < 0 || age >= ORDER_REUSE_TTL) continue;
-    // Закрытый заказ — удалённый, отменённый, оплаченный или просроченный — не
-    // повтор нажатия, а тупик: платить по нему уже нельзя (см.
-    // `orderClosedForBuyer`).
-    if (orderClosedForBuyer(order)) continue;
-    if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
-    if (scalars.some(key => String(order[key] == null ? '' : order[key]) !== String(data[key] == null ? '' : data[key]))) continue;
-    if (itemKey(order.items) !== itemKey(data.items)) continue;
-    if (JSON.stringify(order.paymentFee || null) !== JSON.stringify(data.paymentFee || null)) continue;
-    return order;
-  }
-  return null;
 }
 
 app.post('/api/order', async (req, res) => {
@@ -1970,15 +1935,6 @@ app.post('/api/order', async (req, res) => {
     deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
     pickupCode: point && point.official ? point.code : '', pickupAddress
   };
-
-  // Повтор после невыданных реквизитов ведёт к прежнему заказу. Это делаем
-  // после ВСЕХ серверных пересчётов: совпадают реальные товары, цена и доставка,
-  // а не присланная браузером догадка.
-  const reused = draft ? reusableOrder(req, orderData) : null;
-  if (reused) {
-    rememberOwnOrder(req, reused);
-    return res.json(orderApiBody(reused, true));
-  }
 
   const visitorId = metrics.visitorId(req) || null;
   const metricVisitor = visitorId ? metrics.findVisitor(visitorId) : null;
@@ -2946,6 +2902,7 @@ function notifyPayment(order, state, note) {
       : { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением', refunded: '↩️ <b>Возврат платежа по заказу' }[state];
   if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
   const msg = `${head} ${tgEsc(R.orderNo(order.number))}</b>\n`
+    + (order.cancelledBeforePayment ? '⚠️ Деньги пришли после отмены заказа покупателем. Проверьте заказ перед отправкой.\n' : '')
     + `👤 ${tgEsc(order.customerName) || '—'}\n`
     + `📞 ${tgEsc(R.phoneText(order.phone) || order.contact) || '—'}\n`
     + `<b>Сумма заказа: ${R.money(order.total, ss)}</b>\n`
@@ -3192,6 +3149,9 @@ function paymentAlternative(methods, current) {
 
 function terminalPaymentBody(order) {
   const status = order && order.payment && order.payment.status;
+  if (order && order.manualVoid && !['paid', 'mismatch', 'refunded'].includes(status)) {
+    return { ok: true, placed: true, reused: true, terminal: 'order_cancelled', url: '/pay/' + encodeURIComponent(order.id) };
+  }
   if (!['paid', 'mismatch', 'refunded'].includes(status)) return null;
   return {
     ok: true, placed: true, reused: true, terminal: status,
@@ -3233,7 +3193,7 @@ app.post('/pay/:id/draft', (req, res) => {
   res.redirect('/checkout?returned=' + intent, 303);
 });
 
-/* Покупатель отменяет оплату сам — строкой внизу страницы своих реквизитов.
+/* Покупатель отменяет неоплаченный заказ — строкой внизу страницы оплаты.
  *
  * Это не отмена счёта у кассы, а ровно та же отметка, что раньше ставил
  * менеджер кнопкой в панели (`setOrderVoided`): заказ перестаёт числиться
@@ -3241,9 +3201,9 @@ app.post('/pay/:id/draft', (req, res) => {
  * что заказ закрыт. Кнопки в панели больше нет — лишний заказ менеджер удаляет,
  * и для покупателя он тоже пропадает.
  *
- * ТОЛЬКО У СВОИХ РЕКВИЗИТОВ. Заказ, который ведёт касса, покупателю отменять
- * нечем: счёт живёт у неё, деньги по нему бывают в пути, и связать поздний
- * перевод с «отменённым» заказом было бы уже не с чем.
+ * Для кассового заказа сохраняем все попытки и продолжаем сверку. Отмена
+ * закрывает заказ в магазине; ранее выпущенный счёт остаётся в истории,
+ * чтобы поздний перевод нашёлся по callback или фоновому опросу.
  *
  * Отменённое рукой обратно не возвращается: у покупателя товары ждут его на
  * оформлении (снимок корзины возвращает витрина по `restoreOrder` ниже), и
@@ -3256,7 +3216,7 @@ app.post('/pay/:id/cancel', (req, res) => {
   if (rateLimited(req, 'order-cancel', 20, 10 * 60 * 1000, order.id)) return res.redirect(back, 303);
   // Оплаченный заказ покупатель не отменяет: деньги уже у магазина, и решается
   // это разговором с менеджером, а не пометкой в списке.
-  if (order.payMode !== 'own' || order.manualPaid) return res.redirect(back, 303);
+  if (order.manualPaid || db.isOrderArchived(order)) return res.redirect(back, 303);
   const result = db.setOrderVoided(order.id, true, 'customer');
   if (!result.ok) return res.redirect(back, 303);
   req.session.restoreOrder = order.id;
@@ -3698,6 +3658,7 @@ async function paymentStatusRoute(req, res) {
   if (['paid', 'mismatch', 'refunded'].includes(pay.status)) {
     return res.json({ ok: true, state: pay.status });
   }
+  if (order.manualVoid) return res.json({ ok: true, state: 'order_cancelled' });
   if (rateLimited(req, 'pay-status', 240, 10 * 60 * 1000, order.id)) return res.json({ ok: false, error: 'Слишком часто' }, 429);
   // Страница может показывать прежний живой invoice из истории, если новая
   // попытка завершилась отказом. Опрос адресуем id именно показанной попытки,
@@ -3731,6 +3692,7 @@ async function paymentStatusRoute(req, res) {
   if (['paid', 'mismatch', 'refunded'].includes(latestState)) {
     return res.json({ ok: true, state: latestState });
   }
+  if (latest && latest.manualVoid) return res.json({ ok: true, state: 'order_cancelled' });
   if (!result.ok) return res.json({ ok: true, state: attempt.status || pay.status || 'pending', stale: true });
   res.json(result);
 }

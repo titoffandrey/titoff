@@ -32,6 +32,28 @@ function freshDb(t) {
   return db;
 }
 
+test('новое оформление создаёт новый заказ при прежнем неоплаченном, а повтор запроса не дублируется', async t => {
+  const { db, request } = orderHarness(t);
+  const first = await request();
+  db.startOrderPayment(first.body.id, { provider: 'platega', attemptId: 'c'.repeat(24),
+    method: 'SBP_ONLINE', amount: first.body.total, currency: 'RUB' });
+  db.attachOrderInvoice(first.body.id, { attemptId: 'c'.repeat(24), invoiceId: 'synthetic-live',
+    requisite: 'https://pay.example/first', expiresAt: Date.now() + 600000 });
+  const second = await request({ requestId: 'b'.repeat(32) });
+  assert.equal(second.status, 200);
+  assert.notEqual(second.body.id, first.body.id);
+  assert.equal(db.getOrders().length, 2);
+  const replay = await request({ requestId: 'b'.repeat(32) });
+  assert.equal(replay.body.id, second.body.id);
+  assert.equal(replay.body.reused, true);
+  assert.equal(db.getOrders().length, 2);
+  db.setOrderVoided(second.body.id, true, 'customer');
+  const afterCancel = await request({ requestId: 'b'.repeat(32) });
+  assert.equal(afterCancel.status, 200);
+  assert.notEqual(afterCancel.body.id, second.body.id);
+  assert.ok(db.getOrder(second.body.id).manualVoid);
+});
+
 function orderHarness(t, { shipping = 100 } = {}) {
   const db = freshDb(t);
   const settings = { ...db.defaultSettings(), ...plategaSettings };

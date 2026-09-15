@@ -7155,82 +7155,6 @@ test('оформление помнит введённое — после неу
     'возврат из BFCache перечитывает актуальную корзину');
 });
 
-test('повтор оформления возвращает тот же свой неоплаченный заказ, а не создаёт дубль', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const from = source.indexOf('const ORDER_REUSE_TTL');
-  const to = source.indexOf("app.post('/api/order'", from);
-  assert.ok(from > -1 && to > from, 'reusableOrder найден');
-  const orders = new Map();
-  // `R` — настоящий рендер: правило «заказ для покупателя закрыт» живёт там
-  // (`payClosed`), и подменять его заглушкой значило бы проверять не то правило.
-  const reusableOrder = new Function('db', 'R', source.slice(from, to) + '\nreturn reusableOrder;')({
-    getOrder: id => orders.get(id) || null,
-    isOrderArchived: order => !!(order && order.archive && order.archive.active)
-  }, render);
-  const base = {
-    items: [
-      { id: 'phone', name: 'iPhone', price: 60000, qty: 1 },
-      { id: 'case', name: 'Чехол', price: 2000, qty: 1 }
-    ],
-    total: 62500, itemsTotal: 62000, firstName: 'Иван', lastName: 'Петров',
-    phone: '+79990000000', contact: '@ivan', address: 'Москва, Тверская, 1',
-    delivery: 'cdek', deliveryMode: 'pickup', deliveryPrice: 500,
-    deliveryZone: 'center', pickupCode: 'MSK1', pickupAddress: 'Тверская, 2', comment: 'Позвонить'
-  };
-  const order = Object.assign({ id: 'mine', status: 'new', draft: true, createdAt: Date.now() }, base, {
-    items: base.items.slice().reverse()
-  });
-  orders.set(order.id, order);
-  const req = { session: { myOrders: [order.id] } };
-  assert.equal(reusableOrder(req, base), order, 'порядок одинаковых позиций не создаёт дубль');
-  assert.equal(reusableOrder(req, Object.assign({}, base, { comment: 'Без звонка' })), null,
-    'изменённый значимый параметр — новый заказ');
-  order.draft = false;
-  order.payment = { status: 'pending' };
-  assert.equal(reusableOrder(req, base), order, 'повтор оплаты существующего заказа переиспользуется');
-  order.payment.status = 'paid';
-  assert.equal(reusableOrder(req, base), null, 'оплаченный заказ не оживает');
-  order.payment.status = 'pending';
-  order.status = 'done';
-  assert.equal(reusableOrder(req, base), order, 'старое поле выполнения больше не влияет на заказ');
-  order.archive = { active: true, at: Date.now() };
-  assert.equal(reusableOrder(req, base), null, 'удалённый администратором заказ не оживает');
-  order.archive.active = false;
-  order.createdAt = Date.now() + 1000;
-  assert.equal(reusableOrder(req, base), null, 'запись из будущего не переиспользуется');
-  assert.equal(reusableOrder({ session: { myOrders: [] } }, base), null, 'чужая сессия заказ не видит');
-
-  /* ПРОСРОЧЕННЫЙ ЗАКАЗ — ТУПИК, А НЕ ПОВТОР.
-   *
-   * На боевой витрине это заперло покупателя: полчаса вышли, он собирает ту же
-   * корзину заново — и оформление возвращает ему тот же мёртвый заказ со
-   * страницей «Оформите заказ заново», сутки подряд. Повтор бережёт от второго
-   * списания, а по закрытому заказу списывать нечего. */
-  order.createdAt = Date.now() - 31 * 60000;
-  order.payment = { status: 'pending' };
-  assert.equal(reusableOrder(req, base), null, 'срок оплаты вышел — нужен новый заказ');
-  // Живой счёт кассы срок заказа переживает: реквизиты у покупателя на руках, и
-  // второй заказ на то же самое — как раз то самое двойное списание.
-  order.payment = {
-    status: 'pending', invoiceId: 'inv', requisite: '79104693811',
-    expiresAt: Date.now() + 5 * 60000
-  };
-  assert.equal(reusableOrder(req, base), order, 'по выданным реквизитам ещё платят');
-  // Отменил сам покупатель — тоже тупик: страница оплаты ведёт его оформлять
-  // заново, и оформление обязано это принять.
-  order.createdAt = Date.now();
-  order.payment = { status: 'pending' };
-  order.manualVoid = { at: Date.now(), by: 'customer' };
-  assert.equal(reusableOrder(req, base), null, 'отменённый покупателем заказ не оживает');
-  // Черновик стареет так же: способ он не выбрал, но полчаса на это у него были
-  // те же самые, и второй заход обязан начаться с чистого заказа.
-  delete order.manualVoid;
-  order.draft = true;
-  order.payment = null;
-  order.createdAt = Date.now() - render.PAY_WINDOW - 60000;
-  assert.equal(reusableOrder(req, base), null, 'просроченный черновик — тоже новый заказ');
-});
-
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-request-id-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -8821,7 +8745,7 @@ test('при единственном способе с оплатой на ст
   // случилось, и повторит. Терять покупку на отказе кассы нельзя.
   assert.match(app, /\.catch\(function \(\) \{ location\.href = fallback; \}\)/);
   // Корзину чистим ТОЛЬКО при выставленном счёте — тот же порядок, что в pay.js.
-  assert.match(app, /if \(d && d\.ok && window\.Cart && Cart\.clear\) Cart\.clear\(\)/);
+  assert.match(app, /if \(d && d\.ok && window\.Cart && Cart\.clear\) \{ Cart\.hold\(orderId\); Cart\.clear\(\); \}/);
   // Ключ идемпотентности: повторное нажатие не плодит второй счёт.
   assert.match(app, /function directRequestId/);
   assert.match(app, /pay_req_/);
@@ -10285,8 +10209,8 @@ test('страница оплаты показывает реквизиты, п�
   assert.doesNotMatch(editable, /Корзина и заполненные данные останутся/);
   const forgedFlag = render.payPage(ss, Object.assign({}, draft, { draft: false, payment: live }),
     { methods, origin: '', canDiscardDraft: true });
-  assert.doesNotMatch(forgedFlag, /pay-draft-actions|Отменить заказ/,
-    'ошибочный флаг не рисует отмену поверх платёжной попытки');
+  assert.doesNotMatch(forgedFlag, /pay-draft-actions/,
+    'ошибочный флаг не разрешает удаление черновика с платёжной попыткой');
   // Способов нет вовсе — не оставляем покупателя перед пустым блоком.
   const none = render.payPage(ss, order, { methods: [], origin: '' });
   assert.doesNotMatch(none, /id="pay-create"/);
@@ -15747,10 +15671,7 @@ test('закрытый заказ не возвращается вместо н�
   assert.match(server, /const orderClosedForBuyer = order => R\.payClosed\(order, Date\.now\(\), db\.isOrderArchived\(order\)\)/);
   // Дверь первая: тот же ключ идемпотентности (потерянный ответ того же нажатия).
   assert.match(server, /const replay = db\.getOrderByCheckoutRequest\(checkoutRequestId\);\s*\n\s*if \(replay && !orderClosedForBuyer\(replay\)\)/);
-  // Дверь вторая: тот же заказ по составу, контактам и доставке.
-  const reuse = server.slice(server.indexOf('function reusableOrder(req, data)'), server.indexOf("app.post('/api/order'"));
-  assert.match(reuse, /if \(orderClosedForBuyer\(order\)\) continue;/);
-  assert.doesNotMatch(reuse, /isOrderArchived|'paid'|'mismatch'/, 'второй копии правила здесь быть не должно');
+
 });
 
 test('свои реквизиты: третий режим витрины, со своим окном и без кассы', () => {
@@ -16189,7 +16110,7 @@ test('оплату отменяет сам покупатель, а в пане�
    * бывают в пути, и связать поздний перевод с «отменённым» заказом было бы уже
    * не с чем. Оплаченный заказ он не отменяет тем более. */
   const cancel = source.slice(source.indexOf("app.post('/pay/:id/cancel'"), source.indexOf('/* Сверить ОДНУ адресную попытку'));
-  assert.match(cancel, /order\.payMode !== 'own' \|\| order\.manualPaid/);
+  assert.match(cancel, /order\.manualPaid \|\| db\.isOrderArchived\(order\)/);
   assert.match(cancel, /db\.setOrderVoided\(order\.id, true, 'customer'\)/);
   assert.match(cancel, /req\.session\.restoreOrder = order\.id/);
 

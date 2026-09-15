@@ -269,6 +269,32 @@ function checkoutHarness(t, { total = 1000, paymentFee = null, feePercent = 0, e
   return { db, orderId, request, settings: s, context: () => flow.context(s, db.getOrder(orderId), 'RUB') };
 }
 
+test('Platega: отмена во время POST сохраняет поздний invoice, но не отдаёт платёжную ссылку', async t => {
+  const { db, orderId, request } = checkoutHarness(t);
+  let entered, release;
+  const inPost = new Promise(resolve => { entered = resolve; });
+  const response = new Promise(resolve => { release = resolve; });
+  stubFetch(t, async () => { entered(); return response; });
+  const starting = request();
+  await inPost;
+  assert.equal(db.setOrderVoided(orderId, true, 'customer').ok, true);
+  release(new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
+    paymentMethod: 'SBPQR', paymentDetails: { amount: 1000, currency: 'RUB' },
+    redirect: 'https://pay.platega.io/pay/synthetic-cancel', expiresIn: '00:15:00' })));
+  const result = await starting;
+  assert.equal(result.status, 200);
+  assert.equal(result.body.terminal, 'order_cancelled');
+  assert.equal(result.body.hostedUrl, undefined);
+  const saved = db.getOrder(orderId);
+  assert.equal(saved.payment.invoiceId, invoiceId);
+  assert.equal(saved.manualVoid.by, 'customer');
+  assert.equal(db.paymentAttempts(saved).length, 1);
+  const repeated = await request('c'.repeat(32));
+  assert.equal(repeated.body.terminal, 'order_cancelled');
+  assert.equal(repeated.body.hostedUrl, undefined);
+  assert.equal(db.paymentAttempts(db.getOrder(orderId)).length, 1);
+});
+
 function stubFetch(t, fn) {
   const previous = global.fetch;
   global.fetch = fn;
