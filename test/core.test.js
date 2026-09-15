@@ -8726,7 +8726,12 @@ test('при единственном способе с оплатой на ст
   assert.deepEqual(P.offeredMethods(Object.assign({}, croco, { payMethods: ['CARD_ONLINE', 'SBP', 'SBP'] })),
     [{ id: 'SBP', provider: 'crocopay' }], 'страницы банка у P2P-кассы нет, повторы схлопываются');
   assert.deepEqual(P.offeredMethods({ payMethods: ['CARD_ONLINE'] }), [], 'режим заявок');
-  assert.match(server, /payNow: pay && order && !order\.payment/,
+  const orderResponse = require('node:vm').runInNewContext(
+    server.slice(server.indexOf('function directPayMethod(s)'), server.indexOf("app.post('/api/order'")) + '\norderApiBody',
+    { PAY, PAYMENTS: P });
+  const onlyAlfa = Object.assign({}, alfa, { payMethods: ['CARD_ONLINE'] });
+  assert.equal(orderResponse({ id: 'synthetic', draft: true, total: 1100 }, false, onlyAlfa).payNow, 'CARD_ONLINE');
+  assert.equal(orderResponse({ id: 'synthetic', draft: true, total: 1100, payment: {} }, false, onlyAlfa).payNow, '',
     'у заказа с выставленным счётом второго счёта на те же деньги не выпускаем');
 
   /* Ссылку эквайринга нельзя откладывать ради «обычных реквизитов» соседней

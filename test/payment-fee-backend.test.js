@@ -79,11 +79,16 @@ function orderHarness(t, { shipping = 100 } = {}) {
   });
   const session = {};
   const request = async (patch = {}) => {
+    const methods = PAYMENTS.offeredMethods(settings);
+    const solePlatega = methods.length === 1 && methods[0].id === 'ONLINE_PAYMENT';
     const body = {
       requestId: 'a'.repeat(32), items: [{ id: product.id, price: 1000, qty: 1 }],
       firstName: 'Тест', lastName: 'Покупатель', phone: '+79991234567',
       address: 'Тестовый адрес', delivery: 'cdek', deliveryMode: 'courier',
-      paymentFeePercent: 8.5, paymentTotal: 1100, ...patch
+      paymentFeePercent: 8.5, paymentTotal: 1100,
+      paymentPayableTotal: solePlatega
+        ? PAYMENTS.checkoutFee(settings, Math.round((1000 + shipping) * 100) / 100)?.paymentTotal : undefined,
+      ...patch
     };
     let response;
     await handler({ body, session, headers: { host: 'shop.example' } }, {
@@ -96,8 +101,9 @@ function orderHarness(t, { shipping = 100 } = {}) {
 
 test('снимок комиссии внутри цены относится к Platega и доступен при выборе касс', () => {
   assert.deepEqual(PAYMENTS.checkoutFee(plategaSettings, 1000), {
-    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'cents',
-    baseAmount: 921.66, amount: 78.34, percent: 8.5, total: 1000
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'rubles',
+    baseAmount: 921.66, amount: 78.34, percent: 8.5, total: 1000,
+    originalTotal: 1000, paymentTotal: 1000, discount: 0
   });
   assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, plategaEnabled: false }, 1000), null);
   assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, payMethods: ['SBP_ONLINE'] }, 1000), null);
@@ -119,8 +125,8 @@ test('/api/order сохраняет прежние цены товара и до
   assert.equal(result.body.total, 1100);
   assert.equal(result.body.itemsTotal, 1000);
   assert.deepEqual(JSON.parse(JSON.stringify(result.body.paymentFee)), {
-    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
-    baseAmount: 1013.8249, amount: 86.18, percent: 8.5
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'rubles',
+    baseAmount: 1012.9, amount: 86.1, percent: 8.5, originalTotal: 1100, paymentTotal: 1099, discount: 1
   });
   const stored = db.getOrder(result.body.id);
   assert.equal(stored.total, 1100);
@@ -129,17 +135,76 @@ test('/api/order сохраняет прежние цены товара и до
   assert.deepEqual(stored.paymentFee, JSON.parse(JSON.stringify(result.body.paymentFee)));
 });
 
+test('прямой переход в Platega требует заранее показанный итог со скидкой', async t => {
+  const { db, request } = orderHarness(t);
+  for (const paymentPayableTotal of [undefined, 1100, 1098, '1099']) {
+    assert.equal((await request({ paymentPayableTotal })).status, 409);
+    assert.equal(db.getOrders().length, 0);
+  }
+  const created = await request({ paymentPayableTotal: 1099 });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.payNow, 'ONLINE_PAYMENT');
+  for (const paymentPayableTotal of [undefined, 1100]) {
+    const changed = await request({ paymentPayableTotal });
+    assert.equal(changed.status, 409);
+    assert.equal(changed.body.errorCode, 'idempotency_conflict');
+  }
+  assert.equal(db.getOrders().length, 1);
+});
+
+test('смена кассы после показанной скидки требует обновить оформление до создания заказа', async t => {
+  const { db, settings, request } = orderHarness(t);
+  Object.assign(settings, { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
+    alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] });
+  for (const plategaEnabled of [true, false]) {
+    settings.plategaEnabled = plategaEnabled;
+    const stale = await request({ paymentPayableTotal: 1099 });
+    assert.equal(stale.status, 409);
+    assert.equal(db.getOrders().length, 0);
+  }
+  const refreshed = await request({ paymentPayableTotal: undefined });
+  assert.equal(refreshed.status, 200);
+  assert.equal(refreshed.body.total, 1100);
+  assert.equal(refreshed.body.payNow, 'CARD_ONLINE');
+});
+
+test('повтор после смены кассы возвращает заказ без автоматического перехода на большую сумму', async t => {
+  const { db, settings, request } = orderHarness(t);
+  const first = await request({ paymentPayableTotal: 1099 });
+  Object.assign(settings, { plategaEnabled: false, alfabankEnabled: true,
+    alfabankLogin: 'synthetic-login', alfabankPassword: 'synthetic-password', payMethods: ['CARD_ONLINE'] });
+  const repeated = await request({ paymentPayableTotal: 1099 });
+  assert.equal(repeated.status, 200);
+  assert.equal(repeated.body.id, first.body.id);
+  assert.equal(repeated.body.payNow, '');
+  assert.equal(db.getOrders().length, 1);
+});
+
+test('повтор оформления с выбором касс не открывает единственную Platega без показанной скидки', async t => {
+  const { settings, request } = orderHarness(t);
+  Object.assign(settings, { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
+    alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] });
+  const first = await request({ paymentPayableTotal: undefined });
+  assert.equal(first.status, 200);
+  settings.alfabankEnabled = false;
+  const repeated = await request({ paymentPayableTotal: undefined });
+  assert.equal(repeated.status, 200);
+  assert.equal(repeated.body.id, first.body.id);
+  assert.equal(repeated.body.payNow, '');
+});
+
 test('/api/order возвращает прежнюю сумму после смены тарифа при повторе потерянного ответа', async t => {
   const { db, settings, request } = orderHarness(t);
   const first = await request();
   assert.equal(first.status, 200);
   settings.plategaFeePercent = 12;
-  const repeated = await request();
+  const repeated = await request({ paymentPayableTotal: 1099 });
   assert.equal(repeated.status, 200);
   assert.equal(repeated.body.id, first.body.id);
   assert.equal(repeated.body.reused, true);
   assert.equal(repeated.body.total, 1100);
   assert.equal(repeated.body.paymentFee.percent, 8.5);
+  assert.equal(repeated.body.payNow, 'ONLINE_PAYMENT');
   assert.equal(db.getOrders().length, 1);
   const updated = await request({ requestId: 'b'.repeat(32), paymentFeePercent: 12 });
   assert.equal(updated.status, 200);
@@ -148,7 +213,7 @@ test('/api/order возвращает прежнюю сумму после см�
   assert.equal(updated.body.paymentFee.percent, 12);
   assert.equal(updated.body.paymentFee.baseAmount, 982.14);
   assert.equal(db.getOrder(first.body.id).total, 1100);
-  assert.equal(db.getOrder(first.body.id).paymentFee.baseAmount, 1013.8249);
+  assert.equal(db.getOrder(first.body.id).paymentFee.baseAmount, 1012.9);
 });
 
 test('/api/order повторяет заказ прежней версии с сохранённой доплатой и прежним отпечатком', async t => {
@@ -159,7 +224,7 @@ test('/api/order повторяет заказ прежней версии с с
     // Отпечаток синтетического запроса из версии с доплатой: формат переживает обновление.
     checkoutRequestHash: 'e5175cce6d4ef635b8a47152a26f5e1a543e1f421b0f9db75a4ec9a7c609240b' });
   settings.plategaFeePercent = 12;
-  const result = await request({ paymentTotal: 1193.5 });
+  const result = await request({ paymentTotal: 1193.5, paymentPayableTotal: undefined });
   assert.equal(result.status, 200);
   assert.equal(result.body.id, legacy.id);
   assert.equal(result.body.reused, true);
@@ -173,19 +238,22 @@ test('/api/order сохраняет точный итог на границе о
   const result = await request({ paymentTotal: 1001.2 });
   assert.equal(result.status, 200);
   assert.equal(result.body.total, 1001.2);
-  assert.equal(result.body.paymentFee.baseAmount, 922.7649);
-  assert.equal(result.body.paymentFee.amount, 78.44);
+  assert.equal(result.body.paymentFee.baseAmount, 922.58);
+  assert.equal(result.body.paymentFee.amount, 78.42);
+  assert.equal(result.body.paymentFee.paymentTotal, 1001);
+  assert.equal(result.body.paymentFee.discount, 0.2);
   assert.equal(db.getOrder(result.body.id).deliveryPrice, 1.2);
 });
 
-test('/api/order не создаёт заказ, если тариф не позволяет получить точную сумму', async t => {
+test('/api/order сохраняет исходную цену и доступную скидку для дробного итога', async t => {
   const { db, settings, request } = orderHarness(t, { shipping: 0.02 });
   settings.plategaFeePercent = 12;
-  assert.equal(PAYMENTS.checkoutFee(settings, 1000.02), null);
+  assert.equal(PAYMENTS.checkoutFee(settings, 1000.02).paymentTotal, 1000);
   const result = await request({ paymentFeePercent: 12, paymentTotal: 1000.02 });
-  assert.equal(result.status, 400);
-  assert.match(result.body.error, /точную сумму оплаты/);
-  assert.equal(db.getOrders().length, 0);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.total, 1000.02);
+  assert.equal(result.body.paymentFee.discount, 0.02);
+  assert.equal(db.getOrders().length, 1);
 });
 
 test('/api/order отклоняет устаревший и отсутствующий показанный процент до создания заказа', async t => {
@@ -256,10 +324,11 @@ test('/api/order фиксирует нулевой процент и не пер
   const first = await request({ paymentFeePercent: 0 });
   assert.equal(first.status, 200);
   assert.deepEqual(JSON.parse(JSON.stringify(first.body.paymentFee)), {
-    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'cents', baseAmount: 1100, amount: 0, percent: 0
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'rubles', baseAmount: 1100, amount: 0, percent: 0,
+    originalTotal: 1100, paymentTotal: 1100, discount: 0
   });
   settings.plategaFeePercent = 8.5;
-  const repeated = await request({ paymentFeePercent: 0 });
+  const repeated = await request({ paymentFeePercent: 0, paymentPayableTotal: 1100 });
   assert.equal(repeated.status, 200);
   assert.equal(repeated.body.id, first.body.id);
   assert.equal(repeated.body.paymentFee.percent, 0);
@@ -316,15 +385,43 @@ test('оформление 35500 ₽ сохраняет точную базу в
   const order = db.getOrder(result.body.id);
   assert.equal(order.total, 35500);
   assert.deepEqual(order.paymentFee, { provider: 'platega', method: 'ONLINE_PAYMENT',
-    mode: 'included', rounding: 'cents', baseAmount: 32718.89, amount: 2781.11, percent: 8.5 });
+    mode: 'included', rounding: 'rubles', baseAmount: 32718.89, amount: 2781.11, percent: 8.5,
+    originalTotal: 35500, paymentTotal: 35500, discount: 0 });
   assert.equal(order.itemsTotal + order.deliveryPrice, order.total);
   assert.equal((await request({ paymentTotal: 35500 })).body.id, order.id);
   for (const patch of [{ rounding: 'unknown' }, { rounding: undefined },
     { baseAmount: 32718.894 }, { amount: 2781.12 }]) {
     assert.equal(db.createOrder({ total: 35500, paymentFee: { ...order.paymentFee, ...patch } }).paymentFee, null);
   }
-  const legacy = { ...order.paymentFee, baseAmount: 32718.894 };
-  delete legacy.rounding;
+  const legacy = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
+    baseAmount: 32718.894, amount: 2781.11, percent: 8.5 };
   assert.deepEqual(db.createOrder({ total: 35500, paymentFee: legacy }).paymentFee, legacy,
     'старая база остаётся действительной без изменения ранее оформленного заказа');
+});
+
+test('скидка Platega следует оплаченной попытке при смене кассы, поздней оплате и возврате', async t => {
+  const { db, request } = orderHarness(t);
+  const result = await request();
+  const id = result.body.id, a = 'c'.repeat(24), b = 'd'.repeat(24);
+  const fee = db.getOrder(id).paymentFee;
+  assert.equal(db.startOrderPayment(id, { provider: 'platega', attemptId: a,
+    method: 'ONLINE_PAYMENT', currency: 'RUB', amount: 1100 }), null, 'счёт со старой суммой не создаётся');
+  for (const patch of [{ discount: 2 }, { originalTotal: 1101 }, { paymentTotal: 1098 }, { rounding: 'unknown' }]) {
+    assert.equal(db.createOrder({ total: 1100, paymentFee: { ...fee, ...patch } }).paymentFee, null);
+  }
+  db.startOrderPayment(id, { provider: 'platega', attemptId: a, method: 'ONLINE_PAYMENT', currency: 'RUB', amount: 1099 });
+  assert.equal(db.getOrder(id).total, 1099);
+  db.settleOrderPayment(id, { attemptId: a, status: 'failed' });
+  db.startOrderPayment(id, { provider: 'alfabank', attemptId: b, method: 'CARD_ONLINE', currency: 'RUB', amount: 1100 });
+  assert.equal(db.getOrder(id).total, 1100, 'другая касса получает исходную цену');
+  db.settleOrderPayment(id, { attemptId: a, status: 'paid', total: 1099 });
+  assert.equal(db.getOrder(id).total, 1099, 'поздняя оплата Platega возвращает её скидку');
+  db.settleOrderPayment(id, { attemptId: b, status: 'paid', total: 1100 });
+  assert.equal(db.getOrder(id).total, 1100);
+  db.settleOrderPayment(id, { attemptId: b, status: 'refunded', total: 1100 });
+  assert.equal(db.getOrder(id).total, 1099, 'остаётся оплаченный счёт Platega');
+  assert.equal(db.getOrder(id).payment.status, 'paid');
+  db.settleOrderPayment(id, { attemptId: a, status: 'cancelled' });
+  assert.equal(db.getOrder(id).total, 1099);
+  assert.deepEqual(db.getOrder(id).paymentFee, fee, 'снимок цены не меняется вместе с активной попыткой');
 });

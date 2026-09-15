@@ -453,15 +453,77 @@ test('Platega: точная база 35500 ₽ проходит от снимк�
   assert.equal(tools.shipments.length, 1);
 });
 
+test('округление 1100→1099 проходит выбор способа, повтор POST и строгую сверку оплаты', async t => {
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'rubles',
+    originalTotal: 1100, paymentTotal: 1099, discount: 1, baseAmount: 1012.9, amount: 86.1, percent: 8.5 };
+  const { db, orderId, request, context } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 12,
+    extraSettings: { alfabankEnabled: true, alfabankLogin: 'synthetic-login', alfabankPassword: 'synthetic-password',
+      payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] } });
+  const before = await context();
+  assert.equal(before.methodAmounts.ONLINE_PAYMENT, 1099);
+  assert.equal(before.methodAmounts.CARD_ONLINE, 1100);
+  let externalId, creates = 0, checkedAmount = 1098.99;
+  stubFetch(t, async (url, init) => {
+    if (init.method === 'POST') {
+      creates++;
+      const body = JSON.parse(init.body);
+      externalId = body.payload;
+      assert.deepEqual(body.paymentDetails, { amount: 1012.9, currency: 'RUB' });
+      return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
+        url: 'https://pay.platega.io/pay/synthetic-round-rubles', expiresIn: null }));
+    }
+    return new Response(JSON.stringify({ id: invoiceId, payload: externalId, status: 'CONFIRMED',
+      paymentMethod: 'SBPQR', paymentDetails: { amount: checkedAmount, currency: 'RUB' } }));
+  });
+  assert.equal((await request()).status, 200);
+  assert.equal((await request()).status, 200);
+  assert.equal((await request('b'.repeat(32))).status, 200);
+  assert.equal(creates, 1);
+  assert.equal(db.getOrder(orderId).total, 1099);
+  assert.equal(db.getOrder(orderId).payment.amount, 1099);
+  assert.equal((await context()).methodAmounts.CARD_ONLINE, 1100, 'смена суммы не уменьшает цену другой кассы');
+  const tools = { db, ...reconciliation(db) };
+  const callback = { id: invoiceId, payload: externalId, amount: 1099, currency: 'RUB', status: 'CONFIRMED' };
+  await CALLBACK.handle(settings, callback, headers, tools);
+  assert.equal(db.getOrder(orderId).payment.status, 'mismatch');
+  assert.equal(tools.shipments.length, 0, 'даже одна недостающая копейка не считается оплатой');
+  checkedAmount = 1099;
+  await CALLBACK.handle(settings, callback, headers, tools);
+  assert.equal(db.getOrder(orderId).payment.status, 'paid');
+  assert.equal(db.getOrder(orderId).total, 1099);
+  assert.equal(tools.shipments.length, 1);
+});
+
+test('недостижимый итог со скидкой до рубля скрывает только Platega', async t => {
+  const quote = require('../public/payment-fee').checkout(1100.01, 8.5);
+  assert.equal(quote.paymentTotal, null);
+  const { total, ...snapshot } = quote;
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', ...snapshot };
+  const { request, context } = checkoutHarness(t, { total: 1100.01, paymentFee, feePercent: 8.5,
+    extraSettings: { alfabankEnabled: true, alfabankLogin: 'synthetic-login', alfabankPassword: 'synthetic-password',
+      payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] } });
+  stubFetch(t, async () => assert.fail('неподходящий счёт не создаётся'));
+  const ctx = await context();
+  assert.deepEqual(Array.from(ctx.methods, m => m.id), ['CARD_ONLINE']);
+  assert.equal(ctx.methodAmounts.CARD_ONLINE, 1100.01);
+  assert.equal((await request()).status, 400);
+});
+
 test('снимок Platega внутри цены сохраняет выбор Alfa и передаёт ей обычный полный итог', async t => {
   const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
-    baseAmount: 1013.8249, amount: 86.18, percent: 8.5 };
-  const { db, orderId, request, context } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 8.5,
+    rounding: 'rubles', originalTotal: 1100, paymentTotal: 1099, discount: 1,
+    baseAmount: 1012.9, amount: 86.1, percent: 8.5 };
+  const { db, orderId, request, context, settings: currentSettings } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 8.5,
     extraSettings: { alfabankEnabled: true, alfabankLogin: 'synthetic-login',
       alfabankPassword: 'synthetic-password', payMethods: ['ONLINE_PAYMENT', 'CARD_ONLINE'] } });
   const ctx = await context();
   assert.deepEqual(Array.from(ctx.methods, method => method.id), ['CARD_ONLINE', 'ONLINE_PAYMENT']);
   assert.equal(ctx.amount, 1100);
+  db.startOrderPayment(orderId, { provider: 'platega', attemptId, method: 'ONLINE_PAYMENT', amount: 1099, currency: 'RUB' });
+  db.settleOrderPayment(orderId, { attemptId, status: 'failed' });
+  currentSettings.payMinTotal = 1100;
+  assert.equal(db.getOrder(orderId).total, 1099);
+  assert.deepEqual(Array.from((await context()).methods, method => method.id), ['CARD_ONLINE']);
   const ALFA = require('../lib/alfabank');
   const original = ALFA.createInvoice;
   t.after(() => { ALFA.createInvoice = original; });
@@ -473,6 +535,8 @@ test('снимок Platega внутри цены сохраняет выбор A
     assert.equal(params.method, 'CARD_ONLINE');
     assert.equal(Object.hasOwn(params, 'baseAmount'), false);
     assert.equal(Object.hasOwn(params, 'feePercent'), false);
+    assert.equal(Object.hasOwn(params, 'feeRounding'), false);
+    assert.equal(Object.hasOwn(params, 'feeOriginalTotal'), false);
     return { ok: true, invoice: { id: invoiceId, amount: 1100, currency: 'RUB',
       method: 'CARD_ONLINE', requisite: 'https://bank.example/payment', expiresAt: Date.now() + 600000 } };
   };
@@ -481,6 +545,7 @@ test('снимок Platega внутри цены сохраняет выбор A
   assert.equal(creates, 1);
   assert.equal(db.getOrder(orderId).payment.provider, 'alfabank');
   assert.equal(db.getOrder(orderId).payment.amount, 1100);
+  assert.equal(db.getOrder(orderId).total, 1100);
 });
 
 test('старый заказ с доплатой Platega по-прежнему ограничивает выбор своим способом', async t => {

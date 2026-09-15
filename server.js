@@ -1585,7 +1585,10 @@ function notifyNewOrder(order) {
       + `${order.promoDiscount ? ` — выгода ${R.money(order.promoDiscount, ss)}` : ''}\n` : '')
     + `\n${lines}\n`
     + (order.paymentFee && order.paymentFee.mode !== 'included' && order.paymentFee.amount > 0 ? `\nКомиссия платёжного сервиса: ${R.money(order.paymentFee.amount, ss)}\n` : '')
-    + `\n<b>Итого: ${R.money(order.total, ss)}</b>`;
+    + `\n<b>Итого: ${R.money(order.total, ss)}</b>`
+    + (order.paymentFee && order.paymentFee.rounding === 'rubles' && order.paymentFee.discount > 0
+      && order.total === order.paymentFee.originalTotal
+      ? `\nПри оплате через Platega: ${R.money(order.paymentFee.paymentTotal, ss)} (скидка ${R.money(order.paymentFee.discount, ss)})` : '');
   sendTelegram(ss, msg).catch(() => {});
   // И карточкой в открытую панель. Та же дверь, что у Telegram: два разных места
   // с уведомлением о заказе рано или поздно разошлись бы в том, какая заявка
@@ -1643,6 +1646,8 @@ function checkoutRequestHash(body) {
     paymentFeePercent: String(b.paymentFeePercent == null ? '' : b.paymentFeePercent),
     paymentTotal: String(b.paymentTotal == null ? '' : b.paymentTotal)
   };
+  // Старые запросы без этого поля сохраняют прежний отпечаток для повторов.
+  if (b.paymentPayableTotal !== undefined) shape.paymentPayableTotal = String(b.paymentPayableTotal);
   return crypto.createHash('sha256').update(JSON.stringify(shape)).digest('hex');
 }
 
@@ -1688,10 +1693,22 @@ function directPayMethod(s) {
   return real.length === 1 && PAY.isHosted(real[0].id) ? String(real[0].id) : '';
 }
 
-function orderApiBody(order, reused, s) {
+function orderApiBody(order, reused, s, shownPayableTotal) {
   // `pay` — вести ли покупателя на страницу оплаты. Своими реквизитами платят
   // там же, поэтому режим `own` ведёт туда наравне с кассой.
   const pay = !!(order && (order.draft || order.payment || order.payMode === 'own'));
+  let payNow = pay && order && !order.payment ? directPayMethod(s || settings()) : '';
+  if (payNow) {
+    const fee = order.paymentFee;
+    const rounded = fee && fee.rounding === 'rubles';
+    const payableTotal = rounded
+      ? (payNow === 'ONLINE_PAYMENT' ? fee.paymentTotal : fee.originalTotal) : order.total;
+    // При повторе потерянного ответа касса могла смениться. Автоматический
+    // переход разрешён только на уже показанную сумму; иначе показываем выбор.
+    if (!(payableTotal > 0)
+      || (shownPayableTotal !== undefined && shownPayableTotal !== payableTotal)
+      || (shownPayableTotal === undefined && rounded && fee.discount > 0 && payNow === 'ONLINE_PAYMENT')) payNow = '';
+  }
   return {
     ok: true, reused: !!reused, id: order.id, number: order.number,
     total: order.total, itemsTotal: order.itemsTotal,
@@ -1703,7 +1720,7 @@ function orderApiBody(order, reused, s) {
     /* Способ, которым можно платить не заходя на нашу страницу. У заказа с уже
      * выставленным счётом его нет: там всё решает существующая попытка, и
      * второй счёт на те же деньги нам не нужен. */
-    payNow: pay && order && !order.payment ? directPayMethod(s || settings()) : ''
+    payNow
   };
 }
 
@@ -1727,7 +1744,7 @@ app.post('/api/order', async (req, res) => {
       return res.json({ ok: false, errorCode: 'idempotency_conflict', error: 'Данные заказа изменились. Обновите страницу и повторите оформление.' }, 409);
     }
     rememberOwnOrder(req, replay);
-    return res.json(orderApiBody(replay, true));
+    return res.json(orderApiBody(replay, true, s, req.body.paymentPayableTotal));
   }
 
   // Идемпотентный повтор уже записанного заказа проходит ДО лимита: потерянный
@@ -1899,8 +1916,21 @@ app.post('/api/order', async (req, res) => {
     || typeof req.body.paymentTotal !== 'number' || req.body.paymentTotal !== feeQuote.total)) {
     return res.json({ ok: false, error: 'Итоговая сумма обновилась. Обновите страницу оформления, чтобы увидеть актуальную сумму с доставкой.' }, 409);
   }
+  // При единственной Platega браузер сразу переходит в кассу. До перехода
+  // покупатель уже должен видеть скидку и итог, а старая вкладка — обновиться.
+  const directMethod = directPayMethod(s);
+  const shownPayableTotal = req.body.paymentPayableTotal;
+  const payableTotal = feeQuote && directMethod === 'ONLINE_PAYMENT'
+    ? feeQuote.paymentTotal : Math.round((total + ship.price) * 100) / 100;
+  if ((shownPayableTotal !== undefined && shownPayableTotal !== payableTotal)
+    || (feeQuote && feeQuote.discount > 0 && directMethod === 'ONLINE_PAYMENT'
+      && shownPayableTotal !== payableTotal)) {
+    return res.json({ ok: false, error: 'Сумма к оплате обновилась. Обновите страницу оформления, чтобы увидеть актуальную сумму.' }, 409);
+  }
   const paymentFee = feeQuote ? { provider: feeQuote.provider, method: feeQuote.method,
     ...(feeQuote.rounding ? { rounding: feeQuote.rounding } : {}),
+    ...(feeQuote.rounding === 'rubles' ? { originalTotal: feeQuote.originalTotal,
+      paymentTotal: feeQuote.paymentTotal, discount: feeQuote.discount } : {}),
     mode: feeQuote.mode, baseAmount: feeQuote.baseAmount, amount: feeQuote.amount, percent: feeQuote.percent } : null;
   const grandTotal = feeQuote ? feeQuote.total : total + ship.price;
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
@@ -2004,7 +2034,7 @@ app.post('/api/order', async (req, res) => {
   // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
   // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
   // её чистит pay.js, когда способ выбран).
-  res.json(orderApiBody(order, false));
+  res.json(orderApiBody(order, false, s, shownPayableTotal));
 });
 
 /* ============================ ОНЛАЙН-ЧАТ ВИТРИНЫ ============================
@@ -3009,7 +3039,7 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   const feeMethodMatches = !fee || method === fee.method || (fee.mode === 'included'
     && fee.method === 'SBP_ONLINE' && method === 'ONLINE_PAYMENT');
   if (fee && p.id === 'platega' && (!feeMethodMatches || ctx.currency !== 'RUB'
-    || ctx.amount !== order.total)) return { code: 'method_unavailable' };
+    || ctx.amount !== (fee.rounding === 'rubles' ? fee.paymentTotal : order.total))) return { code: 'method_unavailable' };
   if (!fee && p.id === 'platega' && Number(s.plategaFeePercent) > 0) return { code: 'amount' };
   const attemptId = crypto.randomBytes(12).toString('hex');
   const started = db.startOrderPayment(id, {
@@ -3040,7 +3070,8 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
       amount: ctx.amount, currency: ctx.currency, method, callbackUrl,
       ...(fee && p.id === 'platega' ? { baseAmount: fee.baseAmount,
         ...(fee.mode === 'included' ? { feePercent: fee.percent,
-          ...(fee.rounding ? { feeRounding: fee.rounding } : {}) } : {}) } : {}),
+          ...(fee.rounding ? { feeRounding: fee.rounding } : {}),
+          ...(fee.rounding === 'rubles' ? { feeOriginalTotal: fee.originalTotal } : {}) } : {}) } : {}),
       expiresAt: R.orderPayUntil(order),
       // MeridianPay требует свой уникальный идентификатор сделки — им служит id
       // попытки. CrocoPAY поле игнорирует. У Альфы это `orderNumber`, который
@@ -3376,7 +3407,9 @@ async function payContext(s, order, wanted) {
   const asked = PAY.currencyCode(wanted);
   const currency = codes.includes(asked) ? asked : (codes.includes(def) ? def : codes[0]);
   const rate = PAY.rateOf(rates, currency);
-  const sum = code => (code === base ? Number(order.total) || 0 : PAY.convert(order.total, PAY.rateOf(rates, code)));
+  const fee = order.paymentFee;
+  const originalTotal = fee && fee.rounding === 'rubles' ? fee.originalTotal : order.total;
+  const sum = code => (code === base ? Number(originalTotal) || 0 : PAY.convert(originalTotal, PAY.rateOf(rates, code)));
   const amount = sum(currency);
   // Сумма в каждой валюте — чтобы покупатель выбирал, уже видя, сколько
   // переводить, а не узнавал это после нажатия.
@@ -3387,7 +3420,13 @@ async function payContext(s, order, wanted) {
   let methods = PAYMENTS.enabled(s)
     ? PAY.allowed(answered ? (answered.byCurrency[currency] || []) : null, s.payMethods) : [];
   if (order.paymentFee && order.paymentFee.mode !== 'included') methods = methods.filter(m => m.id === order.paymentFee.method && currency === 'RUB');
-  return { live, codes, currency, rate, amount, amounts, methods };
+  const methodAmounts = {};
+  if (fee && fee.rounding === 'rubles') {
+    const plategaAvailable = currency === 'RUB' && fee.paymentTotal > 0 && PAYMENTS.payable(fee.paymentTotal, s);
+    methods = methods.filter(m => m.id !== 'ONLINE_PAYMENT' || plategaAvailable);
+    for (const m of methods) methodAmounts[m.id] = m.id === 'ONLINE_PAYMENT' ? fee.paymentTotal : amount;
+  }
+  return { live, codes, currency, rate, amount, amounts, methods, methodAmounts };
 }
 
 /* Выставить счёт по уже созданному заказу и отдать реквизиты.
@@ -3434,7 +3473,9 @@ async function startPaymentRoute(req, res) {
   }
   // Пределы касс проверяем и здесь: заказ мог быть оформлен до их появления, а
   // счёт на такую сумму они всё равно не выставят.
-  if (!PAYMENTS.payable(order.total, s)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
+  const originalTotal = order.paymentFee && order.paymentFee.rounding === 'rubles'
+    ? order.paymentFee.originalTotal : order.total;
+  if (!PAYMENTS.payable(originalTotal, s)) return res.json({ ok: false, error: 'Эту сумму онлайн-оплата не принимает — менеджер свяжется с вами' }, 400);
   // Способ проверяем не только по своему закрытому списку, но и по тому, что
   // владелец оставил на витрине: скрытый в настройках способ не должен
   // проходить запросом мимо интерфейса.
@@ -3449,6 +3490,7 @@ async function startPaymentRoute(req, res) {
   if (!ctx.methods.some(m => m.id === method)) {
     return res.json({ ok: false, error: 'Выберите способ оплаты' }, 400);
   }
+  if (Object.prototype.hasOwnProperty.call(ctx.methodAmounts, method)) ctx.amount = ctx.methodAmounts[method];
   if (!(ctx.amount > 0)) {
     return res.json({ ok: false, error: 'Оплата в этой валюте сейчас недоступна — выберите другую' }, 400);
   }
@@ -3729,6 +3771,7 @@ app.get('/pay/:id', async (req, res) => {
     currency: ctx.currency,
     amount: ctx.amount,
     amounts: ctx.amounts,
+    methodAmounts: ctx.methodAmounts,
     orderArchived: db.isOrderArchived(currentOrder),
     canDiscardDraft: db.canDiscardDraftOrder(currentOrder),
     // Свои реквизиты владельца — третий режим витрины (см. lib/payments.js).

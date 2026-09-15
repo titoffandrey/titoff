@@ -839,11 +839,13 @@
   function checkoutFeeQuote() {
     var page = document.getElementById('checkout-page');
     if (!page || !page.dataset || page.dataset.paymentFeePercent == null
-      || !window.PaymentFee || typeof window.PaymentFee.hosted !== 'function'
+      || !window.PaymentFee || typeof window.PaymentFee.checkout !== 'function'
       || String(page.dataset.paymentFeePercent).trim() === '') return null;
     var price = shipCurrent();
     var total = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
-    return window.PaymentFee.hosted(total, Number(page.dataset.paymentFeePercent));
+    var quote = window.PaymentFee.checkout(total, Number(page.dataset.paymentFeePercent));
+    if (quote) quote.direct = page.dataset.paymentRoundedOnly === '1';
+    return quote;
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
@@ -851,6 +853,7 @@
   function renderRail() {
     var side = document.getElementById('checkout-side');
     if (!side || !Cart.items.length) return;
+    var paymentQuote = checkoutFeeQuote();
     // Именно availableCount: сумма считается без распроданных позиций, и рядом с
     // ней должно стоять то же число. С общим count строка читалась как «три товара
     // за 67 990», хотя в цену вошёл один.
@@ -880,6 +883,8 @@
       // строке выше, а не ещё одна строка расчёта.
       + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
         + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
+      + (paymentQuote && paymentQuote.direct && paymentQuote.discount > 0
+        ? '<div class="co-line"><span>Скидка при оплате</span><span>−' + money(paymentQuote.discount) + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
 
@@ -1448,7 +1453,7 @@
   // Итог с доставкой: эту сумму покупатель видит до нажатия кнопки.
   function orderTotal() {
     var fee = checkoutFeeQuote();
-    if (fee) return fee.total;
+    if (fee) return fee.direct && fee.paymentTotal !== null ? fee.paymentTotal : fee.total;
     var price = shipCurrent();
     return Cart.total() + (price == null ? 0 : price);
   }
@@ -1462,6 +1467,7 @@
       return page && page.dataset && page.dataset.paymentFeePercent != null
         ? 'Не удалось проверить сумму заказа. Обновите страницу и попробуйте ещё раз.' : '';
     }
+    if (fee.direct && fee.paymentTotal === null) return 'Оплата этой суммы сейчас недоступна. Обратитесь в магазин.';
     var address = addressValue();
     if (!address) return 'Укажите адрес, чтобы рассчитать полную сумму заказа.';
     if (!deliveryChoice() || !deliveryModeChoice()) return 'Выберите способ и вариант доставки, чтобы увидеть полную сумму заказа.';
@@ -3370,7 +3376,10 @@
     // Сервер проверяет показанные процент и итог: старая вкладка не должна
     // открыть платёж с суммой, которую покупатель ещё не видел.
     var fee = checkoutFeeQuote();
-    if (fee) { payload.paymentFeePercent = fee.percent; payload.paymentTotal = fee.total; }
+    if (fee) {
+      payload.paymentFeePercent = fee.percent; payload.paymentTotal = fee.total;
+      if (fee.direct) payload.paymentPayableTotal = fee.paymentTotal;
+    }
     // Промокод — теми же полями, что и в корзине: цены заказа сервер считает с
     // ним же и сверяет с присланными. Иначе оформление отвечало бы «корзина
     // изменилась» на ровном месте.

@@ -190,6 +190,19 @@ test('новая база общей формы убирает тысячные 
   assert.equal(fetch.mock.calls.length, 1);
 });
 
+test('округление до рублей проверяет исходную цену и предел скидки до отправки запроса', async t => {
+  const params = { ...PARAMS, amount: 1099, feeOriginalTotal: 1100,
+    feeRounding: 'rubles', feePercent: 8.5, baseAmount: 1012.9 };
+  const fetch = mockFetch(t, async () => json(CREATED));
+  assert.equal((await PLATEGA.createInvoice(SETTINGS, params)).ok, true);
+  for (const patch of [{ amount: 1100 }, { baseAmount: 1013.82 }, { feeOriginalTotal: 1100.01 },
+    { feeOriginalTotal: undefined }, { feeOriginalTotal: '1100' }, { feeRounding: 'cents' },
+    { feeOriginalTotal: 1101 }]) {
+    assert.deepEqual(await PLATEGA.createInvoice(SETTINGS, { ...params, ...patch }), { ok: false, error: 'bad_base_amount' });
+  }
+  assert.equal(fetch.mock.calls.length, 1);
+});
+
 test('общая форма с включённой комиссией не подтверждает оплату по базе до выбора способа', async t => {
   const expected = { ...EXPECTED, method: 'ONLINE_PAYMENT', amount: 1100 };
   const fetch = mockFetch(t, async () => json({ ...DETAILS, status: 'PENDING', paymentMethod: null,

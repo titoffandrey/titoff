@@ -116,3 +116,83 @@ test('расчёт общей формы отклоняет неверные с�
     }
   }
 });
+
+test('округление Platega уменьшает недостижимый итог не более чем на рубль', () => {
+  assert.deepEqual(FEE.roundedIncluded(1100, 8.5), {
+    mode: 'included', rounding: 'rubles', baseAmount: 1012.9,
+    amount: 86.1, percent: 8.5, total: 1099, originalTotal: 1100, discount: 1
+  });
+  assert.deepEqual(FEE.roundedIncluded(35500, 8.5), {
+    mode: 'included', rounding: 'rubles', baseAmount: 32718.89,
+    amount: 2781.11, percent: 8.5, total: 35500, originalTotal: 35500, discount: 0
+  });
+  assert.deepEqual(FEE.roundedIncluded(1000.99, 8.5), {
+    mode: 'included', rounding: 'rubles', baseAmount: 921.66,
+    amount: 78.34, percent: 8.5, total: 1000, originalTotal: 1000.99, discount: 0.99
+  });
+  assert.equal(FEE.roundedIncluded(1100.01, 8.5), null,
+    'следующий достижимый целый итог требует скидку 1,01 ₽');
+  assert.equal(FEE.roundedIncluded(102, 99.99), null,
+    'при другом тарифе нельзя молча превысить максимальную скидку');
+  assert.equal(FEE.includedCents(100, 99.99).total, 100,
+    'достижимый итог ниже на два рубля не допускается');
+  assert.deepEqual(FEE.hosted(1100, 8.5), FEE.included(1100, 8.5),
+    'прежняя функция и снимки заказов сохраняют совместимость');
+});
+
+test('округление Platega корректно обрабатывает ноль, дробные рубли и нулевую комиссию', () => {
+  for (const total of [0, 0.01, 0.99, 1, 1.01, 1100, 1100.99]) {
+    const result = FEE.roundedIncluded(total, 0);
+    assert.deepEqual(result, {
+      mode: 'included', rounding: 'rubles', baseAmount: Math.floor(total),
+      amount: 0, percent: 0, total: Math.floor(total), originalTotal: total,
+      discount: (Math.round(total * 100) % 100) / 100
+    });
+  }
+  assert.deepEqual(FEE.roundedIncluded(0.99, 8.5), {
+    mode: 'included', rounding: 'rubles', baseAmount: 0,
+    amount: 0, percent: 8.5, total: 0, originalTotal: 0.99, discount: 0.99
+  });
+});
+
+test('для любой допустимой ставки округление выбирает наибольший точный итог без повышения цены', () => {
+  // Проверяем все ставки с точностью до сотой доли процента. Независимая
+  // арифметика BigInt определяет достижимость по двум соседям обратной базы.
+  for (let rate = 0; rate <= 10000; rate++) {
+    for (const minor of [0, 99, 10200, 110000, 110001, 3550099]) {
+      const original = BigInt(minor);
+      let expected = null;
+      for (let target = original / 100n * 100n;
+        target >= 0n && original - target <= 100n; target -= 100n) {
+        const center = target * 10000n / BigInt(10000 + rate);
+        for (let base = center; base <= center + 1n; base++) {
+          const fee = (base * BigInt(rate) + 5000n) / 10000n;
+          if (base + fee === target) expected = { target, base, fee };
+        }
+        if (expected) break;
+      }
+      const result = FEE.roundedIncluded(minor / 100, rate / 100);
+      if (!expected) {
+        assert.equal(result, null, `нет решения: ${minor} коп., ставка ${rate / 100}`);
+        continue;
+      }
+      assert.ok(result);
+      assert.equal(result.total, Number(expected.target) / 100);
+      assert.equal(result.baseAmount, Number(expected.base) / 100);
+      assert.equal(result.amount, Number(expected.fee) / 100);
+      assert.equal(result.discount, Number(original - expected.target) / 100);
+      assert.ok(result.discount >= 0 && result.discount <= 1);
+      assert.equal(Number.isInteger(result.total), true);
+      assert.equal(result.rounding, 'rubles');
+    }
+  }
+});
+
+test('округление Platega отклоняет неверные суммы и ставки', () => {
+  for (const value of [-1, NaN, Infinity, null, true, '1000', 1000.001, Number.MAX_SAFE_INTEGER]) {
+    assert.equal(FEE.roundedIncluded(value, 8.5), null);
+  }
+  for (const rate of [-1, 100.01, NaN, Infinity, null, true, '8.5', 8.501]) {
+    assert.equal(FEE.roundedIncluded(1000, rate), null);
+  }
+});

@@ -269,14 +269,21 @@ test('оформление сохраняет цены и итог без стр
   assert.match(side.innerHTML, /Товары \(1\)<\/span><span>1000 ₽/);
   assert.doesNotMatch(side.innerHTML, /комисси|co-line-fee/i);
   assert.equal(ui.orderTotal(), 1100);
+  page.dataset.paymentRoundedOnly = '1';
+  ui.renderRail();
+  assert.equal(ui.orderTotal(), 1099, 'единственная касса показывает скидку до прямого перехода');
+  assert.match(side.innerHTML, /Скидка при оплате/);
+  assert.match(side.innerHTML, /Итого<\/span><b>1099 ₽/);
+  delete page.dataset.paymentRoundedOnly;
   page.dataset.paymentFeePercent = '12';
   ui.renderRail();
   assert.equal(ui.orderTotal(), 1100, 'смена тарифа меняет расходы магазина, но не сумму покупателя');
   assert.doesNotMatch(side.innerHTML, /комисси|co-line-fee/i);
   page.dataset.paymentFeePercent = '8.5';
   goods = 10.1; ship = 0.2;
-  assert.deepEqual(ui.checkoutFeeQuote(), { mode: 'included', rounding: 'cents',
-    baseAmount: 9.49, amount: 0.81, percent: 8.5, total: 10.3 });
+  assert.deepEqual(ui.checkoutFeeQuote(), { mode: 'included', rounding: 'rubles',
+    baseAmount: 9.22, amount: 0.78, percent: 8.5, total: 10.3,
+    originalTotal: 10.3, paymentTotal: 10, discount: 0.3, direct: false });
   page.dataset.paymentFeePercent = '';
   assert.equal(ui.checkoutFeeQuote(), null, 'пустой процент не принимается за нулевой тариф');
   page.dataset.paymentFeePercent = '8.5';
@@ -391,6 +398,35 @@ test('включённая комиссия не видна на страниц�
   for (const page of [receipt, R.payPage(s, paid)]) {
     assert.doesNotMatch(page, /комисси|8,5%|12%/i);
   }
+});
+
+test('сумма со скидкой видна до выбора оплаты, а чек вычитает её из исходного заказа', () => {
+  const s = settings();
+  const { total, ...fee } = FEE.checkout(1100, 8.5);
+  const original = { ...order('pending'), total: 1100, itemsTotal: 1000, deliveryPrice: 100,
+    payment: null, items: [{ id: 'p1', name: 'Товар', qty: 1, price: 1000 }],
+    paymentFee: { provider: 'platega', method: 'ONLINE_PAYMENT', ...fee } };
+  const choice = R.payPage(s, original, {
+    methods: [PAY.describe('ONLINE_PAYMENT', 'platega'), PAY.describe('CARD_ONLINE', 'alfabank')],
+    currency: 'RUB', amount: 1100, methodAmounts: { ONLINE_PAYMENT: 1099, CARD_ONLINE: 1100 }
+  });
+  assert.match(choice, /К оплате 1\s099\s₽ · скидка 1\s₽/);
+  assert.match(choice, /К оплате 1\s100\s₽/);
+  assert.doesNotMatch(choice, /комисси|8,5%/i);
+  const paid = { ...original, ...{ payment: order('paid').payment }, total: 1099 };
+  paid.payment.amount = 1099;
+  paid.payment.attempts[0].amount = 1099;
+  const receipt = R.receiptPage(s, paid);
+  assert.match(receipt, /Товары<\/dt><dd>1\s000\s₽/);
+  assert.match(receipt, /Доставка<\/dt><dd>100\s₽/);
+  assert.match(receipt, /Скидка при оплате<\/dt><dd>−1\s₽/);
+  assert.match(receipt, /Итого<\/dt><dd>1\s099\s₽/);
+  assert.doesNotMatch(receipt, /комисси|8,5%/i);
+  assert.match(R.payPage(s, paid), /Скидка при оплате: 1\s₽/);
+  const other = { ...paid, total: 1100, payment: { ...paid.payment, provider: 'alfabank', amount: 1100 } };
+  const otherReceipt = R.receiptPage(s, other);
+  assert.doesNotMatch(otherReceipt, /Скидка при оплате/);
+  assert.match(otherReceipt, /Итого<\/dt><dd>1\s100\s₽/);
 });
 
 test('страница оплаты и товарный чек показывают сохранённую комиссию даже после смены тарифа', () => {
