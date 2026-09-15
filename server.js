@@ -1001,12 +1001,13 @@ app.get('/checkout', (req, res) => {
    * public/app.js), а второй раз возвращать нечего. */
   const restoreOrder = String(req.session.restoreOrder || '');
   if (restoreOrder) delete req.session.restoreOrder;
-  // `payOnline` решает подпись кнопки: «Перейти к оплате» либо «Оформить заказ».
   res.send(R.checkoutPage(settings(), pageOpts(req, {
     restoreOrder,
-    // `payOnline` решает подпись кнопки, и своими реквизитами покупатель платит
-    // на нашей же странице — значит «Перейти к оплате» тоже.
-    payOnline: (PAYMENTS.enabled(settings()) && !!paymentOrigin(req)) || PAYMENTS.ownEnabled(settings()),
+    /* Работает ли касса на этой витрине. Подпись кнопки и путь заказа страница
+     * считает сама по сумме (`checkoutMode` в public/app.js): в кассу уходит
+     * заказ в её пределах, дороже — по своим реквизитам или заявкой. Без
+     * публичного origin касса не получит callback, и заказ идёт как без неё. */
+    payCashbox: PAYMENTS.enabled(settings()) && !!paymentOrigin(req),
     // Работают ли промокоды — единственное, что витрина знает о них заранее.
     // Какой именно применён, она спрашивает у `/api/cart` вместе с ценами:
     // держать это в разметке значило бы завести второй источник правды о
@@ -1508,7 +1509,7 @@ app.post('/api/delivery/quote', (req, res) => {
   // Потолок заказа приходит из настроек: подгонка итога под круглое число не
   // вправе вывести сумму за границу, которую касса уже не проведёт.
   const q = SHIP.quoteAll(address, Number.isFinite(goods) && goods > 0 ? goods : 0,
-    PAYMENTS.limits(settings()).max);
+    shipCeiling(settings(), goods));
   // Срок едет рядом с ценой и той же зоной: «сколько ждать» — второй вопрос
   // после «сколько стоит», и на выбор между пунктом выдачи и курьером он влияет
   // не меньше. Текст собирает сервер (lib/delivery-days.js) — своя вилка со
@@ -1697,7 +1698,9 @@ function orderApiBody(order, reused, s, shownPayableTotal) {
   // `pay` — вести ли покупателя на страницу оплаты. Своими реквизитами платят
   // там же, поэтому режим `own` ведёт туда наравне с кассой.
   const pay = !!(order && (order.draft || order.payment || order.payMode === 'own'));
-  let payNow = pay && order && !order.payment ? directPayMethod(s || settings()) : '';
+  // Прямой переход в кассу — только у черновика: заказ по своим реквизитам
+  // идёт на нашу страницу, и спрашивать кассу ради него незачем.
+  let payNow = pay && order && order.draft && !order.payment ? directPayMethod(s || settings()) : '';
   if (payNow) {
     const fee = order.paymentFee;
     const rounded = fee && fee.rounding === 'rubles';
@@ -1722,6 +1725,21 @@ function orderApiBody(order, reused, s, shownPayableTotal) {
      * второй счёт на те же деньги нам не нужен. */
     payNow
   };
+}
+
+/* Потолок для подгонки итога с доставкой под круглое число.
+ *
+ * Подгонка не вправе перевести заказ через потолок кассы: 19 950 ₽ товаров,
+ * округлённые с доставкой до 20 100, ушли бы мимо Platega с её 20 000 ₽ на
+ * платёж — путь оплаты менялся бы от округления. Но заказу, который и без
+ * доставки дороже потолка, ограничение не нужно: он в кассу не идёт, и
+ * обрезанный потолком расчёт лишь оставил бы ему чистый тариф вместо круглого
+ * итога. Считают это ДВА места — предварительный расчёт витрины и сам заказ, —
+ * и обязаны считать одинаково, иначе покупатель видит на оформлении одну
+ * доставку, а в заказе другую (ровно так и было: 69 000 против 68 930). */
+function shipCeiling(s, goods) {
+  const max = PAYMENTS.cashboxMax(s);
+  return max > 0 && Number(goods) <= max ? max : 0;
 }
 
 app.post('/api/order', async (req, res) => {
@@ -1901,16 +1919,28 @@ app.post('/api/order', async (req, res) => {
    */
   // Настройки берём те же, что читались в начале маршрута: второй `settings()`
   // здесь означал бы второй источник правды о пределах кассы в одном заказе.
-  const ship = SHIP.quote(delivery, deliveryMode, address, total, PAYMENTS.limits(s).max);
+  // Тот же потолок подгонки, что у предварительного расчёта витрины
+  // (`shipCeiling`): иначе покупатель увидел бы одну доставку, а заплатил другую.
+  const ship = SHIP.quote(delivery, deliveryMode, address, total, shipCeiling(s, total));
   if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
-  const feeQuote = PAYMENTS.checkoutFee(s, Math.round((total + ship.price) * 100) / 100);
+  const fullTotal = Math.round((total + ship.price) * 100) / 100;
+  /* Чем витрина примет ЭТОТ заказ — по сумме с доставкой (`PAYMENTS.modeFor`,
+   * см. «Потолок кассы больше не гасит товары» в lib/payments.js). В кассу
+   * уходит заказ в её пределах; дороже — по своим реквизитам владельца, а без
+   * них заявкой менеджеру. Без публичного origin касса не получит callback, и
+   * заказ идёт так, будто кассы нет. */
+  const orderMode = PAYMENTS.modeFor(s, fullTotal) === 'cashbox' && paymentOrigin(req)
+    ? 'cashbox' : PAYMENTS.fallbackMode(s);
+  const feeQuote = orderMode === 'cashbox' ? PAYMENTS.checkoutFee(s, fullTotal) : null;
   // Невозможный обратный расчёт не превращаем в отсутствие комиссии: иначе
   // в API ушла бы полная цена и Platega добавила бы процент повторно.
-  if (!feeQuote && PAYMENTS.checkoutFee(s, 0)) {
+  if (orderMode === 'cashbox' && !feeQuote && PAYMENTS.checkoutFee(s, 0)) {
     return res.json({ ok: false, error: 'Не удалось рассчитать точную сумму оплаты. Обратитесь в магазин.' }, 400);
   }
   // Сверяем показанный итог, включая доставку, и снимок тарифа даже при 0%.
   // Вкладка прежней версии с доплатой должна заново показать обычную цену.
+  // Заказ, который в кассу не идёт, присланные поля комиссии не читает: цена
+  // у него та же, а показанную сумму сверяет проверка ниже.
   if (feeQuote && (req.body.paymentFeePercent == null
     || String(req.body.paymentFeePercent).trim() === '' || Number(req.body.paymentFeePercent) !== feeQuote.percent
     || typeof req.body.paymentTotal !== 'number' || req.body.paymentTotal !== feeQuote.total)) {
@@ -1918,10 +1948,10 @@ app.post('/api/order', async (req, res) => {
   }
   // При единственной Platega браузер сразу переходит в кассу. До перехода
   // покупатель уже должен видеть скидку и итог, а старая вкладка — обновиться.
-  const directMethod = directPayMethod(s);
+  const directMethod = orderMode === 'cashbox' ? directPayMethod(s) : '';
   const shownPayableTotal = req.body.paymentPayableTotal;
   const payableTotal = feeQuote && directMethod === 'ONLINE_PAYMENT'
-    ? feeQuote.paymentTotal : Math.round((total + ship.price) * 100) / 100;
+    ? feeQuote.paymentTotal : fullTotal;
   if ((shownPayableTotal !== undefined && shownPayableTotal !== payableTotal)
     || (feeQuote && feeQuote.discount > 0 && directMethod === 'ONLINE_PAYMENT'
       && shownPayableTotal !== payableTotal)) {
@@ -1932,24 +1962,17 @@ app.post('/api/order', async (req, res) => {
     ...(feeQuote.rounding === 'rubles' ? { originalTotal: feeQuote.originalTotal,
       paymentTotal: feeQuote.paymentTotal, discount: feeQuote.discount } : {}),
     mode: feeQuote.mode, baseAmount: feeQuote.baseAmount, amount: feeQuote.amount, percent: feeQuote.percent } : null;
-  const grandTotal = feeQuote ? feeQuote.total : total + ship.price;
-  // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
-  // покупатель, то есть вместе с доставкой. Витрина гасит кнопку заранее, но
-  // проверяем и здесь: клиентским данным не верим, как и в цене заказа.
-  //
-  // Пределы принадлежат КАССАМ: пока оплата на витрине выключена (обе кассы),
-  // заказ уходит заявкой, и ограничивать её суммой платёжки незачем.
-  const limit = PAYMENTS.limitFor(s, grandTotal);
-  if (limit) return res.json({ ok: false, error: limit }, 400);
+  const grandTotal = feeQuote ? feeQuote.total : fullTotal;
+  /* Пределов витрины больше нет: заказ, который кассе не по размеру, не
+   * отказ, а другой путь оплаты — его уже выбрал `orderMode` выше. Границы
+   * самой кассы (`payable`) проверяет `/api/pay/start`: заказ мог быть
+   * оформлен до их смены, а счёт на такую сумму касса всё равно не выставит. */
 
-  // Без фиксированного публичного origin касса не может получить безопасный
-  // callback. В таком развёртывании оформляем обычную заявку, а не оставляем
-  // покупателя с невидимым черновиком на неработающей странице оплаты.
-  const draft = PAYMENTS.enabled(s) && !!paymentOrigin(req);
-  /* Свои реквизиты: черновика нет вовсе. Черновиком заказ становится ради
-   * ВЫБОРА способа оплаты, а выбирать тут нечего — реквизиты одни и те же, и
-   * менеджеру заявка нужна сразу, вместе с уведомлением. */
-  const payMode = !draft && PAYMENTS.ownEnabled(s) ? 'own' : '';
+  // Черновиком заказ становится ради ВЫБОРА способа оплаты в кассе.
+  const draft = orderMode === 'cashbox';
+  /* Свои реквизиты: черновика нет вовсе — выбирать нечего, реквизиты одни и
+   * те же, и менеджеру заявка нужна сразу, вместе с уведомлением. */
+  const payMode = orderMode === 'own' ? 'own' : '';
   const orderData = {
     checkoutRequestId, checkoutRequestHash: requestHash,
     draft, payMode,
@@ -3045,7 +3068,9 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
   const started = db.startOrderPayment(id, {
     provider: p.id, attemptId, requestId: providerRequestId,
     token: crypto.randomBytes(16).toString('hex'),
-    method, amount: ctx.amount, currency: ctx.currency
+    method, amount: ctx.amount, currency: ctx.currency,
+    // База без комиссии кассы — по ней потом сверяется чистая сумма магазина.
+    ...(fee && p.id === 'platega' && fee.mode === 'included' ? { baseAmount: fee.baseAmount } : {})
   });
   const attempt = db.findPaymentAttempt(started, { attemptId });
   if (!started || !attempt || !attempt.token) {
@@ -3122,7 +3147,19 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
       // вовсе — там остаётся только дождаться таймера.
       if (p.cancel) p.cancel(s, r.invoice.id).catch(() => {});
     }
-    const code = r.ambiguous ? (r.error === 'timeout' ? 'timeout' : 'provider_error') : PAYMENTS.startErrorCode(r.error);
+    /* Код отказа решает, можно ли покупателю пробовать снова СРАЗУ. Двусмысленный
+     * исход (сеть, таймаут, 5xx, битый ответ) — `timeout`/`provider_error`:
+     * счёт мог создаться, и новую попытку тем же способом держит защитный
+     * интервал (см. `unresolved` в startPaymentRoute). ОДНОЗНАЧНЫЙ отказ —
+     * касса ответила 4xx, либо запрос не прошёл нашу же проверку до сети —
+     * счёта не создал, и запирать за него покупателя на полчаса нельзя: на бою
+     * ровно так прямые счета СБП выше лимита Platega («provider_error» на
+     * HTTP 400) блокировали следующий заход на 30 минут. Такому отказу свой
+     * код `rejected`, если словарь не узнал причину точнее (лимит суммы —
+     * `amount`, ключи — `auth`). */
+    const known = PAYMENTS.startErrorCode(r.hint || r.error);
+    const code = r.ambiguous ? (r.error === 'timeout' ? 'timeout' : 'provider_error')
+      : known === 'provider_error' ? 'rejected' : known;
     db.failOrderPaymentAttempt(id, { attemptId, errorCode: code, providerTries: tries });
     // Пока POST ждал кассу, мог успешно закрыться прежний счёт. Финансовый факт
     // важнее отказа нового запроса: покупателя ведём на terminal-страницу, а не
@@ -3276,8 +3313,17 @@ app.post('/pay/:id/cancel', (req, res) => {
  * Поле необязательное: у касс, которые ничего такого не возвращают, приписки
  * просто нет, и панель показывает плашку как раньше.
  */
-function invoiceNote(invoice) {
-  return String((invoice && invoice.reason) || '').slice(0, 120);
+function invoiceNote(invoice, attempt) {
+  if (invoice && invoice.reason) return String(invoice.reason).slice(0, 120);
+  /* Общая форма Platega: способ выбирают на её странице, и панели надо видеть
+   * какой («Способ у кассы: Crypto»). Если покупатель выбрал способ с другим
+   * тарифом, итог отличается от нашего, а оплата принята по чистой сумме
+   * магазина (см. `netMatches` в lib/platega.js) — это тоже стоит в приписке. */
+  if (!invoice || !invoice.way || !attempt) return '';
+  const paid = Number(invoice.amount), expected = Number(attempt.amount);
+  const differs = Number.isFinite(paid) && Number.isFinite(expected) && Math.round(paid * 100) !== Math.round(expected * 100);
+  return (`Способ у кассы: ${invoice.way}` + (differs
+    ? ` · заплачено ${R.moneyText(paid)} вместо ${R.moneyText(expected)} — тариф способа, чистая сумма магазина сошлась` : '')).slice(0, 200);
 }
 
 async function reconcilePaymentAttempt(s, orderId, attempt) {
@@ -3310,7 +3356,12 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
     if (!r.ok) return { ok: false, error: r.error };
     const match = p.matchesInvoice(attempt, r.invoice);
     if (!match.ok) {
-      console.error(p.id + ' reconcile: не совпал', match.reason, '| счёт', invoiceId, '| заказ', orderId);
+      // У висящего счёта Platega сумма не совпадает ШТАТНО: до выбора способа
+      // GET отдаёт базу без комиссии, а при другом способе — другой итог. Строка
+      // в журнале каждую минуту по каждому такому счёту глушила бы настоящие.
+      if (!(state === 'pending' && p.pendingAmountVaries)) {
+        console.error(p.id + ' reconcile: не совпал', match.reason, '| счёт', invoiceId, '| заказ', orderId);
+      }
       // GET по конкретному пути обязан вернуть тот же invoice id. Чужой/пустой
       // id не вправе даже закрыть попытку как Expired: старый счёт может быть
       // ещё платёжным, а закрытие покажет кнопку нового и создаст дубль.
@@ -3334,7 +3385,7 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       // фоновый polling этой попытки. Только `paid` требует полного совпадения.
       if (['expired', 'cancelled', 'failed'].includes(state)) {
         const result = db.settleOrderPayment(orderId, {
-          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
+          attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice, attempt)
         });
         if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
         return { ok: true, state: (result.attempt && result.attempt.status) || state };
@@ -3344,12 +3395,16 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
     if (!state || state === 'pending') {
       return { ok: true, state: 'pending', expires: r.invoice.expiresAt || attempt.expiresAt || 0 };
     }
+    const note = invoiceNote(r.invoice, attempt);
     const result = db.settleOrderPayment(orderId, {
-      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note: invoiceNote(r.invoice)
+      attemptId: attempt.id, invoiceId, status: state, total: r.invoice.amount, note
     });
     if (!result || result.stale) return { ok: false, error: 'stale_attempt' };
     if (result && result.changed) {
-      notifyPayment(result.order, state, '');
+      // Менеджеру приписка нужна, только когда заплачено не то, что ждали:
+      // «Оплата: СБП» в каждом уведомлении читалась бы как тревога.
+      const paidDiffers = Math.round(Number(r.invoice.amount) * 100) !== Math.round(Number(attempt.amount) * 100);
+      notifyPayment(result.order, state, paidDiffers ? note : '');
       // Дверь та же, что у уведомления менеджеру: «заказ оплачен» решается
       // здесь один раз, и второе место с этим решением разошлось бы молча.
       // Расхождение сумм (`mismatch`) отправление не готовит: там сперва
@@ -3426,6 +3481,12 @@ async function payContext(s, order, wanted) {
     methods = methods.filter(m => m.id !== 'ONLINE_PAYMENT' || plategaAvailable);
     for (const m of methods) methodAmounts[m.id] = m.id === 'ONLINE_PAYMENT' ? fee.paymentTotal : amount;
   }
+  /* Способ остаётся в списке, только если за ЭТУ сумму возьмётся хоть одна
+   * касса очереди (`chainFor` с суммой: у Platega потолок 20 000 ₽ на платёж).
+   * Иначе покупатель нажимал бы «Перейти к оплате» и получал отказ там, где
+   * выбора уже не было. */
+  methods = methods.filter(m => PAYMENTS.chainFor(s, live, m.id, currency,
+    Object.prototype.hasOwnProperty.call(methodAmounts, m.id) ? methodAmounts[m.id] : amount).length > 0);
   return { live, codes, currency, rate, amount, amounts, methods, methodAmounts };
 }
 
@@ -3900,7 +3961,15 @@ async function reconcileOpenPayments() {
         // Pending проверяем часто. Терминальные и mismatch ещё несколько дней
         // пересверяем реже: касса/webhook могут опоздать, а исправленный точный
         // Success должен дорасти до paid без ручного вмешательства.
-        const interval = attempt.status === 'pending' ? 60 * 1000 : 15 * 60 * 1000;
+        /* Висящий счёт, чей срок давно вышел, — тоже реже. Ссылка Platega живёт
+         * дольше нашего получаса, и покупатель, открывший её на 29-й минуте,
+         * вправе заплатить на 35-й — первые два часа после срока опрос остаётся
+         * ежеминутным. Дальше это брошенный заказ: минутный опрос семь суток —
+         * десять тысяч запросов к кассе на каждый, и ради них ничего не
+         * происходит. Срок неизвестен (ноль) — считаем счёт живым. */
+        const expiredLongAgo = attempt.status === 'pending' && Number(attempt.expiresAt) > 0
+          && now - Number(attempt.expiresAt) > 2 * 60 * 60 * 1000;
+        const interval = attempt.status === 'pending' && !expiredLongAgo ? 60 * 1000 : 15 * 60 * 1000;
         const checkedAt = Number(attempt.lastCheckedAt || 0);
         if (checkedAt > 0 && now - checkedAt < interval) continue;
         if (!['pending', 'expired', 'cancelled', 'failed', 'mismatch', 'paid'].includes(attempt.status)) continue;
@@ -5249,6 +5318,13 @@ app.post('/admin/settings', async (req, res) => {
       return fail('Комиссия Platega — процент от 0 до 100, не более двух знаков после запятой');
     }
     patch.plategaFeePercent = Number(raw);
+  }
+  if (req.body.plategaMaxTotal !== undefined) {
+    const raw = String(req.body.plategaMaxTotal).trim().replace(/\s+/g, '');
+    if (raw === '') patch.plategaMaxTotal = PLATEGA.DEFAULT_MAX_TOTAL;
+    else if (!/^\d{1,8}$/.test(raw) || Number(raw) < 1) {
+      return fail('Максимальная сумма платежа через Platega — целое число рублей, например 20000');
+    } else patch.plategaMaxTotal = Number(raw);
   }
   const plategaSecret = String(req.body.plategaSecret || '').trim();
   if (req.body.clearPlategaSecret === undefined && plategaSecret && !PLATEGA.validSecret(plategaSecret)) {

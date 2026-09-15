@@ -59,8 +59,21 @@ test('в панели Platega есть доступ и инструкция call
   assert.match(html, /https:\/\/docs\.platega\.io\//);
   assert.match(html, /Комиссия Platega, включённая в цены, %/);
   assert.match(html, /name="plategaFeePercent" type="number" min="0" max="100" step="0\.01" value="8\.5"/);
-  assert.match(html, /внутри стоимости заказа, отдельная комиссия на сайте не показывается/);
+  assert.match(html, /Он сидит внутри цены: кассе уходит цена без него/);
   assert.doesNotMatch(html, /Комиссия сверху для покупателя/);
+  /* Потолок одного платежа — настройка рядом с тарифом: лимит СБП Platega
+   * (20 000 ₽ вместе с комиссией) публично не описан, значит его могут поднять,
+   * и владелец впишет число сам. Подсказка называет путь заказа дороже. */
+  assert.match(html, /name="plategaMaxTotal" inputmode="numeric" autocomplete="off"\s*value="20000" placeholder="20000"/);
+  assert.match(html, /Заказ дороже уходит заявкой — менеджер связывается с покупателем сам/);
+  const withOwn = admin.settingsPage({ ...s, plategaMaxTotal: 50000, ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.' }, { pendingReviewCount: () => 0 }, null);
+  assert.match(withOwn, /value="50000" placeholder="20000"/);
+  assert.match(withOwn, /Заказ дороже уходит переводом по своим реквизитам/);
+  assert.match(withOwn, /на них уходят заказы дороже 50\s000\s₽/, 'свёртка своих реквизитов знает про запасной путь');
+  assert.match(withOwn, /В кассу уходят заказы до 50\s000\s₽, дороже — переводом по своим реквизитам/);
+  // Свёрнутая строка раздела оплаты тоже называет порог и путь за ним.
+  const summary = admin.paySummary ? admin.paySummary(s, []) : null;
+  if (summary) assert.match(summary[1], /до 20\s000\s₽, дороже — заявкой/);
   assert.doesNotMatch(html, new RegExp(secret));
   const disabled = admin.settingsPage(s, {}, null, '', { draft: { storeName: s.storeName } });
   assert.doesNotMatch(disabled, /name="plategaEnabled" checked/);
@@ -93,10 +106,10 @@ test('витрина и консультант описывают выбор с�
   assert.match(choice, /id="pay-create">Перейти к оплате/);
   assert.match(choice, /data-hosted="1"/);
   const facts = prompt.storeText(s);
-  assert.match(facts, /Онлайн-оплата:.*выбирает доступный способ/);
+  assert.match(facts, /Онлайн-оплата:.*выбирает СБП или другой доступный там способ — сумма уже указана/);
   assert.doesNotMatch(facts, /сразу открывается защищённая страница оплаты через СБП/);
   assert.doesNotMatch(facts, /странице банка|ТОЧНУЮ СУММУ|эквайринг|перевод по реквизитам/);
-  for (const page of [html, choice, R.checkoutPage(s, { origin: '', payOnline: true }), facts]) {
+  for (const page of [html, choice, R.checkoutPage(s, { origin: '', payCashbox: true }), facts]) {
     assert.doesNotMatch(page, new RegExp(merchant + '|' + secret));
     assert.doesNotMatch(page, /Platega/i);
   }
@@ -200,19 +213,25 @@ test('комиссия считается одинаково на сервере
 
 test('оформление получает процент только при наличии Platega и различает прямую оплату и выбор', () => {
   const s = { ...settings(), plategaFeePercent: 8.5 };
-  const html = R.checkoutPage(s, { payOnline: true });
+  const html = R.checkoutPage(s, { payCashbox: true });
   assert.match(html, /data-payment-fee-percent="8\.5"/);
+  // Потолок Platega уезжает рядом с процентом: дороже него расчёт её суммы не нужен.
+  assert.match(html, /data-payment-fee-max="20000"/);
+  assert.match(html, /data-pay-cashbox="1" data-pay-min="1000" data-pay-max="20000"/);
+  const raised = R.checkoutPage({ ...s, plategaMaxTotal: 75000 }, { payCashbox: true });
+  assert.match(raised, /data-payment-fee-max="75000"/);
+  assert.match(raised, /data-pay-max="75000"/);
   assert.match(html, /data-pay-flow="choice"/);
   assert.ok(html.indexOf('/static/payment-fee.js?') < html.indexOf('/static/app.js?'));
-  assert.match(R.checkoutPage({ ...s, plategaFeePercent: 0 }, { payOnline: true }), /data-payment-fee-percent="0"/);
-  const mixed = R.checkoutPage({ ...s, crocopayEnabled: true, crocopayClientId: 'test', crocopayClientSecret: 'test' }, { payOnline: true });
+  assert.match(R.checkoutPage({ ...s, plategaFeePercent: 0 }, { payCashbox: true }), /data-payment-fee-percent="0"/);
+  const mixed = R.checkoutPage({ ...s, crocopayEnabled: true, crocopayClientId: 'test', crocopayClientSecret: 'test' }, { payCashbox: true });
   assert.match(mixed, /data-payment-fee-percent="8\.5"/);
   assert.match(mixed, /data-pay-flow="choice"/);
   assert.doesNotMatch(mixed, /data-pay-flow="sbp"/);
   for (const [configured, opts] of [
-    [{ ...s, plategaEnabled: false }, { payOnline: true }],
-    [s, { payOnline: false }],
-    [{ ...s, plategaEnabled: false, crocopayEnabled: true, crocopayClientId: 'test', crocopayClientSecret: 'test' }, { payOnline: true }]
+    [{ ...s, plategaEnabled: false }, { payCashbox: true }],
+    [s, { payCashbox: false }],
+    [{ ...s, plategaEnabled: false, crocopayEnabled: true, crocopayClientId: 'test', crocopayClientSecret: 'test' }, { payCashbox: true }]
   ]) {
     const noFee = R.checkoutPage(configured, opts);
     assert.doesNotMatch(noFee, /data-payment-fee-percent|\/static\/payment-fee\.js/);
@@ -224,15 +243,17 @@ test('подпись оформления не обещает СБП при вы
   const begin = source.indexOf('  function payNote(');
   const end = source.indexOf('  // Текст отказа по сумме заказа', begin);
   const page = { dataset: { pay: '1', payFlow: 'sbp' } };
-  const payNote = new Function('document', 'payOnline', `${source.slice(begin, end)}\nreturn payNote;`)(
-    { getElementById: () => page }, () => !!page.dataset.pay
+  let mode = 'cashbox';
+  const payNote = new Function('document', 'checkoutMode', `${source.slice(begin, end)}\nreturn payNote;`)(
+    { getElementById: () => page }, () => mode
   );
   assert.equal(payNote(), 'Оплата через СБП на защищённой странице');
   page.dataset.payFlow = 'choice';
   assert.equal(payNote(), 'Способ оплаты выберете на следующем шаге');
-  delete page.dataset.payFlow;
+  // Заказ дороже кассы идёт своими реквизитами — подпись про кассу ему не обещается.
+  mode = 'own';
   assert.equal(payNote(), 'Оплата переводом по реквизитам');
-  delete page.dataset.pay;
+  mode = 'request';
   assert.equal(payNote(), 'Оплата не онлайн: менеджер свяжется с вами');
 });
 
@@ -241,7 +262,7 @@ test('оформление сохраняет цены и итог без стр
   const rail = source.slice(source.indexOf('  function lineLabel('), source.indexOf('  // ===== Оплата и доставка ====='));
   const total = source.slice(source.indexOf('  function orderTotal('), source.indexOf('  function addressValue('));
   const side = { innerHTML: '' };
-  const page = { dataset: { paymentFeePercent: '8.5' } };
+  const page = { dataset: { pay: '1', payCashbox: '1', payFallback: 'request', paymentFeePercent: '8.5' } };
   let goods = 1000, ship = null, saved = 0;
   const env = {
     document: { getElementById: id => id === 'checkout-page' ? page : id === 'checkout-side' ? side : null },
@@ -253,7 +274,7 @@ test('оформление сохраняет цены и итог без стр
   };
   const ui = new Function('env', `const { document, window, Cart, money, shipCurrent,
     deliveryName, deliveryModeName, shipDaysCurrent, promoView, escapeHtml, coIcon } = env;
-    ${rail}\n${total}\nreturn { renderRail, orderTotal, checkoutFeeQuote };`)(env);
+    ${rail}\n${total}\nreturn { renderRail, orderTotal, checkoutFeeQuote, checkoutMode };`)(env);
   ui.renderRail();
   assert.doesNotMatch(side.innerHTML, /комисси|8,5%|co-line-fee/i);
   assert.match(side.innerHTML, /по адресу/);
@@ -294,6 +315,21 @@ test('оформление сохраняет цены и итог без стр
   ui.renderRail();
   assert.doesNotMatch(side.innerHTML, /Комиссия/);
   assert.equal(ui.orderTotal(), 10.1 + 0.2);
+  /* Потолок Platega: сумма кассы выше него — заказ уходит другим путём, и
+   * скидки кассы у него нет: покупатель платит ценник. */
+  page.dataset.paymentFeePercent = '8.5';
+  page.dataset.paymentRoundedOnly = '1';
+  page.dataset.paymentFeeMax = '20000';
+  goods = 19000; ship = 500; saved = 0;
+  ui.renderRail();
+  assert.equal(ui.checkoutMode(), 'cashbox');
+  assert.equal(ui.orderTotal(), 19500);
+  goods = 21000;
+  ui.renderRail();
+  assert.equal(ui.checkoutMode(), 'request');
+  assert.equal(ui.orderTotal(), 21500);
+  assert.doesNotMatch(side.innerHTML, /Скидка при оплате/);
+  assert.equal(ui.checkoutFeeQuote().overLimit, true);
 });
 
 test('в запрос заказа входят процент Platega и прежний итог, другие способы не получают поля комиссии', () => {
@@ -304,7 +340,7 @@ test('в запрос заказа входят процент Platega и пре
     rememberCheckout() {}, document: { getElementById: () => ({ value: 'Тест' }) },
     phoneCheck: () => ({ ok: true }), phoneValue: () => '+79990000000', ship: {},
     deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
-    totalLimitError: () => '', orderTotal: () => 1000, payOnline: () => true,
+    totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox',
     checkoutAmountError: () => '',
     Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }] }, promoFields() {},
     orderRequestId: () => 'test-request'
@@ -312,7 +348,7 @@ test('в запрос заказа входят процент Platega и пре
   for (const fee of [FEE.included(1000, 8.5), FEE.included(1000, 0), null]) {
     const make = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
       phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-      payOnline, Cart, promoFields, orderRequestId, checkoutAmountError } = env;
+      checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountError } = env;
       ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`);
     const payload = make(env, () => fee)({ innerHTML: 'Оплатить' });
     if (fee) {
@@ -324,6 +360,13 @@ test('в запрос заказа входят процент Platega и пре
     }
     assert.equal(payload.items[0].price, 1000, 'цена товара не подменяется суммой с комиссией');
   }
+  // Заказ дороже кассы полей комиссии не несёт: он в Platega не пойдёт.
+  const away = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
+    phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
+    checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountError } = env;
+    ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`)(
+    { ...env, checkoutMode: () => 'request' }, () => FEE.included(1000, 8.5))({ innerHTML: 'Оформить заказ' });
+  assert.equal(Object.hasOwn(away, 'paymentFeePercent'), false);
 });
 
 test('неизвестная или устаревшая доставка блокирует Platega до показа полного итога', () => {
@@ -338,11 +381,11 @@ test('неизвестная или устаревшая доставка бло
   let address = 'Адрес', price = 0, percent = 8.5, hasFee = true, configured = true;
   const env = {
     rememberCheckout() {}, document: { getElementById: id => id === 'checkout-submit' ? button
-      : id === 'order-msg' ? message : id === 'checkout-page'
+      : id === 'order-msg' ? message : id === 'co-btn-ico' ? { dataset: {} } : id === 'checkout-page'
         ? { dataset: configured ? { paymentFeePercent: String(percent) } : {} } : { value: address } },
     phoneCheck: () => ({ ok: true }), phoneValue: () => '+79990000000', ship,
     deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
-    totalLimitError: () => '', orderTotal: () => 1000, payOnline: () => true,
+    totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox', payNote: () => '', coIcon: () => '',
     Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }], total: () => 1000, availableCount: () => 1 },
     promoFields() {}, orderRequestId: () => 'test-request', setText() {}, money: String,
     submitLabel: () => 'Оплатить', addressValue: () => address, shipCurrent: () => price,
@@ -350,7 +393,7 @@ test('неизвестная или устаревшая доставка бло
   };
   const ui = new Function('env', `const { rememberCheckout, document, phoneCheck,
     phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-    payOnline, Cart, promoFields, orderRequestId, setText, money, submitLabel,
+    checkoutMode, payNote, coIcon, Cart, promoFields, orderRequestId, setText, money, submitLabel,
     addressValue, shipCurrent, checkoutFeeQuote } = env;
     ${amount}\n${sync}\n${source.slice(begin, send)}\nreturn payload; }
     return { syncSubmit, submitOrder };`)(env);

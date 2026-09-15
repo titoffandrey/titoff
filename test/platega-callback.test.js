@@ -38,18 +38,20 @@ function fixture(t, patch = {}) {
 }
 
 function reconciliation(db) {
-  // Выполняем именно production reconcile с подставленной кассой/уведомлениями.
+  // Выполняем именно production reconcile (вместе с его припиской `invoiceNote`)
+  // с подставленной кассой/уведомлениями.
   const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
-  const start = source.indexOf('async function reconcilePaymentAttempt(');
+  const start = source.indexOf('function invoiceNote(');
   const end = source.indexOf('\n/* Что реально включено', start);
-  const notifications = [], shipments = [];
+  const notifications = [], shipments = [], notes = [];
   const reconcile = vm.runInNewContext(source.slice(start, end) + '\nreconcilePaymentAttempt', {
-    db, PAYMENTS: { provider: id => id === 'platega' ? PLATEGA : null, startErrorCode: () => 'provider_error' },
-    paymentReconcileJobs: new Map(), invoiceNote: invoice => invoice.reason || '', console,
-    notifyPayment: (order, state) => notifications.push(state),
+    db, R: require('../lib/render'),
+    PAYMENTS: { provider: id => id === 'platega' ? PLATEGA : null, startErrorCode: () => 'provider_error' },
+    paymentReconcileJobs: new Map(), console: { error: () => {}, log: () => {} },
+    notifyPayment: (order, state, note) => { notifications.push(state); notes.push(note || ''); },
     prepareShipment: order => shipments.push(order.id)
   });
-  return { reconcile, notifications, shipments };
+  return { reconcile, notifications, notes, shipments };
 }
 
 function stubStatus(t, patch = {}) {
@@ -426,7 +428,8 @@ test('Platega: сохранённые 0% не заменяются текущи�
 test('Platega: точная база 35500 ₽ проходит от снимка заказа до POST и подтверждения оплаты', async t => {
   const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     rounding: 'cents', baseAmount: 32718.89, amount: 2781.11, percent: 8.5 };
-  const { db, orderId, request } = checkoutHarness(t, { total: 35500, paymentFee, feePercent: 12 });
+  // 35 500 ₽ выше потолка Platega по умолчанию: касса подняла лимит.
+  const { db, orderId, request } = checkoutHarness(t, { total: 35500, paymentFee, feePercent: 12, extraSettings: { plategaMaxTotal: 100000 } });
   let externalId, creates = 0;
   stubFetch(t, async (url, init) => {
     if (init.method === 'POST') {
@@ -598,4 +601,99 @@ test('Platega: частичный ответ с ID и плохой ссылко�
   assert.equal(db.getOrder(orderId).payment.requisite, '');
   assert.equal((await request('b'.repeat(32))).status, 409);
   assert.equal(calls, 1);
+});
+
+test('Platega: способ с другим тарифом на её странице принимается по чистой сумме магазина', async t => {
+  /* Боевой счёт #478234 (15 сентября 2026): база 25 806,45 ушла с расчётом на
+   * СБП (8,5 %), а покупатель выбрал на странице кассы Crypto с 5 % — касса
+   * ждала 27 096,77 вместо наших 28 000. Строгая сверка суммы отправила бы
+   * оплату в `mismatch`, хотя магазин получает ровно свою базу: комиссию
+   * Platega берёт с покупателя сверх неё. Поэтому `amount − comission`,
+   * сошедшийся с базой, — оплата; итог заказа и чек берут заплаченное. */
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'rubles',
+    originalTotal: 1100, paymentTotal: 1099, discount: 1, baseAmount: 1012.9, amount: 86.1, percent: 8.5 };
+  const { db, orderId, request } = checkoutHarness(t, { total: 1100, paymentFee, feePercent: 8.5 });
+  let externalId, status = { paymentMethod: 'Crypto', amount: 1063.55, comission: 50.65 };
+  stubFetch(t, async (url, init) => {
+    if (init.method === 'POST') {
+      externalId = JSON.parse(init.body).payload;
+      return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
+        url: 'https://pay.platega.io/pay/synthetic-crypto', expiresIn: null }));
+    }
+    return new Response(JSON.stringify({ id: invoiceId, payload: externalId, status: 'CONFIRMED',
+      paymentMethod: status.paymentMethod, comission: status.comission,
+      paymentDetails: { amount: status.amount, currency: 'RUB' } }));
+  });
+  assert.equal((await request()).status, 200);
+  const attempt = db.getOrder(orderId).payment.attempts[0];
+  assert.equal(attempt.baseAmount, 1012.9, 'база хранится у попытки — по ней сверяется чистая сумма');
+  const tools = { db, ...reconciliation(db) };
+  const callback = { id: invoiceId, payload: externalId, amount: 1063.55, currency: 'RUB', status: 'CONFIRMED' };
+  // Комиссия удержана из денег магазина (чистая сумма меньше базы) — разбор.
+  status = { paymentMethod: 'CardRu', amount: 1012.9, comission: 30 };
+  await CALLBACK.handle(settings, callback, headers, tools);
+  assert.equal(db.getOrder(orderId).payment.status, 'mismatch');
+  assert.equal(tools.shipments.length, 0);
+  // Комиссии в ответе нет вовсе — гадать нечем, разбор остаётся.
+  status = { paymentMethod: 'Crypto', amount: 1063.55 };
+  await CALLBACK.handle(settings, callback, headers, tools);
+  assert.equal(db.getOrder(orderId).payment.status, 'mismatch');
+  // Чистая сумма сошлась — оплачено, итог заказа = заплаченное, менеджер узнаёт причину.
+  status = { paymentMethod: 'Crypto', amount: 1063.55, comission: 50.65 };
+  await CALLBACK.handle(settings, callback, headers, tools);
+  const paid = db.getOrder(orderId);
+  assert.equal(paid.payment.status, 'paid');
+  assert.equal(paid.total, 1063.55);
+  assert.equal(paid.payment.paidTotal, 1063.55);
+  assert.match(paid.payment.note, /Способ у кассы: Crypto · заплачено 1\s063,55\s₽ вместо 1\s099\s₽/);
+  assert.equal(tools.notifications.at(-1), 'paid');
+  assert.match(tools.notes.at(-1), /Crypto/);
+  assert.equal(tools.shipments.length, 1);
+  // Чек и страница оплаты называют разницу с ценником заплаченным, а не расчётом.
+  const R = require('../lib/render');
+  assert.equal(R.orderPaymentDiscount(paid), 36.45);
+  const receipt = R.receiptPage({ storeName: 'Т', currency: '₽', currencyPosition: 'after' }, paid, {});
+  assert.match(receipt, /Скидка при оплате<\/dt><dd>−36,45\s₽/);
+  assert.match(receipt, /Итого<\/dt><dd>1\s063,55\s₽/);
+  // Обычный СБП по-прежнему сходится строго и без приписки менеджеру.
+  const strict = PLATEGA.matchesInvoice({ invoiceId, amount: 1099, currency: 'RUB', externalId: attemptId, method: 'ONLINE_PAYMENT', baseAmount: 1012.9 },
+    { id: invoiceId, amount: 1099, currency: 'RUB', externalId: attemptId, method: 'ONLINE_PAYMENT', fee: 86.1 });
+  assert.equal(strict.ok, true);
+  // Способ дороже СБП: покупатель переплатил по тарифу, магазин получил базу — тоже оплата.
+  const pricier = PLATEGA.matchesInvoice({ invoiceId, amount: 1099, currency: 'RUB', externalId: attemptId, method: 'ONLINE_PAYMENT', baseAmount: 1012.9 },
+    { id: invoiceId, amount: 1114.19, currency: 'RUB', externalId: attemptId, method: 'ONLINE_PAYMENT', fee: 101.29 });
+  assert.equal(pricier.ok, true);
+  assert.equal(R.orderPaymentDiscount({ total: 1114.19, paymentFee }), -14.19);
+  assert.match(R.receiptPage({ storeName: 'Т', currency: '₽', currencyPosition: 'after' },
+    { ...paid, total: 1114.19, payment: { ...paid.payment, paidTotal: 1114.19 } }, {}),
+  /Комиссия выбранного способа оплаты<\/dt><dd>14,19\s₽/);
+  // Без базы у попытки (счета до этой правки) второй исход недоступен.
+  assert.equal(PLATEGA.matchesInvoice({ invoiceId, amount: 1099, currency: 'RUB', externalId: attemptId, method: 'ONLINE_PAYMENT' },
+    { id: invoiceId, amount: 1063.55, currency: 'RUB', externalId: attemptId, method: 'ONLINE_PAYMENT', fee: 50.65 }).ok, false);
+});
+
+test('Platega: однозначный отказ кассы не запирает следующую попытку на полчаса', async t => {
+  /* На бою прямые счета СБП выше лимита получали HTTP 400 и код
+   * `provider_error` — тот же, что у потерянного ответа, — и защитный
+   * интервал держал новую попытку 30 минут. Отказ 4xx счёта не создаёт:
+   * пробовать снова можно сразу, а строка отказа даёт панели причину. */
+  const { db, orderId, request } = checkoutHarness(t);
+  let calls = 0, body = { message: 'SBPQR limit is 20000.00 RUB (including commission).' };
+  stubFetch(t, async () => {
+    calls++;
+    return new Response(JSON.stringify(body), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  });
+  const first = await request();
+  assert.equal(first.status, 502);
+  assert.equal(db.getOrder(orderId).payment.attempts[0].lastErrorCode, 'amount');
+  assert.match(first.body.error, /не принял эту сумму/);
+  body = { error: 'unknown' };
+  const second = await request('b'.repeat(32));
+  assert.equal(second.status, 502);
+  assert.equal(calls, 2, 'второй запрос ушёл в кассу, а не упёрся в защитный интервал');
+  assert.equal(db.getOrder(orderId).payment.attempts[1].lastErrorCode, 'rejected');
+  assert.equal(db.getOrder(orderId).payment.attempts.length, 2);
+  assert.equal((await request('c'.repeat(32))).status, 502);
+  assert.equal(calls, 3);
+  assert.equal(require('../lib/pay-errors').shortOf('rejected'), 'отклонила запрос');
 });

@@ -576,11 +576,11 @@
        */
       action.innerHTML = '<div class="co-submit">'
         + '<button type="button" class="btn btn-primary btn-block btn-lg btn-checkout" id="checkout-submit">'
-        + '<span class="btn-checkout-ico" id="co-btn-ico">' + coIcon(payOnline() ? 'lock' : 'check', 'btn-ico') + '</span>'
+        + '<span class="btn-checkout-ico" id="co-btn-ico">' + coIcon(checkoutMode() !== 'request' ? 'lock' : 'check', 'btn-ico') + '</span>'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note">' + payNote()
+        + '<p class="form-legal-note"><span id="checkout-pay-note">' + payNote() + '</span>'
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
     }
@@ -608,10 +608,18 @@
       var label = submit.querySelector('.btn-checkout-label');
       if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
       // «Нет доступных товаров» — не действие, и замок рядом с ним обещал бы
-      // оплату, которой не будет.
+      // оплату, которой не будет. Сам значок зависит от режима ЭТОЙ суммы:
+      // заказ дороже кассы уходит заявкой, и замок у него был бы обещанием
+      // оплаты, которой на сайте не случится.
       var ico = document.getElementById('co-btn-ico');
-      if (ico) ico.hidden = !canOrder;
+      if (ico) {
+        ico.hidden = !canOrder;
+        var want = checkoutMode() === 'request' ? 'check' : 'lock';
+        if (ico.dataset.ico !== want) { ico.innerHTML = coIcon(want, 'btn-ico'); ico.dataset.ico = want; }
+      }
     }
+    var note = document.getElementById('checkout-pay-note');
+    if (note && note.textContent !== payNote()) note.textContent = payNote();
     var limitMsg = document.getElementById('order-msg');
     if (limitMsg && (overLimit || limitMsg.dataset.limit)) {
       limitMsg.hidden = !overLimit;
@@ -844,8 +852,46 @@
     var price = shipCurrent();
     var total = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
     var quote = window.PaymentFee.checkout(total, Number(page.dataset.paymentFeePercent));
-    if (quote) quote.direct = page.dataset.paymentRoundedOnly === '1';
+    if (quote) {
+      quote.direct = page.dataset.paymentRoundedOnly === '1';
+      /* Потолок одного платежа у кассы (у Platega — 20 000 ₽ вместе с
+       * комиссией). Дороже него касса заказ не берёт, и расчёт её суммы теряет
+       * смысл: заказ уйдёт другим путём (см. checkoutMode). Число приходит от
+       * сервера атрибутом — своё здесь разошлось бы с серверным. */
+      var feeMax = Number(page.dataset.paymentFeeMax) || 0;
+      if (feeMax && quote.paymentTotal !== null && quote.paymentTotal > feeMax) {
+        quote.paymentTotal = null; quote.overLimit = true;
+      }
+    }
     return quote;
+  }
+
+  /* Чем витрина примет ЭТОТ заказ — по сумме с доставкой. Тот же ответ, что
+   * даёт сервер (`PAYMENTS.modeFor`): касса берёт заказ в своих пределах,
+   * дороже он уходит по своим реквизитам владельца либо заявкой менеджеру.
+   * Числа пределов приезжают атрибутами страницы, правило одно на обе стороны:
+   * у Platega с потолком сравнивается её сумма (цена, округлённая вниз не
+   * больше чем на рубль), у остальных касс — итог заказа.
+   *   cashbox — платят на витрине через кассу («Оплатить», замок);
+   *   own     — переводом по реквизитам магазина («Оплатить», замок);
+   *   request — заявка, менеджер свяжется («Оформить заказ», галочка). */
+  function checkoutMode() {
+    var page = document.getElementById('checkout-page');
+    var d = page && page.dataset;
+    if (!d || !d.pay) return 'request';
+    var fallback = d.payFallback === 'own' ? 'own' : 'request';
+    if (d.payCashbox !== '1') return fallback;
+    var price = shipCurrent();
+    var total = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
+    var fee = checkoutFeeQuote();
+    // Единственная касса — Platega: касса видит её сумму, а не ценник.
+    if (fee && fee.direct) {
+      if (fee.paymentTotal === null) return fallback;
+      total = fee.paymentTotal;
+    }
+    var min = Number(d.payMin) || 0, max = Number(d.payMax) || 0;
+    if ((min && total < min) || (max && total > max)) return fallback;
+    return 'cashbox';
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
@@ -883,35 +929,32 @@
       // строке выше, а не ещё одна строка расчёта.
       + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
         + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
-      + (paymentQuote && paymentQuote.direct && paymentQuote.discount > 0
+      + (paymentQuote && paymentQuote.direct && paymentQuote.discount > 0 && checkoutMode() === 'cashbox'
         ? '<div class="co-line"><span>Скидка при оплате</span><span>−' + money(paymentQuote.discount) + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
 
   // ===== Оплата и доставка =====
-  // Включена ли онлайн-оплата, витрина узнаёт единственным атрибутом от сервера:
-  // ключи кассы остаются на сервере, как и ключ подсказок адреса.
-  // Выбора «оплатить позже» нет: заказ оформляется с оплатой сразу. Прежний путь
-  // «заявка, менеджер свяжется» остаётся только когда оплата вообще не настроена —
-  // иначе кнопка вела бы в платёжку, которой нет.
-  function payOnline() {
-    var page = document.getElementById('checkout-page');
-    return !!(page && page.dataset && page.dataset.pay);
-  }
+  // Что витрина знает об оплате, приходит атрибутами от сервера (ключи кассы
+  // остаются там же, где ключ подсказок адреса), а решает по ним `checkoutMode()`
+  // выше — по сумме заказа. Выбора «оплатить позже» нет: заказ оформляется с
+  // оплатой сразу. Путь «заявка, менеджер свяжется» остаётся там, где платить на
+  // сайте нечем: оплата не настроена либо заказ кассе не по размеру.
   // «Оплатить», а не «Перейти к оплате»: на кнопке рядом с суммой длинная
   // подпись отжимала само число к краю, а никуда, кроме оплаты, кнопка и не
   // ведёт. В режиме заявок платить на сайте нечем — там она остаётся
   // «Оформить заказ».
-  function submitLabel() { return payOnline() ? 'Оплатить' : 'Оформить заказ'; }
+  function submitLabel() { return checkoutMode() !== 'request' ? 'Оплатить' : 'Оформить заказ'; }
   // Под кнопкой — одна короткая строка и ссылка на политику второй строкой.
   // Прежнее объяснение про номер карты занимало три строки и читалось как
   // оправдание: покупателю на этом шаге важно только, чем он платит.
   function payNote() {
     var page = document.getElementById('checkout-page');
     var flow = page && page.dataset && page.dataset.payFlow;
-    if (flow === 'sbp') return 'Оплата через СБП на защищённой странице';
-    if (flow === 'choice') return 'Способ оплаты выберете на следующем шаге';
-    return payOnline() ? 'Оплата переводом по реквизитам' : 'Оплата не онлайн: менеджер свяжется с вами';
+    var mode = checkoutMode();
+    if (mode === 'cashbox' && flow === 'sbp') return 'Оплата через СБП на защищённой странице';
+    if (mode === 'cashbox' && flow === 'choice') return 'Способ оплаты выберете на следующем шаге';
+    return mode !== 'request' ? 'Оплата переводом по реквизитам' : 'Оплата не онлайн: менеджер свяжется с вами';
   }
 
   // Текст отказа по сумме заказа или пустая строка. Заказ вне пределов не
@@ -1453,7 +1496,7 @@
   // Итог с доставкой: эту сумму покупатель видит до нажатия кнопки.
   function orderTotal() {
     var fee = checkoutFeeQuote();
-    if (fee) return fee.direct && fee.paymentTotal !== null ? fee.paymentTotal : fee.total;
+    if (fee) return fee.direct && fee.paymentTotal !== null && checkoutMode() === 'cashbox' ? fee.paymentTotal : fee.total;
     var price = shipCurrent();
     return Cart.total() + (price == null ? 0 : price);
   }
@@ -1467,6 +1510,9 @@
       return page && page.dataset && page.dataset.paymentFeePercent != null
         ? 'Не удалось проверить сумму заказа. Обновите страницу и попробуйте ещё раз.' : '';
     }
+    // Заказ кассе не по размеру или его сумма не собралась — он уходит по своим
+    // реквизитам либо заявкой (см. checkoutMode), и проверять расчёт кассы нечего.
+    if (checkoutMode() !== 'cashbox') return '';
     if (fee.direct && fee.paymentTotal === null) return 'Оплата этой суммы сейчас недоступна. Обратитесь в магазин.';
     var address = addressValue();
     if (!address) return 'Укажите адрес, чтобы рассчитать полную сумму заказа.';
@@ -3353,7 +3399,7 @@
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = limitError; }
       return;
     }
-    var online = payOnline();
+    var online = checkoutMode() !== 'request';
     btn.disabled = true;
     var btnHtml = btn.innerHTML;
     btn.textContent = online ? 'Открываем оплату...' : 'Отправляем...';
@@ -3376,7 +3422,7 @@
     // Сервер проверяет показанные процент и итог: старая вкладка не должна
     // открыть платёж с суммой, которую покупатель ещё не видел.
     var fee = checkoutFeeQuote();
-    if (fee) {
+    if (fee && checkoutMode() === 'cashbox') {
       payload.paymentFeePercent = fee.percent; payload.paymentTotal = fee.total;
       if (fee.direct) payload.paymentPayableTotal = fee.paymentTotal;
     }

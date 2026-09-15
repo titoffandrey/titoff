@@ -75,8 +75,10 @@ function orderHarness(t, { shipping = 100 } = {}) {
     clientIp: () => '', cloudflareTrusted: () => false,
     metrics: { visitorId: () => null, context: () => ({}), describeRequest: async () => ({}) },
     metricsSkipped: () => true,
-    notifyNewOrder: () => assert.fail('черновик не уведомляет менеджера')
+    // Черновик менеджера не будит; заявка и заказ по своим реквизитам — будят сразу.
+    notifyNewOrder: order => { if (order.draft) assert.fail('черновик не уведомляет менеджера'); notified.push(order.id); }
   });
+  const notified = [];
   const session = {};
   const request = async (patch = {}) => {
     const methods = PAYMENTS.offeredMethods(settings);
@@ -96,7 +98,7 @@ function orderHarness(t, { shipping = 100 } = {}) {
     });
     return response;
   };
-  return { db, settings, request, setShipping: value => { shipping = value; } };
+  return { db, settings, request, notified, setShipping: value => { shipping = value; } };
 }
 
 test('снимок комиссии внутри цены относится к Platega и доступен при выборе касс', () => {
@@ -301,17 +303,42 @@ test('/api/order требует новый показанный итог пос�
   assert.equal(db.getOrders().length, 1);
 });
 
-test('/api/order применяет предел кассы к прежнему полному итогу без доплаты', async t => {
-  const { db, settings, request } = orderHarness(t);
+test('/api/order сверяет предел кассы с полным итогом, а заказ дороже уходит заявкой', async t => {
+  const { db, settings, request, notified } = orderHarness(t);
   settings.payMaxTotal = 1150;
   const allowed = await request();
   assert.equal(allowed.status, 200);
   assert.equal(allowed.body.total, 1100);
+  assert.equal(allowed.body.payNow, 'ONLINE_PAYMENT');
+  /* Заказ дороже потолка кассы больше не отказ: он записывается заявкой (или
+   * заказом по своим реквизитам), без черновика и без снимка комиссии — на
+   * него смотрит менеджер. Поля комиссии старой вкладки при этом не читаются:
+   * цена у такого заказа та же, что и без кассы. */
   settings.payMaxTotal = 1050;
-  const result = await request({ requestId: 'b'.repeat(32) });
-  assert.equal(result.status, 400);
-  assert.match(result.body.error, /Один заказ — не более/);
-  assert.equal(db.getOrders().length, 1);
+  const result = await request({ requestId: 'b'.repeat(32), paymentPayableTotal: undefined });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.pay, false);
+  assert.equal(result.body.payNow, '');
+  assert.equal(result.body.paymentFee, null);
+  assert.equal(result.body.total, 1100);
+  const stored = db.getOrder(result.body.id);
+  assert.equal(stored.draft, false);
+  assert.equal(stored.payMode, '');
+  assert.deepEqual(notified, [result.body.id], 'заявка уведомляет менеджера сразу, черновик — нет');
+  assert.equal(db.getOrders().length, 2);
+  // А со своими реквизитами тот же заказ идёт переводом — на нашу страницу оплаты.
+  Object.assign(settings, { ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.' });
+  const own = await request({ requestId: 'c'.repeat(32), paymentPayableTotal: undefined });
+  assert.equal(own.status, 200);
+  assert.equal(own.body.pay, true);
+  assert.equal(own.body.payNow, '');
+  assert.equal(db.getOrder(own.body.id).payMode, 'own');
+  // Потолок Platega — свой и ниже общего: 20 000 ₽ на платёж вместе с комиссией.
+  settings.payMaxTotal = 250000;
+  settings.plategaMaxTotal = 1050;
+  const capped = await request({ requestId: 'd'.repeat(32), paymentPayableTotal: undefined });
+  assert.equal(capped.status, 200);
+  assert.equal(db.getOrder(capped.body.id).payMode, 'own');
 });
 
 test('/api/order фиксирует нулевой процент и не пересчитывает его при повторе', async t => {
@@ -379,7 +406,8 @@ test('хранилище проверяет внутреннюю комисси�
 });
 
 test('оформление 35500 ₽ сохраняет точную базу в копейках и прежнюю цену', async t => {
-  const { db, request } = orderHarness(t, { shipping: 34500 });
+  const { db, settings, request } = orderHarness(t, { shipping: 34500 });
+  settings.plategaMaxTotal = 100000;    // касса подняла лимит — иначе 35 500 ушли бы мимо неё
   const result = await request({ paymentTotal: 35500 });
   assert.equal(result.status, 200);
   const order = db.getOrder(result.body.id);

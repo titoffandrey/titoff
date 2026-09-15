@@ -5518,7 +5518,7 @@ test('callback кассы берёт origin из развёртывания, а 
   assert.match(paymentOrigin, /hostname === 'localhost'/);
   assert.match(paymentOrigin, /return ''/,
     'без настройки боевой Host не становится финансовым callback-адресом');
-  assert.match(source, /payOnline: \(PAYMENTS\.enabled\(settings\(\)\) && !!paymentOrigin\(req\)\) \|\| PAYMENTS\.ownEnabled/);
+  assert.match(source, /payCashbox: PAYMENTS\.enabled\(settings\(\)\) && !!paymentOrigin\(req\)/);
   const deploy = fs.readFileSync(path.join(__dirname, '..', 'deploy', 'setup-server.sh'), 'utf8');
   assert.match(deploy, /PUBLIC_ORIGIN='https:\/\/\$DOMAIN'/);
 });
@@ -6240,7 +6240,16 @@ test('отказ кассы объяснён покупателю, а «нет �
   // Маршрут берёт текст оттуда же: разбор чужих ответов живёт рядом с остальным
   // знанием об их API, а не размазан по server.js.
   const start = server.slice(server.indexOf('async function requestInvoiceFrom('), server.indexOf("app.post('/api/pay/start'"));
-  assert.match(start, /const code = r\.ambiguous[^;]+PAYMENTS\.startErrorCode\(r\.error\)/);
+  assert.match(start, /const known = PAYMENTS\.startErrorCode\(r\.hint \|\| r\.error\);/);
+  /* Однозначный отказ (4xx, проверка до сети) не запирает покупателя защитным
+   * интервалом «предыдущий запрос ещё обрабатывается»: счёт точно не создан.
+   * На бою прямые счета СБП выше лимита Platega получали `provider_error` на
+   * HTTP 400 и блокировали новую попытку на полчаса. */
+  assert.match(start, /: known === 'provider_error' \? 'rejected' : known;/);
+  assert.equal(require('../lib/pay-errors').codeOf('rejected'), 'rejected');
+  assert.equal(require('../lib/pay-errors').shortOf('rejected'), 'отклонила запрос');
+  const route = server.slice(server.indexOf('async function startPaymentRoute('), server.indexOf("app.post('/api/pay/start'"));
+  assert.match(route, /\['timeout', 'provider_error'\]\.includes\(attempt\.lastErrorCode\)/, 'защитный интервал — только у двусмысленных исходов');
   assert.match(start, /error: PAYMENTS\.startError\(code\)/);
   // Заказ при отказе кассы остаётся настоящим — иначе покупатель оформит второй.
   assert.match(start, /placed: true/);
@@ -6561,14 +6570,14 @@ test('статусы счёта переводятся в наши состоя�
 test('ключи кассы не попадают на витрину, а признак оплаты — попадает', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
   const off = render.checkoutPage(ss, { origin: '' });
-  const on = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const on = render.checkoutPage(ss, { origin: '', payCashbox: true });
   assert.doesNotMatch(off, /data-pay/, 'без оплаты витрина о ней не знает');
   assert.match(on, /id="checkout-page" data-pay="1"/);
   // На витрину уходит только «включено». Ключи остаются на сервере, как ключ
   // подсказок адреса.
   const keys = render.checkoutPage(Object.assign({}, ss, {
     crocopayClientId: 'ГДЕ-ТО-КЛЮЧ', crocopayClientSecret: 'СЕКРЕТ-КАССЫ'
-  }), { origin: '', payOnline: true });
+  }), { origin: '', payCashbox: true });
   assert.doesNotMatch(keys, /ГДЕ-ТО-КЛЮЧ|СЕКРЕТ-КАССЫ/);
   // Настройки теперь одни на всё, и в шаблон витрины уходит тот же объект —
   // значит ни один ключ не должен попадать в разметку ни одной страницы.
@@ -6578,7 +6587,7 @@ test('ключи кассы не попадают на витрину, а при
   });
   const pages = [
     render.homePage(secret, { getProducts: () => [], visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) }, {}),
-    render.checkoutPage(secret, { origin: '', payOnline: true }),
+    render.checkoutPage(secret, { origin: '', payCashbox: true }),
     render.privacyPage(secret, {}), render.warrantyPage(secret, {}), render.returnsPage(secret, {}),
     render.notFoundPage(secret, {})
   ];
@@ -7036,7 +7045,7 @@ test('оформление с онлайн-оплатой не чистит ко
   assert.match(start, /grown\.promoted[\s\S]{0,160}notifyNewOrder\(grown\.order\)/);
   // Черновик — только когда есть что выбирать. Без онлайн-оплаты заявка
   // настоящая сразу, как и была.
-  assert.match(source, /const draft = PAYMENTS\.enabled\(s\)/);
+  assert.match(source, /const draft = orderMode === 'cashbox';/);
   // Условие рядом — про исключённых из метрики (владелец, менеджеры): заказ у них
   // обычный, а счётчик заявок он не двигает (см. lib/visitor-rules.js).
   assert.match(source, /if \(!draft && !metricsSkipped\(req\)\) metrics\.markOrder/);
@@ -7912,6 +7921,20 @@ test('вебхук сверяет token попытки и подтверждае
   const sweep = source.slice(source.indexOf('async function reconcileOpenPayments'), source.indexOf('/ОПЛАТА: CrocoPAY'));
   assert.match(sweep, /db\.paymentAttempts\(order\)/);
   assert.match(sweep, /reconcilePaymentAttempt\(s, orderId, attempt\)/);
+  /* Висящий счёт, чей срок вышел два часа назад, опрашивается раз в четверть
+   * часа, а не ежеминутно семь суток: ссылка Platega живёт дольше нашего
+   * получаса, и первые два часа после срока опрос остаётся частым — покупатель,
+   * открывший её на 29-й минуте, вправе заплатить на 35-й. Дальше это
+   * брошенный заказ, и десять тысяч запросов к кассе на каждый ничего не дают. */
+  assert.match(sweep, /now - Number\(attempt\.expiresAt\) > 2 \* 60 \* 60 \* 1000/);
+  assert.match(sweep, /attempt\.status === 'pending' && !expiredLongAgo \? 60 \* 1000 : 15 \* 60 \* 1000/);
+  /* У висящего счёта Platega сумма не совпадает ШТАТНО (до выбора способа GET
+   * отдаёт базу без комиссии): такой промах в журнал не пишется — иначе по
+   * строке в минуту на каждый счёт настоящие ошибки терялись бы в шуме. */
+  const reconcileSrc = source.slice(source.indexOf('async function reconcilePaymentAttempt('), source.indexOf('async function reconcileOpenPayments'));
+  assert.match(reconcileSrc, /if \(!\(state === 'pending' && p\.pendingAmountVaries\)\) \{\s*\n\s*console\.error\(p\.id \+ ' reconcile: не совпал'/);
+  assert.equal(require('../lib/platega').pendingAmountVaries, true);
+  assert.equal(require('../lib/crocopay').pendingAmountVaries, undefined, 'у P2P-касс сумма висящего счёта фиксирована — промах там остаётся в журнале');
 });
 
 test('terminal-состояние оплаты возвращает успех, а не ложную ошибку повторного клика', () => {
@@ -7951,156 +7974,154 @@ test('витрина уводит на свою страницу оплаты т
   assert.doesNotMatch(js, /crocopay\.tech|client_secret|Client-Secret/);
   // Выбора «оплатить позже» нет: включённая оплата — всегда оплата сразу.
   assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
-  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Оплатить' : 'Оформить заказ'; \}/);
+  assert.match(js, /function submitLabel\(\) \{ return checkoutMode\(\) !== 'request' \? 'Оплатить' : 'Оформить заказ'; \}/);
   // Идём ли на оплату, решает ответ сервера: только он знает пересчитанную
   // сумму и пределы кассы. Витринная догадка нужна лишь для подписи кнопки.
   assert.match(submit, /online = !!d\.pay;/);
 });
 
-test('сборка дороже потолка недоступна, а количество упирается в него же', () => {
-  const CROCO = require('../lib/payments');
-  // Потолок принадлежит кассе, поэтому и проверяем его при включённой оплате:
-  // в режиме заявок его нет вовсе (см. следующий тест).
+test('потолок кассы больше не гасит товары: заказ дороже уходит своими реквизитами или заявкой', () => {
+  const PAYMENTS = require('../lib/payments');
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
     crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
   const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
   const base = { id: 'p1', name: 'Товар', category: 'К', inStock: true, images: [], colors: [], bands: [] };
 
-  // Товар, у которого даже стартовая сборка дороже потолка, купить нельзя —
-  // значит и на витрине он «Нет в наличии», а не кнопка, ведущая в отказ.
-  const pricey = Object.assign({}, base, { price: CROCO.MAX_TOTAL + 10, storages: [], options: [] });
-  assert.equal(render.sellable(pricey, ss), false);
-  assert.match(render.productPage(ss, db, pricey, { origin: '' }), /Нет в наличии/);
-  const fine = Object.assign({}, base, { price: 100000, storages: [], options: [] });
-  assert.equal(render.sellable(fine, ss), true);
-
-  // Конфигурация и значение группы, выводящие сборку за потолок, гаснут как
-  // распроданные — с той же подписью, чтобы покупателю не пришлось гадать.
-  const mac = Object.assign({}, base, {
-    price: 200000,
-    storages: [{ label: '1 ТБ', add: 0 }, { label: '8 ТБ', add: 100000 }],
-    options: [{ name: 'Чип', values: [{ label: 'M5', add: 0 }, { label: 'M5 Max', add: 90000 }] }]
-  });
-  const html = render.productPage(ss, db, mac, { origin: '' });
-  const btn = label => (html.match(new RegExp('<button[^>]*>(?:(?!</button>).)*' + label + '(?:(?!</button>).)*</button>', 's')) || [''])[0];
-  assert.doesNotMatch(btn('1 ТБ'), /disabled/, 'базовая конфигурация доступна');
-  assert.match(btn('8 ТБ'), /disabled/, '200 000 + 100 000 не влезает в потолок');
-  assert.match(btn('8 ТБ'), /нет в наличии/);
-  assert.doesNotMatch(btn('M5<'), /disabled/);
-  assert.match(btn('M5 Max'), /disabled/, '200 000 + 90 000 не влезает');
-
-  // Стартовая цена уходит на витрину: от неё скрипт считает потолок количества.
-  assert.match(html, /data-start-price="200000"/);
-
-  // Потолок количества считается от АКТУАЛЬНОЙ цены сборки, а не от базовой.
-  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  assert.match(js, /Math\.floor\(ORDER_MAX \/ unit\)/);
-  assert.match(js, /markLimits\(full\);\s*\n\s*refreshQtyCap\(\);/, 'после смены варианта пересчитываются и варианты, и количество');
-  // В `markLimits` уходит ПОЛНАЯ сумма, а с потолком сравнивается цена со
-  // скидкой: касса проводит именно её.
-  assert.match(js, /return salePrice\(candidate\) > ORDER_MAX/);
-  // Корзина упирается в тот же потолок: «+» гаснет, а не даёт собрать заказ,
-  // который потом не оформить.
-  assert.match(js, /fits: function \(item\)/);
-  assert.match(js, /i\.qty >= Cart\.fits\(i\) \? ' disabled/);
-});
-
-test('заказ вне пределов одной покупки не оформляется вовсе', () => {
-  const CROCO = require('../lib/payments');
-  assert.equal(CROCO.MIN_TOTAL, 1000);
-  assert.equal(CROCO.MAX_TOTAL, 250000);
-  assert.equal(CROCO.payable(1000), true);
-  assert.equal(CROCO.payable(250000), true);
-  assert.equal(CROCO.payable(999), false);
-  assert.equal(CROCO.payable(250001), false);
-  assert.equal(CROCO.payable('не число'), false);
-
-  // Границы включительно, а текст отказа называет предел.
-  assert.equal(CROCO.limitError(250000), '');
-  assert.equal(CROCO.limitError(1000), '');
-  assert.match(CROCO.limitError(250001), /не более 250\s000\s₽/);   // toLocaleString ставит неразрывный пробел
-  assert.match(CROCO.limitError(999), /Минимальная сумма заказа — 1\s000\s₽/);
-
-  // Пределы уходят на витрину от сервера числами: они нужны на каждой странице
-  // (корзина открывается везде), поэтому идут глобальными, как валюта, а не
-  // атрибутом страницы оформления.
-  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
-    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
-  for (const html of [render.checkoutPage(ss, { origin: '', payOnline: true }), render.checkoutPage(ss, { origin: '' })]) {
-    assert.match(html, /window\.__ORDER_MIN__=1000/);
-    assert.match(html, /window\.__ORDER_MAX__=250000/);
-  }
-
-  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  assert.match(js, /window\.__ORDER_MAX__/, 'витрина читает пределы от сервера, а не хранит свои');
-  assert.doesNotMatch(js, /250000/, 'числа пределов в скрипте не дублируются');
-  // Кнопка гаснет, а причина стоит под ней: серая кнопка без объяснения
-  // читается как поломка сайта.
-  const render_ = js.slice(js.indexOf('var overLimit'), js.indexOf('var overLimit') + 700);
-  assert.match(render_, /submit\.disabled = !canOrder \|\| !!overLimit/);
-  assert.match(js, /Один заказ — не более/);
-  // Считается предел по ИТОГУ с доставкой: платит покупатель именно его, и
-  // касса проводит тоже его.
-  assert.match(js, /var overLimit = totalLimitError\(orderTotal\(\)\)/);
-  assert.match(js, /var limitError = totalLimitError\(orderTotal\(\)\)/);
-  // Сервер проверяет сумму заново — клиентским данным не верим.
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const limit = PAYMENTS\.limitFor\(s, grandTotal\);[\s\S]{0,200}return res\.json\(\{ ok: false, error: limit \}, 400\)/);
-  // Доставка и комиссия в итоговой сумме проверяются выполнением маршрута
-  // в payment-fee-backend.test.js, а не формой арифметического выражения.
-});
-
-test('оплату можно выключить: витрина принимает заявки, а пределы кассы уходят вместе с ней', () => {
-  const CROCO = require('../lib/payments');
-  // Ключи на месте, снята только галочка: именно так владелец «прячет платёжку».
-  const off = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
-    crocopayClientId: 'id', crocopayClientSecret: 'secret' };
-  const on = Object.assign({}, off, { crocopayEnabled: true });
-
-  // Пределы одной покупки принадлежат КАССЕ и вместе с ней исчезают: заявку
-  // разбирает менеджер, и ограничивать её суммой платёжки незачем. Ноль — «нет
-  // предела»: так это число читает и public/app.js.
-  assert.deepEqual(CROCO.limits(on), { min: CROCO.MIN_TOTAL, max: CROCO.MAX_TOTAL });
-  assert.deepEqual(CROCO.limits(off), { min: 0, max: 0 });
-  assert.deepEqual(CROCO.limits({ crocopayEnabled: true }), { min: 0, max: 0 }, 'галочка без ключей — те же заявки');
-  // Вторая касса включает те же пределы: они принадлежат режиму оплаты, а не
-  // конкретной платёжке.
-  assert.deepEqual(CROCO.limits({ meridianpayEnabled: true, meridianpayApiKey: 'k', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40' }),
-    { min: CROCO.MIN_TOTAL, max: CROCO.MAX_TOTAL });
-  assert.match(CROCO.limitFor(on, CROCO.MAX_TOTAL + 1), /не более/);
-  assert.equal(CROCO.limitFor(off, CROCO.MAX_TOTAL + 1), '');
-  assert.equal(CROCO.limitFor(off, 1), '');
-  // Сама касса своих пределов не теряет: /api/pay/crocopay/start спрашивает
-  // именно её, и там оплата заведомо включена.
-  assert.match(CROCO.limitError(CROCO.MAX_TOTAL + 1), /не более/);
-
-  // Товар дороже потолка в режиме заявок продаётся наравне с остальными.
-  const db = { reviewsForProduct: () => [], ratingFor: () => ({ avg: 0, count: 0 }), categories: () => [], visibleCategories: () => [] };
-  const pricey = { id: 'vision', name: 'Дорогой', category: 'К', inStock: true, images: [], colors: [], bands: [], storages: [], options: [], price: CROCO.MAX_TOTAL + 100000 };
-  assert.equal(render.sellable(pricey, off), true);
-  assert.equal(render.sellable(pricey, on), false);
-  const page = render.productPage(off, db, pricey, { origin: '' });
+  /* Прежде товар дороже потолка кассы становился «Нет в наличии». С Platega
+   * потолок стал 20 000 ₽ на платёж, и то же правило погасило бы весь каталог
+   * iPhone. Теперь режим считается ПО СУММЕ (`modeFor`): в кассу уходит заказ в
+   * её пределах, дороже — по своим реквизитам либо заявкой. Витрине потолка
+   * нет вовсе, и она получает его нулями — так скрипт читает «предела нет». */
+  const pricey = Object.assign({}, base, { price: PAYMENTS.MAX_TOTAL + 10, storages: [], options: [] });
+  assert.equal(render.sellable(pricey, ss), true);
+  const page = render.productPage(ss, db, pricey, { origin: '' });
   assert.match(page, /Добавить в корзину/);
   assert.doesNotMatch(page, /Нет в наличии/);
-  assert.match(page, /window\.__ORDER_MIN__=0;window\.__ORDER_MAX__=0/, 'пределы уходят на витрину нулями');
+  assert.match(page, /window\.__ORDER_MIN__=0;window\.__ORDER_MAX__=0/);
+  assert.deepEqual(PAYMENTS.limits(ss), { min: 0, max: 0 });
+  assert.equal(PAYMENTS.limitFor(ss, PAYMENTS.MAX_TOTAL + 1), '');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.match(js, /if \(!ORDER_MAX\)/, 'ноль в скрипте означает «предела нет»');
+  assert.doesNotMatch(js, /250000/, 'числа пределов в скрипте не дублируются');
 
-  // Оформление не обещает оплату на витрине, и знаков платёжных систем в
-  // подвале нет: обещать приём карт в этом режиме нельзя. Про заявку и
-  // менеджера говорит подпись под кнопкой — своего подзаголовка у страницы
-  // нет вовсе, он повторял бы пронумерованные шаги под собой.
-  const co = render.checkoutPage(off, { origin: '' });
-  assert.doesNotMatch(co, /data-pay="1"/);
-  assert.doesNotMatch(co, /footer-pay/);
-  assert.doesNotMatch(co, /checkout-sub/);
-  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Оплатить' : 'Оформить заказ'; \}/);
-  assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
+  // Сама касса своих границ не теряет — их спрашивает /api/pay/start.
+  assert.equal(PAYMENTS.payable(PAYMENTS.MAX_TOTAL, ss), true);
+  assert.equal(PAYMENTS.payable(PAYMENTS.MAX_TOTAL + 1, ss), false);
+  assert.equal(PAYMENTS.payable(999, ss), false);
+  assert.match(PAYMENTS.limitError(PAYMENTS.MAX_TOTAL + 1), /не более 250\s000\s₽/);
+  assert.match(PAYMENTS.limitError(999), /Минимальная сумма заказа — 1\s000\s₽/);
 
-  // Заявка сразу настоящая: черновиком заказ становится только ради выбора
-  // способа оплаты, а выбирать в этом режиме нечего.
+  // Режим по сумме: касса — в пределах, дальше запасной путь.
+  assert.equal(PAYMENTS.modeFor(ss, 100000), 'cashbox');
+  assert.equal(PAYMENTS.modeFor(ss, PAYMENTS.MAX_TOTAL + 1), 'request');
+  assert.equal(PAYMENTS.modeFor(ss, 500), 'request');
+  const own = Object.assign({}, ss, { ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.' });
+  assert.equal(PAYMENTS.modeFor(own, 100000), 'cashbox', 'касса важнее своих реквизитов, пока заказ ей по размеру');
+  assert.equal(PAYMENTS.modeFor(own, PAYMENTS.MAX_TOTAL + 1), 'own');
+  assert.equal(PAYMENTS.fallbackMode(own), 'own');
+  assert.equal(PAYMENTS.fallbackMode(ss), 'request');
+  assert.equal(PAYMENTS.cashboxMax(ss), PAYMENTS.MAX_TOTAL);
+  // Касс нет — режим прежний: свои реквизиты либо заявки, для любой суммы.
+  const off = Object.assign({}, ss, { crocopayEnabled: false });
+  assert.equal(PAYMENTS.modeFor(off, 100000), 'request');
+  assert.equal(PAYMENTS.modeFor(Object.assign({}, own, { crocopayEnabled: false }), 100000), 'own');
+  assert.equal(PAYMENTS.cashboxMax(off), 0);
+  assert.equal(PAYMENTS.mode(off), 'request');
+
+  /* Потолок у Platega свой — 20 000 ₽ на платёж вместе с комиссией, — и он
+   * настройка: касса поднимет лимит, владелец впишет число. Сравнивается с
+   * суммой, которую увидит касса (цена, округлённая вниз не больше чем на
+   * рубль), и режется общим пределом. */
+  const platega = { storeName: 'Тест', currency: '₽', currencyPosition: 'after', plategaEnabled: true,
+    plategaMerchantId: '11111111-2222-4333-8444-555555555555', plategaSecret: 'x'.repeat(40), plategaFeePercent: 8.5,
+    payMethods: ['ONLINE_PAYMENT'] };
+  assert.equal(PAYMENTS.cashboxMax(platega), 20000);
+  assert.equal(PAYMENTS.modeFor(platega, 20000), 'cashbox');
+  assert.equal(PAYMENTS.modeFor(platega, 20000.5), 'cashbox', 'касса увидит 20 000 после округления вниз');
+  assert.equal(PAYMENTS.modeFor(platega, 20001), 'request');
+  assert.equal(PAYMENTS.modeFor(Object.assign({}, platega, { plategaMaxTotal: 100000 }), 67990), 'cashbox');
+  assert.equal(PAYMENTS.cashboxMax(Object.assign({}, platega, { plategaMaxTotal: 900000 })), PAYMENTS.MAX_TOTAL, 'общий предел выше не пускает');
+  assert.equal(PAYMENTS.cashboxMax(Object.assign({}, platega, { plategaMaxTotal: '' })), 20000, 'пустое поле — известный лимит, а не «предела нет»');
+  // Способ без кассы на эту сумму из очереди выпадает.
+  assert.equal(PAYMENTS.chainFor(platega, null, 'ONLINE_PAYMENT', 'RUB', 20000).length, 1);
+  assert.equal(PAYMENTS.chainFor(platega, null, 'ONLINE_PAYMENT', 'RUB', 20001).length, 0);
+  // Включённая касса без отмеченного способа заказ не обслужит — режим честный.
+  assert.equal(PAYMENTS.modeFor(Object.assign({}, platega, { payMethods: ['SBP'] }), 5000), 'request');
+
+  // Плавающие цены не переводят сборку через потолок кассы: путь оплаты не
+  // должен зависеть от часа. База выше потолка колеблется свободно — в кассу
+  // такой товар не идёт ни в какой час.
+  const float = require('../lib/price-float');
+  const floating = Object.assign({}, platega, { priceFloat: true, priceFloatMin: 1, priceFloatMax: 5, priceFloatMinutes: 60 });
+  const near = { id: 'near', price: 19490, inStock: true, colors: [], storages: [], options: [], bands: [] };
+  const far = { id: 'far', price: 67990, inStock: true, colors: [], storages: [], options: [], bands: [] };
+  for (let i = 0; i < 48; i++) {
+    assert.ok(float.priceOf(near, floating, i * 3600000) <= 20000, 'колебание не выводит заказ из кассы');
+  }
+  assert.ok([0, 1, 2, 3, 4, 5].some(i => float.priceOf(far, floating, i * 3600000) > 67990), 'товар дороже потолка колеблется');
+
+  // Сервер: заказ дороже кассы записывается не черновиком, а заявкой либо
+  // заказом по своим реквизитам — решает `orderMode` по сумме с доставкой.
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /const draft = PAYMENTS\.enabled\(s\) && !!paymentOrigin\(req\);/);
+  assert.match(server, /const orderMode = PAYMENTS\.modeFor\(s, fullTotal\) === 'cashbox' && paymentOrigin\(req\)/);
+  assert.match(server, /const draft = orderMode === 'cashbox';/);
+  assert.match(server, /const payMode = orderMode === 'own' \? 'own' : '';/);
+  assert.doesNotMatch(server, /PAYMENTS\.limitFor\(/, 'отказа по сумме на оформлении больше нет');
+  // Подгонка доставки под круглое число не выталкивает заказ за потолок кассы.
+  assert.match(server, /SHIP\.quote\(delivery, deliveryMode, address, total, shipCeiling\(s, total\)\)/);
+  assert.match(server, /shipCeiling\(settings\(\), goods\)/, 'предварительный расчёт витрины считает тем же потолком');
+  const ceiling = new Function('PAYMENTS', server.slice(server.indexOf('function shipCeiling('), server.indexOf("app.post('/api/order'")) + '\nreturn shipCeiling;')({ cashboxMax: () => 20000 });
+  assert.equal(ceiling({}, 19950), 20000, 'заказ у потолка округляется в его границах');
+  assert.equal(ceiling({}, 67990), 0, 'заказ дороже потолка в кассу не идёт — подгонка свободна');
+});
+
+test('витрина подписывает кнопку по сумме: касса — «Оплатить», дороже — заявка', () => {
+  const PAYMENTS = require('../lib/payments');
+  const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after',
+    crocopayEnabled: true, crocopayClientId: 'id', crocopayClientSecret: 'secret' };
+  // Пределы и запасной путь уезжают атрибутами страницы оформления — своих чисел
+  // в скрипте нет. Без кассы и без своих реквизитов атрибутов нет вовсе.
+  const co = render.checkoutPage(ss, { origin: '', payCashbox: true });
+  assert.match(co, /id="checkout-page" data-pay="1" data-pay-fallback="request" data-pay-cashbox="1" data-pay-min="1000" data-pay-max="250000"/);
+  const withOwn = render.checkoutPage(Object.assign({}, ss, { ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.' }), { origin: '', payCashbox: true });
+  assert.match(withOwn, /data-pay-fallback="own"/);
+  const ownOnly = render.checkoutPage(Object.assign({}, ss, { crocopayEnabled: false, ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.' }), { origin: '' });
+  assert.match(ownOnly, /data-pay="1" data-pay-fallback="own"/);
+  assert.doesNotMatch(ownOnly, /data-pay-cashbox/);
+  const none = render.checkoutPage(Object.assign({}, ss, { crocopayEnabled: false }), { origin: '' });
+  assert.doesNotMatch(none, /data-pay/);
+  assert.doesNotMatch(none, /footer-pay/);
+  assert.doesNotMatch(none, /checkout-sub/);
+  // Касса без публичного origin callback не получит — страница собирается как без кассы.
+  assert.doesNotMatch(render.checkoutPage(ss, { origin: '' }), /data-pay-cashbox/);
+
+  // Скрипт решает режим по тем же атрибутам и той же сумме, что сервер.
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const begin = js.indexOf('function checkoutMode()');
+  const src = js.slice(begin, js.indexOf('\n  }\n', begin) + 4);
+  const env = { shipCurrent: () => 570, Cart: { total: () => 0 }, checkoutFeeQuote: () => null };
+  const dataset = { pay: '1', payFallback: 'request', payCashbox: '1', payMin: '1000', payMax: '250000' };
+  const mode = (total, ds, fee) => new Function('document', 'shipCurrent', 'Cart', 'checkoutFeeQuote', src + '\nreturn checkoutMode();')(
+    { getElementById: () => ({ dataset: ds || dataset }) }, env.shipCurrent, { total: () => total }, () => fee || null);
+  assert.equal(mode(100000), 'cashbox');
+  assert.equal(mode(249430), 'cashbox', '249 430 + 570 доставки = ровно потолок');
+  assert.equal(mode(249431), 'request');
+  assert.equal(mode(200), 'request', 'ниже минимума кассы — тоже запасной путь');
+  assert.equal(mode(249431, Object.assign({}, dataset, { payFallback: 'own' })), 'own');
+  assert.equal(mode(100000, { pay: '1', payFallback: 'own' }), 'own', 'свои реквизиты без кассы');
+  assert.equal(mode(100000, {}), 'request');
+  // Единственная касса Platega: с потолком сравнивается ЕЁ сумма, а не ценник.
+  const pl = { pay: '1', payFallback: 'request', payCashbox: '1', payMin: '1000', payMax: '20000' };
+  assert.equal(mode(19430, pl, { direct: true, paymentTotal: 20000 }), 'cashbox');
+  assert.equal(mode(19431, pl, { direct: true, paymentTotal: null, overLimit: true }), 'request');
+  // Подпись, значок и строка под кнопкой следуют режиму, а не одному атрибуту.
+  assert.match(js, /function submitLabel\(\) \{ return checkoutMode\(\) !== 'request' \? 'Оплатить' : 'Оформить заказ'; \}/);
+  assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
+  assert.match(js, /var want = checkoutMode\(\) === 'request' \? 'check' : 'lock';/);
+  assert.match(js, /if \(note && note\.textContent !== payNote\(\)\) note\.textContent = payNote\(\);/);
+  // Поля комиссии Platega уезжают только у заказа, который правда идёт в кассу.
+  assert.match(js, /if \(fee && checkoutMode\(\) === 'cashbox'\) \{\s*\n\s*payload\.paymentFeePercent = fee\.percent;/);
+  assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
 });
 
 test('настройки идут разделами, и свёрнутая строка называет состояние', () => {
@@ -8558,7 +8579,7 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   // Приписку кассы маршрут сверки кладёт в саму попытку, а панель показывает её
   // и в строке заказа, и в отчёте по кассам.
   const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(serverSrc, /note: invoiceNote\(r\.invoice\)/);
+  assert.match(serverSrc, /note: invoiceNote\(r\.invoice, attempt\)/);
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8'),
     /is-fail">\$\{a\.status === 'expired'[\s\S]{0,220}a\.note/);
 
@@ -8799,7 +8820,7 @@ test('медленный список банков не теряется и не
 test('на оформлении нет «обсудим при подтверждении» и выбора платить позже', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const html = render.checkoutPage(ss, { origin: '', payCashbox: true });
   // Заказ оформляется с оплатой сразу, поэтому расплывчатых обещаний «уточним
   // потом» на странице не остаётся ни в разметке, ни в скрипте.
   for (const text of [js, html]) {
@@ -8887,11 +8908,11 @@ test('строка доставки в сводке не разваливает�
 test('кнопка оформления называется «Оплатить», а её значок переживает пересчёт', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  assert.match(js, /function submitLabel\(\) \{ return payOnline\(\) \? 'Оплатить' : 'Оформить заказ'; \}/);
+  assert.match(js, /function submitLabel\(\) \{ return checkoutMode\(\) !== 'request' \? 'Оплатить' : 'Оформить заказ'; \}/);
   /* Значок живёт СНАРУЖИ `.btn-checkout-label`: подпись меняется через
    * textContent, и вложенный глиф стирало бы первым же пересчётом. Замок —
    * только там, где на сайте правда платят. */
-  assert.match(js, /<span class="btn-checkout-ico" id="co-btn-ico">' \+ coIcon\(payOnline\(\) \? 'lock' : 'check'/);
+  assert.match(js, /<span class="btn-checkout-ico" id="co-btn-ico">' \+ coIcon\(checkoutMode\(\) !== 'request' \? 'lock' : 'check'/);
   const sync = js.slice(js.indexOf('function syncSubmit'), js.indexOf('function syncSubmit') + 1600);
   assert.match(sync, /label\.textContent = canOrder \? submitLabel\(\)/);
   assert.match(sync, /ico\.hidden = !canOrder/);
@@ -8940,7 +8961,7 @@ test('имя, фамилия, адрес и способ доставки обя
 
   // Список способов доставки один: витрина берёт его от сервера, а не свой.
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const html = render.checkoutPage(ss, { origin: '', payCashbox: true });
   assert.match(html, /data-delivery=/);
   for (const m of delivery.METHODS) assert.ok(html.includes(m.name), 'в разметке нет способа ' + m.name);
   // Свой список в скрипте разъехался бы с серверным, и покупатель выбрал бы то,
@@ -9393,7 +9414,7 @@ test('куда доставить — обязательный выбор, а е
   assert.ok(route.indexOf('Выберите, куда доставить') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
   // Цена доставки считается на сервере заново — клиентской цифре верим не больше,
   // чем клиентской цене товара.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(s\)\.max\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, shipCeiling\(s, total\)\)/);
   assert.match(route, /total: grandTotal, itemsTotal: total/);
   assert.doesNotMatch(route, /req\.body\.deliveryPrice/, 'цену доставки витрина не присылает');
 
@@ -9427,7 +9448,7 @@ test('куда доставить — обязательный выбор, а е
 
   // Разметка страницы несёт варианты вместе со способом — одним списком.
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const html = render.checkoutPage(ss, { origin: '', payCashbox: true });
   for (const m of DELIVERY.METHODS) for (const mode of m.modes) {
     assert.ok(html.includes(mode.name), `в разметке нет варианта ${m.id}/${mode.id}`);
   }
@@ -9698,7 +9719,7 @@ test('адрес пункта выдачи в заказе берётся из �
     'адрес покупателя обязан проверяться до записи');
   // Зона считается по адресу ПОКУПАТЕЛЯ: иначе цена менялась бы от выбора
   // пункта, и показанная сумма разошлась бы с той, что уйдёт в заказ.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, PAYMENTS\.limits\(s\)\.max\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, shipCeiling\(s, total\)\)/);
 
   // Хранилище отсеивает мусор в коде, но существование пункта проверяет маршрут:
   // lib/db не может требовать lib/pickup — вышло бы кольцо require.
@@ -11593,7 +11614,7 @@ test('ни одна страница витрины не называет пла
   const pages = {
     'главная': () => render.homePage(settings, db, Object.assign({ category: '', q: '' }, opts)),
     'товар': () => render.productPage(settings, db, product, opts),
-    'оформление': () => render.checkoutPage(settings, Object.assign({ payOnline: true }, opts)),
+    'оформление': () => render.checkoutPage(settings, Object.assign({ payCashbox: true }, opts)),
     'оплата': () => render.payPage(settings, order, Object.assign({
       methods: [{ id: 'SBP', name: 'СБП', hint: '', kind: 'phone', mark: 'sbp' }],
       currencies: ['RUB'], currency: 'RUB', amount: 51600, amounts: { RUB: 51600 }
@@ -11709,14 +11730,19 @@ test('диапазон суммы заказа задаётся в настро�
   // заказа» — худший способ узнать об опечатке.
   assert.deepEqual(PAYMENTS.boundsOf({ payMinTotal: 5000, payMaxTotal: 2000 }), { min: 2000, max: 5000 });
 
-  // Оплата выключена — пределов нет вовсе, как и раньше.
+  // Витрине пределов нет ни с кассой, ни без неё: заказ вне границ кассы уходит
+  // другим путём (см. «потолок кассы больше не гасит товары»).
   assert.deepEqual(PAYMENTS.limits(wide), { min: 0, max: 0 });
   const on = Object.assign({ crocopayEnabled: true, crocopayClientId: 'i', crocopayClientSecret: 's' }, wide);
-  assert.deepEqual(PAYMENTS.limits(on), { min: 500, max: 900000 });
+  assert.deepEqual(PAYMENTS.limits(on), { min: 0, max: 0 });
+  // Границы самой кассы настройка меняет: по ним заказ уходит в кассу или мимо.
+  assert.equal(PAYMENTS.cashboxMax(on), 900000);
+  assert.equal(PAYMENTS.modeFor(on, 400000), 'cashbox');
+  assert.equal(PAYMENTS.modeFor(Object.assign({}, on, { payMaxTotal: 250000 }), 400000), 'request');
 
-  /* Видимое следствие: потолок решает, какие товары вообще продаются. Пока он
-   * 250 000, Vision Pro на витрине «Нет в наличии»; подняли — вернулся в
-   * продажу. Ради этого настройку и заводили. */
+  /* Видимое следствие: товар дороже потолка кассы продаётся при любом потолке —
+   * «Нет в наличии» из-за цены на витрине больше не бывает. Распроданное
+   * по-прежнему ССЫЛКА на товар, а не мёртвая кнопка. */
   const pricey = {
     id: 'vision', name: 'Дорогой', category: 'К', inStock: true,
     images: [], colors: [], bands: [], storages: [], options: [], price: 349990
@@ -11728,14 +11754,12 @@ test('диапазон суммы заказа задаётся в настро�
   };
   const tight = Object.assign({}, base, { crocopayEnabled: true, crocopayClientId: 'i', crocopayClientSecret: 's' });
   const roomy = Object.assign({}, tight, { payMaxTotal: 900000 });
-  assert.match(render.homePage(tight, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
+  assert.doesNotMatch(render.homePage(tight, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
   assert.doesNotMatch(render.homePage(roomy, db, { category: '', q: '', origin: '' }), /Нет в наличии/);
-  // И «Нет в наличии» — это ССЫЛКА на товар, а не мёртвая кнопка: посмотреть
-  // характеристики, цену и фото нужно и тогда, когда купить сейчас нельзя.
-  assert.match(render.homePage(tight, db, { category: '', q: '', origin: '' }),
+  assert.match(render.homePage(tight, db, { category: '', q: '', origin: '' }), /__ORDER_MAX__\s*=\s*0/);
+  const sold = Object.assign({}, pricey, { inStock: false });
+  assert.match(render.homePage(tight, { ...db, getProducts: () => [sold], visibleProducts: () => [sold] }, { category: '', q: '', origin: '' }),
     /<a class="btn btn-primary btn-block btn-soldout" href="\/product\/vision">Нет в наличии<\/a>/);
-  // Потолок уезжает и в скрипт витрины — там он гасит «+» у количества.
-  assert.match(render.homePage(roomy, db, { category: '', q: '', origin: '' }), /__ORDER_MAX__\s*=\s*900000/);
 
   /* Подгонка доставки под круглый итог обязана двигаться в тех же границах:
    * округлять ВВЕРХ за потолок — значит собрать заказ, который касса не
@@ -11809,7 +11833,7 @@ test('в настройках есть касса, а ключи не утека
   const shop = render.checkoutPage(Object.assign({}, settings, {
     meridianpayApiKey: 'ТОКЕН', meridianpayMerchantId: '3f2a1c88-5d94-4e07-9b31-6a0c2e7d5b40',
     meridianpaySecret: 'СЕКРЕТ-2', crocopayClientSecret: 'СЕКРЕТ'
-  }), { origin: '', payOnline: true });
+  }), { origin: '', payCashbox: true });
   assert.doesNotMatch(shop, /ТОКЕН|СЕКРЕТ|3f2a1c88|ID-КАССЫ/, 'ключи касс на витрину не уходят');
   // И названий платёжек покупатель нигде не видит: их у нас две, и это наше
   // внутреннее дело.
@@ -11832,7 +11856,7 @@ test('в настройках есть касса, а ключи не утека
 
 test('оформление ведёт к итогу: справа на десктопе и последним шагом на телефоне', () => {
   const ss = { storeName: 'Тест', tagline: '', accentColor: '#0071e3', currency: '₽', currencyPosition: 'after' };
-  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const html = render.checkoutPage(ss, { origin: '', payCashbox: true });
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
@@ -11906,7 +11930,7 @@ test('логотип перевозчика инлайнится спрайто�
 
   // Витрина получает viewBox логотипа списком способов — по нему <use>
   // масштабируется, а высоту задаёт CSS.
-  const html = render.checkoutPage(ss, { origin: '', payOnline: true });
+  const html = render.checkoutPage(ss, { origin: '', payCashbox: true });
   assert.match(html, /logoBox/);
   assert.match(js, /m\.logoBox/);
   assert.match(js, /<use href="#dl-/);
@@ -14838,6 +14862,27 @@ test('консультант не повторяется и не отговар�
   assert.match(chatPrompt.storeText(Object.assign({}, SETTINGS, {
     alfabankEnabled: true, alfabankLogin: 'shop-api', alfabankPassword: 'секрет', payMethods: []
   })), /способов оплаты не настроено/);
+  /* ПОТОЛОК КАССЫ — ФАКТ ДЛЯ ПОКУПАТЕЛЯ. У Platega 20 000 ₽ на платёж, и «как
+   * оплатить айфон?» получает двухчастный ответ: до порога — онлайн, дороже —
+   * переводом на реквизиты магазина либо заявкой менеджеру. Без второй части
+   * консультант обещал бы СБП на сайте там, где кассы для такого заказа нет.
+   * Число называется, чтобы покупатель сам сравнил с ценой; строка постоянная. */
+  const platega = { plategaEnabled: true, plategaMerchantId: '11111111-2222-4333-8444-555555555555',
+    plategaSecret: 'x'.repeat(40), plategaFeePercent: 8.5, payMethods: ['ONLINE_PAYMENT'] };
+  const capped = chatPrompt.storeText(Object.assign({}, SETTINGS, platega));
+  assert.match(capped, /Онлайн-оплата принимает заказ на сумму до 20\s000\s₽ \(лимит платёжной системы на один платёж; сумма — вместе с доставкой\)/);
+  assert.match(capped, /Заказ дороже 20\s000\s₽ на сайте не оплачивается: он оформляется заявкой/);
+  assert.doesNotMatch(capped, /Один заказ — от/, 'границ витрины больше нет — заказ вне кассы не отказ, а другой путь');
+  const cappedOwn = chatPrompt.storeText(Object.assign({}, SETTINGS, platega, {
+    ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.', ownPayBank: 'ЮMoney'
+  }));
+  assert.match(cappedOwn, /Заказ дороже 20\s000\s₽ оплачивается иначе — переводом на реквизиты магазина: после оформления заказа открывается страница оплаты с реквизитами/);
+  assert.match(cappedOwn, /Получатель — Иван И\., банк получателя — ЮMoney/);
+  assert.doesNotMatch(cappedOwn, /оформляется заявкой/);
+  // Касса подняла лимит до общего предела — второй части нет: она про порог, которого нет.
+  const lifted = chatPrompt.storeText(Object.assign({}, SETTINGS, platega, { plategaMaxTotal: 250000 }));
+  assert.doesNotMatch(lifted, /Заказ дороже|лимит платёжной системы/);
+  assert.equal(chatPrompt.storeText(Object.assign({}, SETTINGS, platega)), capped, 'строка не зависит от момента вызова');
   /* Состояние техники — отдельный факт, а не следствие «новая» в истории
    * магазина: на «активирован или нет?» консультант отвечал «уточню». */
   assert.match(store, /новая, оригинальная и не активированная — коробка запечатана/);

@@ -281,6 +281,19 @@ test('Явный HTTP отказ не хранит сырое тело и не �
   assert.equal(result.error, 'http_400');
   assert.equal(result.ambiguous, false);
   assert.equal(JSON.stringify(result).includes(SECRET), false);
+  assert.equal(result.hint, undefined, 'неузнанная строка отказа наружу не уходит');
+  /* Строка отказа 4xx читается ради ОДНОГО — узнать причину словарём: так лимит
+   * СБП («SBPQR limit is 20000.00 RUB (including commission)», живой ответ
+   * Platega 15 сентября 2026) становится «не приняла сумму», а не «другой
+   * ошибкой». Сама строка в результат не попадает. */
+  fetch.mock.mockImplementation(async () => json({ message: 'SBPQR limit is 20000.00 RUB (including commission). ' + SECRET }, 400));
+  const limited = await PLATEGA.createInvoice(SETTINGS, PARAMS);
+  assert.deepEqual(limited, { ok: false, error: 'http_400', http: 400, hint: 'amount', ambiguous: false });
+  fetch.mock.mockImplementation(async () => json({ message: "Payment method 'SBPQR' is not supported for currency 'RUB'" }, 400));
+  assert.equal((await PLATEGA.createInvoice(SETTINGS, PARAMS)).hint, 'method_unavailable');
+  // У 5xx тело не читается вовсе: исход двусмысленный, а строка там любая.
+  fetch.mock.mockImplementation(async () => json({ message: 'limit' }, 502));
+  assert.deepEqual(await PLATEGA.createInvoice(SETTINGS, PARAMS), { ok: false, error: 'http_502', http: 502, ambiguous: true });
 });
 
 test('Невалидный успешный ответ и частичный invoice не теряют неоднозначную попытку', async t => {
