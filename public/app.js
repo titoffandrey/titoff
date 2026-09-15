@@ -834,14 +834,16 @@
     return '<span class="co-line-label">' + coIcon(ico, 'co-line-ico') + text + '</span>';
   }
 
-  // Процент приходит от сервера только когда комиссия относится ко всем
-  // доступным способам. Товары уже со скидкой; доставка тоже входит в базу.
+  // Platega учитывает комиссию внутри цены: покупатель платит стоимость
+  // товаров после скидки и доставки. Процент нужен для сверки с сервером.
   function checkoutFeeQuote() {
     var page = document.getElementById('checkout-page');
-    if (!page || !page.dataset || page.dataset.paymentFeePercent == null || !window.PaymentFee) return null;
+    if (!page || !page.dataset || page.dataset.paymentFeePercent == null
+      || !window.PaymentFee || typeof window.PaymentFee.included !== 'function'
+      || String(page.dataset.paymentFeePercent).trim() === '') return null;
     var price = shipCurrent();
-    var base = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
-    return window.PaymentFee.quote(base, Number(page.dataset.paymentFeePercent));
+    var total = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
+    return window.PaymentFee.included(total, Number(page.dataset.paymentFeePercent));
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
@@ -854,7 +856,6 @@
     // за 67 990», хотя в цену вошёл один.
     var count = Cart.availableCount();
     var sum = money(Cart.total());
-    var fee = checkoutFeeQuote();
     // Цена доставки известна только по адресу: до него в строке стоит сам
     // способ, а не «0 ₽» — обещать бесплатную доставку мы не можем.
     var price = shipCurrent();
@@ -879,9 +880,6 @@
       // строке выше, а не ещё одна строка расчёта.
       + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
         + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
-      + (fee && fee.amount > 0 ? '<div class="co-line co-line-fee">'
-        + lineLabel('lock', 'Комиссия платёжного сервиса (' + fee.percent.toLocaleString('ru-RU') + '%)')
-        + '<span>' + money(fee.amount) + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
 
@@ -904,7 +902,10 @@
   // Прежнее объяснение про номер карты занимало три строки и читалось как
   // оправдание: покупателю на этом шаге важно только, чем он платит.
   function payNote() {
-    if (checkoutFeeQuote()) return 'Оплата через СБП на защищённой странице';
+    var page = document.getElementById('checkout-page');
+    var flow = page && page.dataset && page.dataset.payFlow;
+    if (flow === 'sbp') return 'Оплата через СБП на защищённой странице';
+    if (flow === 'choice') return 'Способ оплаты выберете на следующем шаге';
     return payOnline() ? 'Оплата переводом по реквизитам' : 'Оплата не онлайн: менеджер свяжется с вами';
   }
 
@@ -1444,7 +1445,7 @@
   function shipDaysCurrent() { return shipDays(deliveryChoice(), deliveryModeChoice()); }
   // Цена выбранной доставки или null, пока адрес не введён и считать нечего.
   function shipCurrent() { return shipPrice(deliveryChoice(), deliveryModeChoice()); }
-  // Итог с доставкой и комиссией: эту сумму покупатель видит до нажатия кнопки.
+  // Итог с доставкой: эту сумму покупатель видит до нажатия кнопки.
   function orderTotal() {
     var fee = checkoutFeeQuote();
     if (fee) return fee.total;
@@ -1452,11 +1453,15 @@
     return Cart.total() + (price == null ? 0 : price);
   }
 
-  // При комиссии разрешаем оплату только по полной, уже показанной сумме.
+  // Разрешаем оплату Platega только после показа полной суммы покупателю.
   // Ключ проверяет и адрес, и товары: старый тариф мог остаться между событиями.
   function checkoutAmountError() {
     var fee = checkoutFeeQuote();
-    if (!fee || fee.percent <= 0) return '';
+    if (!fee) {
+      var page = document.getElementById('checkout-page');
+      return page && page.dataset && page.dataset.paymentFeePercent != null
+        ? 'Не удалось проверить сумму заказа. Обновите страницу и попробуйте ещё раз.' : '';
+    }
     var address = addressValue();
     if (!address) return 'Укажите адрес, чтобы рассчитать полную сумму заказа.';
     if (!deliveryChoice() || !deliveryModeChoice()) return 'Выберите способ и вариант доставки, чтобы увидеть полную сумму заказа.';

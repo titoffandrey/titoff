@@ -1584,7 +1584,7 @@ function notifyNewOrder(order) {
     + (order.promoCode ? `🏷 Промокод: ${tgEsc(order.promoCode)}`
       + `${order.promoDiscount ? ` — выгода ${R.money(order.promoDiscount, ss)}` : ''}\n` : '')
     + `\n${lines}\n`
-    + (order.paymentFee && order.paymentFee.amount > 0 ? `\nКомиссия платёжного сервиса: ${R.money(order.paymentFee.amount, ss)}\n` : '')
+    + (order.paymentFee && order.paymentFee.mode !== 'included' && order.paymentFee.amount > 0 ? `\nКомиссия платёжного сервиса: ${R.money(order.paymentFee.amount, ss)}\n` : '')
     + `\n<b>Итого: ${R.money(order.total, ss)}</b>`;
   sendTelegram(ss, msg).catch(() => {});
   // И карточкой в открытую панель. Та же дверь, что у Telegram: два разных места
@@ -1922,14 +1922,20 @@ app.post('/api/order', async (req, res) => {
   const ship = SHIP.quote(delivery, deliveryMode, address, total, PAYMENTS.limits(s).max);
   if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
   const feeQuote = PAYMENTS.checkoutFee(s, Math.round((total + ship.price) * 100) / 100);
-  // Старую вкладку со старым тарифом не ведём на большую сумму неожиданно.
-  if (feeQuote && feeQuote.amount > 0 && (req.body.paymentFeePercent == null
+  // Невозможный обратный расчёт не превращаем в отсутствие комиссии: иначе
+  // в API ушла бы полная цена и Platega добавила бы процент повторно.
+  if (!feeQuote && PAYMENTS.checkoutFee(s, 0)) {
+    return res.json({ ok: false, error: 'Не удалось рассчитать точную сумму оплаты. Обратитесь в магазин.' }, 400);
+  }
+  // Сверяем показанный итог, включая доставку, и снимок тарифа даже при 0%.
+  // Вкладка прежней версии с доплатой должна заново показать обычную цену.
+  if (feeQuote && (req.body.paymentFeePercent == null
     || String(req.body.paymentFeePercent).trim() === '' || Number(req.body.paymentFeePercent) !== feeQuote.percent
     || typeof req.body.paymentTotal !== 'number' || req.body.paymentTotal !== feeQuote.total)) {
-    return res.json({ ok: false, error: 'Итоговая сумма обновилась. Обновите страницу оформления, чтобы увидеть доставку и комиссию до оплаты.' }, 409);
+    return res.json({ ok: false, error: 'Итоговая сумма обновилась. Обновите страницу оформления, чтобы увидеть актуальную сумму с доставкой.' }, 409);
   }
   const paymentFee = feeQuote ? { provider: feeQuote.provider, method: feeQuote.method,
-    baseAmount: feeQuote.baseAmount, amount: feeQuote.amount, percent: feeQuote.percent } : null;
+    mode: feeQuote.mode, baseAmount: feeQuote.baseAmount, amount: feeQuote.amount, percent: feeQuote.percent } : null;
   const grandTotal = feeQuote ? feeQuote.total : total + ship.price;
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
   // покупатель, то есть вместе с доставкой. Витрина гасит кнопку заранее, но
@@ -3039,7 +3045,9 @@ function notifyPaymentProblem(order, method, tried) {
 async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequestId, lastInChain) {
   const id = order.id;
   const fee = order.paymentFee;
-  if (fee && (p.id !== fee.provider || method !== fee.method || ctx.currency !== 'RUB')) return { code: 'method_unavailable' };
+  if (fee && fee.mode !== 'included' && (p.id !== fee.provider || method !== fee.method || ctx.currency !== 'RUB')) return { code: 'method_unavailable' };
+  if (fee && p.id === 'platega' && (method !== fee.method || ctx.currency !== 'RUB'
+    || ctx.amount !== order.total)) return { code: 'method_unavailable' };
   if (!fee && p.id === 'platega' && Number(s.plategaFeePercent) > 0) return { code: 'amount' };
   const attemptId = crypto.randomBytes(12).toString('hex');
   const started = db.startOrderPayment(id, {
@@ -3068,7 +3076,8 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
     tries++;
     r = await p.createInvoice(s, {
       amount: ctx.amount, currency: ctx.currency, method, callbackUrl,
-      ...(fee ? { baseAmount: fee.baseAmount } : {}),
+      ...(fee && p.id === 'platega' ? { baseAmount: fee.baseAmount,
+        ...(fee.mode === 'included' ? { feePercent: fee.percent } : {}) } : {}),
       expiresAt: R.orderPayUntil(order),
       // MeridianPay требует свой уникальный идентификатор сделки — им служит id
       // попытки. CrocoPAY поле игнорирует. У Альфы это `orderNumber`, который
@@ -3411,7 +3420,7 @@ async function payContext(s, order, wanted) {
   // рублёвый способ в долларовом счёте не годится.
   let methods = PAYMENTS.enabled(s)
     ? PAY.allowed(answered ? (answered.byCurrency[currency] || []) : null, s.payMethods) : [];
-  if (order.paymentFee) methods = methods.filter(m => m.id === order.paymentFee.method && currency === 'RUB');
+  if (order.paymentFee && order.paymentFee.mode !== 'included') methods = methods.filter(m => m.id === order.paymentFee.method && currency === 'RUB');
   return { live, codes, currency, rate, amount, amounts, methods };
 }
 

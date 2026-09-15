@@ -133,6 +133,39 @@ test('Неверная исходная сумма и срок заказа от
   assert.equal(fetch.mock.calls.length, 0);
 });
 
+test('включённый тариф разрешает точную дробную базу, сохраняя строгий итог POST и GET', async t => {
+  const params = { ...PARAMS, amount: 1100, baseAmount: 1013.8249, feePercent: 8.5 };
+  const fetch = mockFetch(t, async (url, init) => {
+    assert.equal(JSON.parse(init.body).paymentDetails.amount, 1013.8249);
+    return json({ ...CREATED, paymentDetails: '1100.00 RUB' });
+  });
+  const created = await PLATEGA.createInvoice({ ...SETTINGS, plategaFeePercent: 12 }, params);
+  assert.equal(created.ok, true, 'используется сохранённый процент заказа');
+  assert.equal(created.invoice.amount, 1100);
+  fetch.mock.mockImplementation(async () => json({ ...DETAILS, paymentDetails: { amount: 1100, currency: 'RUB' } }));
+  const checked = await PLATEGA.invoice(SETTINGS, TRANSACTION);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(PLATEGA.matchesInvoice({ ...EXPECTED, amount: 1100 }, checked.invoice), { ok: true });
+  for (const amount of [1099.99, 1100.01, 1100.001, 1013.8249, 1193.5]) {
+    assert.equal(PLATEGA.matchesInvoice({ ...EXPECTED, amount: 1100 }, { ...checked.invoice, amount }).ok, false);
+    fetch.mock.mockImplementation(async () => json({ ...CREATED, paymentDetails: { amount, currency: 'RUB' } }));
+    const mismatch = await PLATEGA.createInvoice(SETTINGS, params);
+    assert.equal(mismatch.error, 'amount_mismatch');
+    assert.equal(mismatch.ambiguous, true);
+  }
+});
+
+test('дробная база не принимается без точного расчёта включённого тарифа', async t => {
+  const fetch = mockFetch(t, async () => assert.fail('некорректный запрос не уходит в API'));
+  for (const patch of [{ baseAmount: 1013.8249 }, { baseAmount: 1013.82, feePercent: 8.5 },
+    { baseAmount: 1013.8248, feePercent: 8.5 }, { baseAmount: 1013.8249, feePercent: 12 },
+    { baseAmount: 1013.8249, feePercent: '8.5' }, { feePercent: 8.5 }]) {
+    assert.deepEqual(await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, amount: 1100, ...patch }),
+      { ok: false, error: 'bad_base_amount' });
+  }
+  assert.equal(fetch.mock.calls.length, 0);
+});
+
 test('Срок счёта ограничен сроком магазина, null не создаёт новый срок сам по себе', async t => {
   const fetch = mockFetch(t, async () => json(CREATED));
   const shorter = Date.now() + 300000;

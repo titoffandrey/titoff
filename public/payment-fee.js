@@ -1,5 +1,6 @@
 /* Комиссия платёжного сервиса: один расчёт для оформления и сервера.
- * Все промежуточные суммы — целые копейки, процент — сотые доли процента. */
+ * Расчёт целочисленный: итоги в копейках, база API в десятитысячных рубля,
+ * процент — в сотых долях процента. */
 (function (root, factory) {
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -27,5 +28,42 @@
     return { baseAmount: base / 100, amount: fee / 100, percent: rate / 100, total: (base + fee) / 100 };
   }
 
-  return { quote: quote };
+  function roundRatio(numerator, denominator) {
+    return Math.floor(numerator / denominator) + (numerator % denominator * 2 >= denominator ? 1 : 0);
+  }
+
+  // Покупатель платит прежний итог. Platega начисляет свой процент на базу,
+  // поэтому обратный расчёт — total / (1 + percent / 100), а не вычитание %.
+  // База API допускает четыре знака: с двумя некоторые итоги недостижимы
+  // (например, 1100 ₽ при 8,5%). Итог покупателя всегда остаётся в копейках.
+  function included(totalAmount, percent) {
+    var total = hundredths(totalAmount);
+    var rate = hundredths(percent);
+    if (total === null || rate === null || rate > 10000) return null;
+    var numerator = total * 1000000;
+    if (!Number.isSafeInteger(numerator)) return null;
+    var base = roundRatio(numerator, 10000 + rate);
+    var gross = base * (10000 + rate);
+    if (!Number.isSafeInteger(gross)) return null;
+    function charged(value) { return roundRatio(value, 100) + roundRatio(value * rate, 1000000); }
+    // Platega округляет комиссию отдельно. У самой границы полкопейки
+    // прямое деление может дать лишнюю копейку (1001,20 → 922,7650).
+    // Берём ближайшую четырёхзначную базу с ТОЧНЫМ фактическим итогом.
+    // Функция монотонна; перескок через итог означает, что он недостижим.
+    var direction = charged(base) > total ? -1 : 1;
+    var steps = 0;
+    while (charged(base) !== total && steps < 100) {
+      base += direction;
+      steps++;
+      if (base < 0 || (direction > 0 ? charged(base) > total : charged(base) < total)) return null;
+    }
+    if (charged(base) !== total) return null;
+    var fee = base * rate;
+    if (!Number.isSafeInteger(fee)) return null;
+    return { mode: 'included', baseAmount: base / 10000,
+      amount: roundRatio(fee, 1000000) / 100, percent: rate / 100, total: total / 100 };
+  }
+
+  // quote остаётся прежним для проверки заказов, оформленных с доплатой.
+  return { quote: quote, included: included };
 });
