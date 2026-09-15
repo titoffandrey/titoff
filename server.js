@@ -3356,10 +3356,14 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
     if (!r.ok) return { ok: false, error: r.error };
     const match = p.matchesInvoice(attempt, r.invoice);
     if (!match.ok) {
-      // У висящего счёта Platega сумма не совпадает ШТАТНО: до выбора способа
-      // GET отдаёт базу без комиссии, а при другом способе — другой итог. Строка
-      // в журнале каждую минуту по каждому такому счёту глушила бы настоящие.
-      if (!(state === 'pending' && p.pendingAmountVaries)) {
+      // У счёта Platega без денег сумма не совпадает ШТАТНО: до выбора способа
+      // GET отдаёт базу без комиссии, при другом способе — другой итог, и у
+      // отменённого счёта она такой и остаётся. Строка в журнале на каждый опрос
+      // каждого такого счёта (минута у висящего, четверть часа у закрытого —
+      // неделю) глушила бы настоящие. Пришедшие деньги с чужой суммой — другое
+      // дело: это `mismatch`, и о нём журнал говорит.
+      const routine = p.pendingAmountVaries && match.reason === 'amount' && !['paid', 'refunded'].includes(state);
+      if (!routine) {
         console.error(p.id + ' reconcile: не совпал', match.reason, '| счёт', invoiceId, '| заказ', orderId);
       }
       // GET по конкретному пути обязан вернуть тот же invoice id. Чужой/пустой

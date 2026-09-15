@@ -7932,7 +7932,7 @@ test('вебхук сверяет token попытки и подтверждае
    * отдаёт базу без комиссии): такой промах в журнал не пишется — иначе по
    * строке в минуту на каждый счёт настоящие ошибки терялись бы в шуме. */
   const reconcileSrc = source.slice(source.indexOf('async function reconcilePaymentAttempt('), source.indexOf('async function reconcileOpenPayments'));
-  assert.match(reconcileSrc, /if \(!\(state === 'pending' && p\.pendingAmountVaries\)\) \{\s*\n\s*console\.error\(p\.id \+ ' reconcile: не совпал'/);
+  assert.match(reconcileSrc, /const routine = p\.pendingAmountVaries && match\.reason === 'amount' && !\['paid', 'refunded'\]\.includes\(state\);\s*\n\s*if \(!routine\) \{\s*\n\s*console\.error\(p\.id \+ ' reconcile: не совпал'/);
   assert.equal(require('../lib/platega').pendingAmountVaries, true);
   assert.equal(require('../lib/crocopay').pendingAmountVaries, undefined, 'у P2P-касс сумма висящего счёта фиксирована — промах там остаётся в журнале');
 });
