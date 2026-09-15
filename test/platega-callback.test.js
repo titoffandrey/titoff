@@ -423,6 +423,36 @@ test('Platega: сохранённые 0% не заменяются текущи�
   assert.equal(db.getOrder(orderId).paymentFee.percent, 0);
 });
 
+test('Platega: точная база 35500 ₽ проходит от снимка заказа до POST и подтверждения оплаты', async t => {
+  const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
+    rounding: 'cents', baseAmount: 32718.89, amount: 2781.11, percent: 8.5 };
+  const { db, orderId, request } = checkoutHarness(t, { total: 35500, paymentFee, feePercent: 12 });
+  let externalId, creates = 0;
+  stubFetch(t, async (url, init) => {
+    if (init.method === 'POST') {
+      creates++;
+      const body = JSON.parse(init.body);
+      externalId = body.payload;
+      assert.deepEqual(body.paymentDetails, { amount: 32718.89, currency: 'RUB' });
+      return new Response(JSON.stringify({ transactionId: invoiceId, status: 'PENDING',
+        url: 'https://pay.platega.io/pay/synthetic-cents', expiresIn: null }));
+    }
+    return new Response(JSON.stringify({ id: invoiceId, payload: externalId, status: 'CONFIRMED',
+      paymentMethod: 'SBPQR', paymentDetails: { amount: 35500, currency: 'RUB' } }));
+  });
+  assert.equal((await request()).status, 200);
+  assert.equal((await request('b'.repeat(32))).status, 200);
+  assert.equal(creates, 1);
+  assert.equal(db.getOrder(orderId).payment.amount, 35500);
+  assert.deepEqual(db.getOrder(orderId).paymentFee, paymentFee);
+  const tools = { db, ...reconciliation(db) };
+  const callback = { id: invoiceId, payload: externalId, amount: 35500, currency: 'RUB', status: 'CONFIRMED' };
+  assert.equal((await CALLBACK.handle(settings, callback, headers, tools)).status, 200);
+  assert.equal(db.getOrder(orderId).payment.status, 'paid');
+  assert.equal(db.getOrder(orderId).payment.paidTotal, 35500);
+  assert.equal(tools.shipments.length, 1);
+});
+
 test('снимок Platega внутри цены сохраняет выбор Alfa и передаёт ей обычный полный итог', async t => {
   const paymentFee = { provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
     baseAmount: 1013.8249, amount: 86.18, percent: 8.5 };

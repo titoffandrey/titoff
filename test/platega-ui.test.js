@@ -275,7 +275,8 @@ test('оформление сохраняет цены и итог без стр
   assert.doesNotMatch(side.innerHTML, /комисси|co-line-fee/i);
   page.dataset.paymentFeePercent = '8.5';
   goods = 10.1; ship = 0.2;
-  assert.deepEqual(ui.checkoutFeeQuote(), FEE.included(10.3, 8.5));
+  assert.deepEqual(ui.checkoutFeeQuote(), { mode: 'included', rounding: 'cents',
+    baseAmount: 9.49, amount: 0.81, percent: 8.5, total: 10.3 });
   page.dataset.paymentFeePercent = '';
   assert.equal(ui.checkoutFeeQuote(), null, 'пустой процент не принимается за нулевой тариф');
   page.dataset.paymentFeePercent = '8.5';

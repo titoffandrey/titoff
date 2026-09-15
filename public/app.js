@@ -839,11 +839,11 @@
   function checkoutFeeQuote() {
     var page = document.getElementById('checkout-page');
     if (!page || !page.dataset || page.dataset.paymentFeePercent == null
-      || !window.PaymentFee || typeof window.PaymentFee.included !== 'function'
+      || !window.PaymentFee || typeof window.PaymentFee.hosted !== 'function'
       || String(page.dataset.paymentFeePercent).trim() === '') return null;
     var price = shipCurrent();
     var total = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
-    return window.PaymentFee.included(total, Number(page.dataset.paymentFeePercent));
+    return window.PaymentFee.hosted(total, Number(page.dataset.paymentFeePercent));
   }
 
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а

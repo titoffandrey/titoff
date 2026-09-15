@@ -1900,6 +1900,7 @@ app.post('/api/order', async (req, res) => {
     return res.json({ ok: false, error: 'Итоговая сумма обновилась. Обновите страницу оформления, чтобы увидеть актуальную сумму с доставкой.' }, 409);
   }
   const paymentFee = feeQuote ? { provider: feeQuote.provider, method: feeQuote.method,
+    ...(feeQuote.rounding ? { rounding: feeQuote.rounding } : {}),
     mode: feeQuote.mode, baseAmount: feeQuote.baseAmount, amount: feeQuote.amount, percent: feeQuote.percent } : null;
   const grandTotal = feeQuote ? feeQuote.total : total + ship.price;
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
@@ -3038,7 +3039,8 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
     r = await p.createInvoice(s, {
       amount: ctx.amount, currency: ctx.currency, method, callbackUrl,
       ...(fee && p.id === 'platega' ? { baseAmount: fee.baseAmount,
-        ...(fee.mode === 'included' ? { feePercent: fee.percent } : {}) } : {}),
+        ...(fee.mode === 'included' ? { feePercent: fee.percent,
+          ...(fee.rounding ? { feeRounding: fee.rounding } : {}) } : {}) } : {}),
       expiresAt: R.orderPayUntil(order),
       // MeridianPay требует свой уникальный идентификатор сделки — им служит id
       // попытки. CrocoPAY поле игнорирует. У Альфы это `orderNumber`, который

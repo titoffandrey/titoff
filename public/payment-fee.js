@@ -64,6 +64,31 @@
       amount: roundRatio(fee, 1000000) / 100, percent: rate / 100, total: total / 100 };
   }
 
+  // Общая форма показывает исходную базу плюс округлённую комиссию. Поэтому
+  // там по возможности используем базу в копейках: у 35 500 ₽ это 32 718,89 ₽,
+  // а четырёхзначная база дала бы на странице лишние 0,004 ₽.
+  function includedCents(totalAmount, percent) {
+    var total = hundredths(totalAmount);
+    var rate = hundredths(percent);
+    if (total === null || rate === null || rate > 10000) return null;
+    var numerator = total * 10000;
+    if (!Number.isSafeInteger(numerator)) return null;
+    // Если точная база в копейках существует, это ближайшее целое к обратному
+    // расчёту: округление комиссии изменяет результат не более чем на полкопейки.
+    var base = roundRatio(numerator, 10000 + rate);
+    var result = quote(base / 100, percent);
+    if (!result || result.total !== totalAmount) return null;
+    return { mode: 'included', rounding: 'cents', baseAmount: result.baseAmount,
+      amount: result.amount, percent: result.percent, total: result.total };
+  }
+
+  // Пока итог не представим точной базой в копейках, сохраняем прежний расчёт:
+  // эта функция не повышает цену и не создаёт скрытую скидку. Старые снимки
+  // продолжают проверяться непосредственно через included().
+  function hosted(totalAmount, percent) {
+    return includedCents(totalAmount, percent) || included(totalAmount, percent);
+  }
+
   // quote остаётся прежним для проверки заказов, оформленных с доплатой.
-  return { quote: quote, included: included };
+  return { quote: quote, included: included, includedCents: includedCents, hosted: hosted };
 });

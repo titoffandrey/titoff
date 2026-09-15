@@ -96,8 +96,8 @@ function orderHarness(t, { shipping = 100 } = {}) {
 
 test('снимок комиссии внутри цены относится к Platega и доступен при выборе касс', () => {
   assert.deepEqual(PAYMENTS.checkoutFee(plategaSettings, 1000), {
-    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included',
-    baseAmount: 921.659, amount: 78.34, percent: 8.5, total: 1000
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'cents',
+    baseAmount: 921.66, amount: 78.34, percent: 8.5, total: 1000
   });
   assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, plategaEnabled: false }, 1000), null);
   assert.equal(PAYMENTS.checkoutFee({ ...plategaSettings, payMethods: ['SBP_ONLINE'] }, 1000), null);
@@ -146,7 +146,7 @@ test('/api/order возвращает прежнюю сумму после см�
   assert.notEqual(updated.body.id, first.body.id);
   assert.equal(updated.body.total, 1100);
   assert.equal(updated.body.paymentFee.percent, 12);
-  assert.equal(updated.body.paymentFee.baseAmount, 982.1429);
+  assert.equal(updated.body.paymentFee.baseAmount, 982.14);
   assert.equal(db.getOrder(first.body.id).total, 1100);
   assert.equal(db.getOrder(first.body.id).paymentFee.baseAmount, 1013.8249);
 });
@@ -220,7 +220,7 @@ test('/api/order требует новый показанный итог пос�
   assert.equal(updated.status, 200);
   assert.equal(updated.body.total, 1200);
   assert.equal(updated.body.paymentFee.percent, 8.5);
-  assert.equal(updated.body.paymentFee.baseAmount, 1105.9908);
+  assert.equal(updated.body.paymentFee.baseAmount, 1105.99);
   assert.equal(updated.body.paymentFee.amount, 94.01);
   // Итог входит в отпечаток запроса: тот же ключ с другой суммой — конфликт.
   const changed = await request();
@@ -256,7 +256,7 @@ test('/api/order фиксирует нулевой процент и не пер
   const first = await request({ paymentFeePercent: 0 });
   assert.equal(first.status, 200);
   assert.deepEqual(JSON.parse(JSON.stringify(first.body.paymentFee)), {
-    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', baseAmount: 1100, amount: 0, percent: 0
+    provider: 'platega', method: 'ONLINE_PAYMENT', mode: 'included', rounding: 'cents', baseAmount: 1100, amount: 0, percent: 0
   });
   settings.plategaFeePercent = 8.5;
   const repeated = await request({ paymentFeePercent: 0 });
@@ -307,4 +307,24 @@ test('хранилище проверяет внутреннюю комисси�
   }
   const wrongTotal = db.createOrder({ total: 1100.01, paymentFee: fee });
   assert.equal(db.getOrder(wrongTotal.id).paymentFee, null);
+});
+
+test('оформление 35500 ₽ сохраняет точную базу в копейках и прежнюю цену', async t => {
+  const { db, request } = orderHarness(t, { shipping: 34500 });
+  const result = await request({ paymentTotal: 35500 });
+  assert.equal(result.status, 200);
+  const order = db.getOrder(result.body.id);
+  assert.equal(order.total, 35500);
+  assert.deepEqual(order.paymentFee, { provider: 'platega', method: 'ONLINE_PAYMENT',
+    mode: 'included', rounding: 'cents', baseAmount: 32718.89, amount: 2781.11, percent: 8.5 });
+  assert.equal(order.itemsTotal + order.deliveryPrice, order.total);
+  assert.equal((await request({ paymentTotal: 35500 })).body.id, order.id);
+  for (const patch of [{ rounding: 'unknown' }, { rounding: undefined },
+    { baseAmount: 32718.894 }, { amount: 2781.12 }]) {
+    assert.equal(db.createOrder({ total: 35500, paymentFee: { ...order.paymentFee, ...patch } }).paymentFee, null);
+  }
+  const legacy = { ...order.paymentFee, baseAmount: 32718.894 };
+  delete legacy.rounding;
+  assert.deepEqual(db.createOrder({ total: 35500, paymentFee: legacy }).paymentFee, legacy,
+    'старая база остаётся действительной без изменения ранее оформленного заказа');
 });

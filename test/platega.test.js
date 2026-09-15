@@ -166,6 +166,30 @@ test('дробная база не принимается без точного 
   assert.equal(fetch.mock.calls.length, 0);
 });
 
+test('новая база общей формы убирает тысячные рубля без изменения суммы и строгой сверки', async t => {
+  const params = { ...PARAMS, amount: 35500, baseAmount: 32718.89, feePercent: 8.5, feeRounding: 'cents' };
+  const fetch = mockFetch(t, async (url, init) => {
+    assert.equal(url, 'https://app.platega.io/v2/transaction/process');
+    assert.equal(JSON.parse(init.body).paymentDetails.amount, 32718.89);
+    return json({ ...CREATED, paymentDetails: { amount: 32718.89, currency: 'RUB' } });
+  });
+  const result = await PLATEGA.createInvoice({ ...SETTINGS, plategaFeePercent: 12 }, params);
+  assert.equal(result.ok, true);
+  assert.equal(result.invoice.amount, 35500);
+  const expected = { ...EXPECTED, method: 'ONLINE_PAYMENT', amount: 35500 };
+  const actual = { ...PLATEGA.invoiceView(DETAILS), amount: 35500 };
+  assert.deepEqual(PLATEGA.matchesInvoice(expected, actual), { ok: true });
+  for (const amount of [35499.99, 35500.01, 35500.004]) {
+    assert.deepEqual(PLATEGA.matchesInvoice(expected, { ...actual, amount }), { ok: false, reason: 'amount' });
+  }
+  for (const patch of [{ feeRounding: 'unknown' }, { feeRounding: null },
+    { feePercent: undefined }, { baseAmount: 32718.894 },
+    { amount: 1100, baseAmount: 1013.82 }]) {
+    assert.deepEqual(await PLATEGA.createInvoice(SETTINGS, { ...params, ...patch }), { ok: false, error: 'bad_base_amount' });
+  }
+  assert.equal(fetch.mock.calls.length, 1);
+});
+
 test('общая форма с включённой комиссией не подтверждает оплату по базе до выбора способа', async t => {
   const expected = { ...EXPECTED, method: 'ONLINE_PAYMENT', amount: 1100 };
   const fetch = mockFetch(t, async () => json({ ...DETAILS, status: 'PENDING', paymentMethod: null,
