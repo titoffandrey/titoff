@@ -600,7 +600,7 @@
     setText('co-btn-sum', money(orderTotal()));
     // Сумма вне пределов одной покупки — кнопка гаснет, а причина стоит прямо
     // под ней: серая кнопка без объяснения выглядит как поломка сайта.
-    var overLimit = totalLimitError(orderTotal());
+    var overLimit = totalLimitError(orderTotal()) || checkoutAmountError();
     var submit = document.getElementById('checkout-submit');
     if (submit) {
       var canOrder = Cart.availableCount() > 0;
@@ -834,6 +834,16 @@
     return '<span class="co-line-label">' + coIcon(ico, 'co-line-ico') + text + '</span>';
   }
 
+  // Процент приходит от сервера только когда комиссия относится ко всем
+  // доступным способам. Товары уже со скидкой; доставка тоже входит в базу.
+  function checkoutFeeQuote() {
+    var page = document.getElementById('checkout-page');
+    if (!page || !page.dataset || page.dataset.paymentFeePercent == null || !window.PaymentFee) return null;
+    var price = shipCurrent();
+    var base = (Math.round(Cart.total() * 100) + Math.round((price == null ? 0 : price) * 100)) / 100;
+    return window.PaymentFee.quote(base, Number(page.dataset.paymentFeePercent));
+  }
+
   // Правая панель: только деньги. Перерисовывается целиком — она короткая, а
   // возиться с отдельными id ради трёх строк смысла нет.
   function renderRail() {
@@ -844,20 +854,13 @@
     // за 67 990», хотя в цену вошёл один.
     var count = Cart.availableCount();
     var sum = money(Cart.total());
+    var fee = checkoutFeeQuote();
     // Цена доставки известна только по адресу: до него в строке стоит сам
     // способ, а не «0 ₽» — обещать бесплатную доставку мы не можем.
     var price = shipCurrent();
     // Перевозчик и вариант — и больше ничего (см. lineLabel о тарифной зоне).
     var way = [deliveryName(), deliveryModeName().toLowerCase()].filter(Boolean).join(', ');
-    /* Выгода — отдельной строкой между товарами и доставкой, и розовой, как
-     * процент и цена со скидкой на карточке. Это единственная строка сводки,
-     * которая говорит не «сколько платить», а «сколько не платить», поэтому она
-     * и выделена цветом; строки без скидки в заказе просто нет.
-     *
-     * Когда скидка есть, «Товары» показывают сумму ДО неё — иначе столбик не
-     * сходится: покупатель вычитает скидку из суммы товаров и не получает итог.
-     * Без скидки строка одна и показывает то же, что и раньше.
-     */
+    // «Товары» до скидки: вычитая отдельную строку выгоды, получаем их цену.
     var saved = Cart.saved();
     var goods = saved > 0 ? money(Cart.total() + saved) : sum;
     /* Строка выгоды называет КОД, когда он применён: «Промокод SALE» отвечает
@@ -876,6 +879,9 @@
       // строке выше, а не ещё одна строка расчёта.
       + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
         + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
+      + (fee && fee.amount > 0 ? '<div class="co-line co-line-fee">'
+        + lineLabel('lock', 'Комиссия платёжного сервиса (' + fee.percent.toLocaleString('ru-RU') + '%)')
+        + '<span>' + money(fee.amount) + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
   }
 
@@ -898,6 +904,7 @@
   // Прежнее объяснение про номер карты занимало три строки и читалось как
   // оправдание: покупателю на этом шаге важно только, чем он платит.
   function payNote() {
+    if (checkoutFeeQuote()) return 'Оплата через СБП на защищённой странице';
     return payOnline() ? 'Оплата переводом по реквизитам' : 'Оплата не онлайн: менеджер свяжется с вами';
   }
 
@@ -1437,11 +1444,26 @@
   function shipDaysCurrent() { return shipDays(deliveryChoice(), deliveryModeChoice()); }
   // Цена выбранной доставки или null, пока адрес не введён и считать нечего.
   function shipCurrent() { return shipPrice(deliveryChoice(), deliveryModeChoice()); }
-  // Итог заказа: товары плюс доставка. Именно по нему проверяется потолок одной
-  // покупки и он же стоит на кнопке — платить покупатель будет эту сумму.
+  // Итог с доставкой и комиссией: эту сумму покупатель видит до нажатия кнопки.
   function orderTotal() {
+    var fee = checkoutFeeQuote();
+    if (fee) return fee.total;
     var price = shipCurrent();
     return Cart.total() + (price == null ? 0 : price);
+  }
+
+  // При комиссии разрешаем оплату только по полной, уже показанной сумме.
+  // Ключ проверяет и адрес, и товары: старый тариф мог остаться между событиями.
+  function checkoutAmountError() {
+    var fee = checkoutFeeQuote();
+    if (!fee || fee.percent <= 0) return '';
+    var address = addressValue();
+    if (!address) return 'Укажите адрес, чтобы рассчитать полную сумму заказа.';
+    if (!deliveryChoice() || !deliveryModeChoice()) return 'Выберите способ и вариант доставки, чтобы увидеть полную сумму заказа.';
+    if (!ship.valid || ship.pending || ship.key !== Cart.total() + '|' + address || shipCurrent() == null) {
+      return 'Дождитесь расчёта доставки и проверьте итоговую сумму перед оплатой.';
+    }
+    return '';
   }
 
   function addressValue() {
@@ -3314,7 +3336,7 @@
     }
     // Кнопка при такой сумме уже погашена, но проверяем ещё раз: сумму мог
     // изменить второй открытый таб.
-    var limitError = totalLimitError(orderTotal());
+    var limitError = totalLimitError(orderTotal()) || checkoutAmountError();
     if (limitError) {
       if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = limitError; }
       return;
@@ -3339,6 +3361,10 @@
       // базы — присланной строке он не верит так же, как не верит цене.
       pickupCode: pickup.code
     };
+    // Сервер проверяет показанные процент и итог: старая вкладка не должна
+    // открыть платёж с суммой, которую покупатель ещё не видел.
+    var fee = checkoutFeeQuote();
+    if (fee) { payload.paymentFeePercent = fee.percent; payload.paymentTotal = fee.total; }
     // Промокод — теми же полями, что и в корзине: цены заказа сервер считает с
     // ним же и сверяет с присланными. Иначе оформление отвечало бы «корзина
     // изменилась» на ровном месте.

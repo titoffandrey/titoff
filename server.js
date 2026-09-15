@@ -1583,7 +1583,9 @@ function notifyNewOrder(order) {
     // покупателя. Без выгоды строка бессмысленна, поэтому её тогда и нет.
     + (order.promoCode ? `🏷 Промокод: ${tgEsc(order.promoCode)}`
       + `${order.promoDiscount ? ` — выгода ${R.money(order.promoDiscount, ss)}` : ''}\n` : '')
-    + `\n${lines}\n\n<b>Итого: ${R.money(order.total, ss)}</b>`;
+    + `\n${lines}\n`
+    + (order.paymentFee && order.paymentFee.amount > 0 ? `\nКомиссия платёжного сервиса: ${R.money(order.paymentFee.amount, ss)}\n` : '')
+    + `\n<b>Итого: ${R.money(order.total, ss)}</b>`;
   sendTelegram(ss, msg).catch(() => {});
   // И карточкой в открытую панель. Та же дверь, что у Telegram: два разных места
   // с уведомлением о заказе рано или поздно разошлись бы в том, какая заявка
@@ -1641,7 +1643,9 @@ function checkoutRequestHash(body) {
     // разными кодами — это разные заказы, а не потерянный ответ на один и тот
     // же. У товара без скидки цены совпали бы, и без этих двух полей повтор
     // вернул бы заказ с чужим кодом в карточке.
-    promoCode: PROMO.normCode(b.promoCode), promoOff: b.promoOff === true ? '1' : ''
+    promoCode: PROMO.normCode(b.promoCode), promoOff: b.promoOff === true ? '1' : '',
+    paymentFeePercent: String(b.paymentFeePercent == null ? '' : b.paymentFeePercent),
+    paymentTotal: String(b.paymentTotal == null ? '' : b.paymentTotal)
   };
   return crypto.createHash('sha256').update(JSON.stringify(shape)).digest('hex');
 }
@@ -1695,6 +1699,7 @@ function orderApiBody(order, reused, s) {
   return {
     ok: true, reused: !!reused, id: order.id, number: order.number,
     total: order.total, itemsTotal: order.itemsTotal,
+    paymentFee: order.paymentFee || null,
     delivery: { price: order.deliveryPrice, zone: order.deliveryZone },
     // Корзину витрина чистит по этому полю: у ЧЕРНОВИКА товары обязаны
     // остаться (способ ещё не выбран), а у настоящего заказа — уехать.
@@ -1731,6 +1736,7 @@ function reusableOrder(req, data) {
     if (!order.draft && !pay) continue;       // обычная уже принятая заявка, не платёжный повтор
     if (scalars.some(key => String(order[key] == null ? '' : order[key]) !== String(data[key] == null ? '' : data[key]))) continue;
     if (itemKey(order.items) !== itemKey(data.items)) continue;
+    if (JSON.stringify(order.paymentFee || null) !== JSON.stringify(data.paymentFee || null)) continue;
     return order;
   }
   return null;
@@ -1915,7 +1921,16 @@ app.post('/api/order', async (req, res) => {
   // здесь означал бы второй источник правды о пределах кассы в одном заказе.
   const ship = SHIP.quote(delivery, deliveryMode, address, total, PAYMENTS.limits(s).max);
   if (!ship.ok) return res.json({ ok: false, error: 'Не удалось рассчитать доставку — выберите другой способ' }, 400);
-  const grandTotal = total + ship.price;
+  const feeQuote = PAYMENTS.checkoutFee(s, Math.round((total + ship.price) * 100) / 100);
+  // Старую вкладку со старым тарифом не ведём на большую сумму неожиданно.
+  if (feeQuote && feeQuote.amount > 0 && (req.body.paymentFeePercent == null
+    || String(req.body.paymentFeePercent).trim() === '' || Number(req.body.paymentFeePercent) !== feeQuote.percent
+    || typeof req.body.paymentTotal !== 'number' || req.body.paymentTotal !== feeQuote.total)) {
+    return res.json({ ok: false, error: 'Итоговая сумма обновилась. Обновите страницу оформления, чтобы увидеть доставку и комиссию до оплаты.' }, 409);
+  }
+  const paymentFee = feeQuote ? { provider: feeQuote.provider, method: feeQuote.method,
+    baseAmount: feeQuote.baseAmount, amount: feeQuote.amount, percent: feeQuote.percent } : null;
+  const grandTotal = feeQuote ? feeQuote.total : total + ship.price;
   // Пределы одной покупки (1 000 – 250 000 ₽) — по сумме, которую платит
   // покупатель, то есть вместе с доставкой. Витрина гасит кнопку заранее, но
   // проверяем и здесь: клиентским данным не верим, как и в цене заказа.
@@ -1937,7 +1952,7 @@ app.post('/api/order', async (req, res) => {
     checkoutRequestId, checkoutRequestHash: requestHash,
     draft, payMode,
     host: db.normHost(req.headers.host),
-    items, total: grandTotal, itemsTotal: total,
+    items, total: grandTotal, itemsTotal: total, paymentFee,
     /* Промокод заказа. Пусто, когда кода нет вовсе: система выключена или
      * покупатель снял скидку — тогда и выгоды никакой, и приписывать её
      * несуществующему коду нельзя. Считается по тем же позициям, что и сумма,
@@ -3023,6 +3038,9 @@ function notifyPaymentProblem(order, method, tried) {
  */
 async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequestId, lastInChain) {
   const id = order.id;
+  const fee = order.paymentFee;
+  if (fee && (p.id !== fee.provider || method !== fee.method || ctx.currency !== 'RUB')) return { code: 'method_unavailable' };
+  if (!fee && p.id === 'platega' && Number(s.plategaFeePercent) > 0) return { code: 'amount' };
   const attemptId = crypto.randomBytes(12).toString('hex');
   const started = db.startOrderPayment(id, {
     provider: p.id, attemptId, requestId: providerRequestId,
@@ -3050,6 +3068,8 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
     tries++;
     r = await p.createInvoice(s, {
       amount: ctx.amount, currency: ctx.currency, method, callbackUrl,
+      ...(fee ? { baseAmount: fee.baseAmount } : {}),
+      expiresAt: R.orderPayUntil(order),
       // MeridianPay требует свой уникальный идентификатор сделки — им служит id
       // попытки. CrocoPAY поле игнорирует. У Альфы это `orderNumber`, который
       // обязан быть уникальным: номером заказа их брать нельзя, попыток у одного
@@ -3389,8 +3409,9 @@ async function payContext(s, order, wanted) {
   for (const code of codes) amounts[code] = sum(code);
   // Способы — срез по выбранной валюте: у кассы они сгруппированы именно так, и
   // рублёвый способ в долларовом счёте не годится.
-  const methods = PAYMENTS.enabled(s)
+  let methods = PAYMENTS.enabled(s)
     ? PAY.allowed(answered ? (answered.byCurrency[currency] || []) : null, s.payMethods) : [];
+  if (order.paymentFee) methods = methods.filter(m => m.id === order.paymentFee.method && currency === 'RUB');
   return { live, codes, currency, rate, amount, amounts, methods };
 }
 
@@ -5202,6 +5223,13 @@ app.post('/admin/settings', async (req, res) => {
   // Вторая касса. Настраивается независимо от первой: включить можно любую, обе
   // или ни одной — покупатель разницы не увидит.
   patch.plategaEnabled = req.body.plategaEnabled !== undefined;
+  if (req.body.plategaFeePercent !== undefined) {
+    const raw = String(req.body.plategaFeePercent).trim().replace(',', '.');
+    if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(raw) || Number(raw) > 100) {
+      return fail('Комиссия Platega — процент от 0 до 100, не более двух знаков после запятой');
+    }
+    patch.plategaFeePercent = Number(raw);
+  }
   const plategaSecret = String(req.body.plategaSecret || '').trim();
   if (req.body.clearPlategaSecret === undefined && plategaSecret && !PLATEGA.validSecret(plategaSecret)) {
     return fail('Проверьте API-ключ Platega: вставьте его целиком, без пробелов и переносов строк');

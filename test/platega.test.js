@@ -10,20 +10,21 @@ const ATTEMPT = 'a91209d1ae67f399bd7ed6c4';
 const SECRET = 'platega-test-secret-never-live';
 const SETTINGS = { plategaEnabled: true, plategaMerchantId: MERCHANT, plategaSecret: SECRET };
 const PARAMS = {
-  amount: 1000.25, currency: 'RUB', method: 'ONLINE_PAYMENT', externalId: ATTEMPT,
+  amount: 1000.25, currency: 'RUB', method: 'SBP_ONLINE', externalId: ATTEMPT,
   description: 'Заказ 1234', returnUrl: 'https://shop.example/pay/private-order',
   callbackUrl: 'https://shop.example/api/pay/platega/callback?token=never-send-in-payload'
 };
 const CREATED = {
   transactionId: TRANSACTION, status: 'PENDING',
-  url: 'https://pay.platega.io/?id=' + TRANSACTION + '&mh=merchant', expiresIn: '00:15:00', rate: 95
+  redirect: 'https://pay.platega.io/?id=' + TRANSACTION + '&mh=merchant',
+  expiresIn: '00:15:00', paymentMethod: 'SBPQR', paymentDetails: '1000.25 RUB', merchantId: MERCHANT
 };
 const DETAILS = {
   id: TRANSACTION, status: 'CONFIRMED', paymentDetails: { amount: 1000.25, currency: 'RUB' },
-  payload: ATTEMPT, expiresIn: '00:15:00', paymentMethod: '2', mechantId: MERCHANT
+  payload: ATTEMPT, expiresIn: '00:15:00', paymentMethod: 'SBPQR', mechantId: MERCHANT
 };
 const CALLBACK = { id: TRANSACTION, amount: 1000.25, currency: 'RUB', status: 'CONFIRMED', payload: ATTEMPT };
-const EXPECTED = { id: ATTEMPT, invoiceId: TRANSACTION, amount: 1000.25, currency: 'RUB', method: 'ONLINE_PAYMENT' };
+const EXPECTED = { id: ATTEMPT, invoiceId: TRANSACTION, amount: 1000.25, currency: 'RUB', method: 'SBP_ONLINE' };
 function json(body, status = 200) { return new Response(JSON.stringify(body), { status }); }
 function mockFetch(t, handler) {
   // Каждый тест перехватывает fetch. Настоящих запросов к сервису с этой машины нет.
@@ -38,8 +39,8 @@ test('Platega включается только с корректным merchant
   assert.equal(PLATEGA.configured({ ...SETTINGS, plategaSecret: 'secret\r\nX-Other: value' }), false);
   assert.equal(PLATEGA.enabled({ ...SETTINGS, plategaEnabled: false }), false);
   assert.equal(PLATEGA.configured({ ...SETTINGS, plategaEnabled: false }), true);
-  assert.equal(PLATEGA.supports('ONLINE_PAYMENT'), true);
-  for (const method of ['SBP', 'TO_CARD', 'CARD_ONLINE', '__proto__']) assert.equal(PLATEGA.supports(method), false);
+  assert.equal(PLATEGA.supports('SBP_ONLINE'), true);
+  for (const method of ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT', '__proto__']) assert.equal(PLATEGA.supports(method), false);
 });
 
 test('Platega принимает точные рубли и не округляет посторонние значения', () => {
@@ -55,16 +56,16 @@ test('Platega принимает точные рубли и не округля�
   for (const state of ['SUCCESS', 'confirmed', '__proto__', 'toString']) assert.equal(PLATEGA.stateOf(state), '');
 });
 
-test('POST v2 создаёт одну размещённую форму без paymentMethod, id и данных покупателя', async t => {
+test('POST создаёт одну форму СБП с paymentMethod: 2 без id и данных покупателя', async t => {
   const fetch = mockFetch(t, async (url, init) => {
-    assert.equal(url, 'https://app.platega.io/v2/transaction/process');
+    assert.equal(url, 'https://app.platega.io/transaction/process');
     assert.equal(init.method, 'POST');
     assert.equal(init.redirect, 'error');
     assert.equal(init.headers['X-MerchantId'], MERCHANT);
     assert.equal(init.headers['X-Secret'], SECRET);
     const body = JSON.parse(init.body);
     assert.deepEqual(body, {
-      paymentDetails: { amount: 1000.25, currency: 'RUB' }, description: 'Заказ 1234',
+      paymentMethod: 2, paymentDetails: { amount: 1000.25, currency: 'RUB' }, description: 'Заказ 1234',
       return: PARAMS.returnUrl, failedUrl: PARAMS.returnUrl, payload: ATTEMPT
     });
     assert.equal(init.body.includes('never-send'), false);
@@ -76,16 +77,89 @@ test('POST v2 создаёт одну размещённую форму без p
   assert.equal(fetch.mock.calls.length, 1);
   assert.equal(result.invoice.id, TRANSACTION);
   assert.equal(result.invoice.externalId, ATTEMPT);
-  assert.equal(result.invoice.method, 'ONLINE_PAYMENT');
+  assert.equal(result.invoice.method, 'SBP_ONLINE');
   assert.equal(result.invoice.amount, 1000.25);
-  assert.equal(result.invoice.requisite, CREATED.url);
+  assert.equal(result.invoice.requisite, CREATED.redirect);
   assert.ok(result.invoice.expiresAt >= before + 900000 && result.invoice.expiresAt <= Date.now() + 900000);
+});
+
+test('POST принимает только точную сумму из строки либо объекта и документированные обозначения СБП', async t => {
+  const fetch = mockFetch(t, async () => json(CREATED));
+  for (const paymentMethod of ['SBPQR', 2, '2']) {
+    for (const paymentDetails of ['1000.25 RUB', { amount: '1000.25', currency: 'RUB' }]) {
+      fetch.mock.mockImplementation(async () => json({ ...CREATED, paymentMethod, paymentDetails }));
+      const result = await PLATEGA.createInvoice(SETTINGS, PARAMS);
+      assert.equal(result.ok, true);
+      assert.equal(result.invoice.method, 'SBP_ONLINE');
+      assert.equal(result.invoice.amount, PARAMS.amount);
+    }
+  }
+  assert.equal(fetch.mock.calls.length, 6);
+});
+
+test('POST передаёт исходную сумму, а ответ и GET сверяет с уже показанной полной суммой', async t => {
+  const params = { ...PARAMS, amount: 1085, baseAmount: 1000, expiresAt: Date.now() + 1800000 };
+  const fetch = mockFetch(t, async (url, init) => {
+    assert.equal(JSON.parse(init.body).paymentDetails.amount, 1000);
+    return json({ ...CREATED, paymentDetails: '1085.0 RUB', expiresIn: null });
+  });
+  const result = await PLATEGA.createInvoice(SETTINGS, params);
+  assert.equal(result.ok, true);
+  assert.equal(result.invoice.amount, 1085);
+  assert.equal(result.invoice.expiresAt, params.expiresAt);
+  const expected = { ...EXPECTED, amount: 1085 };
+  fetch.mock.mockImplementation(async () => json({ ...DETAILS, paymentDetails: { amount: 1085, currency: 'RUB' } }));
+  const checked = await PLATEGA.invoice(SETTINGS, TRANSACTION);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(PLATEGA.matchesInvoice(expected, checked.invoice), { ok: true });
+  assert.equal(checked.invoice.expiresAt, 0);
+  for (const amount of [1000, 1084.99, 1085.01, 1177.23]) {
+    assert.deepEqual(PLATEGA.matchesInvoice(expected, { ...checked.invoice, amount }), { ok: false, reason: 'amount' });
+    fetch.mock.mockImplementation(async () => json({ ...CREATED, paymentDetails: { amount, currency: 'RUB' } }));
+    const wrongTotal = await PLATEGA.createInvoice(SETTINGS, params);
+    assert.equal(wrongTotal.error, 'amount_mismatch');
+    assert.equal(wrongTotal.ambiguous, true);
+  }
+});
+
+test('Неверная исходная сумма и срок заказа отклоняются до создания счёта', async t => {
+  const fetch = mockFetch(t, async () => { throw new Error('network must not run'); });
+  for (const baseAmount of [0, -1, 1000.26, 1.001, NaN, Infinity, null, true, '', '1e3', Number.MAX_SAFE_INTEGER]) {
+    assert.deepEqual(await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, baseAmount }), { ok: false, error: 'bad_base_amount' });
+  }
+  for (const expiresAt of [0, Date.now() - 1, null, NaN, Infinity, true, String(Date.now() + 900000)]) {
+    assert.deepEqual(await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, expiresAt }), { ok: false, error: 'bad_expiry' });
+  }
+  assert.equal(fetch.mock.calls.length, 0);
+});
+
+test('Срок счёта ограничен сроком магазина, null не создаёт новый срок сам по себе', async t => {
+  const fetch = mockFetch(t, async () => json(CREATED));
+  const shorter = Date.now() + 300000;
+  assert.equal((await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, expiresAt: shorter })).invoice.expiresAt, shorter);
+  const before = Date.now();
+  const longer = Date.now() + 1800000;
+  const limited = await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, expiresAt: longer });
+  assert.equal(limited.ok, true);
+  assert.ok(limited.invoice.expiresAt >= before + 900000 && limited.invoice.expiresAt <= Date.now() + 900000);
+  assert.ok(limited.invoice.expiresAt < longer);
+  fetch.mock.mockImplementation(async () => json({ ...CREATED, expiresIn: null }));
+  const noDeadline = await PLATEGA.createInvoice(SETTINGS, PARAMS);
+  assert.equal(noDeadline.error, 'bad_expiry');
+  assert.equal(noDeadline.ambiguous, true);
+  assert.equal((await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, expiresAt: shorter })).invoice.expiresAt, shorter);
+  for (const expiresIn of [undefined, '', '900', '00:00:00', '00:60:00', 900]) {
+    fetch.mock.mockImplementation(async () => json({ ...CREATED, expiresIn }));
+    const invalid = await PLATEGA.createInvoice(SETTINGS, { ...PARAMS, expiresAt: longer });
+    assert.equal(invalid.error, 'bad_expiry');
+    assert.equal(invalid.ambiguous, true);
+  }
 });
 
 test('Локальная валидация отклоняет невозможный запрос до fetch', async t => {
   const fetch = mockFetch(t, async () => { throw new Error('network must not run'); });
   for (const changes of [
-    { amount: 1.001 }, { currency: 'USD' }, { method: 'SBP' }, { externalId: '../order' },
+    { amount: 1.001 }, { currency: 'USD' }, { method: 'SBP' }, { method: 'ONLINE_PAYMENT' }, { externalId: '../order' },
     { returnUrl: 'http://shop.example/pay' }, { returnUrl: 'javascript:alert(1)' },
     { returnUrl: 'https://user:password@shop.example/pay' }, { failedUrl: 'data:text/html,bad' }
   ]) {
@@ -126,15 +200,33 @@ test('Невалидный успешный ответ и частичный inv
   assert.equal(malformed.error, 'invalid_response');
   assert.equal(malformed.ambiguous, true);
   for (const [changes, code] of [
-    [{ url: 'javascript:alert(1)' }, 'no_requisite'],
-    [{ url: 'https://secret:pass@pay.platega.io' }, 'no_requisite'],
-    [{ url: 'https://pay.platega.io/?token=' + 'x'.repeat(2048) }, 'no_requisite'],
-    [{ url: 'https://pay.platega.io/?token=' + 'я'.repeat(400) }, 'no_requisite'],
+    [{ redirect: 'javascript:alert(1)' }, 'no_requisite'],
+    [{ redirect: 'https://secret:pass@pay.platega.io' }, 'no_requisite'],
+    [{ redirect: 'https://pay.platega.io/?token=' + 'x'.repeat(2048) }, 'no_requisite'],
+    [{ redirect: 'https://pay.platega.io/?token=' + 'я'.repeat(400) }, 'no_requisite'],
+    [{ redirect: undefined, url: CREATED.redirect }, 'no_requisite'],
     [{ expiresIn: '900' }, 'bad_expiry'],
     [{ status: 'CONFIRMED' }, 'bad_invoice_state'],
+    [{ paymentMethod: undefined }, 'method_mismatch'],
+    [{ paymentMethod: 'CRYPTO' }, 'method_mismatch'],
+    [{ paymentMethod: 13 }, 'method_mismatch'],
+    [{ paymentMethod: ' 2 ' }, 'method_mismatch'],
+    [{ merchantId: TRANSACTION }, 'merchant_mismatch'],
+    [{ merchantId: null }, 'merchant_mismatch'],
+    [{ mechantId: TRANSACTION }, 'merchant_mismatch'],
     [{ payload: 'some-other-attempt' }, 'payload_mismatch'],
     [{ paymentDetails: { amount: 1000.26, currency: 'RUB' } }, 'amount_mismatch'],
-    [{ paymentDetails: { amount: 1000.25, currency: 'USD' } }, 'currency_mismatch']
+    [{ paymentDetails: { amount: 1000.25, currency: 'USD' } }, 'currency_mismatch'],
+    [{ paymentDetails: '1000.26 RUB' }, 'amount_mismatch'],
+    [{ paymentDetails: '1000.251 RUB' }, 'amount_mismatch'],
+    [{ paymentDetails: '1000.25 USD' }, 'currency_mismatch'],
+    [{ paymentDetails: ' 1000.25 RUB' }, 'amount_mismatch'],
+    [{ paymentDetails: '1000.25 RUB ' }, 'amount_mismatch'],
+    [{ paymentDetails: '1000.25 RUB\n' }, 'amount_mismatch'],
+    [{ paymentDetails: 'Сумма: 1000.25 RUB' }, 'amount_mismatch'],
+    [{ paymentDetails: 1000.25 }, 'amount_mismatch'],
+    [{ paymentDetails: undefined }, 'amount_mismatch'],
+    [{ paymentDetails: null }, 'amount_mismatch']
   ]) {
     fetch.mock.mockImplementation(async () => json({ ...CREATED, ...changes }));
     const result = await PLATEGA.createInvoice(SETTINGS, PARAMS);
@@ -212,6 +304,30 @@ test('Подтверждение требует точно тот же id, paylo
   assert.deepEqual(PLATEGA.matchesInvoice(EXPECTED, PLATEGA.invoiceView({ ...DETAILS, payload: ' ' + ATTEMPT + ' ' })), { ok: false, reason: 'payload' });
 });
 
+test('Новый счёт СБП требует подтверждённый способ GET, старый счёт сохраняет прежний выбор', async t => {
+  const fetch = mockFetch(t, async () => json(DETAILS));
+  const legacy = { ...EXPECTED, method: 'ONLINE_PAYMENT' };
+  for (const paymentMethod of ['SBPQR', 2, '2']) {
+    fetch.mock.mockImplementation(async () => json({ ...DETAILS, paymentMethod }));
+    const result = await PLATEGA.invoice(SETTINGS, TRANSACTION);
+    assert.equal(result.ok, true);
+    assert.equal(result.invoice.method, 'SBP_ONLINE');
+    assert.deepEqual(PLATEGA.matchesInvoice(EXPECTED, result.invoice), { ok: true });
+    assert.deepEqual(PLATEGA.matchesInvoice(legacy, result.invoice), { ok: true });
+  }
+  // Старые размещённые формы разрешали все способы, включая криптовалюту;
+  // отсутствие paymentMethod раньше также не мешало строгой сверке суммы.
+  for (const paymentMethod of ['CRYPTO', 13, '13', 'CARD', undefined, null, 'sbpqr', ' 2 ', { id: 2 }]) {
+    fetch.mock.mockImplementation(async () => json({ ...DETAILS, paymentMethod }));
+    const result = await PLATEGA.invoice(SETTINGS, TRANSACTION);
+    assert.equal(result.ok, true);
+    assert.equal(result.invoice.method, 'ONLINE_PAYMENT');
+    assert.deepEqual(PLATEGA.matchesInvoice(EXPECTED, result.invoice), { ok: false, reason: 'method' });
+    assert.deepEqual(PLATEGA.matchesInvoice(legacy, result.invoice), { ok: true });
+    assert.deepEqual(PLATEGA.matchesInvoice(legacy, { ...result.invoice, amount: 1000.26 }), { ok: false, reason: 'amount' });
+  }
+});
+
 test('Незнакомый статус не становится оплаченным или отменённым', async t => {
   mockFetch(t, async () => json({ ...DETAILS, status: 'SUCCESS' }));
   assert.deepEqual(await PLATEGA.invoice(SETTINGS, TRANSACTION), { ok: false, error: 'unknown_status' });
@@ -262,6 +378,11 @@ test('Отпечаток запроса и срок неоднозначной �
   assert.equal(PLATEGA.sameStartRequest(EXPECTED, { ...EXPECTED, amount: 1000.26 }), false);
   assert.equal(PLATEGA.sameStartRequest(EXPECTED, { ...EXPECTED, amount: 1000.251 }), false);
   assert.equal(PLATEGA.sameStartRequest(EXPECTED, { ...EXPECTED, currency: 'USD' }), false);
+  const legacy = { ...EXPECTED, method: 'ONLINE_PAYMENT' };
+  assert.equal(PLATEGA.sameStartRequest(legacy, legacy), true);
+  assert.equal(PLATEGA.sameStartRequest(legacy, EXPECTED), false);
+  assert.equal(PLATEGA.sameStartRequest(EXPECTED, legacy), false);
+  assert.equal(PLATEGA.sameStartRequest({ ...EXPECTED, method: 'SBP' }, { ...EXPECTED, method: 'SBP' }), false);
   assert.equal(PLATEGA.unresolvedStartTtl, 30 * 60 * 1000);
   assert.equal(PLATEGA.expiryMs('00:15:00', 100), 900100);
   for (const value of ['900', '00:60:00', '00:00:00', '', 900]) assert.equal(PLATEGA.expiryMs(value, 100), 0);
@@ -278,7 +399,7 @@ test('Проверка доступа читает баланс один раз,
   const [first, second] = await Promise.all([PLATEGA.availableOptions(SETTINGS), PLATEGA.availableOptions(SETTINGS)]);
   assert.equal(first.ok, true);
   assert.deepEqual(first, second);
-  assert.deepEqual(first.options, ['ONLINE_PAYMENT']);
+  assert.deepEqual(first.options, ['SBP_ONLINE']);
   assert.equal(fetch.mock.calls.length, 1);
   assert.equal(JSON.stringify(first).includes('345678'), false);
   assert.equal((await PLATEGA.availableOptions(SETTINGS)).cached, true);

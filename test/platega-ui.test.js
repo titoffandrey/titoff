@@ -4,6 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
+const FEE = require('../public/payment-fee');
 const PAY = require('../lib/pay-methods');
 const PAYMENTS = require('../lib/payments');
 const CROCO = require('../lib/crocopay');
@@ -25,7 +27,7 @@ function order(status) {
   const now = Date.now();
   const payment = {
     id: 'a'.repeat(24), attemptId: 'a'.repeat(24), provider: 'platega',
-    invoiceId: '00000000-0000-4000-8000-000000000002', method: 'ONLINE_PAYMENT',
+    invoiceId: '00000000-0000-4000-8000-000000000002', method: 'SBP_ONLINE',
     requisite: 'https://payment.example/invoice', status, amount: 67990, currency: 'RUB',
     startedAt: now - 60000, expiresAt: now + 600000, closedAt: status === 'refunded' ? now : 0,
     note: status === 'refunded' ? 'Возврат подтверждён сервисом' : ''
@@ -38,12 +40,12 @@ function order(status) {
 }
 
 test('онлайн-оплата доступна по умолчанию только у поддерживающей её кассы', () => {
-  assert.equal(PAY.isHosted('ONLINE_PAYMENT'), true);
-  assert.equal(PAY.isDomestic('ONLINE_PAYMENT'), true);
-  assert.ok(PAY.DEFAULT_IDS.includes('ONLINE_PAYMENT'));
-  assert.equal(PAY.describe('ONLINE_PAYMENT', 'platega').name, 'Онлайн-оплата');
-  assert.equal(CROCO.supports('ONLINE_PAYMENT'), false);
-  assert.deepEqual(PAYMENTS.offeredMethods(settings()), [{ id: 'ONLINE_PAYMENT', provider: 'platega' }]);
+  assert.equal(PAY.isHosted('SBP_ONLINE'), true);
+  assert.equal(PAY.isDomestic('SBP_ONLINE'), true);
+  assert.ok(PAY.DEFAULT_IDS.includes('SBP_ONLINE'));
+  assert.equal(PAY.describe('SBP_ONLINE', 'platega').name, 'СБП');
+  assert.equal(CROCO.supports('SBP_ONLINE'), false);
+  assert.deepEqual(PAYMENTS.offeredMethods(settings()), [{ id: 'SBP_ONLINE', provider: 'platega' }]);
 });
 
 test('в панели Platega есть доступ и инструкция callback, секрет остаётся скрытым', () => {
@@ -61,7 +63,7 @@ test('в панели Platega есть доступ и инструкция call
 });
 
 test('статический список способов не выдаётся в панели за проверенную связь', () => {
-  const methods = ['ONLINE_PAYMENT'];
+  const methods = ['SBP_ONLINE'];
   const live = {
     ok: true, methods, currencies: ['RUB'], byCurrency: { RUB: methods },
     byProvider: { platega: { methods, currencies: ['RUB'], byCurrency: { RUB: methods } } },
@@ -70,22 +72,25 @@ test('статический список способов не выдаётся
   const html = admin.settingsPage(settings(), {}, null, '', { live });
   assert.match(html, /ключи заданы · связь ещё не проверена/);
   assert.doesNotMatch(html, /ни одна касса не отвечает|Молчит Platega/);
-  assert.match(html, /class="pay-method-check">\s*<input[^>]*value="ONLINE_PAYMENT" checked/);
+  assert.match(html, /class="pay-method-check">\s*<input[^>]*value="SBP_ONLINE" checked/);
 });
 
-test('витрина и консультант описывают выбор на странице оплаты без имени кассы и ручного перевода', () => {
+test('витрина и консультант описывают сразу СБП на странице оплаты без имени кассы и ручного перевода', () => {
   const s = settings();
   const pending = order('pending');
-  const html = R.payPage(s, pending, { origin: '', methods: [PAY.find('ONLINE_PAYMENT')] });
+  const html = R.payPage(s, pending, { origin: '', methods: [PAY.find('SBP_ONLINE')] });
   const card = html.slice(html.indexOf('<div class="pay-wrap">'), html.indexOf('<script', html.indexOf('<div class="pay-wrap">')));
-  assert.match(card, /Выберите доступный способ и следуйте инструкциям/);
+  assert.match(card, /Страница оплаты через СБП/);
   assert.match(card, /На оплату осталось/);
+  assert.doesNotMatch(card, /Выберите доступный способ|Открыть в приложении банка/);
+  assert.match(card, /target="_blank" rel="noopener noreferrer">Перейти к оплате/);
   assert.doesNotMatch(card, /странице банка|точную сумму|Оплата картой|Сумма перевода|Переведите сумму/i);
-  const choice = R.payPage(s, Object.assign({}, pending, { payment: null }), { origin: '', methods: [PAY.find('ONLINE_PAYMENT')] });
+  const choice = R.payPage(s, Object.assign({}, pending, { payment: null }), { origin: '', methods: [PAY.find('SBP_ONLINE')] });
   assert.match(choice, /id="pay-create">Перейти к оплате/);
   assert.match(choice, /data-hosted="1"/);
   const facts = prompt.storeText(s);
-  assert.match(facts, /Онлайн-оплата:.*защищённая страница оплаты/);
+  assert.match(facts, /СБП:.*сразу открывается защищённая страница оплаты через СБП/);
+  assert.doesNotMatch(facts, /выбирает доступный способ/);
   assert.doesNotMatch(facts, /странице банка|ТОЧНУЮ СУММУ|эквайринг|перевод по реквизитам/);
   for (const page of [html, choice, R.checkoutPage(s, { origin: '', payOnline: true }), facts]) {
     assert.doesNotMatch(page, new RegExp(merchant + '|' + secret));
@@ -104,7 +109,7 @@ test('возврат закрывает оплату, не показывает 
   assert.equal(R.orderTone(refunded), 'off');
   assert.match(R.orderStatus(refunded), /возврат платежа/);
   assert.match(R.orderStatus(refunded), /Возврат подтверждён сервисом/);
-  const html = R.payPage(settings(), refunded, { origin: '', methods: [PAY.find('ONLINE_PAYMENT')] });
+  const html = R.payPage(settings(), refunded, { origin: '', methods: [PAY.find('SBP_ONLINE')] });
   assert.match(html, /Платёж возвращён/);
   assert.doesNotMatch(html, /id="pay-create"|id="pay-recheck"|data-paid="1"|Платёж получен|Товарный чек|Перейти к оплате/);
   assert.equal(R.orderStats([refunded]).revenue, 0);
@@ -146,7 +151,7 @@ test('выбор онлайн-оплаты ведёт на HTTPS-страниц�
     const goals = [];
     const start = make({
       orderId: 'order-ui', currency: 'RUB', total: 67990,
-      chosenMethod: () => hosted ? 'ONLINE_PAYMENT' : 'SBP', chosenHosted: () => hosted,
+      chosenMethod: () => hosted ? 'SBP_ONLINE' : 'SBP', chosenHosted: () => hosted,
       requestKey: () => 'request-key', paymentRequestId: () => 'a'.repeat(32),
       clearPaymentRequest() {}, showMsg() {}, window: {}, document: {}, location,
       fetch: async () => ({ status: 200, json: async () => ({ ok: true, url: '/pay/order-ui', hostedUrl }) }),
@@ -156,5 +161,175 @@ test('выбор онлайн-оплаты ведёт на HTTPS-страниц�
     await new Promise(setImmediate);
     assert.equal(location.href, expected, `${hosted}: ${hostedUrl}`);
     assert.deepEqual(goals, ['order'], 'переход идёт после цели заказа');
+  }
+});
+
+test('комиссия считается одинаково на сервере и в браузере с округлением до копейки', () => {
+  const browser = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'payment-fee.js'), 'utf8'), browser);
+  for (const [base, percent, amount, total] of [
+    [1000, 8.5, 85, 1085], [19.99, 8.5, 1.7, 21.69],
+    [0.5, 1, 0.01, 0.51], [0.49, 1, 0, 0.49],
+    [99999.99, 8.5, 8500, 108499.99], [1000, 0, 0, 1000], [0, 8.5, 0, 0]
+  ]) {
+    const expected = { baseAmount: base, amount, percent, total };
+    assert.deepEqual(FEE.quote(base, percent), expected);
+    assert.deepEqual(JSON.parse(JSON.stringify(browser.window.PaymentFee.quote(base, percent))), expected);
+  }
+  for (const invalid of [undefined, null, '', '8.5', NaN, Infinity, -1, 1.234, {}, []]) {
+    assert.equal(FEE.quote(1000, invalid), null);
+    assert.equal(FEE.quote(invalid, 8.5), null);
+  }
+  assert.equal(FEE.quote(1000, 100.01), null);
+  assert.equal(FEE.quote(Number.MAX_SAFE_INTEGER, 8.5), null);
+});
+
+test('оформление получает процент только для единственного СБП-маршрута и загружает расчёт до app.js', () => {
+  const s = { ...settings(), plategaFeePercent: 8.5 };
+  const html = R.checkoutPage(s, { payOnline: true });
+  assert.match(html, /data-payment-fee-percent="8\.5"/);
+  assert.ok(html.indexOf('/static/payment-fee.js?') < html.indexOf('/static/app.js?'));
+  assert.match(R.checkoutPage({ ...s, plategaFeePercent: 0 }, { payOnline: true }), /data-payment-fee-percent="0"/);
+  for (const [configured, opts] of [
+    [{ ...s, plategaEnabled: false }, { payOnline: true }],
+    [s, { payOnline: false }],
+    [{ ...s, crocopayEnabled: true, crocopayClientId: 'test', crocopayClientSecret: 'test' }, { payOnline: true }]
+  ]) {
+    const noFee = R.checkoutPage(configured, opts);
+    assert.doesNotMatch(noFee, /data-payment-fee-percent|\/static\/payment-fee\.js/);
+  }
+});
+
+test('оформление пересчитывает видимую комиссию и итог после скидки и смены доставки', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const rail = source.slice(source.indexOf('  function lineLabel('), source.indexOf('  // ===== Оплата и доставка ====='));
+  const total = source.slice(source.indexOf('  function orderTotal('), source.indexOf('  function addressValue('));
+  const side = { innerHTML: '' };
+  const page = { dataset: { paymentFeePercent: '8.5' } };
+  let goods = 1000, ship = null, saved = 0;
+  const env = {
+    document: { getElementById: id => id === 'checkout-page' ? page : id === 'checkout-side' ? side : null },
+    window: { PaymentFee: FEE },
+    Cart: { items: [{}], availableCount: () => 1, total: () => goods, saved: () => saved },
+    money: n => n + ' ₽', shipCurrent: () => ship, deliveryName: () => 'СДЭК',
+    deliveryModeName: () => 'Курьер', shipDaysCurrent: () => '2–4 дня',
+    promoView: { on: true, code: 'SALE' }, escapeHtml: s => s, coIcon: () => ''
+  };
+  const ui = new Function('env', `const { document, window, Cart, money, shipCurrent,
+    deliveryName, deliveryModeName, shipDaysCurrent, promoView, escapeHtml, coIcon } = env;
+    ${rail}\n${total}\nreturn { renderRail, orderTotal, checkoutFeeQuote };`)(env);
+  ui.renderRail();
+  assert.match(side.innerHTML, /Комиссия платёжного сервиса \(8,5%\).*85 ₽/);
+  assert.match(side.innerHTML, /по адресу/);
+  assert.match(side.innerHTML, /Итого<\/span><b>1085 ₽/);
+  ship = 200;
+  ui.renderRail();
+  assert.match(side.innerHTML, /102 ₽/);
+  assert.equal(ui.orderTotal(), 1302);
+  goods = 900; saved = 100;
+  ui.renderRail();
+  assert.match(side.innerHTML, /Промокод SALE/);
+  assert.match(side.innerHTML, /93.5 ₽/);
+  assert.equal(ui.orderTotal(), 1193.5);
+  goods = 10.1; ship = 0.2;
+  assert.deepEqual(ui.checkoutFeeQuote(), FEE.quote(10.3, 8.5));
+  delete page.dataset.paymentFeePercent;
+  ui.renderRail();
+  assert.doesNotMatch(side.innerHTML, /Комиссия/);
+  assert.equal(ui.orderTotal(), 10.1 + 0.2);
+});
+
+test('в запрос заказа входит показанный процент, а прежние способы не получают комиссию', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const begin = source.indexOf('  function submitOrder(');
+  const send = source.indexOf("    fetch('/api/order'", begin);
+  const env = {
+    rememberCheckout() {}, document: { getElementById: () => ({ value: 'Тест' }) },
+    phoneCheck: () => ({ ok: true }), phoneValue: () => '+79990000000', ship: {},
+    deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
+    totalLimitError: () => '', orderTotal: () => 1085, payOnline: () => true,
+    checkoutAmountError: () => '',
+    Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }] }, promoFields() {},
+    orderRequestId: () => 'test-request'
+  };
+  for (const fee of [FEE.quote(1000, 8.5), FEE.quote(1000, 0), null]) {
+    const make = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
+      phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
+      payOnline, Cart, promoFields, orderRequestId, checkoutAmountError } = env;
+      ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`);
+    const payload = make(env, () => fee)({ innerHTML: 'Оплатить' });
+    if (fee) {
+      assert.equal(payload.paymentFeePercent, fee.percent);
+      assert.equal(payload.paymentTotal, fee.total);
+    } else {
+      assert.equal(Object.hasOwn(payload, 'paymentFeePercent'), false);
+      assert.equal(Object.hasOwn(payload, 'paymentTotal'), false);
+    }
+    assert.equal(payload.items[0].price, 1000, 'цена товара не подменяется суммой с комиссией');
+  }
+});
+
+test('неизвестная или устаревшая доставка блокирует оплату с комиссией до показа полного итога', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const amount = source.slice(source.indexOf('  function checkoutAmountError('), source.indexOf('  function addressValue('));
+  const sync = source.slice(source.indexOf('  function syncSubmit('), source.indexOf('  // Адрес меняет зону'));
+  const begin = source.indexOf('  function submitOrder(');
+  const send = source.indexOf("    fetch('/api/order'", begin);
+  const button = { innerHTML: 'Оплатить', querySelector: () => ({ textContent: '' }) };
+  const message = { dataset: {}, value: '' };
+  const ship = { valid: true, pending: false, key: '1000|Адрес', address: 'Адрес' };
+  let address = 'Адрес', price = 0, percent = 8.5;
+  const env = {
+    rememberCheckout() {}, document: { getElementById: id => id === 'checkout-submit' ? button : id === 'order-msg' ? message : { value: address } },
+    phoneCheck: () => ({ ok: true }), phoneValue: () => '+79990000000', ship,
+    deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
+    totalLimitError: () => '', orderTotal: () => 1085, payOnline: () => true,
+    Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }], total: () => 1000, availableCount: () => 1 },
+    promoFields() {}, orderRequestId: () => 'test-request', setText() {}, money: String,
+    submitLabel: () => 'Оплатить', addressValue: () => address, shipCurrent: () => price,
+    checkoutFeeQuote: () => FEE.quote(1000, percent)
+  };
+  const ui = new Function('env', `const { rememberCheckout, document, phoneCheck,
+    phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
+    payOnline, Cart, promoFields, orderRequestId, setText, money, submitLabel,
+    addressValue, shipCurrent, checkoutFeeQuote } = env;
+    ${amount}\n${sync}\n${source.slice(begin, send)}\nreturn payload; }
+    return { syncSubmit, submitOrder };`)(env);
+  ui.syncSubmit();
+  assert.equal(button.disabled, false, 'подтверждённая бесплатная доставка допустима');
+  assert.equal(ui.submitOrder(button).paymentTotal, 1085);
+  for (const change of [
+    () => { ship.pending = true; }, () => { ship.valid = false; },
+    () => { ship.key = '900|Адрес'; }, () => { address = 'Другой адрес'; },
+    () => { price = null; }
+  ]) {
+    ship.valid = true; ship.pending = false; ship.key = '1000|Адрес'; address = 'Адрес'; price = 0;
+    change();
+    ui.syncSubmit();
+    assert.equal(button.disabled, true);
+    assert.match(message.textContent, /Дождитесь расчёта доставки/);
+    assert.equal(ui.submitOrder(button), undefined, 'обход отключённой кнопки не отправляет заказ');
+  }
+  percent = 0;
+  ui.syncSubmit();
+  assert.equal(button.disabled, false, 'поведение прежней оплаты без комиссии сохранено');
+});
+
+test('страница оплаты и товарный чек показывают сохранённую комиссию даже после смены тарифа', () => {
+  const s = { ...settings(), plategaFeePercent: 12 };
+  const paid = {
+    ...order('paid'), itemsTotal: 900, deliveryPrice: 100, total: 1085,
+    items: [{ id: 'p1', name: 'Товар', qty: 1, price: 900 }],
+    paymentFee: { provider: 'platega', method: 'SBP_ONLINE', baseAmount: 1000, amount: 85, percent: 8.5 }
+  };
+  paid.payment.amount = 1085;
+  paid.payment.attempts[0].amount = 1085;
+  const receipt = R.receiptPage(s, paid);
+  assert.match(receipt, /Комиссия платёжного сервиса \(8,5%\)<\/dt><dd>85\s₽/);
+  assert.match(receipt, /Итого<\/dt><dd>1\s085\s₽/);
+  const page = R.payPage(s, paid);
+  assert.match(page, /В том числе комиссия платёжного сервиса \(8,5%\): 85\s₽/);
+  for (const legacy of [R.receiptPage(s, order('paid')), R.payPage(s, order('pending'))]) {
+    assert.doesNotMatch(legacy, /комиссия платёжного сервиса|Комиссия платёжного сервиса/);
   }
 });
