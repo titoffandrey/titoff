@@ -64,6 +64,7 @@ const SITE_FIELDS = {
   'Яндекс Метрика': ['ymCounterId'],
   'кассы и свои реквизиты': ['crocopayEnabled', 'crocopayClientId', 'crocopayClientSecret',
     'meridianpayEnabled', 'meridianpayApiKey', 'meridianpayMerchantId', 'meridianpaySecret',
+    'plategaEnabled', 'plategaMerchantId', 'plategaSecret',
     'alfabankEnabled', 'alfabankToken', 'alfabankLogin', 'alfabankPassword', 'alfabankTest',
     'ownPayEnabled', 'ownPayCard', 'ownPayPhone', 'ownPayOwner', 'ownPayBank']
 };

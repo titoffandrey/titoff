@@ -25,6 +25,8 @@ const MERIDIAN = require('./lib/meridianpay');
 // Альфа-Банк нужен здесь ровно за тем же, что и MeridianPay: проверить ключ в
 // форме настроек до записи. Всё остальное про неё знает router.
 const ALFA = require('./lib/alfabank');
+const PLATEGA = require('./lib/platega');
+const PLATEGA_CALLBACK = require('./lib/platega-callback');
 const DELIVERY = require('./lib/delivery');
 const DOMAINS = require('./lib/domains');
 const YM = require('./lib/yandex-metrika');
@@ -891,7 +893,7 @@ function payRemind(req) {
     // больше не напоминаем и новый invoice ему не выпускаем.
     if (R.payLive(shown, now)) return card(order, R.payUntil(shown), true);
     if (db.isOrderArchived(order) || order.manualVoid) continue;
-    if (pay.status === 'paid' || pay.status === 'mismatch') continue;
+    if (['paid', 'mismatch', 'refunded'].includes(pay.status)) continue;
     // Счёт сгорел, а полчаса заказа ещё идут: новый счёт покупатель выставить
     // может, и отсчитывается то, сколько у него на это осталось.
     return card(order, R.orderPayUntil(order), false);
@@ -2919,8 +2921,8 @@ function notifyPayment(order, state, note) {
   const head = state === 'paid' && paidAttempts > 1
     ? (restoredAfterDelete ? '⚠️ <b>Повторно оплачен удалённый заказ' : '⚠️ <b>Повторно оплачен заказ')
     : restoredAfterDelete
-      ? { paid: '⚠️ <b>Оплачен удалённый заказ', mismatch: '⚠️ <b>Оплата удалённого заказа с расхождением' }[state]
-      : { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением' }[state];
+      ? { paid: '⚠️ <b>Оплачен удалённый заказ', mismatch: '⚠️ <b>Оплата удалённого заказа с расхождением', refunded: '↩️ <b>Возврат платежа по заказу' }[state]
+      : { paid: '💳 <b>Оплачен заказ', mismatch: '⚠️ <b>Оплата с расхождением', refunded: '↩️ <b>Возврат платежа по заказу' }[state];
   if (!head) return;                       // истёкший или отменённый счёт менеджера не будит
   const msg = `${head} ${tgEsc(R.orderNo(order.number))}</b>\n`
     + `👤 ${tgEsc(order.customerName) || '—'}\n`
@@ -3097,7 +3099,7 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
       // вовсе — там остаётся только дождаться таймера.
       if (p.cancel) p.cancel(s, r.invoice.id).catch(() => {});
     }
-    const code = PAYMENTS.startErrorCode(r.error);
+    const code = r.ambiguous ? (r.error === 'timeout' ? 'timeout' : 'provider_error') : PAYMENTS.startErrorCode(r.error);
     db.failOrderPaymentAttempt(id, { attemptId, errorCode: code, providerTries: tries });
     // Пока POST ждал кассу, мог успешно закрыться прежний счёт. Финансовый факт
     // важнее отказа нового запроса: покупателя ведём на terminal-страницу, а не
@@ -3117,6 +3119,8 @@ async function requestInvoiceFrom(p, s, req, order, ctx, method, providerRequest
     providerTries: tries
   });
   if (!attached) {
+    const terminal = terminalPaymentBody(db.getOrder(id));
+    if (terminal) return { done: true, status: 200, body: terminal };
     return { done: true, status: 409, body: { ok: false, placed: true, errorCode: 'stale_attempt', error: 'Попытка оплаты устарела — обновите страницу' } };
   }
   const terminalAfterCreate = terminalPaymentBody(db.getOrder(id));
@@ -3159,7 +3163,7 @@ function paymentAlternative(methods, current) {
 
 function terminalPaymentBody(order) {
   const status = order && order.payment && order.payment.status;
-  if (status !== 'paid' && status !== 'mismatch') return null;
+  if (!['paid', 'mismatch', 'refunded'].includes(status)) return null;
   return {
     ok: true, placed: true, reused: true, terminal: status,
     url: '/pay/' + encodeURIComponent(order.id)
@@ -3289,6 +3293,7 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       }
       // Чужой Success никогда не становится paid. Состояние mismatch будит
       // менеджера, но только если касса утверждает, что деньги уже пришли.
+      if (state === 'refunded') return { ok: false, error: 'refund_mismatch' };
       if (state === 'paid') {
         const note = `Сверка счёта: не совпали ${match.reason}`;
         const result = db.settleOrderPayment(orderId, {
@@ -3575,9 +3580,9 @@ async function startPaymentRoute(req, res) {
       const now = Date.now();
       const unresolved = db.paymentAttempts(fresh).find(attempt => {
         const age = now - Number(attempt.startedAt || 0);
-        return attempt.status === 'pending' && !attempt.invoiceId && attempt.method === method
+        return attempt.status === 'pending' && (!attempt.invoiceId || (p.unresolvedStartTtl && !attempt.requisite)) && attempt.method === method
           && (attempt.provider || PAYMENTS.DEFAULT_ID) === p.id
-          && attempt.requestId !== providerRequestId && age >= 0 && age < UNRESOLVED_PAYMENT_TTL
+          && attempt.requestId !== providerRequestId && age >= 0 && age < (p.unresolvedStartTtl || UNRESOLVED_PAYMENT_TTL)
           && (!attempt.lastErrorCode || ['timeout', 'provider_error'].includes(attempt.lastErrorCode));
       });
       if (unresolved) { processing = true; continue; }
@@ -3660,7 +3665,7 @@ async function paymentStatusRoute(req, res) {
   // Уже полученные деньги кассу больше не тревожат. `mismatch` тоже terminal:
   // старая вкладка с другим live invoice не должна продолжать просить платить,
   // пока менеджер разбирает уже пришедшую сумму.
-  if (pay.status === 'paid' || pay.status === 'mismatch') {
+  if (['paid', 'mismatch', 'refunded'].includes(pay.status)) {
     return res.json({ ok: true, state: pay.status });
   }
   if (rateLimited(req, 'pay-status', 240, 10 * 60 * 1000, order.id)) return res.json({ ok: false, error: 'Слишком часто' }, 429);
@@ -3693,7 +3698,7 @@ async function paymentStatusRoute(req, res) {
   // важнее запоздалого pending A и немедленно убирает предложение платить ещё.
   const latest = db.getOrder(order.id);
   const latestState = latest && latest.payment && latest.payment.status;
-  if (latestState === 'paid' || latestState === 'mismatch') {
+  if (['paid', 'mismatch', 'refunded'].includes(latestState)) {
     return res.json({ ok: true, state: latestState });
   }
   if (!result.ok) return res.json({ ok: true, state: attempt.status || pay.status || 'pending', stale: true });
@@ -3809,6 +3814,14 @@ function paymentCallbackRoute(providerId) {
 app.post('/api/pay/crocopay/callback', paymentCallbackRoute('crocopay'));
 app.post('/api/pay/meridianpay/callback', paymentCallbackRoute('meridianpay'));
 
+// Platega использует общий callback из ЛК; адресуем его по invoice/payload.
+app.post('/api/pay/platega/callback', async (req, res) => {
+  const result = await PLATEGA_CALLBACK.handle(settings(), req.body, req.headers, {
+    db, reconcile: reconcilePaymentAttempt
+  });
+  res.json(result.body, result.status);
+});
+
 // Оплата не должна зависеть от открытой вкладки покупателя. Раз в минуту
 // сверяем недавние незакрытые счета; webhook и браузер используют тот же
 // reconcile, поэтому повторное уведомление исключает changed в хранилище.
@@ -3827,7 +3840,8 @@ async function reconcileOpenPayments() {
     for (const order of db.getOrders()) {
       if (!order.payment) continue;
       for (const attempt of db.paymentAttempts(order)) {
-        if (!attempt.invoiceId || attempt.status === 'paid') continue;
+        if (!attempt.invoiceId || attempt.status === 'refunded'
+          || (attempt.status === 'paid' && attempt.provider !== 'platega')) continue;
         /* Сверить счёт может только ТА касса, что его выдала, и только пока у
          * неё есть ключи. Счета кассы, у которой ключи убрали, сверке не
          * поддаются — и без этой строки они забивали бы очередь: `reconcile`
@@ -3839,14 +3853,16 @@ async function reconcileOpenPayments() {
         const issuer = PAYMENTS.provider(attempt.provider);
         if (!issuer || !issuer.configured(s)) continue;
         const startedAt = Number(attempt.startedAt || order.createdAt || 0);
-        if (!Number.isFinite(startedAt) || startedAt < edge || startedAt > now) continue;
+        const attemptEdge = attempt.provider === 'platega' && attempt.status === 'paid'
+          ? now - 30 * 24 * 60 * 60 * 1000 : edge;
+        if (!Number.isFinite(startedAt) || startedAt < attemptEdge || startedAt > now) continue;
         // Pending проверяем часто. Терминальные и mismatch ещё несколько дней
         // пересверяем реже: касса/webhook могут опоздать, а исправленный точный
         // Success должен дорасти до paid без ручного вмешательства.
         const interval = attempt.status === 'pending' ? 60 * 1000 : 15 * 60 * 1000;
         const checkedAt = Number(attempt.lastCheckedAt || 0);
         if (checkedAt > 0 && now - checkedAt < interval) continue;
-        if (!['pending', 'expired', 'cancelled', 'failed', 'mismatch'].includes(attempt.status)) continue;
+        if (!['pending', 'expired', 'cancelled', 'failed', 'mismatch', 'paid'].includes(attempt.status)) continue;
         queue.push([order.id, attempt]);
       }
     }
@@ -5185,6 +5201,19 @@ app.post('/admin/settings', async (req, res) => {
   keepOrReplaceSecret('crocopayClientSecret', 'clearCrocopayClientSecret', 300);
   // Вторая касса. Настраивается независимо от первой: включить можно любую, обе
   // или ни одной — покупатель разницы не увидит.
+  patch.plategaEnabled = req.body.plategaEnabled !== undefined;
+  const plategaSecret = String(req.body.plategaSecret || '').trim();
+  if (req.body.clearPlategaSecret === undefined && plategaSecret && !PLATEGA.validSecret(plategaSecret)) {
+    return fail('Проверьте API-ключ Platega: вставьте его целиком, без пробелов и переносов строк');
+  }
+  keepOrReplaceSecret('plategaSecret', 'clearPlategaSecret', 4096);
+  if (req.body.plategaMerchantId !== undefined) {
+    const merchant = String(req.body.plategaMerchantId).trim();
+    if (merchant && !PLATEGA.validMerchantId(merchant)) {
+      return fail('Merchant ID Platega — UUID из настроек личного кабинета');
+    }
+    patch.plategaMerchantId = merchant;
+  }
   patch.meridianpayEnabled = req.body.meridianpayEnabled !== undefined;
   keepOrReplaceSecret('meridianpayApiKey', 'clearMeridianpayApiKey', 200);
   keepOrReplaceSecret('meridianpaySecret', 'clearMeridianpaySecret', 300);

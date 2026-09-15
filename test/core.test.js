@@ -6240,7 +6240,7 @@ test('отказ кассы объяснён покупателю, а «нет �
   // Маршрут берёт текст оттуда же: разбор чужих ответов живёт рядом с остальным
   // знанием об их API, а не размазан по server.js.
   const start = server.slice(server.indexOf('async function requestInvoiceFrom('), server.indexOf("app.post('/api/pay/start'"));
-  assert.match(start, /const code = PAYMENTS\.startErrorCode\(r\.error\)/);
+  assert.match(start, /const code = r\.ambiguous[^;]+PAYMENTS\.startErrorCode\(r\.error\)/);
   assert.match(start, /error: PAYMENTS\.startError\(code\)/);
   // Заказ при отказе кассы остаётся настоящим — иначе покупатель оформит второй.
   assert.match(start, /placed: true/);
@@ -6422,7 +6422,7 @@ test('неоплаченный счёт напоминает о себе на в
    * на страницу оплаты и выставить новый счёт покупатель должен уметь, иначе
    * ссылки на свой заказ у него нет нигде. Не бесконечно: полчаса вышли — и
    * напоминать не о чем, платить по такому заказу уже нельзя. */
-  assert.match(fn, /pay\.status === 'paid' \|\| pay\.status === 'mismatch'/, 'оплаченному напоминать нечего');
+  assert.match(fn, /\['paid', 'mismatch', 'refunded'\]\.includes\(pay\.status\)/, 'оплаченному и возвращённому напоминать нечего');
   assert.match(fn, /R\.payExpired\(order, now\)/, 'просроченный заказ о себе не напоминает');
   assert.doesNotMatch(fn, /REMIND_TTL/, 'суточный предел заменён сроком оплаты заказа');
   assert.match(fn, /card\(order, R\.orderPayUntil\(order\), false\)/);
@@ -6618,7 +6618,7 @@ test('способы оплаты — закрытый список, а пока
    * токен, включил кассу — и получил «оплатить нечем», не догадавшись отметить
    * галочку в соседнем разделе. Магазину на P2P-кассах он не мешает: список
    * пересекается с тем, что касса правда умеет, а этого кода она не вернёт. */
-  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE']);
+  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT']);
   // Трансграничные по-прежнему спрятаны: правило «по умолчанию только нужное
   // покупателю из России» третья касса не отменяет.
   for (const id of ['TO_CARD_TRANSGRAN', 'SBP_TRANSGRAN', 'TRANSGRANCARD_TJS']) {
@@ -6702,7 +6702,7 @@ test('трансграничные способы скрыты по умолча
 
   // Свежая установка показывает способы для покупателя из России, а не все
   // двенадцать: два перевода и карта (единственный способ кассы Альфы).
-  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD', 'CARD_ONLINE']);
+  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT']);
   assert.ok(pay.METHODS.length > 2, 'остальные способы никуда не делись — они просто скрыты');
   for (const m of pay.METHODS) {
     if (/TRANSGRAN/.test(m.id)) assert.equal(pay.DEFAULT_IDS.includes(m.id), false, 'трансграничный по умолчанию скрыт: ' + m.id);
@@ -7967,7 +7967,7 @@ test('вебхук сверяет token попытки и подтверждае
   // тревожит и использует ту же центральную сверку, а не свою трактовку суммы.
   const status = source.slice(source.indexOf('async function paymentStatusRoute('), source.indexOf("app.get('/api/pay/status'"));
   assert.match(status, /ownOrder\(req, req\.query\.order\)/);
-  assert.match(status, /pay\.status === 'paid' \|\| pay\.status === 'mismatch'/,
+  assert.match(status, /\['paid', 'mismatch', 'refunded'\]\.includes\(pay\.status\)/,
     'старая вкладка прекращает polling после любой уже пришедшей суммы');
   assert.match(status, /reconcilePaymentAttempt\(s, order\.id, attempt\)/);
   assert.doesNotMatch(status, /\.invoice\(s,|settleOrderPayment/);
@@ -7980,7 +7980,7 @@ test('вебхук сверяет token попытки и подтверждае
   const statusReply = status.indexOf('if (!result.ok)', statusAwait);
   assert.ok(statusAwait > -1 && statusReread > statusAwait && statusReply > statusReread,
     'webhook по другой попытке, пришедший во время GET, получает terminal-приоритет');
-  assert.match(status.slice(statusReread, statusReply), /latestState === 'paid' \|\| latestState === 'mismatch'/);
+  assert.match(status.slice(statusReread, statusReply), /\['paid', 'mismatch', 'refunded'\]\.includes\(latestState\)/);
   const payBrowser = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
   assert.match(payBrowser, /page\.dataset\.attempt/);
   assert.match(payBrowser, /'&attempt=' \+ encodeURIComponent\(attemptId\)/);
@@ -8407,10 +8407,11 @@ test('панель говорит состояние касс, а не пере�
   // говорит именно это. Строка есть у КАЖДОЙ кассы реестра, включая
   // выключенную: «почему её нет в очереди» — вопрос, на который отвечает
   // строка, а не её отсутствие.
-  assert.deepEqual(health.map(r => r.state), ['ok', 'auth', 'off']);
+  assert.deepEqual(health.map(r => r.state), ['ok', 'auth', 'off', 'off']);
   assert.equal(health[0].live, true);
   assert.equal(health[1].live, false);
   assert.equal(health[2].id, 'alfabank');
+  assert.equal(health[3].id, 'platega');
   // Выключенная и ненастроенная кассы разводятся по разным состояниям: «нечего
   // спрашивать» и «спросить нечем» — разные беды с разным лечением.
   assert.equal(PAYMENTS.health(Object.assign({}, both, { meridianpayEnabled: false }), live)[1].state, 'off');
@@ -18932,7 +18933,7 @@ test('цели Метрики: загрузчик без вебвизора, а 
   assert.match(app, /if \(d && \(d\.ok \|\| d\.placed\)\) reachGoal\('order', \{ order_price: Number\(total\) \|\| 0, currency: 'RUB' \}, 'order:' \+ orderId, go\);/);
   assert.match(pay, /reachGoal\('paid', \{ order_price: total, currency: 'RUB' \}, 'paid:' \+ orderId, null\)/);
   assert.match(pay, /window\.ymPurchase\(\{ id: page\.dataset\.number \|\| orderId, revenue: total, products: [^}]+\}, 'purchase:' \+ orderId\)/);
-  assert.match(pay, /reachGoal\('order', \{ order_price: total, currency: 'RUB' \}, 'order:' \+ orderId, function \(\) \{ location\.href = safePayUrl\(d\.url\); \}\)/);
+  assert.match(pay, /reachGoal\('order', \{ order_price: total, currency: 'RUB' \}, 'order:' \+ orderId, function \(\) \{\s*location\.href = \(chosenHosted\(\) && safeHostedUrl\(d\.hostedUrl\)\) \|\| safePayUrl\(d\.url\);\s*\}\)/);
   // Без счётчика оба идут дальше сразу — договор один на витрину и оплату.
   for (const src of [app, pay]) {
     assert.match(src, /if \(typeof window\.ymGoal === 'function'\) window\.ymGoal\(name, params, once, done\);\s*else if \(typeof done === 'function'\) done\(\);/);

@@ -190,20 +190,24 @@ function footerMarks(html) {
 }
 function pageShell(config) { return R.layout(config, { body: '<p>Тестовая страница</p>', categories: [] }); }
 
-test('инструкция действующего счёта Альфы говорит про СБП, чужого hosted-счёта — по-прежнему про карту', () => {
+test('инструкция счёта Альфы говорит про СБП, другой платёжной страницы — про выбор способа', () => {
   const now = Date.now();
-  for (const provider of ['alfabank', 'crocopay']) {
+  for (const provider of ['alfabank', 'platega']) {
     const value = order({ createdAt: now,
-      payment: invoice({ provider, startedAt: now, expiresAt: now + 600000 }) });
+      payment: invoice({ provider, method: provider === 'platega' ? 'ONLINE_PAYMENT' : 'CARD_ONLINE', startedAt: now, expiresAt: now + 600000 }) });
     const html = R.payPage(alfaSettings, value, { methods: [], origin: '' });
     const hint = html.match(/<p class="pay-hint">([\s\S]*?)<\/p>/);
     assert.ok(hint);
     if (provider === 'alfabank') {
       assert.match(hint[1], /^Оплата через СБП пройдёт/);
       assert.doesNotMatch(hint[1], /картой/);
-    } else assert.match(hint[1], /^Оплата картой пройдёт/);
-    assert.match(hint[1], /сумма там уже указана/);
-    assert.match(hint[1], /как только банк подтвердит оплату, она обновится сама/);
+      assert.match(hint[1], /сумма там уже указана/);
+      assert.match(hint[1], /как только банк подтвердит оплату, она обновится сама/);
+    } else {
+      assert.match(hint[1], /^Защищённая страница оплаты откроется/);
+      assert.match(hint[1], /Выберите доступный способ/);
+      assert.doesNotMatch(hint[1], /картой|странице банка|Platega/);
+    }
   }
 });
 

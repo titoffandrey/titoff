@@ -204,7 +204,7 @@ test('что считать ссылкой на файл, решает одно 
   // опечатка в имени означала бы, что секрет молча уехал на чужой сайт.
   const defaults = require('../lib/db').defaultSettings();
   for (const key of all.concat(SERVER_FIELDS)) assert.ok(key in defaults, 'в настройках нет поля ' + key);
-  for (const key of ['crocopayClientSecret', 'meridianpayApiKey', 'alfabankPassword', 'alfabankToken', 'ownPayCard', 'telegramBotToken', 'bankAccount']) {
+  for (const key of ['crocopayClientSecret', 'meridianpayApiKey', 'alfabankPassword', 'alfabankToken', 'plategaMerchantId', 'plategaSecret', 'ownPayCard', 'telegramBotToken', 'bankAccount']) {
     assert.ok(all.includes(key), 'деньги и ключи обязаны сбрасываться: ' + key);
   }
 });

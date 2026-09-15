@@ -13,6 +13,7 @@
 
   var orderId = page.dataset.order || '';
   var state = page.dataset.state || '';
+  var hosted = page.dataset.hosted === '1';
   var attemptId = /^[a-f0-9]{24,64}$/.test(page.dataset.attempt || '') ? page.dataset.attempt : '';
   var expires = Number(page.dataset.expires || 0) || 0;
   // Валюта счёта. Её выбирают ссылками (разметку рисует сервер), сюда она
@@ -160,6 +161,11 @@
     var on = document.querySelector('input[name="pay-method"]:checked');
     return on ? on.value : '';
   }
+  function chosenHosted() {
+    var on = document.querySelector('input[name="pay-method"]:checked');
+    return !!(on && on.dataset.hosted === '1');
+  }
+  function createLabel() { return chosenHosted() ? 'Перейти к оплате' : 'Получить реквизиты'; }
   var REQUEST_TTL = 5 * 60 * 1000;
   var REQUEST_ROOT = 'pay_request_v1:' + orderId;
   function requestKey(method) { return REQUEST_ROOT + ':' + currency + ':' + method; }
@@ -227,7 +233,7 @@
     var requestStorageKey = requestKey(method);
     var requestId = paymentRequestId(method);
     btn.disabled = true;
-    btn.textContent = 'Ищем доступные реквизиты…';
+    btn.textContent = chosenHosted() ? 'Открываем оплату…' : 'Ищем доступные реквизиты…';
     // Адрес без имени кассы: их несколько, и какая выдаст реквизиты — решает
     // сервер. Покупателю это не показывается нигде, даже в адресе запроса.
     fetch('/api/pay/start', {
@@ -268,10 +274,12 @@
         // поэтому цель уходит и тогда; повтор по тому же заказу отсекает ключ
         // одноразовости. Переход на выданный адрес ждёт отправки цели.
         var placed = !!(d && (d.ok || d.placed));
-        // Реквизиты рисует сервер, поэтому на успех открываем выданный им адрес.
-        // Это заодно убирает из URL прежний выбор валюты.
+        // Hosted-способ продолжает оплату на защищённой странице сервиса.
+        // Обычные реквизиты и любой непригодный адрес возвращают к нашему заказу.
         if (d && d.ok) {
-          reachGoal('order', { order_price: total, currency: 'RUB' }, 'order:' + orderId, function () { location.href = safePayUrl(d.url); });
+          reachGoal('order', { order_price: total, currency: 'RUB' }, 'order:' + orderId, function () {
+            location.href = (chosenHosted() && safeHostedUrl(d.hostedUrl)) || safePayUrl(d.url);
+          });
           return;
         }
         if (placed) reachGoal('order', { order_price: total, currency: 'RUB' }, 'order:' + orderId, null);
@@ -287,7 +295,7 @@
         }
         if (next) {
           next.checked = true;
-          error += ' Мы уже выбрали запасной вариант «' + (d.suggestedName || d.suggestedMethod) + '» — осталось получить реквизиты.';
+          error += ' Мы уже выбрали запасной вариант «' + (d.suggestedName || d.suggestedMethod) + '» — ' + (chosenHosted() ? 'можно перейти к оплате.' : 'осталось получить реквизиты.');
         }
         showMsg(error);
         btn.disabled = false;
@@ -309,7 +317,20 @@
       return url.pathname + url.search + url.hash;
     } catch (e) { return fallback; }
   }
-  if (create) create.addEventListener('click', function () { startPayment(create, 'Получить реквизиты'); });
+  // Хост сервиса проверил адаптер на сервере; браузер повторяет общие проверки
+  // ссылки перед навигацией, не получая списка касс и их доменов.
+  function safeHostedUrl(value) {
+    try {
+      var url = new URL(String(value || ''));
+      return url.protocol === 'https:' && url.hostname && !url.username && !url.password ? url.href : '';
+    } catch (e) { return ''; }
+  }
+  if (create) {
+    create.addEventListener('click', function () { startPayment(create, createLabel()); });
+    page.addEventListener('change', function (e) {
+      if (e.target && e.target.name === 'pay-method' && !create.disabled) create.textContent = createLabel();
+    });
+  }
 
   /* ------------------------------ Опрос статуса ----------------------------- */
   // Опрашиваем, только пока ждём перевод и пока вкладка видима: фоновая
@@ -333,7 +354,9 @@
         }
         // Любое состояние, кроме ожидания, меняет всю страницу целиком.
         if (d.state && d.state !== 'pending') { location.reload(); return; }
-        if (manual && stateBox) stateBox.textContent = 'Перевод пока не виден. Это занимает до нескольких минут — страница обновится сама.';
+        if (manual && stateBox) stateBox.textContent = hosted
+          ? 'Оплата пока не подтверждена. Это занимает до нескольких минут — страница обновится сама.'
+          : 'Перевод пока не виден. Это занимает до нескольких минут — страница обновится сама.';
       })
       .catch(function () {
         busy = false;
