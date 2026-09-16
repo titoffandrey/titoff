@@ -120,7 +120,8 @@ test('старый счёт прямого СБП сохраняет ссылк�
   pending.payment.method = 'SBP_ONLINE';
   pending.payment.attempts[0].method = 'SBP_ONLINE';
   const html = R.payPage(settings(), pending, { methods: [PAY.find('ONLINE_PAYMENT')] });
-  assert.match(html, /Ссылка СБП открывается сама/);
+  // Подсказок у СБП-ссылки нет — ни на странице, ни в карточке способа (снял владелец).
+  assert.doesNotMatch(html, /Ссылка СБП|Ссылка откроется в приложении банка|class="pay-hint"/);
   assert.match(html, /href="https:\/\/payment\.example\/invoice"/);
   assert.doesNotMatch(html, /id="pay-create"/);
 });
