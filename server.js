@@ -5379,9 +5379,9 @@ app.post('/admin/settings', async (req, res) => {
   keepOrReplaceSecret('solutionesWebhookSecret', 'clearSolutionesWebhookSecret', 256);
   if (req.body.solutionesMaxTotal !== undefined) {
     const raw = String(req.body.solutionesMaxTotal).trim().replace(/\s+/g, '');
-    if (raw === '') patch.solutionesMaxTotal = SOLUTIONES.DEFAULT_MAX_TOTAL;
+    if (raw === '') patch.solutionesMaxTotal = '';
     else if (!/^\d{1,9}$/.test(raw) || Number(raw) <= 0) {
-      return fail('Максимальная сумма платежа через Solutiones — целое число рублей, например 19000');
+      return fail('Максимальная сумма платежа через Solutiones — целое число рублей, например 19000, или пусто (предела нет)');
     } else patch.solutionesMaxTotal = Number(raw);
   }
   patch.meridianpayEnabled = req.body.meridianpayEnabled !== undefined;
