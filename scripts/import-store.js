@@ -66,6 +66,7 @@ const SITE_FIELDS = {
     'meridianpayEnabled', 'meridianpayApiKey', 'meridianpayMerchantId', 'meridianpaySecret',
     'plategaEnabled', 'plategaMerchantId', 'plategaSecret', 'plategaFeePercent', 'plategaMaxTotal',
     'alfabankEnabled', 'alfabankToken', 'alfabankLogin', 'alfabankPassword', 'alfabankTest',
+    'solutionesEnabled', 'solutionesApiKey', 'solutionesApiSecret', 'solutionesWebhookSecret',
     'ownPayEnabled', 'ownPayCard', 'ownPayPhone', 'ownPayOwner', 'ownPayBank']
 };
 // Не переносятся НИКОГДА — это свойства сервера, а не магазина.

@@ -120,7 +120,7 @@ test('старый счёт прямого СБП сохраняет ссылк�
   pending.payment.method = 'SBP_ONLINE';
   pending.payment.attempts[0].method = 'SBP_ONLINE';
   const html = R.payPage(settings(), pending, { methods: [PAY.find('ONLINE_PAYMENT')] });
-  assert.match(html, /Страница оплаты через СБП/);
+  assert.match(html, /Ссылка СБП откроется в новой вкладке/);
   assert.match(html, /href="https:\/\/payment\.example\/invoice"/);
   assert.doesNotMatch(html, /id="pay-create"/);
 });

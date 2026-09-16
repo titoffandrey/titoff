@@ -27,6 +27,8 @@ const MERIDIAN = require('./lib/meridianpay');
 const ALFA = require('./lib/alfabank');
 const PLATEGA = require('./lib/platega');
 const PLATEGA_CALLBACK = require('./lib/platega-callback');
+const SOLUTIONES = require('./lib/solutiones');
+const SOLUTIONES_CALLBACK = require('./lib/solutiones-callback');
 const DELIVERY = require('./lib/delivery');
 const DOMAINS = require('./lib/domains');
 const YM = require('./lib/yandex-metrika');
@@ -3928,6 +3930,17 @@ app.post('/api/pay/platega/callback', async (req, res) => {
   res.json(result.body, result.status);
 });
 
+/* Solutiones подписывает уведомление HMAC-SHA256 от СЫРОГО тела (`req.rawBody`,
+ * lib/server-lib.js хранит его как есть): пересобранный JSON отличается
+ * пробелами, и подпись по нему не сошлась бы никогда. Попытка узнаётся по
+ * `orderId` тела — это id нашей попытки, — а не по token в адресе. */
+app.post('/api/pay/solutiones/callback', async (req, res) => {
+  const result = await SOLUTIONES_CALLBACK.handle(settings(), req.body, req.rawBody, req.headers, {
+    db, reconcile: reconcilePaymentAttempt
+  });
+  res.json(result.body, result.status);
+});
+
 // Оплата не должна зависеть от открытой вкладки покупателя. Раз в минуту
 // сверяем недавние незакрытые счета; webhook и браузер используют тот же
 // reconcile, поэтому повторное уведомление исключает changed в хранилище.
@@ -5342,6 +5355,28 @@ app.post('/admin/settings', async (req, res) => {
     }
     patch.plategaMerchantId = merchant;
   }
+  /* Пятая касса — Solutiones. Публичный ключ показан в ЛК открыто, поэтому он
+   * обычное поле и проверяется по виду ДО записи (`pk_` и hex): с мусором в нём
+   * касса ответит 401 уже покупателю. Секрет API и секрет вебхука — обычные
+   * секреты: пустое поле оставляет сохранённое, галочка «удалить» стирает. */
+  patch.solutionesEnabled = req.body.solutionesEnabled !== undefined;
+  if (req.body.solutionesApiKey !== undefined) {
+    const key = String(req.body.solutionesApiKey).trim().slice(0, 80);
+    if (key && !SOLUTIONES.validKey(key)) {
+      return fail('Public key Solutiones — строка вида pk_edb7add3ba5526c1 из раздела «API-ключи»');
+    }
+    patch.solutionesApiKey = key;
+  }
+  const solutionesSecret = String(req.body.solutionesApiSecret || '').trim();
+  if (req.body.clearSolutionesApiSecret === undefined && solutionesSecret && !SOLUTIONES.validSecret(solutionesSecret)) {
+    return fail('Проверьте Secret Solutiones: вставьте его целиком, без пробелов и переносов строк');
+  }
+  keepOrReplaceSecret('solutionesApiSecret', 'clearSolutionesApiSecret', 256);
+  const solutionesWebhook = String(req.body.solutionesWebhookSecret || '').trim();
+  if (req.body.clearSolutionesWebhookSecret === undefined && solutionesWebhook && !SOLUTIONES.validWebhookSecret(solutionesWebhook)) {
+    return fail('Проверьте Webhook Secret Solutiones: строка вида whsec_… из настроек кабинета, без пробелов');
+  }
+  keepOrReplaceSecret('solutionesWebhookSecret', 'clearSolutionesWebhookSecret', 256);
   patch.meridianpayEnabled = req.body.meridianpayEnabled !== undefined;
   keepOrReplaceSecret('meridianpayApiKey', 'clearMeridianpayApiKey', 200);
   keepOrReplaceSecret('meridianpaySecret', 'clearMeridianpaySecret', 300);

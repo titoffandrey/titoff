@@ -6627,7 +6627,8 @@ test('способы оплаты — закрытый список, а пока
    * токен, включил кассу — и получил «оплатить нечем», не догадавшись отметить
    * галочку в соседнем разделе. Магазину на P2P-кассах он не мешает: список
    * пересекается с тем, что касса правда умеет, а этого кода она не вернёт. */
-  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT']);
+  // `SBP_ONLINE` — ссылка СБП пятой кассы (Solutiones), по той же причине.
+  assert.deepEqual(pay.DEFAULT_IDS, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'SBP_ONLINE', 'ONLINE_PAYMENT']);
   // Трансграничные по-прежнему спрятаны: правило «по умолчанию только нужное
   // покупателю из России» третья касса не отменяет.
   for (const id of ['TO_CARD_TRANSGRAN', 'SBP_TRANSGRAN', 'TRANSGRANCARD_TJS']) {
@@ -6711,7 +6712,7 @@ test('трансграничные способы скрыты по умолча
 
   // Свежая установка показывает способы для покупателя из России, а не все
   // двенадцать: два перевода и карта (единственный способ кассы Альфы).
-  assert.deepEqual(dbCore.defaultSettings().payMethods, ['SBP', 'TO_CARD', 'CARD_ONLINE', 'ONLINE_PAYMENT']);
+  assert.deepEqual(dbCore.defaultSettings().payMethods, pay.DEFAULT_IDS);
   assert.ok(pay.METHODS.length > 2, 'остальные способы никуда не делись — они просто скрыты');
   for (const m of pay.METHODS) {
     if (/TRANSGRAN/.test(m.id)) assert.equal(pay.DEFAULT_IDS.includes(m.id), false, 'трансграничный по умолчанию скрыт: ' + m.id);
@@ -8353,11 +8354,12 @@ test('панель говорит состояние касс, а не пере�
   // говорит именно это. Строка есть у КАЖДОЙ кассы реестра, включая
   // выключенную: «почему её нет в очереди» — вопрос, на который отвечает
   // строка, а не её отсутствие.
-  assert.deepEqual(health.map(r => r.state), ['ok', 'auth', 'off', 'off']);
+  assert.deepEqual(health.map(r => r.state), ['ok', 'auth', 'off', 'off', 'off']);
   assert.equal(health[0].live, true);
   assert.equal(health[1].live, false);
   assert.equal(health[2].id, 'alfabank');
   assert.equal(health[3].id, 'platega');
+  assert.equal(health[4].id, 'solutiones');
   // Выключенная и ненастроенная кассы разводятся по разным состояниям: «нечего
   // спрашивать» и «спросить нечем» — разные беды с разным лечением.
   assert.equal(PAYMENTS.health(Object.assign({}, both, { meridianpayEnabled: false }), live)[1].state, 'off');
