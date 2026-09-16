@@ -270,3 +270,55 @@ test('Solutiones стоит в реестре касс и у неё свой cal
   assert.deepEqual(PAYMENTS.chainFor(with5, null, 'SBP_ONLINE', 'RUB', 5000).map(p => p.id), ['solutiones']);
   assert.deepEqual(PAYMENTS.chainFor(with5, null, 'SBP_ONLINE', 'USD', 5000), []);
 });
+
+test('Потолок Solutiones — 19 000 ₽ на платёж: настройка, живой лимит режет сверху, заказ дороже уходит другим путём', async t => {
+  const PAYMENTS = require('../lib/payments');
+  /* Первый контрольный заказ владельца на 55 500 ₽ (17 сентября 2026)
+   * получил от кассы HTTP 400 «Превышен лимит на сумму платежа: максимум
+   * 10000 RUB». Менеджер поднял лимит до 160 000 (`maxPaymentAmount` в /me) —
+   * и выяснилось, что выше ~19 000 касса отвечает 200 со `status: FAILED` и
+   * `payUrl: null`: 19 000 — ссылка есть, 19 050 и дороже — нет. Витрина
+   * обещала оплату на сайте до общего потолка и отказывала на последнем шаге.
+   * Теперь потолок кассы — настройка, а режим витрины считается по сумме. */
+  assert.equal(SOLUTIONES.DEFAULT_MAX_TOTAL, 19000);
+  assert.equal(SOLUTIONES.maxTotal({}), 19000);
+  assert.equal(SOLUTIONES.maxTotal({ solutionesMaxTotal: '' }), 19000, 'пустое поле — известный потолок, а не «предела нет»');
+  assert.equal(SOLUTIONES.maxTotal({ solutionesMaxTotal: 50000 }), 50000);
+  assert.equal(SOLUTIONES.acceptsAmount(19000, 'RUB', null, {}), true);
+  assert.equal(SOLUTIONES.acceptsAmount(19000.01, 'RUB', null, {}), false);
+  assert.equal(SOLUTIONES.acceptsAmount(55500, 'RUB', null, { solutionesMaxTotal: 60000 }), true);
+  // Живой лимит кассы из /me — верхняя граница даже для щедрой настройки.
+  assert.equal(SOLUTIONES.acceptsAmount(55500, 'RUB', { maxTotal: 50000 }, { solutionesMaxTotal: 60000 }), false);
+  assert.equal(SOLUTIONES.acceptsAmount(55500, 'RUB'), true, 'без настроек — только вид суммы');
+  const s = { ...SETTINGS, payMethods: ['SBP_ONLINE'], ownPayEnabled: true, ownPayOwner: 'Иванов И.', ownPayPhone: '+79991234567' };
+  assert.equal(PAYMENTS.cashboxMax(s), 19000);
+  assert.equal(PAYMENTS.modeFor(s, 18990), 'cashbox');
+  assert.equal(PAYMENTS.modeFor(s, 19000), 'cashbox');
+  assert.equal(PAYMENTS.modeFor(s, 55500), 'own', 'дороже потолка — свои реквизиты, а не отказ кассы');
+  assert.equal(PAYMENTS.modeFor({ ...s, ownPayEnabled: false }, 55500), 'request');
+  assert.equal(PAYMENTS.modeFor({ ...s, solutionesMaxTotal: 100000 }, 55500), 'cashbox');
+  assert.deepEqual(PAYMENTS.chainFor(s, null, 'SBP_ONLINE', 'RUB', 55500), [], 'очередь касс за такой заказ не берётся');
+  // Отказ кассы читается словарём как «не приняла сумму», а не «другая ошибка».
+  assert.equal(PAYMENTS.startErrorCode('Превышен лимит на сумму платежа: максимум 10000 RUB'), 'amount');
+  // /me отдаёт заявленный потолок в копейках — наружу он уезжает рублями.
+  SOLUTIONES.forgetMethods();
+  mockFetch(t, async () => json({ merchant: { id: 'cmu4jq5rm000cbsut37m8368h', name: 'Shop', currency: 'RUB', commissionBps: 2100, maxPaymentAmount: '16000000' },
+    apiKey: { id: 'k', publicKey: KEY } }));
+  const live = await SOLUTIONES.availableOptions(SETTINGS);
+  assert.equal(live.maxTotal, 160000);
+  assert.equal((await SOLUTIONES.availableOptions(SETTINGS)).maxTotal, 160000, 'и из кэша тоже');
+  SOLUTIONES.forgetMethods();
+  // Счёт, пришедший FAILED без ссылки уже при создании, — однозначный отказ:
+  // платить по нему нечем, защитный интервал не нужен, сам счёт сохраняется.
+  mockFetch(t, async () => json({ ...CREATED, status: 'FAILED', payUrl: null }));
+  const failed = await SOLUTIONES.createInvoice(SETTINGS, PARAMS);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.error, 'bad_invoice_state');
+  assert.equal(failed.ambiguous, false);
+  assert.equal(failed.hint, 'amount');
+  assert.equal(failed.invoice.id, INVOICE);
+  // Секрет и потолок переносятся между сайтами вместе с остальными ключами.
+  const { SITE_FIELDS } = require('../scripts/import-store');
+  assert.ok(Object.values(SITE_FIELDS).flat().includes('solutionesMaxTotal'));
+  assert.equal(require('../lib/db').defaultSettings().solutionesMaxTotal, 19000);
+});

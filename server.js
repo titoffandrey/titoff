@@ -5377,6 +5377,13 @@ app.post('/admin/settings', async (req, res) => {
     return fail('Проверьте Webhook Secret Solutiones: строка вида whsec_… из настроек кабинета, без пробелов');
   }
   keepOrReplaceSecret('solutionesWebhookSecret', 'clearSolutionesWebhookSecret', 256);
+  if (req.body.solutionesMaxTotal !== undefined) {
+    const raw = String(req.body.solutionesMaxTotal).trim().replace(/\s+/g, '');
+    if (raw === '') patch.solutionesMaxTotal = SOLUTIONES.DEFAULT_MAX_TOTAL;
+    else if (!/^\d{1,9}$/.test(raw) || Number(raw) <= 0) {
+      return fail('Максимальная сумма платежа через Solutiones — целое число рублей, например 19000');
+    } else patch.solutionesMaxTotal = Number(raw);
+  }
   patch.meridianpayEnabled = req.body.meridianpayEnabled !== undefined;
   keepOrReplaceSecret('meridianpayApiKey', 'clearMeridianpayApiKey', 200);
   keepOrReplaceSecret('meridianpaySecret', 'clearMeridianpaySecret', 300);
