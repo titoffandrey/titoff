@@ -16,6 +16,36 @@
   var hosted = page.dataset.hosted === '1';
   var attemptId = /^[a-f0-9]{24,64}$/.test(page.dataset.attempt || '') ? page.dataset.attempt : '';
   var expires = Number(page.dataset.expires || 0) || 0;
+
+  /* ССЫЛКА КАССЫ ОТКРЫВАЕТСЯ САМА — ОДИН РАЗ, сразу после выставления счёта.
+   *
+   * Оформление и кнопка «Перейти к оплате» приводят сюда с `?go=1`. Пока
+   * покупатель уходил на ссылку прямо с оформления, в истории у него
+   * оставалась страница оформления с уже пустой корзиной, а нашей страницы
+   * оплаты не было нигде: вернувшись из банка, он видел не «платёж получен», а
+   * пустое оформление. Теперь путь такой: оформление → эта страница → ссылка.
+   * Метка снимается из адреса ДО перехода (`replaceState`), поэтому «назад» из
+   * банка или из страницы СБП возвращает сюда без второго прыжка, а если
+   * приложение банка перехватило переход (Android), вкладка так и остаётся на
+   * этой странице — она сама опросит статус и покажет оплату. Ссылку берём из
+   * разметки: сервер кладёт её только у живого hosted-счёта. */
+  (function autoOpen() {
+    var params;
+    try { params = new URLSearchParams(location.search); } catch (e) { return; }
+    if (params.get('go') !== '1') return;
+    params.delete('go');
+    var rest = params.toString();
+    try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch (e) {}
+    var link = safeHostedUrl(page.dataset.hostedUrl);
+    if (!link || !hosted || state !== 'pending') return;
+    /* Уходим ПОСЛЕ `load`, а не сразу: переход, сделанный скриптом до конца
+     * загрузки, Chrome считает клиентским редиректом и ЗАМЕНЯЕТ им запись в
+     * истории — «назад» из банка перепрыгивал бы нашу страницу (проверено в
+     * предпросмотре). После `load` это обычный переход, и страница остаётся. */
+    var go = function () { setTimeout(function () { location.assign(link); }, 0); };
+    if (document.readyState === 'complete') go();
+    else window.addEventListener('load', go, { once: true });
+  })();
   // Валюта счёта. Её выбирают ссылками (разметку рисует сервер), сюда она
   // приезжает готовой — скрипт только передаёт её вместе со способом, чтобы
   // счёт вышел в той же валюте, сумму которой покупатель видел на странице.
@@ -278,8 +308,12 @@
         // Hosted-способ продолжает оплату на защищённой странице сервиса.
         // Обычные реквизиты и любой непригодный адрес возвращают к нашему заказу.
         if (d && d.ok) {
+          // На ссылку кассы уходим не отсюда, а через перезагруженную страницу
+          // оплаты с `?go=1` (см. autoOpen выше): так она остаётся в истории.
+          var target = safePayUrl(d.url);
+          if (chosenHosted() && safeHostedUrl(d.hostedUrl)) target += (target.indexOf('?') === -1 ? '?' : '&') + 'go=1';
           reachGoal('order', { order_price: total, currency: 'RUB' }, 'order:' + orderId, function () {
-            location.href = (chosenHosted() && safeHostedUrl(d.hostedUrl)) || safePayUrl(d.url);
+            location.href = target;
           });
           return;
         }

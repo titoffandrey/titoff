@@ -5326,7 +5326,12 @@ details.metric-rules{margin-bottom:14px}
    :has(), который поддерживают не все версии Safari, доходящие до витрины. */
 /* Список в одну колонку, а не плитками: знак у способов разной ширины (у СБП
    это логотип в 60 px), и в двух колонках подсказка рвалась на три строки. */
-.pay-choices{grid-template-columns:minmax(0,1fr);gap:10px}
+/* Два класса в селекторе — не украшение: в мобильном блоке ниже стоит
+   `.co-choice{grid-template-columns:repeat(2,…)}` для оформления, и при равной
+   специфичности оно побеждало — на телефоне единственный способ ложился в
+   левую половину экрана, а «Ссылка откроется в приложении банка» складывалась
+   в столбик по слову (боевой скриншот, 17 сентября 2026). */
+.co-choice.pay-choices{grid-template-columns:minmax(0,1fr);gap:10px}
 .pay-opt{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;
   gap:14px;padding:14px 16px;background:#fff}
 /* Знаки разной ширины выравниваются по общей колонке: иначе названия способов

@@ -120,7 +120,7 @@ test('старый счёт прямого СБП сохраняет ссылк�
   pending.payment.method = 'SBP_ONLINE';
   pending.payment.attempts[0].method = 'SBP_ONLINE';
   const html = R.payPage(settings(), pending, { methods: [PAY.find('ONLINE_PAYMENT')] });
-  assert.match(html, /Ссылка СБП откроется в новой вкладке/);
+  assert.match(html, /Ссылка СБП открывается сама/);
   assert.match(html, /href="https:\/\/payment\.example\/invoice"/);
   assert.doesNotMatch(html, /id="pay-create"/);
 });
@@ -166,7 +166,9 @@ test('выбор онлайн-оплаты ведёт на HTTPS-страниц�
     ${source.slice(from, to)}
     return startPayment;`);
   for (const [hosted, hostedUrl, expected] of [
-    [true, 'https://payment.example/invoice?id=1', 'https://payment.example/invoice?id=1'],
+    // Ссылка кассы годная — уходим на СВОЮ страницу оплаты с `?go=1`: она
+    // откроет ссылку сама и останется в истории (autoOpen в pay.js).
+    [true, 'https://payment.example/invoice?id=1', '/pay/order-ui?go=1'],
     [true, undefined, '/pay/order-ui'],
     [true, 'javascript:alert(1)', '/pay/order-ui'],
     [true, 'http://payment.example/invoice', '/pay/order-ui'],

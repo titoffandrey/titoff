@@ -8703,6 +8703,8 @@ test('при единственном способе с оплатой на ст
   const PAY = require('../lib/pay-methods');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const pay = fs.readFileSync(path.join(__dirname, '..', 'public', 'pay.js'), 'utf8');
+  const render = fs.readFileSync(path.join(__dirname, '..', 'lib', 'render.js'), 'utf8');
   const P = require('../lib/payments');
   const alfa = { alfabankEnabled: true, alfabankToken: 'fhojfle6ssav32c6ao42bkcr54' };
   // Та же арифметика, что у `directPayMethod()` в server.js: сокращаем путь
@@ -8765,8 +8767,18 @@ test('при единственном способе с оплатой на ст
 
   // Витрина: передаёт способ, уходит на банк и всегда имеет запасной путь.
   assert.match(app, /startPayment\(d\.id, d\.payNow, d\.total\)/);
-  // Переход на банк ждёт цель Метрики «заказ», а без счётчика идёт сразу.
-  assert.match(app, /var go = function \(\) \{ location\.href = hosted \|\| fallback; \};/);
+  /* Переход ждёт цель Метрики «заказ», а без счётчика идёт сразу. Уходит он
+   * не на банк напрямую, а на НАШУ страницу оплаты с `?go=1` — та откроет
+   * ссылку сама (autoOpen в pay.js) и останется в истории: вернувшийся из
+   * банка покупатель видит «платёж получен», а не оформление с пустой корзиной. */
+  assert.match(app, /var go = function \(\) \{ location\.href = hosted \? fallback \+ '\?go=1' : fallback; \};/);
+  assert.match(pay, /if \(params\.get\('go'\) !== '1'\) return;[\s\S]{0,400}history\.replaceState\([\s\S]{0,900}location\.assign\(link\)/,
+    'метка снимается из адреса ДО перехода — иначе «назад» из банка прыгал бы на ссылку снова');
+  // Переход после `load`: сделанный до него Chrome считает редиректом и заменяет
+  // запись в истории — «назад» из банка перепрыгивал бы нашу страницу.
+  assert.match(pay, /if \(document\.readyState === 'complete'\) go\(\);\s*else window\.addEventListener\('load', go, \{ once: true \}\);/);
+  assert.match(pay, /if \(!link \|\| !hosted \|\| state !== 'pending'\) return;/, 'открывается только живая hosted-ссылка');
+  assert.match(render, /data-hosted-url=/);
   assert.match(app, /\/\^https:\\\/\\\/\[\^\\s\/\]\+\/i\.test/,
     'адрес уезжает в location — проверяем его и на витрине, а не верим на слово');
   // Заминка любой природы — обычная страница оплаты: там покупатель увидит, что
@@ -18907,7 +18919,7 @@ test('цели Метрики: загрузчик без вебвизора, а 
   assert.match(app, /if \(d && \(d\.ok \|\| d\.placed\)\) reachGoal\('order', \{ order_price: Number\(total\) \|\| 0, currency: 'RUB' \}, 'order:' \+ orderId, go\);/);
   assert.match(pay, /reachGoal\('paid', \{ order_price: total, currency: 'RUB' \}, 'paid:' \+ orderId, null\)/);
   assert.match(pay, /window\.ymPurchase\(\{ id: page\.dataset\.number \|\| orderId, revenue: total, products: [^}]+\}, 'purchase:' \+ orderId\)/);
-  assert.match(pay, /reachGoal\('order', \{ order_price: total, currency: 'RUB' \}, 'order:' \+ orderId, function \(\) \{\s*location\.href = \(chosenHosted\(\) && safeHostedUrl\(d\.hostedUrl\)\) \|\| safePayUrl\(d\.url\);\s*\}\)/);
+  assert.match(pay, /reachGoal\('order', \{ order_price: total, currency: 'RUB' \}, 'order:' \+ orderId, function \(\) \{\s*location\.href = target;\s*\}\)/);
   // Без счётчика оба идут дальше сразу — договор один на витрину и оплату.
   for (const src of [app, pay]) {
     assert.match(src, /if \(typeof window\.ymGoal === 'function'\) window\.ymGoal\(name, params, once, done\);\s*else if \(typeof done === 'function'\) done\(\);/);
