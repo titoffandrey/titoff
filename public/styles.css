@@ -5739,49 +5739,96 @@ details.metric-rules{margin-bottom:14px}
    целиком, и менеджер вступает сам. О смене собеседника покупателю не говорят
    вовсе — ни строкой в ленте, ни подписью в шапке: он пришёл за техникой, а не
    за составом смены. Меняется только имя над репликой. */
-.chat-widget{position:fixed;right:20px;z-index:70;
+/* Кнопка и её волны сняты с виджета amoCRM на mobilworld.by (18 сентября 2026),
+   числа — с их живой страницы, а не подобраны на глаз: круг 60 px, отступ от
+   края 17 px (10 у держателя плюс 7 его поля), значок 30×24, волны 2.6 с.
+   Правишь кнопку — сверяйся с ней, а не с памятью. */
+.chat-widget{position:fixed;right:17px;z-index:70;
   /* Дно отводим от домашней полосы iPhone. */
-  bottom:calc(20px + env(safe-area-inset-bottom,0px))}
+  bottom:calc(17px + env(safe-area-inset-bottom,0px))}
 
-/* Кнопка. Круг акцентного цвета — единственный такой элемент на витрине,
-   поэтому её находят глазами, не разглядывая углы. */
-.chat-fab{position:relative;width:60px;height:60px;border-radius:50%;border:0;cursor:pointer;
-  background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));
-  color:#fff;display:grid;place-items:center;
-  box-shadow:0 8px 26px rgba(0,0,0,.22);
-  transition:transform .18s ease, box-shadow .18s ease, opacity .18s ease}
-/* Гейт наведения — см. у `.btn-primary`. */
-@media (hover:hover) and (pointer:fine){
-  .chat-fab:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,.28)}
-}
-.chat-fab:active{transform:translateY(0) scale(.96)}
-.chat-fab svg{width:27px;height:27px}
-/* Открытое окно прячет кнопку: на телефоне она легла бы прямо на поле ввода. */
-.chat-widget.is-open .chat-fab{opacity:0;pointer-events:none;transform:scale(.8)}
-.chat-fab .chat-badge{position:absolute;top:-2px;right:-2px;min-width:21px;height:21px;padding:0 5px;
-  border-radius:999px;background:#e11d48;color:#fff;font-size:12px;font-weight:600;line-height:21px;
-  border:2px solid #fff;text-align:center}
+/* КНОПКА — ПЛОСКИЙ КРУГ БЕЗ ТЕНИ И БЕЗ ГРАДИЕНТА, в отличие от остальных
+   главных кнопок витрины. Объём ей дают волны: два круга того же цвета
+   расходятся от неё и гаснут, и тень рядом с ними читалась бы грязью, а
+   градиент под полупрозрачной волной — пятном другого тона. Цвет — акцент
+   магазина, а не гугловский синий виджета: акцент у каждого сайта свой.
+   Наведение кнопку не двигает и не красит — у образца его нет вовсе, а на
+   телефоне залипший :hover выглядел бы вечно нажатой кнопкой. */
+.chat-fab{position:relative;z-index:1;width:60px;height:60px;border-radius:30px;border:0;padding:0;cursor:pointer;
+  background:var(--accent);color:#fff;display:block;-webkit-tap-highlight-color:transparent;
+  transition:background-color .18s ease,color .18s ease,box-shadow .18s ease}
+/* Волны. Два псевдоэлемента размером с кнопку, того же цвета (`background:
+   inherit`), под значком (z-index 0 против 6 у глифа). Каждая за 2.6 с растёт
+   до 1.35 и гаснет: первые 40 % пути прозрачность держится на .45, дальше
+   уходит в ноль — так волна не «выключается», а тает. Вторая идёт со сдвигом
+   ровно в полпериода, поэтому одна всегда в дороге. Кривая линейная, как у
+   образца: ease-out здесь дал бы рывок на старте каждой волны.
+   Анимируются только opacity и transform — обе в композиторе. */
+.chat-fab::before,.chat-fab::after{content:"";display:block;position:absolute;top:0;left:0;width:100%;height:100%;
+  z-index:0;background:inherit;border-radius:inherit;animation:chat-wave 2.6s linear 0s infinite}
+.chat-fab::after{animation-delay:1.3s}
+@keyframes chat-wave{0%{opacity:.45;transform:scale(1)}40%{opacity:.45}to{opacity:0;transform:scale(1.35)}}
+/* Оба глифа лежат в разметке и стоят по центру круга; какой виден, решает
+   класс открытого окна. Пузырь 30×24 — половина круга по ширине, как у
+   образца (`svg{width:50%}` на холсте 30×24); крестик 19 px — их 32 %. */
+/* Селекторы идут через `.chat-fab`: тот же глиф стоит в аватаре шапки, и голый
+   `.chat-fab-ico` прятал бы его там при открытом окне. */
+.chat-fab .chat-fab-ico,.chat-fab .chat-fab-x{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:6;display:block}
+.chat-fab .chat-fab-ico{width:30px;height:24px}
+.chat-fab .chat-fab-x{width:19px;height:19px;display:none}
+/* ОТКРЫТОЕ ОКНО КНОПКУ НЕ ПРЯЧЕТ — ОНА СТАНОВИТСЯ КНОПКОЙ «ЗАКРЫТЬ»: белый круг
+   с крестиком акцентного цвета, кольцо 2 px на пиксель шире круга (::before
+   перестаёт быть волной и становится кольцом, ::after уходит) и мягкая тень
+   1px 1px 15px — плоский белый круг на белой странице иначе пропал бы.
+   Окно при этом стоит НАД кнопкой, а не поверх неё (см. .chat-panel). */
+.chat-widget.is-open .chat-fab{background:#fff;color:var(--accent);box-shadow:1px 1px 15px rgba(0,0,0,.15)}
+.chat-widget.is-open .chat-fab::before{animation:none;opacity:1;transform:none;background:transparent;
+  top:-1px;right:-1px;bottom:-1px;left:-1px;width:auto;height:auto;border:2px solid var(--accent)}
+.chat-widget.is-open .chat-fab::after{display:none}
+.chat-widget.is-open .chat-fab .chat-fab-ico{display:none}
+.chat-widget.is-open .chat-fab .chat-fab-x{display:block}
+/* Значок непрочитанного — красный кружок 24 px в правом верхнем углу, как
+   `amo-button-greeting-badge` у образца: без белой обводки, выступает на 6 px
+   за круг. Выше волн и глифа (z-index 9), иначе волна накрывала бы число. */
+.chat-fab .chat-badge{position:absolute;top:-6px;right:-6px;z-index:9;min-width:24px;height:24px;padding:0 5px;
+  border-radius:50%;background:#eb5757;color:#fff;font-size:14px;font-weight:500;line-height:16px;
+  display:flex;align-items:center;justify-content:center}
 
 /* Окно. Скрыто трансформацией, а не display:none — иначе не из чего
-   анимировать появление, а мгновенно возникающая панель выглядит рывком. */
-.chat-panel{position:absolute;right:0;bottom:0;width:380px;max-width:calc(100vw - 32px);
-  height:min(620px,calc(100vh - 120px));
+   анимировать появление, а мгновенно возникающая панель выглядит рывком.
+
+   Геометрия — с окна amoCRM: 360 px, радиус 13, тень 0 5px 40px, стоит НАД
+   кнопкой с зазором 20 px, высота — экран минус 120 px (17 снизу + 60 кнопка +
+   20 зазор + 23 сверху), не выше 704 и не ниже 300. Появляется из угла кнопки
+   (`transform-origin` правый нижний), вырастая из половины размера — те же
+   `scale(.5) translateY(20px)`, что у их `amo_livechat_opening`; кривая при
+   этом наша, ease-out: их `ease` начинает медленно и читается задержкой. */
+.chat-panel{position:absolute;right:0;bottom:calc(100% + 20px);z-index:2;width:360px;max-width:calc(100vw - 34px);
+  height:clamp(300px,calc(100vh - 120px),704px);
   display:grid;grid-template-rows:auto 1fr auto;
-  background:#fff;border-radius:20px;border:1px solid var(--border);
-  box-shadow:0 18px 60px rgba(0,0,0,.22);overflow:hidden;
-  opacity:0;visibility:hidden;transform:translateY(12px) scale(.97);transform-origin:100% 100%;
+  background:#fff;border-radius:13px;
+  box-shadow:0 5px 40px rgba(0,0,0,.15);overflow:hidden;
+  opacity:0;visibility:hidden;transform:scale(.5) translateY(20px);transform-origin:100% 100%;
   transition:opacity .2s var(--ease-out), transform .2s var(--ease-out), visibility .2s}
 .chat-widget.is-open .chat-panel{opacity:1;visibility:visible;transform:none}
 
-.chat-head{display:flex;align-items:center;gap:11px;padding:13px 14px;border-bottom:1px solid var(--border);
-  background:#fff}
-.chat-avatar{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;
-  display:grid;place-items:center;flex:none}
-.chat-avatar svg{width:20px;height:20px}
+/* ШАПКА — ЦВЕТНАЯ, а не белая: акцент магазина под лёгким тёмным градиентом,
+   белые имя и подпись, тень под ней на ленту. Взято у того же окна amoCRM
+   (там `linear-gradient(285.77deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,0) 62.06%)`
+   поверх цвета виджета). Белая шапка над серой лентой и белым полем ввода
+   делала окно тремя серо-белыми полосами, и оно не читалось окном чата;
+   цветная связывает его с кнопкой того же цвета и держит имя магазина там,
+   где его ищут глазами первым. Высота 56 px — их же. */
+.chat-head{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:0 14px;height:56px;
+  background:linear-gradient(285.77deg,rgba(0,0,0,.15) 0%,rgba(0,0,0,0) 62.06%),var(--accent);color:#fff;
+  box-shadow:1px 6px 13px rgba(0,0,0,.1),0 2px 5px rgba(0,0,0,.05)}
+/* Аватар — белый круг 40 px с тем же пузырём, что на кнопке, только акцентом
+   на белом: у кнопки и окна один знак. Тень у круга их же. */
+.chat-avatar{width:40px;height:40px;border-radius:50%;background:#fff;color:var(--accent);
+  display:grid;place-items:center;flex:none;box-shadow:1px 6px 13px rgba(0,0,0,.2),0 2px 5px rgba(0,0,0,.1)}
+.chat-avatar svg{width:21px;height:17px}
 .chat-brand{display:flex;flex-direction:column;min-width:0;line-height:1.25;flex:1}
-.chat-brand b{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Строка состояния — единственное место, где видно, кто сейчас за клавиатурой.
-   Зелёная точка означает «отвечаем», у завершённого диалога её нет. */
+.chat-brand b{font-size:16px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* «online» с живой зелёной точкой — единственная подпись в шапке, и она не
    меняется никогда. Отвечает она на единственный вопрос, который есть у
    покупателя перед тем, как написать: ответят ли вообще.
@@ -5793,14 +5840,17 @@ details.metric-rules{margin-bottom:14px}
 
    Ореола вокруг точки нет намеренно: вторым слоем ::after его пришлось бы
    позиционировать абсолютно, а свободный transform у этого слоя уже занят
-   самой анимацией. Одного дыхания точки достаточно. */
-.chat-status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+   самой анимацией. Одного дыхания точки достаточно.
+
+   Точка светло-зелёная, а не тёмная #0b7a37 подписи наличия: шапка теперь
+   акцентного цвета, и тёмная зелень на синем не читалась бы точкой вовсе. */
+.chat-status{font-size:12px;color:rgba(255,255,255,.85);display:flex;align-items:center;gap:6px}
 .chat-status::before{content:"";width:7px;height:7px;border-radius:50%;
-  background:#0b7a37;flex:none;animation:chat-online 2.2s ease-in-out infinite}
+  background:#4ade80;flex:none;animation:chat-online 2.2s ease-in-out infinite}
 @keyframes chat-online{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.82)}}
-.chat-x{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:6px;border-radius:50%;
+.chat-x{border:0;background:transparent;color:#fff;cursor:pointer;padding:6px;border-radius:50%;
   display:grid;place-items:center;flex:none}
-.chat-x:hover{background:var(--bg2);color:var(--text)}
+.chat-x:hover{background:rgba(255,255,255,.18)}
 .chat-x svg{width:18px;height:18px}
 
 .chat-log{overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:9px;
@@ -5979,12 +6029,11 @@ details.metric-rules{margin-bottom:14px}
 /* На телефоне окно занимает экран целиком: полупанель в 380 px рядом с краем
    выглядит обрезанной, а места под ленту в ней остаётся на три реплики. */
 @media (max-width:560px){
-  .chat-widget{right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px))}
   /* `100dvh` — динамическая высота: она уже учитывает адресную строку, которая
      то появляется, то прячется. Клавиатуру она НЕ учитывает (её браузер
      показывает поверх, сдвигая видимую область), поэтому высоту и сдвиг панели
      в этот момент задаёт скрипт по visualViewport — см. fitViewport(). */
-  .chat-panel{position:fixed;inset:0;width:100vw;max-width:100vw;height:100dvh;border-radius:0;border:0;
+  .chat-panel{position:fixed;inset:0;width:100vw;max-width:100vw;height:100dvh;border-radius:0;
     transform:translateY(16px)}
   /* Страница под открытым окном не прокручивается: палец легко попадает мимо
      ленты, и вместо переписки уезжала витрина. Класс ставит скрипт. */
@@ -6006,6 +6055,10 @@ details.metric-rules{margin-bottom:14px}
 @media (prefers-reduced-motion:reduce){
   .chat-panel,.chat-fab{transition:none}
   .chat-typing i,.chat-status::before{animation:none}
+  /* Волны стоят на месте и не видны: неподвижная волна того же цвета поверх
+     кнопки — просто ещё один слой того же круга. Кольцо открытого состояния
+     (::before при .is-open) правило не задевает: у него своя непрозрачность. */
+  .chat-widget:not(.is-open) .chat-fab::before,.chat-widget:not(.is-open) .chat-fab::after{animation:none;opacity:0}
 }
 
 

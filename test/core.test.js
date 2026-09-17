@@ -3865,13 +3865,19 @@ test('главная кнопка залита градиентом от акц�
 
   /* Заливка задаётся ДВУМЯ свойствами: `background-color` остаётся запасным на
    * случай, когда градиента не будет, иначе кнопка стала бы прозрачной. */
-  // Селектор ищем ОТ НАЧАЛА СТРОКИ: `.chat-fab` стоит ещё и в общем перечне
-  // `button,.btn,summary,.nav-item,.nav-btn,.chat-fab{…}`, и без якоря нашёлся бы он.
+  // Селектор ищем ОТ НАЧАЛА СТРОКИ: `.chat-send` и подобные встречаются ещё и в
+  // общих перечнях, и без якоря нашёлся бы перечень.
   const rule = name => (css.match(new RegExp('\\n\\' + name + '\\{([^}]*)\\}')) || [])[1] || '';
-  for (const sel of ['.btn-primary', '.chat-send', '.chat-fab']) {
+  for (const sel of ['.btn-primary', '.chat-send']) {
     assert.match(rule(sel), /background-color:var\(--accent\)/, sel + ' без запасной заливки');
     assert.match(rule(sel), /background-image:linear-gradient\(to right,var\(--accent\),var\(--accent-deep/, sel + ' без градиента');
   }
+  /* Круг чата — ИСКЛЮЧЕНИЕ, и осознанное: он снят с виджета amoCRM плоским, а
+   * объём ему дают волны того же цвета (см. тест «кнопка чата — как у виджета
+   * amoCRM»). Градиент под полупрозрачной волной читался бы пятном другого
+   * тона. Заливка при этом остаётся акцентной. */
+  assert.match(rule('.chat-fab'), /background:var\(--accent\)/, 'круг чата залит акцентом');
+  assert.doesNotMatch(rule('.chat-fab'), /linear-gradient/, 'у круга чата градиента быть не должно');
   /* На наведении градиент обязан остаться: общее `.btn:hover{background:#f7f7f9}`
    * иначе перекрасит главную кнопку в белое. */
   assert.match(css, /\.btn-primary:hover\{[^}]*background-image:linear-gradient/);
@@ -3899,6 +3905,72 @@ test('ряд ввода в чате: поле и обе кнопки одной 
   const xs = (path4.match(/-?\d+(?:\.\d+)?(?=[, ]|$)/g) || []).length;
   assert.ok(xs, 'путь стрелки пропал');
   assert.match(path4, /^M5\.5 12h13M13 6\.5l5\.5 5\.5L13 17\.5$/);
+});
+
+/* КНОПКА ЧАТА — ТОЧЬ-В-ТОЧЬ ВИДЖЕТ amoCRM НА mobilworld.by (18 сентября 2026).
+ * Числа сняты с их живой страницы: круг 60 px в 17 px от краёв, залитый пузырь
+ * с тремя точками 30×24, две волны того же цвета по 2.6 с (вторая со сдвигом в
+ * полпериода), в открытом состоянии — белый круг с крестиком и кольцом 2 px,
+ * а окно стоит НАД кнопкой с зазором 20 px. Каждое из этих чисел легко
+ * «поправить на глаз», и тогда это уже не копия. */
+test('кнопка чата — как у виджета amoCRM: волны, глиф, открытое состояние', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const rule = name => (css.match(new RegExp('\\n' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}')) || [])[1] || '';
+
+  // Плоский круг без тени: объём дают волны, а не box-shadow.
+  const fab = rule('.chat-fab');
+  assert.match(fab, /width:60px;height:60px;border-radius:30px/);
+  assert.doesNotMatch(fab, /box-shadow:/, 'у кнопки в покое тени нет');
+  assert.match(css, /\.chat-widget\{position:fixed;right:17px;/);
+  assert.doesNotMatch(css, /\.chat-fab:hover/, 'наведение кнопку не трогает — у образца его нет');
+
+  // Волны: оба псевдоэлемента, цвет кнопки, 2.6 с линейно, вторая с задержкой 1.3 с.
+  const waves = rule('.chat-fab::before,.chat-fab::after');
+  assert.match(waves, /background:inherit;border-radius:inherit;animation:chat-wave 2\.6s linear 0s infinite/);
+  assert.match(css, /\.chat-fab::after\{animation-delay:1\.3s\}/);
+  assert.match(css, /@keyframes chat-wave\{0%\{opacity:\.45;transform:scale\(1\)\}40%\{opacity:\.45\}to\{opacity:0;transform:scale\(1\.35\)\}\}/);
+  // Значок выше волн, иначе волна накрывала бы его.
+  assert.match(rule('.chat-fab .chat-fab-ico,.chat-fab .chat-fab-x'), /z-index:6/);
+  assert.match(rule('.chat-fab .chat-badge'), /z-index:9/);
+  assert.match(rule('.chat-fab .chat-badge'), /background:#eb5757/);
+
+  // Открытое окно: кнопка остаётся и становится «закрыть».
+  assert.match(rule('.chat-widget.is-open .chat-fab'), /background:#fff;color:var\(--accent\);box-shadow:1px 1px 15px rgba\(0,0,0,\.15\)/);
+  assert.match(rule('.chat-widget.is-open .chat-fab::before'), /animation:none[^}]*border:2px solid var\(--accent\)/);
+  assert.match(rule('.chat-widget.is-open .chat-fab::after'), /display:none/);
+  assert.match(css, /\.chat-widget\.is-open \.chat-fab \.chat-fab-ico\{display:none\}/);
+  assert.match(css, /\.chat-widget\.is-open \.chat-fab \.chat-fab-x\{display:block\}/);
+  assert.doesNotMatch(css, /\.chat-widget\.is-open \.chat-fab\{opacity:0/, 'кнопка при открытом окне не прячется');
+
+  // Окно над кнопкой, их геометрия.
+  const panel = rule('.chat-panel');
+  assert.match(panel, /bottom:calc\(100% \+ 20px\)/);
+  assert.match(panel, /width:360px/);
+  assert.match(panel, /border-radius:13px/);
+  assert.match(panel, /box-shadow:0 5px 40px rgba\(0,0,0,\.15\)/);
+  assert.match(panel, /height:clamp\(300px,calc\(100vh - 120px\),704px\)/);
+  assert.match(panel, /transform:scale\(\.5\) translateY\(20px\)/);
+  // На телефоне окно во весь экран накрывает кнопку: у неё z-index ниже.
+  assert.match(fab, /z-index:1\b/);
+  assert.match(panel, /z-index:2\b/);
+
+  // Цветная шапка с их градиентом и высотой.
+  const head = rule('.chat-head');
+  assert.match(head, /height:56px/);
+  assert.match(head, /background:linear-gradient\(285\.77deg,rgba\(0,0,0,\.15\) 0%,rgba\(0,0,0,0\) 62\.06%\),var\(--accent\)/);
+
+  // Разметка: оба глифа в кнопке, тот же пузырь в аватаре шапки.
+  const widget = render.chatWidget({ storeName: 'Т', chatEnabled: true, aiApiKey: 'k' });
+  const fabHtml = (widget.match(/<button class="chat-fab"[\s\S]*?<\/button>/) || [])[0] || '';
+  assert.match(fabHtml, /<svg class="chat-fab-ico" viewBox="0 0 30 24"[^>]*><path fill="currentColor" d="M20\.612 0H9\.505/);
+  assert.match(fabHtml, /<svg class="chat-fab-x" viewBox="0 0 19 19"/);
+  assert.match(widget, /<span class="chat-avatar" aria-hidden="true"><svg class="chat-fab-ico" viewBox="0 0 30 24"/);
+  // Прежнего контурного пузыря не осталось нигде.
+  assert.doesNotMatch(widget, /M20\.2 11\.5c0 4\.15/);
+
+  // Волны — только движение: при prefers-reduced-motion они стоят и не видны.
+  const rm = css.slice(css.indexOf('@media (prefers-reduced-motion:reduce){'));
+  assert.match(rm, /\.chat-widget:not\(\.is-open\) \.chat-fab::before,\.chat-widget:not\(\.is-open\) \.chat-fab::after\{animation:none;opacity:0\}/);
 });
 
 test('цвета витрины читаются: скидка и зачёркнутая цена', () => {
