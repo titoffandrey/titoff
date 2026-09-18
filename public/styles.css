@@ -1431,6 +1431,55 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Заголовок каталога — по центру полосы */
 .section-head-center{justify-content:center;text-align:center}
 .section-head>.muted{padding-bottom:3px;font-size:14px;white-space:nowrap}
+
+/* ===== Главная и каталог — две страницы (с 18 сентября 2026) =====
+   Главная зовёт: первый экран, плитки категорий, восемь популярных карточек и
+   кнопка в каталог. Каталог продаёт: заголовок с числом, ряд категорий и вся
+   сетка. Плитки категорий сняты с каталога i-store.by (снимок, название, число
+   товаров), но подложка у нас та же серая плита #f5f5f7, что под каждым
+   снимком товара: кадр сливается с плиткой без рамки и без второго фона. */
+.section-head .section-more{display:inline-flex;align-items:center;gap:2px;color:var(--muted);font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap}
+.section-head .section-more svg{width:18px;height:18px}
+.section-head .section-more:hover{color:var(--accent)}
+.section-cta{margin-top:26px;text-align:center}
+/* Число товаров в заголовке каталога и категории — серая пилюля рядом с
+   названием, как у заголовка категории на i-store.by. */
+.cat-count{display:inline-block;vertical-align:.18em;margin-left:.35em;padding:.16em .62em;border-radius:999px;background:var(--bg2);color:var(--muted);font-size:.5em;font-weight:600;letter-spacing:0}
+/* Сетка на главной: две колонки на телефоне, четыре на компьютере — те же
+   ступени, что у сетки товаров, чтобы плитки и карточки стояли в одних
+   столбцах. */
+.cat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media(min-width:640px){.cat-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}}
+.cat-tile{display:flex;flex-direction:column;border-radius:20px;background:var(--bg2);color:var(--text);text-decoration:none;overflow:hidden;
+  transition:background-color .18s ease,box-shadow .18s ease}
+.cat-tile-media{display:flex;align-items:center;justify-content:center;aspect-ratio:5/4;padding:12px 18px 0}
+.cat-tile-media img,.cat-tile-media .ph{width:100%;height:100%;object-fit:contain}
+.cat-tile-body{display:flex;flex-direction:column;gap:2px;padding:6px 16px 16px}
+.cat-tile-name{font-size:17px;font-weight:600;letter-spacing:-.015em;line-height:1.25}
+.cat-tile-count{font-size:13px;color:var(--muted)}
+/* Наведение — только под мышью, как у всего на витрине: на телефоне залипший
+   :hover выглядел бы вечно нажатой плиткой. Движения нет, только тон. */
+@media (hover:hover) and (pointer:fine){
+  .cat-tile:hover{background:#ededf0}
+}
+.cat-tile:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+/* Ряд категорий на каталоге: те же плитки, но компактнее и лентой — снимок
+   слева, название и число справа, — потому что здесь они переключатель, а не
+   содержание страницы: под ними сразу идут товары. На телефоне лента
+   прокручивается вбок (полоса прокрутки спрятана, край подсказывает маска), на
+   компьютере переносится по строкам и стоит по центру. Текущая категория
+   обведена акцентом. */
+.cat-row{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:0 0 26px}
+.cat-row .cat-tile{flex:0 0 auto;flex-direction:row;align-items:center;gap:10px;min-width:0;padding:6px 16px 6px 8px;border-radius:16px}
+.cat-row .cat-tile-media{flex:none;width:54px;height:54px;aspect-ratio:auto;padding:4px}
+.cat-row .cat-tile-body{padding:0;gap:0}
+.cat-row .cat-tile-name{font-size:14px;white-space:nowrap}
+.cat-row .cat-tile-count{font-size:12px}
+.cat-row .cat-tile.is-active{box-shadow:inset 0 0 0 2px var(--accent)}
+.cat-row .cat-tile.is-active .cat-tile-name{color:var(--accent)}
+/* Мобильные правила ряда — в общем мобильном блоке ниже (`.cat-row` в
+   @media(max-width:800px)): тесты вырезают мобильный блок по первому такому
+   медиазапросу в файле, и свой здесь сдвинул бы им срез. */
 /* Ряды карточек стоят ближе, чем столбцы: по вертикали сетка читается
    лентой, и лишний воздух между рядами только растягивает каталог. */
 .grid{gap:12px 16px}
@@ -3989,6 +4038,24 @@ details.metric-rules{margin-bottom:14px}
   .section.section-top{padding-top:16px}
   .section-head{margin-bottom:16px}
   .section-head h1,.section-head h2{font-size:28px}
+  /* Ряд категорий на каталоге — лента вбок: полоса прокрутки спрятана, край
+     подсказывает первая обрезанная плитка; поля контейнера ряд перекрывает,
+     чтобы плитки уезжали за край экрана, а не обрывались на поле. */
+  /* Плитки категорий на главной — в три колонки: в две они занимали пять
+     экранных рядов до первого товара, а в три все девять встают на один экран
+     и без сироты в последнем ряду. Подписи мельче под стать плитке. */
+  .cat-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .cat-grid .cat-tile{border-radius:16px}
+  .cat-grid .cat-tile-media{aspect-ratio:1/1;padding:8px 10px 0}
+  .cat-grid .cat-tile-body{padding:4px 10px 10px}
+  .cat-grid .cat-tile-name{font-size:13px;line-height:1.2}
+  .cat-grid .cat-tile-count{font-size:11px}
+  .cat-row{flex-wrap:nowrap;justify-content:flex-start;margin:0 -20px 18px;padding:2px 20px 6px;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+    /* Привязка прокрутки считает край от scroll-padding, а не от padding: без
+       него первая плитка прилипала к самому краю экрана, съев поле. */
+    scroll-snap-type:x proximity;scroll-padding-inline:20px}
+  .cat-row::-webkit-scrollbar{display:none}
+  .cat-row .cat-tile{scroll-snap-align:start}
   .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 12px}
   .card{border-radius:19px}
   .card-media{aspect-ratio:1/1}
@@ -4682,6 +4749,7 @@ details.metric-rules{margin-bottom:14px}
   .section-head h1,.section-head h2{font-size:25px}
   .section-head>.muted{font-size:12px}
   .grid{gap:7px 9px}
+  .cat-row{margin-inline:-16px;padding-inline:16px;scroll-padding-inline:16px}
   .card-body{padding-inline:10px}
   .card-add{padding:9px 10px 10px}
   .card-add .btn{font-size:13px}
@@ -6783,3 +6851,57 @@ details.metric-rules{margin-bottom:14px}
   .acc-auth-card{padding:20px 16px 18px}
   .acc-order-acts .btn{flex:1;justify-content:center}
 }
+
+/* =========================================================
+   НИЖНЯЯ ПАНЕЛЬ РАЗДЕЛОВ НА ТЕЛЕФОНЕ — снята с i-store.by
+   =========================================================
+   Разметку даёт tabBar() в lib/render.js. Числа сняты с их живой мобильной
+   версии (18 сентября 2026): полоса 61 px (56 у вкладки + 5 снизу), белая,
+   верхние углы 12 px, тень `0 -3px 10px rgba(0,0,0,.1)` вверх; вкладка —
+   значок 20 px над подписью 10/14, зазор 5 px, серый значок #888, выбранная
+   вкладка целиком цветом темы. Их 75 px на вкладку при пяти вкладках ровно
+   делят 375 px — у нас то же самое делает flex:1, поэтому и четыре вкладки
+   (без кабинета) встают ровно.
+
+   Панель ФИКСИРОВАНА, а не sticky, как у них: sticky требует, чтобы она
+   лежала последней в потоке с margin-top:auto у растянутого на весь экран
+   родителя, — у нас такого родителя нет, а fixed даёт то же место без
+   перекладки страницы. Место под ней внизу страницы отводит padding у body,
+   иначе последняя строка подвала пряталась бы под полосой.
+
+   Всё, что и так стоит у нижнего края (кнопка чата, липкий ряд покупки на
+   странице товара, тост), поднимается на её высоту: правила идут в конце файла
+   ПОСЛЕ своих блоков — при равной специфичности побеждает последнее. Высота с
+   вырезом под домашнюю полосу iPhone лежит в одной переменной --tabbar-h. */
+.tabbar{display:none}
+@media(max-width:800px){
+  body.storefront{--tabbar-h:calc(61px + env(safe-area-inset-bottom,0px));padding-bottom:var(--tabbar-h)}
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:38;display:flex;align-items:stretch;height:var(--tabbar-h);
+    padding:0 0 calc(5px + env(safe-area-inset-bottom,0px));background:#fff;border-radius:12px 12px 0 0;
+    box-shadow:0 -3px 10px rgba(0,0,0,.1)}
+  .tabbar-item{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;
+    height:56px;margin:0;padding:0 3px 2px;border:0;background:none;color:var(--text);font:inherit;font-size:10px;line-height:14px;
+    text-align:center;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+  .tabbar-ico{position:relative;display:flex;align-items:flex-end;height:20px;color:#888}
+  .tabbar-ico svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .tabbar-label{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tabbar-item.is-active,.tabbar-item.is-active .tabbar-ico{color:var(--accent)}
+  .tabbar-item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:10px}
+  /* Счётчик — кружок цвета темы в правом верхнем углу значка, как
+     `header-cart__count` у них (17 px, белая цифра). */
+  .tabbar-badge{position:absolute;top:-6px;right:-11px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+    background:var(--accent);color:#fff;font-size:11px;font-weight:600;line-height:17px;text-align:center;box-shadow:0 0 0 2px #fff}
+  .tabbar-badge[hidden]{display:none}
+  /* Всё, что стояло у нижнего края, поднимается над панелью. */
+  .chat-widget{bottom:calc(12px + var(--tabbar-h))}
+  .toast{bottom:calc(16px + var(--tabbar-h))}
+  /* Липкий ряд покупки на странице товара липнет к ВЕРХУ панели, а не к низу
+     экрана; вырез под домашнюю полосу теперь у панели, и свой отступ ряду не
+     нужен — вместе с отрицательным полем, которое его гасило в потоке. */
+  .product .buy-row{bottom:var(--tabbar-h);padding-bottom:12px;margin-bottom:0}
+}
+@media(max-width:720px){
+  /* Кнопка чата на странице товара — над рядом покупки, а он теперь над панелью. */
+  .product-page .chat-widget{bottom:calc(84px + var(--tabbar-h,0px))}
+}
+@media print{.tabbar{display:none!important}}

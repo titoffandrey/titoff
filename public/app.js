@@ -419,7 +419,7 @@
         + '<div class="checkout-empty-ico" aria-hidden="true">' + coIcon('cart', 'co-empty-ico') + '</div>'
         + '<h2>В корзине пока пусто</h2>'
         + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
-        + '<a class="btn btn-primary btn-lg" href="/">Перейти в каталог</a></div>';
+        + '<a class="btn btn-primary btn-lg" href="/catalog">Перейти в каталог</a></div>';
       // Удаление последнего товара снимает DOM формы без navigation/pagehide.
       // Сохраняем активное поле прямо перед этим, иначе последняя правка могла
       // исчезнуть вместе с элементом, не успев дать `change`.
@@ -435,7 +435,7 @@
       + '<div class="co-block-head">'
       + '<h2 class="co-block-title"><span class="co-step" aria-hidden="true">1</span>Ваш заказ'
       + '<span class="co-block-count">' + count + ' ' + plural(count, 'товар', 'товара', 'товаров') + '</span></h2>'
-      + '<a class="co-back" href="/">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a>'
+      + '<a class="co-back" href="/catalog">← <span class="co-back-full">Продолжить покупки</span><span class="co-back-short">В каталог</span></a>'
       + '</div>'
       + '<div class="co-list">'
       + Cart.items.map(function (i) {
@@ -1968,6 +1968,10 @@
       var b = document.getElementById('cart-badge');
       var c = this.count();
       if (b) { b.textContent = c; b.hidden = c === 0; }
+      // То же число — на вкладке «Корзина» нижней панели (телефон): счётчик
+      // там свой узел, а значение одно на всю страницу.
+      var tabs = document.querySelectorAll('[data-cart-count]');
+      for (var t = 0; t < tabs.length; t++) { tabs[t].textContent = c; tabs[t].hidden = c === 0; }
       // Число видно на кнопке, но от скринридера счётчик закрыт (aria-hidden в
       // разметке), поэтому оно уезжает прямо в имя кнопки: «Корзина» с цифрой
       // рядом и «Корзина» на слух — это разные вещи, и Lighthouse считает такое
@@ -2438,6 +2442,21 @@
     });
   }
 
+  /* Ряд категорий на каталоге на телефоне — лента вбок, и открытая категория
+     бывает за правым краем экрана: у восьмой плитки первые семь стоят перед
+     ней. Подводим ленту так, чтобы текущая плитка встала по центру, — ровно
+     как список вкладок в приложении. Только по горизонтали и только у самой
+     ленты: scrollIntoView мог бы заодно дёрнуть страницу по вертикали. На
+     компьютере ряд переносится по строкам, прокручивать там нечего — сдвиг
+     выходит нулевым. */
+  function initCatRow() {
+    var row = document.querySelector('.cat-row');
+    var active = row && row.querySelector('.is-active');
+    if (!row || !active || row.scrollWidth <= row.clientWidth) return;
+    var a = active.getBoundingClientRect(), r = row.getBoundingClientRect();
+    row.scrollLeft += a.left - r.left - (r.width - a.width) / 2;
+  }
+
   // Бегущая строка преимуществ крутится анимацией CSS. Пока она за экраном,
   // считать её незачем: ставим на паузу, чтобы не будить композитор на телефоне.
   function initHeroTicker() {
@@ -2562,6 +2581,7 @@
     initCompactHeader();
     initHeaderSearch();
     initHeroTicker();
+    initCatRow();
     initMediaGuard();
     initNavMenu();
     initAccountPage();
@@ -3398,7 +3418,7 @@
       + '<div class="order-success-number"><span>Заказ</span><strong>' + escapeHtml(orderNo(number)) + '</strong></div>'
       + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер позвонит по указанному номеру, чтобы подтвердить наличие и детали заказа.</p></div></div>'
       + accountDoneNote(account)
-      + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
+      + '<a class="btn btn-primary btn-lg" href="/catalog">Продолжить покупки</a>'
       + '</section>';
     var ok = document.getElementById('order-success');
     if (ok) { try { ok.focus(); } catch (e) {} }

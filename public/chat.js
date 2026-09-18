@@ -576,6 +576,10 @@
     if (!badge) return;
     badge.textContent = state.unread > 9 ? '9+' : String(state.unread);
     badge.hidden = !state.unread;
+    // То же число на вкладке «Чат» нижней панели (телефон): узел свой, а
+    // значение одно, и рисуется оно из одного места.
+    var tabs = document.querySelectorAll('[data-chat-badge]');
+    for (var i = 0; i < tabs.length; i++) { tabs[i].textContent = badge.textContent; tabs[i].hidden = !state.unread; }
     if (button) {
       button.setAttribute('aria-label', state.unread ? 'Чат с магазином, новых сообщений: ' + state.unread : 'Чат с магазином');
     }
@@ -1107,6 +1111,14 @@
   input.addEventListener('blur', function () { setTimeout(fitViewport, 120); });
 
   if (button) button.addEventListener('click', function () { state.open ? hide() : show(); });
+  /* Вкладка «Чат» нижней панели на телефоне — вторая дверь в то же окно. Она
+   * лежит вне виджета, поэтому ловится на документе по data-атрибуту. */
+  document.addEventListener('click', function (e) {
+    var tab = e.target.closest && e.target.closest('[data-chat-open]');
+    if (!tab) return;
+    e.preventDefault();
+    state.open ? hide() : show();
+  });
   root.addEventListener('click', function (e) {
     var act = e.target.closest && e.target.closest('[data-chat-act]');
     if (!act) return;

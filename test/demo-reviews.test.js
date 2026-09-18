@@ -266,7 +266,10 @@ test('команда обновления сохраняет реальные о
     env: Object.assign({}, process.env, { STORE_DATA_DIR: dir })
   });
   let stored = JSON.parse(fs.readFileSync(reviewsFile, 'utf8'));
-  assert.equal(stored.length, reviews.length + 1);
+  // Скрипт собирает набор по СЕГОДНЯШНЕЙ дате, а не по замороженной NOW: число
+  // отзывов растёт с возрастом товара, и сравнивать надо с набором на тот же день.
+  const today = generateDemoReviews(products, { now: Date.now() });
+  assert.equal(stored.length, today.length + 1);
   assert.ok(stored.some(review => review.id === 'real-review'));
   assert.equal(stored.some(review => review.id === 'r1'), false);
   assert.deepEqual(stored.find(review => review.id === 'demo-iphone-17-pro-max-001').photos, ['added-by-owner.webp']);

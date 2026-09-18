@@ -678,7 +678,7 @@ function clientIp(req) {
 }
 // Страницы витрины, которые считаются посещениями. Один список на весь проект:
 // он же лежит в карте сайта и в проверке подтверждения метрики.
-const PUBLIC_PAGES = ['/', '/checkout', '/about', '/privacy', '/personal-data-consent', '/personal-data-publication-consent', '/warranty', '/returns'];
+const PUBLIC_PAGES = ['/', '/catalog', '/checkout', '/about', '/privacy', '/personal-data-consent', '/personal-data-publication-consent', '/warranty', '/returns'];
 function metricPublicPath(rawPath) {
   let pathname;
   try { pathname = decodeURIComponent(String(rawPath || '').split('?')[0]); } catch (e) { return ''; }
@@ -998,9 +998,25 @@ function sendNotFound(req, res) {
   res.send(R.notFoundPage(settings(), pageOpts(req)), 404);
 }
 
+/* Главная и каталог — разные страницы (с 18 сентября 2026): нижняя панель
+ * разделов на телефоне начинается с вкладок «Главная» и «Каталог», и вести в
+ * одно место они не могут. Каталог с фильтром по категории и поиском живёт на
+ * `/catalog`; прежние адреса `/?category=` и `/?q=` остались в закладках, в
+ * выдаче и в старой карте сайта — их уводит постоянный редирект, а не 404. */
 app.get('/', (req, res) => {
+  if (req.query.category || req.query.q) return res.redirect(catalogUrl(req.query), 301);
   trackPage(req, res, '/');
-  res.send(R.homePage(settings(), db, pageOpts(req, { category: req.query.category, q: req.query.q })));
+  res.send(R.homePage(settings(), db, pageOpts(req)));
+});
+function catalogUrl(query) {
+  const q = [];
+  if (query.category) q.push('category=' + encodeURIComponent(String(query.category)));
+  if (query.q) q.push('q=' + encodeURIComponent(String(query.q)));
+  return '/catalog' + (q.length ? '?' + q.join('&') : '');
+}
+app.get('/catalog', (req, res) => {
+  trackPage(req, res, '/catalog');
+  res.send(R.catalogPage(settings(), db, pageOpts(req, { category: req.query.category, q: req.query.q })));
 });
 
 app.get('/product/:id', (req, res) => {
@@ -1606,7 +1622,7 @@ app.get('/sitemap.xml', (req, res) => {
     if (page !== '/' && page !== '/checkout') urls.push('<url><loc>' + R.esc(origin) + R.esc(page) + '</loc></url>');
   }
   for (const category of db.visibleCategories()) {
-    urls.push('<url><loc>' + R.esc(origin) + '/?category=' + encodeURIComponent(category) + '</loc><changefreq>weekly</changefreq></url>');
+    urls.push('<url><loc>' + R.esc(origin) + '/catalog?category=' + encodeURIComponent(category) + '</loc><changefreq>weekly</changefreq></url>');
   }
   for (const p of db.visibleProducts()) urls.push('<url><loc>' + R.esc(origin) + '/product/' + R.esc(p.id) + '</loc></url>');
   res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' });

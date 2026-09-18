@@ -149,9 +149,9 @@ const CATALOG_DB = {
 
 test('повторяющиеся глифы карточки лежат в спрайте, а не копируются в каждую', () => {
   const settings = dbCore.defaultSettings();
-  const html = render.homePage(settings, CATALOG_DB, { origin: 'https://shop.example' });
+  const html = render.catalogPage(settings, CATALOG_DB, { origin: 'https://shop.example' });
   const cards = (html.match(/class="card-name"/g) || []).length;
-  assert.ok(cards > 10, 'на главной должно быть много карточек, иначе проверка бессмысленна');
+  assert.ok(cards > 10, 'в каталоге должно быть много карточек, иначе проверка бессмысленна');
 
   // Символ объявлен ровно один раз, а карточки на него ссылаются.
   for (const glyph of ['rt-star', 'rt-bubble', 'rt-cart']) {
@@ -240,7 +240,7 @@ test('карточка товара для поисковика полна, а �
   assert.deepEqual(crumbs.itemListElement.map(x => x.position), [1, 2, 3]);
   assert.equal(crumbs.itemListElement[crumbs.itemListElement.length - 1].name, product.name);
   // Крошки обязаны вести туда же, куда ссылки над названием на самой странице.
-  assert.ok(html.includes('/?category=' + encodeURIComponent(product.category)));
+  assert.ok(html.includes('/catalog?category=' + encodeURIComponent(product.category)));
 });
 
 test('комментарии снимаются с отдаваемой статики и ничего не ломают', () => {
@@ -3731,13 +3731,15 @@ test('разделы уехали в панель меню, как в админ
   assert.match(html, /<label class="nav-scrim" for="nav-menu"/);
 
   /* Прежнего ряда вкладок под шапкой нет вовсе — разделы стали строками
-   * панели, а первым идёт «Все». */
+   * панели, а первым идёт «Каталог». Горит он ТОЛЬКО на самом каталоге: на
+   * главной каталог не открыт, и там ни одна строка не выделена. */
   assert.doesNotMatch(html, /site-nav|nav-cat|nav-inner/);
-  assert.match(html, /<a href="\/" class="nav-item active" aria-current="page">Все<\/a>/);
-  assert.match(html, /<a href="\/\?category=iPhone" class="nav-item">iPhone<\/a>/);
+  assert.match(html, /<a href="\/catalog" class="nav-item">Каталог<\/a>/);
+  assert.match(render.catalogPage(settings, fakeDb, {}), /<a href="\/catalog" class="nav-item active" aria-current="page">Каталог<\/a>/);
+  assert.match(html, /<a href="\/catalog\?category=iPhone" class="nav-item">iPhone<\/a>/);
   /* Значок есть ТОЛЬКО у мессенджеров под волосяной линией: у категорий его
    * пришлось бы выдумывать, а у сервиса он существует. */
-  assert.doesNotMatch(html, /<a href="\/\?category=[^"]*" class="nav-item">\s*<svg/);
+  assert.doesNotMatch(html, /<a href="\/catalog\?category=[^"]*" class="nav-item">\s*<svg/);
 
   /* Числа сняты с живой страницы Google Trends и совпадают с меню панели
    * управления: панель 320px, строка 56px с полями `8px 24px 8px 16px` и
@@ -3788,11 +3790,11 @@ test('поиск раскрывается по лупе рядом с корзи
   const html = render.homePage(settings, fakeDb, {});
 
   // Форма одна: закрытая панель шапки, а не отдельные копии для разных экранов.
-  assert.match(html, /<form class="search" action="\/" method="get" role="search">/);
+  assert.match(html, /<form class="search" action="\/catalog" method="get" role="search">/);
   assert.equal((html.match(/role="search"/g) || []).length, 1);
   assert.doesNotMatch(html, /nav-search|search-menu/);
   // Набранное возвращается в единственное поле.
-  const found = render.homePage(settings, fakeDb, { q: 'айфон' });
+  const found = render.catalogPage(settings, fakeDb, { q: 'айфон' });
   assert.equal((found.match(/value="айфон"/g) || []).length, 1);
 
   /* Лупа стоит перед корзиной в общем правом блоке. Закрытая панель вынута из
@@ -4033,7 +4035,7 @@ test('подвал — разделы: каталог, страницы поку
   // aria-label — колонок стало четыре, и безымянными они читались бы как один
   // длинный список ссылок.
   assert.match(html, /<nav class="footer-col" aria-label="Каталог">[\s\S]*?<div class="footer-col-head">Каталог<\/div>/);
-  assert.match(html, /<li><a href="\/\?category=iPhone">iPhone<\/a><\/li>/);
+  assert.match(html, /<li><a href="\/catalog\?category=iPhone">iPhone<\/a><\/li>/);
   assert.match(html, /<nav class="footer-col" aria-label="Информация">[\s\S]*?<div class="footer-col-head">Информация<\/div>/);
   assert.match(html, /<div class="footer-col-head">Контакты<\/div>/);
 
@@ -4529,8 +4531,8 @@ test('заголовок категории не отбит от шапки об
 
   // У категории и поиска заголовок идёт сразу под меню разделов: общие 54 px
   // отбивали его от шапки на две его собственные высоты.
-  assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /class="container section section-top"/);
-  assert.match(render.homePage(settings, fakeDb, { q: 'айфон' }), /class="container section section-top"/);
+  assert.match(render.catalogPage(settings, fakeDb, { category: 'iPhone' }), /class="container section section-top catalog-page"/);
+  assert.match(render.catalogPage(settings, fakeDb, { q: 'айфон' }), /class="container section section-top catalog-page"/);
   assert.match(css, /\.section\.section-top\{padding-top:\d+px\}/);
   // На главной заголовка нет вовсе — там первый экран, и модификатор не нужен
   assert.ok(!/section-top/.test(render.homePage(settings, fakeDb, {})));
@@ -5624,20 +5626,22 @@ test('оформление, поиск и 404 закрыты от индекса
   const settings = { storeName: 'Тест', tagline: 'Слоган', currency: '₽' };
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   assert.match(render.checkoutPage(settings, {}), /<meta name="robots" content="noindex,follow">/);
-  assert.match(render.homePage(settings, fakeDb, { q: 'iphone' }), /content="noindex,follow"/);
-  assert.match(render.homePage(settings, fakeDb, { q: '', noindex: true }), /content="noindex,follow"/);
+  assert.match(render.catalogPage(settings, fakeDb, { q: 'iphone' }), /content="noindex,follow"/);
+  assert.match(render.catalogPage(settings, fakeDb, { q: '', noindex: true }), /content="noindex,follow"/);
   assert.match(render.homePage(settings, fakeDb, {}), /content="index,follow">/);
-  assert.match(render.homePage(settings, fakeDb, { category: 'iPhone' }), /content="noindex,follow">/);
+  assert.match(render.catalogPage(settings, fakeDb, {}), /content="index,follow">/);
+  assert.match(render.catalogPage(settings, fakeDb, { category: 'iPhone' }), /content="noindex,follow">/);
 
   const macs = [{ id: 'mac', name: 'Mac', category: 'Mac', price: 100, inStock: true }];
   const categoryDb = {
     getProducts: () => macs, visibleProducts: () => macs,
     categories: () => ['Mac'], visibleCategories: () => ['Mac'], ratingFor: () => ({ avg: 0, count: 0 })
   };
-  const category = render.homePage(settings, categoryDb, { category: 'Mac', origin: 'https://shop.test' });
+  const category = render.catalogPage(settings, categoryDb, { category: 'Mac', origin: 'https://shop.test' });
   assert.match(category, /content="index,follow"/);
-  assert.match(category, /rel="canonical" href="https:\/\/shop\.test\/\?category=Mac"/);
-  const invalidCategory = render.homePage(settings, categoryDb, { category: 'Unknown', origin: 'https://shop.test' });
+  assert.match(category, /rel="canonical" href="https:\/\/shop\.test\/catalog\?category=Mac"/);
+  assert.match(render.catalogPage(settings, categoryDb, { origin: 'https://shop.test' }), /rel="canonical" href="https:\/\/shop\.test\/catalog"/);
+  const invalidCategory = render.catalogPage(settings, categoryDb, { category: 'Unknown', origin: 'https://shop.test' });
   assert.match(invalidCategory, /content="noindex,follow"/);
 
   const notFound = render.notFoundPage(settings, { origin: 'https://shop.test', categories: ['Mac'] });
@@ -6096,7 +6100,7 @@ test('правка отзыва меняет поля, чистит файлы �
 });
 
 test('оценка товара в каталоге читается из индекса, а не пересчётом отзывов', () => {
-  // На главной десятки карточек. Раньше оценку считал viewFor() — по разу на
+  // В каталоге десятки карточек. Раньше оценку считал viewFor() — по разу на
   // товар, полным проходом по его отзывам; теперь это готовая пара из индекса.
   const reviews = Array.from({ length: 49 }, (_, i) => ({ id: 'r' + i, productId: 'p', rating: 4, status: 'approved', createdAt: i }));
   let ratingCalls = 0, listCalls = 0;
@@ -6107,7 +6111,7 @@ test('оценка товара в каталоге читается из инд
     ratingFor: () => { ratingCalls++; return { avg: 4, count: 49 }; }
   };
   const product = { id: 'p', name: 'Товар', category: 'К', price: 100, inStock: true, images: [], colors: [], storages: [], bands: [], options: [] };
-  const html = render.homePage({ storeName: 'Тест', currency: '₽' }, db, {});
+  const html = render.catalogPage({ storeName: 'Тест', currency: '₽' }, db, {});
   assert.match(html, /★|4/);
   assert.equal(ratingCalls, 1, 'на карточку — ровно одно обращение к индексу');
   assert.equal(listCalls, 0, 'список отзывов товара каталогу не нужен вовсе');
