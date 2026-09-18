@@ -21,6 +21,15 @@ const variants = require('../lib/variants');
 const search = require('../lib/search');
 const images = require('../lib/images');
 const clientIcons = require('../lib/client-icons');
+
+/* Стили панели с 19 сентября 2026 лежат ОТДЕЛЬНЫМ файлом (public/admin.css),
+ * и витрина его не грузит. Проверки правил панели читают оба файла в том
+ * порядке, в котором их подключает макет панели: общий styles.css, за ним
+ * admin.css, — так «правило стоит ниже по файлу» означает то же, что и
+ * раньше. Витринные проверки читают один styles.css. */
+const STORE_CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+const ADMIN_CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin.css'), 'utf8');
+const PANEL_CSS = STORE_CSS + '\n' + ADMIN_CSS;
 const { Analytics, deviceFromUa, clientDetails, isPrivateIp, sourceFromReferrer, significantSource, outboundLabel, sessionsOf, MAX_HITS } = require('../lib/analytics');
 const { App, imageExtension } = require('../lib/server-lib');
 const catalog = require('../catalog');
@@ -1653,7 +1662,7 @@ test('«Кто заходил» — своя страница с отбором,
   assert.match(html, /data-live="analytics/, 'страница обязана обновляться сама');
 
   const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(ui, /Произвольный период времени/);
   assert.match(ui, /slot\.textContent !== text/,
     'подпись даты не должна замыкать MutationObserver живой страницы');
@@ -1690,7 +1699,7 @@ test('«Обзор» показывает, сколько человек на в
   // Никого на сайте — точка серая и неподвижная: зелёный пульс рядом с нулём
   // обещал бы движение, которого нет.
   assert.match(adminViews.dashboard(SETTINGS, fakeDb, { online: 0 }), /class="a-stat a-stat-live is-idle"/);
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.a-stat-live\.is-idle \.a-stat-num i\{[^}]*animation:none/);
 });
 
@@ -1821,7 +1830,7 @@ test('раздел метрики защищён панелью и показы�
   /* «Кто заходил» на телефоне — карточки: пять столбцов требуют 900 px, и
      список приходилось листать вбок, теряя из виду время визита. Ячейки для
      этого названы — безымянные <td> сетке не адресовать. */
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   for (const cls of ['mv-when', 'mv-place', 'mv-tech', 'mv-page', 'mv-order']) {
     assert.match(html, new RegExp(`<td class="${cls}"`), cls + ' должен быть в строке посетителя');
   }
@@ -1852,7 +1861,7 @@ test('раздел метрики защищён панелью и показы�
 });
 
 test('панель набрана Roboto, и шрифт лежит у нас, а не у Google', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const fonts = path.join(__dirname, '..', 'public', 'fonts');
 
   /* Стек снят с живой страницы Trends: у них `body` идёт
@@ -1892,10 +1901,22 @@ test('панель набрана Roboto, и шрифт лежит у нас, а
    * до соседнего. */
   assert.equal((css.match(/font-weight:400 700;font-display:swap/g) || []).length, 3);
 
-  /* Витрина этих 80 КБ не качает: семейство назначено только телу панели, а
-   * объявление, которым никто не пользуется, браузер не трогает. */
-  const store = css.slice(0, css.indexOf('/* Панели управления */'));
-  assert.doesNotMatch(store, /font-family:Roboto,/, 'витрина остаётся на своём шрифте');
+  /* ВИТРИНА ЭТИХ 80 КБ НЕ КАЧАЕТ, И ДЕРЖИТСЯ ЭТО НА ОТДЕЛЬНОМ ФАЙЛЕ, а не на
+   * том, что семейство назначено только телу панели. Прежнее объяснение
+   * («объявление, которым никто не пользуется, браузер не трогает») было
+   * неправдой: в системном стеке body витрины стоит Roboto, и на Android,
+   * где нет ни -apple-system, ни Segoe UI, браузер доходил до него — а
+   * @font-face в том же файле перебивал системный шрифт загрузкой всех трёх
+   * подмножеств. PageSpeed на бою показал это 19 сентября 2026: три
+   * roboto-*.woff2 в критической цепочке главной. Теперь @font-face лежит в
+   * admin.css, которого витрина не грузит вовсе. */
+  assert.doesNotMatch(STORE_CSS, /@font-face|RobotoDraft|fonts\/roboto/, 'в styles.css ни одного @font-face и ни одной ссылки на файлы Roboto');
+  assert.match(ADMIN_CSS, /@font-face\{font-family:Roboto/, 'шрифт панели объявлен в admin.css');
+  const page = render.homePage(dbCore.defaultSettings(), CATALOG_DB, {});
+  assert.doesNotMatch(page, /admin\.css|fonts\/roboto/, 'витрина не подключает стили панели');
+  const panel = adminViews.loginPage(dbCore.defaultSettings(), '');
+  const order = [panel.indexOf('/static/styles.css'), panel.indexOf('/static/admin.css')];
+  assert.ok(order[0] > -1 && order[1] > order[0], 'панель грузит styles.css, а за ним admin.css');
 });
 
 test('ось графика — шесть целых подписей, как у Trends', () => {
@@ -1945,7 +1966,7 @@ test('ось графика — шесть целых подписей, как �
   /* Подписанный пик — единственное число графика там, где навести нельзя:
    * на сенсорном экране подсказки не будет вовсе, и телефон получал голую линию.
    * На мышином экране его нет — про любую точку отвечает подсказка. */
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(draw(42), /<span class="mc-peak" style="left:[\d.]+%;top:[\d.]+%">42<\/span>/);
   assert.match(css, /\.mc-peak\{display:none/, 'на мышином экране пик не подписан');
   assert.match(css, /@media\(pointer:coarse\)\{\.mc-peak\{display:block\}\}/);
@@ -2304,7 +2325,7 @@ test('приближением карты владеет человек, а кн
 
   // Заливка и подсказка — цвета Trends: серый у мест без данных и пять ступеней
   // синего. Порознь эти правила разъезжаются, и увидеть это можно только глазами.
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.gm-shape\{fill:#c9cdd2/);
   assert.match(css, /\.gm-shape\.heat-5\{fill:#1c3f96\}/);
   assert.match(css, /\.g-opt\.is-on\{background:#ceead6;color:#188038\}/, 'выбранный пункт меню — зелёная плашка Google');
@@ -2858,7 +2879,7 @@ test('витрина закрыта заблокированному, а пан�
 });
 
 test('длинные названия городов не перекрывают числа в метрике', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.metric-bar-label\{display:grid;grid-template-columns:minmax\(0,1fr\) max-content/);
   assert.match(css, /\.metric-location-bars \.metric-bar-name\{white-space:normal;overflow-wrap:anywhere\}/);
   /* Колонку под значок включает КЛАСС списка, а не `:has()` у строки: его
@@ -3119,7 +3140,7 @@ test('зачёркнутая цена пересчитывается вмест�
 });
 
 test('старую цену видно, а стрелки галереи не лежат на товаре', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   // Все объявления селектора подряд: правила намеренно переопределяются ниже
   // по файлу, поэтому проверять надо их сумму, а не первое совпадение.
   const rule = name => [...css.matchAll(new RegExp(name + '\\s*\\{([^}]*)\\}', 'g'))].map(m => m[1]).join(';');
@@ -4463,7 +4484,7 @@ test('«О компании» — своя страница витрины: ма
 });
 
 test('бегущая строка преимуществ едет ровно на одну свою копию', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const fakeDb = { getProducts: () => [], visibleProducts: () => [], categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) };
   const html = render.homePage({ storeName: 'Тест', tagline: 'Оригинальная техника', currency: '₽' }, fakeDb, {});
@@ -4552,7 +4573,7 @@ test('форма товара широкая, без текстовых подс
 test('массовую загрузку фото можно остановить, а случайная огромная пачка блокируется', () => {
   const formJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'product-form.js'), 'utf8');
   const managerJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'photo-manager.js'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const dbSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'db.js'), 'utf8');
   assert.match(formJs, /var MAX_FILES = 30/);
@@ -4830,7 +4851,7 @@ test('главная показывает товары в порядке кат�
 
   /* Ячейки названы, потому что на телефоне строка становится карточкой и
      раскладку задаёт сетка: безымянные <td> ей не адресовать. */
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   for (const cls of ['a-pname', 'a-price', 'a-marks']) assert.match(list, new RegExp(`<td class="${cls}"`));
   assert.match(list, /<div class="a-panel a-panel-list">/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
@@ -5153,7 +5174,7 @@ test('раздел отзывов открывается очередью мод
   assert.equal(/id="rv-ok"/.test(home), false, 'опубликованный в очередь не попадает');
   // Подкраска — не украшение: в общей ленте неразобранное надо находить взглядом.
   assert.match(home, /class="rv-row is-pending" id="rv-wait"/);
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.rv-row\.is-pending\{[^}]*background:#fffaf2/);
 
   // И тот же список — по товарам, каждый открывается отдельно.
@@ -5216,7 +5237,7 @@ test('вложения в панели открываются той же гал
   assert.match(group, /class="rv-thumb rv-thumb-more"[^>]*>\+2</);
   assert.match(group, /<a class="rv-thumb" href="\/uploads\/p7\.webp"[^>]* hidden /);
   // hidden обязан побеждать display:flex — иначе скрытые ссылки видно.
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.rv-thumb\[hidden\]\{display:none\}/);
 
   // В форме правки клик по снимку открывает просмотр, а помечает к удалению
@@ -5693,7 +5714,7 @@ test('корзина различает варианты одного товар
 });
 
 test('подпись корпуса на фото ремешка читается с того же элемента', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   // attr() берёт атрибут элемента, к которому прикреплён ::after
   assert.match(css, /\.img-chip-media\[data-case\]::after\{content:attr\(data-case\)/);
   const product = { id: 'p1', images: ['a.webp'], imageColors: { 'a.webp': 'Чёрный титан' }, colors: [{ name: 'Чёрный титан', hex: '#111111' }], bands: [], storages: [] };
@@ -5702,7 +5723,7 @@ test('подпись корпуса на фото ремешка читаетс�
 });
 
 test('строка заказа: оплата собрана одним блоком, товары и доставка видны сразу', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const long = {
     id: 'o1', number: '482913', createdAt: Date.now(), status: 'new',
     customerName: 'Анна Смирнова', contact: '@anna', total: 420940,
@@ -5784,7 +5805,7 @@ test('строка заказа: оплата собрана одним блок
 });
 
 test('меню панели — кнопка в шапке и панель разделов, выезжающая слева', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
   const db = {
     getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [],
@@ -5902,7 +5923,7 @@ test('списки заказов в панелях листаются, а не 
   assert.match(first, /href="\/admin\/orders\?page=2"/);
   assert.match(first, /class="a-page a-page-cur" aria-current="page">1<\/span>/,
     'текущая страница подписана своим номером');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.a-page-cur\{[^}]*background:var\(--text\)[^}]*color:#fff/,
     'номер текущей страницы контрастен на тёмной плашке');
   assert.doesNotMatch(css, /\.a-page(?:-cur)?\{[^}]*var\(--ink\)/,
@@ -7727,7 +7748,7 @@ test('режим правки не выключается после удале�
 });
 
 test('плашка «Сохранено» гаснет сама и не оставляет пустой полосы', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /@keyframes a-flash-out\{/);
   assert.match(css, /\.a-flash:not\(\.err\)\{overflow:hidden;animation:a-flash-out [\d.]+s ease \ds forwards\}/);
   /* Гаснет только «получилось». Ошибка отвечает на другой вопрос — «почему не
@@ -7785,7 +7806,7 @@ test('«получилось» приходит карточкой в угол, 
   assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db, 'Сохранено'), /admin-live\.js/,
     'карточка карточкой, а живого канала у формы по-прежнему нет');
 
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   // Уходит карточка сама и чистым CSS — как гасла плашка. Число секунд записано
   // ровно один раз: скрипт убирает узел по концу анимации, а не по таймеру.
   assert.match(css, /\.a-note-flash\{[^}]*animation:a-note-in [\d.]+s ease,a-note-away [\d.]+s ease (\d+)s forwards\}/);
@@ -8411,7 +8432,7 @@ test('настройки идут разделами, и свёрнутая ст
 
   // Форма настроек — не карточка: карточки теперь разделы, и общая рамка вокруг
   // них давала бы рамку в рамке.
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.a-settings\{[^}]*background:none/);
   assert.match(css, /\.set>summary::-webkit-details-marker\{display:none\}/);
   // Кнопка сохранения не уезжает с экрана: разделов девять.
@@ -10538,7 +10559,7 @@ test('номер телефона в реквизитах читается ка�
     payment: { status: 'pending', method: 'SBP', lastErrorCode: 'no_requisite' }
   })), /o-req/);
 
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.o-req-list\{[^}]*white-space:normal/,
     'столбец «Оплата» идёт nowrap — внутри свёртки перенос обязан вернуться');
 });
@@ -10734,7 +10755,7 @@ test('состояние оплаты видно в обеих панелях и
     assert.match(html, /<span class="sr-only">Статус оплаты<\/span>/);
     assert.match(html, /class="o-payment-state"[\s\S]*class="o-payment-method"/);
   }
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.pay-tag\.pay-ok/);
   assert.match(css, /\.pay-tag\.pay-warn/);
   assert.match(css, /\.pay-tag\.pay-off/);
@@ -11048,15 +11069,19 @@ test('«сегодня» у заказов начинается в москов�
 });
 
 test('состояние оплаты красит панель одним набором цветов, и на телефоне это карточки', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   // Цвет тона задан ОДИН раз: по нему красятся плашка, строка и точка сводки.
   // Разъезжаются такие вещи молча — увидеть это можно только глазами.
   // Строка заказа в личном кабинете красится тем же правилом: тон один на
   // панель и на покупателя, вторая палитра означала бы разные цвета у одного
   // состояния.
+  // Правило разрезано по файлам (панельная часть в admin.css, кабинет в
+  // styles.css), но объявления обязаны совпадать буквально.
   for (const tone of ['ok', 'wait', 'warn', 'off']) {
-    const rule = new RegExp(`\\.o-stat-${tone},\\.o-row-${tone},\\.pay-tag\\.pay-${tone},\\.acc-tone-${tone}\\{--tone:`);
-    assert.match(css, rule, 'тон ' + tone + ' раскрашен не одним правилом');
+    const panel = ADMIN_CSS.match(new RegExp(`\\.o-stat-${tone},\\.o-row-${tone},\\.pay-tag\\.pay-${tone}\\{(--tone:[^}]*)\\}`));
+    const store = STORE_CSS.match(new RegExp(`\\.acc-tone-${tone}\\{(--tone:[^}]*)\\}`));
+    assert.ok(panel && store, 'тон ' + tone + ' раскрашен не одним правилом');
+    assert.equal(panel[1], store[1], 'тон ' + tone + ': у кабинета и панели разные цвета');
   }
   assert.match(css, /\.pay-tag\{[^}]*background:var\(--tone-soft\)/);
   assert.match(css, /\.a-orders tr\.o-row td\{background:var\(--tone-row,transparent\)\}/);
@@ -12423,7 +12448,7 @@ test('в ленте товара отзывы отбираются по влож
 });
 
 test('на телефоне сортировка и вложения прячутся под кнопку, на десктопе стоят открыто', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const reviews = [{ id: 'a1', productId: 'p', status: 'approved', rating: 5, author: 'А', createdAt: 1, photos: [], videos: [] }];
   const db = {
     getReviews: () => reviews, reviewsForProduct: () => reviews,
@@ -14655,7 +14680,7 @@ test('быстрые уточнения ждут следующий ответ, 
 
 test('Enter отправляет, а время с галочкой держатся вместе в углу', () => {
   const shop = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
 
   /* Enter отправляет, Shift+Enter переносит строку — БЕЗ оговорки про сенсорный
    * экран. Прежнее `!matchMedia('(pointer:coarse)')` считало сенсорным и
@@ -14716,7 +14741,7 @@ test('Enter отправляет, а время с галочкой держат
 });
 
 test('раскрытый профиль собеседника не вылезает за экран', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
 
   /* Состояние заказа в раскрытом профиле ОБЯЗАНО сжиматься. С `flex:none` строка
    * «не оплачен · вышло время · 09.09 в 14:07 · Банк: Операция отклонена (-2014)»
@@ -14896,7 +14921,7 @@ test('ссылка консультанта — название товара, �
   const chatJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
   assert.match(chatJs, /window\.ChatLinks\.parts\(/);
   assert.ok(!/product\|checkout\|warranty/.test(chatJs), 'своей копии разбора в скрипте витрины нет');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.chat-them \.chat-link\{color:#06c;text-decoration:underline/,
     'покупатель видит ссылку Ксении синей и подчёркнутой');
   assert.match(css, /\.chat-line\.is-ai \.chat-line-text a\{color:#06c;text-decoration:underline/,
@@ -15305,7 +15330,7 @@ test('менеджер прикладывает фото и отправляет
     'фото менеджера очищаются и пережимаются тем же путём, что фото покупателя');
   assert.match(route, /CHAT\.say\(chat, 'operator', text, \{ reply, photos \}\)/);
 
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.chat-answer-clip,\.chat-answer-send-round\{[^}]*width:42px[^}]*height:42px[^}]*border-radius:50%/);
   assert.match(css, /\.chat-answer-picks\{[^}]*display:flex/);
 });
@@ -15313,7 +15338,7 @@ test('менеджер прикладывает фото и отправляет
 test('стили чата не пересекаются у витрины и панели', () => {
   /* Таблица стилей одна на обе, и одноимённое правило молча красило бы окно
    * покупателя. Классы панели живут в своём пространстве имён. */
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   for (const cls of ['.chat-widget', '.chat-panel', '.chat-fab', '.chat-log', '.chat-form']) {
     assert.ok(css.includes(cls), 'правило витрины ' + cls + ' на месте');
   }
@@ -15436,7 +15461,7 @@ test('диалог в панели — экран мессенджера на л
   assert.match(html, /<label class="chat-head-who" for="chat-profile"/);
   assert.match(html, /<div class="chat-head-drop">[\s\S]*chat-head-meta/);
 
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   /* Правила лежат ВНЕ медиазапроса: разговор занимает экран целиком и на
    * мониторе тоже. Раньше на десктопе он был обычной страницей панели, и пара
    * заявок с плашками оплаты отжимала ленту так, что переписки было не видно. */
@@ -15628,7 +15653,7 @@ test('подробный отчёт по кассам показывает ле�
 });
 
 test('карточки отчёта на телефоне не уезжают за край', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const mobile = css.slice(css.indexOf('@media (max-width:800px){', css.indexOf('.pay-log')));
   /* Специфичность обязана быть выше общего `.a-table{min-width:620px}`: без
    * класса таблицы карточки резались бы по краю экрана, и панель уезжала вбок
@@ -16240,7 +16265,7 @@ test('действия над репликой открываются удерж
   assert.match(ui, /data-chat-copy/);
   assert.match(ui, /execCommand\('copy'\)/, 'без https clipboard-API не работает — нужен запасной путь');
 
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.chat-line\{cursor:pointer;list-style:none/);
   assert.match(css, /\.chat-tools\{flex-basis:100%/, 'меню уезжает под пузырь, а не встаёт рядом');
 
@@ -16311,7 +16336,7 @@ test('на реплику отвечают ссылкой из меню и см�
   // попадёт, разъехалось бы с первым.
   assert.match(ui, /querySelector\('\[data-chat-reply\]'\)/);
 
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   assert.match(css, /\.chat-line\{[^}]*touch-action:pan-y/,
     'вертикаль браузеру, горизонталь скрипту — иначе жеста не будет вовсе');
   assert.match(css, /\.chat-thread\{[^}]*overflow-x:hidden/,
@@ -17161,7 +17186,7 @@ test('раздел «Отправления» — свой пункт меню �
 
   // На телефоне список — карточки: шесть столбцов в 390 px не встают никак, и за
   // краем экрана остались бы состояние и срок.
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const mobile = css.slice(css.indexOf('@media (max-width:800px){'));
   assert.match(mobile, /\.a-table\.ship-list\{min-width:0;display:block\}/);
   assert.match(mobile, /\.ship-list tr\{display:grid/);
@@ -17279,7 +17304,7 @@ test('отслеживание показывается покупателю т�
 });
 
 test('карточка шага на телефоне не уезжает за край и читается сеткой', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const mobile = css.slice(css.indexOf('@media(max-width:800px){', css.indexOf('.ship-form{')));
 
   /* Специфичность выше, чем у общего `.a-table{min-width:620px}`, и это не
@@ -17899,7 +17924,7 @@ test('промокод считают в одном месте, а витрин�
 
 test('раздел промокодов есть в панели и говорит, что видит покупатель', () => {
   const promo = require('../lib/promo');
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
   const settings = Object.assign(dbCore.defaultSettings(), { storeName: 'Тест' });
   const db = {
     visibleOrders: () => [{ id: 'a', promoCode: 'SALE', promoDiscount: 4340, total: 69000 }],
@@ -18143,11 +18168,14 @@ test('оформление показывает, как это выглядит,
 });
 
 test('настройка прежнего вордмарка остаётся точной в предпросмотре панели', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  const css = PANEL_CSS;
 
-  /* Геометрический стек остаётся у предпросмотра сохранённого оформления. */
-  const mark = css.match(/\.logo,\.bp-logo\{font-family:([^}]+)\}/);
+  /* Геометрический стек остаётся у предпросмотра сохранённого оформления —
+   * тот же, что у знака на витрине: правило одно, разрезанное по файлам. */
+  const mark = ADMIN_CSS.match(/\.bp-logo\{font-family:([^}]+)\}/);
   assert.ok(mark, 'у надписи логотипа свой набор начертаний');
+  const storeMark = STORE_CSS.match(/\.logo\{font-family:([^}]+)\}/);
+  assert.ok(storeMark && storeMark[1] === mark[1], 'предпросмотр набран тем же стеком, что знак на витрине');
   assert.match(mark[1], /^Futura,/, 'первым идёт геометрическое начертание');
 
   /* КОНЕЦ СТЕКА — брендовый шрифт владельца, а не общий sans-serif. Кириллицы у
@@ -18189,7 +18217,9 @@ test('витрина использует официальный знак Apple 
   assert.match(svg, /m-3\.7284-2\.8918a3\.5615/);
 
   const header = html.slice(html.indexOf('<header class="site-header">'), html.indexOf('<div class="nav-wrap">'));
-  assert.match(header, /<a class="apple-logo" href="\/" aria-label="На главную"><img class="apple-logo-mark" src="\/static\/apple-logo\.svg\?v=[^"]+" alt=""><\/a>/);
+  // width/height — пропорции холста SVG (14×17): без них PageSpeed отмечал
+  // CLS у шапки, размер при этом задаёт CSS.
+  assert.match(header, /<a class="apple-logo" href="\/" aria-label="На главную"><img class="apple-logo-mark" src="\/static\/apple-logo\.svg\?v=[^"]+" width="14" height="17" alt=""><\/a>/);
   assert.doesNotMatch(header, /class="logo-mark|logo-txt|old-logo\.webp/,
     'настройка прежнего логотипа не должна возвращать его в шапку');
   assert.equal((html.match(/\/static\/apple-logo\.svg\?v=/g) || []).length, 1,
@@ -18631,13 +18661,14 @@ test('появляющиеся поверхности идут по общей �
  * `backdrop-filter` при прежних 70% белого делает хуже, чем было, — то же
  * просвечивание, но теперь поверх резкой картинки. */
 test('prefers-reduced-transparency доводит липкие поверхности до непрозрачных', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '');
-  const block = (css.match(/@media \(prefers-reduced-transparency:reduce\)\{([\s\S]*?)\n\}/) || [])[1];
-  assert.ok(block, 'блока prefers-reduced-transparency нет вовсе');
+  // Блок есть в обоих файлах: у витрины — шапка и ряд покупки, у панели —
+  // стрелка меню места в метрике. Селектор ищется в своём файле.
+  const blocks = [STORE_CSS, ADMIN_CSS].map(f => (f.replace(/\/\*[\s\S]*?\*\//g, '')
+    .match(/@media \(prefers-reduced-transparency:reduce\)\{([\s\S]*?)\n\}/) || [])[1] || '');
+  assert.ok(blocks[0] && blocks[1], 'блока prefers-reduced-transparency нет в одном из файлов');
   for (const sel of ['.site-header', '.product .buy-row', '.g-arrow']) {
     const rule = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}');
-    const decl = (block.match(rule) || [])[1] || '';
+    const decl = blocks.map(b => (b.match(rule) || [])[1] || '').join('');
     assert.match(decl, /background:#fff/, sel + ': фон обязан стать непрозрачным');
     assert.match(decl, /backdrop-filter:none/, sel + ': размытие обязано сняться');
   }

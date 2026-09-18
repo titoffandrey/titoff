@@ -99,7 +99,9 @@ test('нижняя панель: полоса как у i-store.by, значки
   assert.match(item, /flex:1 1 0/);
   assert.match(tail, /\.tabbar-ico\{[^}]*height:24px;color:#6e6e73\}/);
   assert.match(tail, /\.tabbar-ico svg\{display:block;width:24px;height:24px/);
-  assert.match(tail, /\.tabbar-item\.is-active,\.tabbar-item\.is-active \.tabbar-ico\{color:var\(--accent\)\}/);
+  // Выбранная вкладка — глубоким тоном акцента: чистый акцент у подписи в
+  // 11 px не проходит контраст 4.5:1 (PageSpeed на бою, 19 сентября 2026).
+  assert.match(tail, /\.tabbar-item\.is-active,\.tabbar-item\.is-active \.tabbar-ico\{color:var\(--accent-deep\)\}/);
   /* Дубли на телефоне спрятаны: круглая кнопка чата и значок кабинета в шапке
    * повторяли вкладки той же панели, а кнопка ещё и закрывала угол каталога.
    * Правило живёт в мобильном блоке — на компьютере оба на месте. */
@@ -208,4 +210,39 @@ test('прежние адреса каталога уводятся на /catalo
       assert.fail(file + ': «' + m[1] + '» ведёт на главную, а не в каталог');
     }
   }
+});
+
+/* LCP главной на телефоне — снимок ПЕРВОЙ плитки категорий: сетка из девяти
+ * плиток занимает первый экран целиком. PageSpeed на бою (19 сентября 2026)
+ * показал этот снимок с `loading="lazy"` и без приоритета — браузер откладывал
+ * ровно ту картинку, по которой считается скорость. Первый ряд грузится сразу,
+ * приоритет — у одной первой (девять «высоких» приоритетов разом означали бы,
+ * что высокого нет ни у одной), а у плитки есть srcset с sizes под её сетку:
+ * одна копия 320 на экране с DPR 2 растягивалась до мыла. */
+test('плитки категорий: первый ряд грузится сразу, приоритет у первой, srcset под сетку плиток', () => {
+  const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tiles-'));
+  for (const n of ['a.webp', 'a-c320.webp', 'a-c480.webp', 'a-c640.webp']) fs.writeFileSync(path.join(dir, n), 'x');
+  const cats = ['iPhone', 'Mac', 'iPad', 'Apple Watch', 'AirPods'];
+  const list = cats.map((c, i) => ({ id: 'p' + i, name: c + ' X', category: c, price: 1000, images: ['a.webp'] }));
+  const db = { UPLOAD_DIR: dir, visibleProducts: () => list, visibleCategories: () => cats };
+  const imgs = R.categoryTiles(db, {}, {}).match(/<img[^>]*>/g);
+  assert.equal(imgs.length, 5);
+  assert.match(imgs[0], /loading="eager"[^>]*fetchpriority="high"/, 'первая плитка — LCP, у неё приоритет');
+  assert.match(imgs[1], /loading="eager"/); assert.doesNotMatch(imgs[1], /fetchpriority/);
+  assert.match(imgs[2], /loading="eager"/); assert.doesNotMatch(imgs[2], /fetchpriority/);
+  assert.match(imgs[3], /loading="lazy"/, 'со второго ряда плитки ленивые');
+  for (const img of imgs) {
+    assert.match(img, /srcset="\/uploads\/a-c320\.webp 320w, \/uploads\/a-c480\.webp 480w, \/uploads\/a-c640\.webp 640w"/);
+    assert.match(img, /sizes="\(min-width:1248px\) 240px, \(min-width:801px\) 22vw, 30vw"/, 'sizes повторяет сетку .cat-grid');
+    assert.match(img, /src="\/uploads\/a-c320\.webp"/, 'запасной src — самая мелкая копия');
+  }
+  // Ряд категорий на каталоге — плитки по 54 px: там мелкая копия без srcset, как было.
+  const row = R.categoryTiles(db, {}, { row: true }).match(/<img[^>]*>/g)[0];
+  assert.doesNotMatch(row, /srcset|eager|fetchpriority/);
+  // Сетка плиток: три колонки на телефоне и четыре на компьютере — числа sizes.
+  assert.match(css, /\.cat-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(css, /@media\(min-width:640px\)\{\.cat-grid\{grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+  assert.match(css.slice(css.indexOf('@media(max-width:800px){')), /\.cat-grid\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

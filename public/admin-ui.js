@@ -1678,7 +1678,7 @@
  */
 (function () {
   'use strict';
-  // Столько идёт уход карточки, см. `.a-note.is-out` в styles.css.
+  // Столько идёт уход карточки, см. `.a-note.is-out` в admin.css.
   var FADE = 260;
 
   function hide(card) {
