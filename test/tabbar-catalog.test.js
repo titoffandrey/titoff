@@ -103,15 +103,15 @@ test('нижняя панель: полоса как у i-store.by, значки
   /* Дубли на телефоне спрятаны: круглая кнопка чата и значок кабинета в шапке
    * повторяли вкладки той же панели, а кнопка ещё и закрывала угол каталога.
    * Правило живёт в мобильном блоке — на компьютере оба на месте. */
-  assert.match(tail, /\.chat-fab,\.account-btn\{display:none\}/);
-  assert.ok(css.indexOf('.chat-fab,.account-btn{display:none}') > css.indexOf('@media(max-width:800px){\n  body.storefront{--tabbar-h'),
-    'прячет их только мобильный блок — на компьютере круглая кнопка и значок остаются');
+  assert.match(tail, /\.chat-fab,\.account-btn,\.cart-btn\{display:none\}/, 'в шапке на телефоне остаётся одна лупа');
+  assert.ok(css.indexOf('.chat-fab,.account-btn,.cart-btn{display:none}') > css.indexOf('@media(max-width:800px){\n  body.storefront{--tabbar-h'),
+    'прячет их только мобильный блок — на компьютере круглая кнопка, значок и корзина остаются');
   assert.match(css, /\n\.chat-fab\{position:relative;[^}]*display:block/, 'базовое правило кнопки чата на месте');
   /* Мигает САМ значок «Чата» — серый уходит в акцент и обратно, плавно. Колец
    * и волн вокруг значка нет: владелец отверг их как неаккуратные. При
    * prefers-reduced-motion значок стоит. */
   assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico\{animation:tabbar-blink 1\.6s ease-in-out 0s infinite\}/);
-  assert.match(css, /@keyframes tabbar-blink\{0%,to\{color:#6e6e73\}50%\{color:var\(--accent\)\}\}/);
+  assert.match(css, /@keyframes tabbar-blink\{0%,to\{color:#6e6e73\}50%\{color:#d2d2d7\}\}/, 'значок гаснет до светлого и проступает снова, а не уходит в акцент');
   assert.doesNotMatch(tail, /\.tabbar-ico::before|tabbar-pulse|chat-wave/, 'колец и волн у вкладки нет');
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\[data-chat-open\] \.tabbar-ico\{animation:none\}/);
   // Значок «вам написали» — красный, как у круглой кнопки; счётчик корзины — цветом темы.
