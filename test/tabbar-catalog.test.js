@@ -98,7 +98,7 @@ test('нижняя панель: полоса как у i-store.by, значки
   assert.match(item, /font-size:11px;line-height:14px;font-weight:500/);
   assert.match(item, /flex:1 1 0/);
   assert.match(tail, /\.tabbar-ico\{[^}]*height:24px;color:#6e6e73\}/);
-  assert.match(tail, /\.tabbar-ico svg\{position:relative;z-index:1;width:24px;height:24px/);
+  assert.match(tail, /\.tabbar-ico svg\{display:block;width:24px;height:24px/);
   assert.match(tail, /\.tabbar-item\.is-active,\.tabbar-item\.is-active \.tabbar-ico\{color:var\(--accent\)\}/);
   /* Дубли на телефоне спрятаны: круглая кнопка чата и значок кабинета в шапке
    * повторяли вкладки той же панели, а кнопка ещё и закрывала угол каталога.
@@ -107,16 +107,13 @@ test('нижняя панель: полоса как у i-store.by, значки
   assert.ok(css.indexOf('.chat-fab,.account-btn{display:none}') > css.indexOf('@media(max-width:800px){\n  body.storefront{--tabbar-h'),
     'прячет их только мобильный блок — на компьютере круглая кнопка и значок остаются');
   assert.match(css, /\n\.chat-fab\{position:relative;[^}]*display:block/, 'базовое правило кнопки чата на месте');
-  /* Пульс вкладки «Чат» — кольца, а не залитые круги: под серым контурным
-   * значком залитый круг чужого цвета глушил бы сам значок. Период тот же, что у
-   * chat-wave круглой кнопки; анимируются только opacity и transform; при
-   * prefers-reduced-motion кольца стоят и не видны. */
-  assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico::before,\.tabbar-item\[data-chat-open\] \.tabbar-ico::after\{content:"";position:absolute;\s*inset:-3px;z-index:0;border-radius:50%;border:1\.5px solid var\(--accent\);animation:tabbar-pulse 2\.6s linear 0s infinite\}/);
-  assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico::after\{animation-delay:1\.3s\}/);
-  const pulse = (css.match(/@keyframes tabbar-pulse\{([^}]*\}[^}]*\}[^}]*)\}/) || [])[0] || '';
-  assert.ok(pulse, 'кадры пульса на месте');
-  assert.doesNotMatch(pulse, /width|height|border|top|left/, 'анимируются только opacity и transform');
-  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\[data-chat-open\] \.tabbar-ico::before,\.tabbar-item\[data-chat-open\] \.tabbar-ico::after\{animation:none;opacity:0\}/);
+  /* Мигает САМ значок «Чата» — серый уходит в акцент и обратно, плавно. Колец
+   * и волн вокруг значка нет: владелец отверг их как неаккуратные. При
+   * prefers-reduced-motion значок стоит. */
+  assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico\{animation:tabbar-blink 1\.6s ease-in-out 0s infinite\}/);
+  assert.match(css, /@keyframes tabbar-blink\{0%,to\{color:#6e6e73\}50%\{color:var\(--accent\)\}\}/);
+  assert.doesNotMatch(tail, /\.tabbar-ico::before|tabbar-pulse|chat-wave/, 'колец и волн у вкладки нет');
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\[data-chat-open\] \.tabbar-ico\{animation:none\}/);
   // Значок «вам написали» — красный, как у круглой кнопки; счётчик корзины — цветом темы.
   assert.match(tail, /\.tabbar-badge\{position:absolute;[^}]*background:var\(--accent\)[^}]*box-shadow:0 0 0 2px #fff\}/);
   assert.match(tail, /\.tabbar-badge-alert\{background:#eb5757\}/);
