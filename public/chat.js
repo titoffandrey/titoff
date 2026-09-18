@@ -90,6 +90,26 @@
     return false;
   }
 
+  /* Вкладка «Чат» нижней панели (телефон) вибрирует, пока окно ни разу не
+   * открывали, — зовёт посмотреть. Первое открытие запоминается в браузере
+   * (`chat_seen_v1`), и дальше вкладка стоит: посмотрели — звать нечего.
+   * Покупатель с начатым диалогом окно уже видел, ему тоже не зовём. Саму
+   * анимацию делает CSS (`tabbar-shake`), скрипт только ставит и снимает
+   * класс — ни таймера, ни повторной работы на странице. Без скрипта класса
+   * нет и вкладка не качается: без него не открыть и сам чат. */
+  var SEEN = 'chat_seen_v1';
+  function attractTabs(on) {
+    var tabs = document.querySelectorAll('[data-chat-open]');
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('is-attract', !!on);
+  }
+  function chatSeen() {
+    try { return !!localStorage.getItem(SEEN); } catch (e) { return false; }
+  }
+  function markSeen() {
+    try { localStorage.setItem(SEEN, '1'); } catch (e) {}
+    attractTabs(false);
+  }
+
   /* --------------------------------- Реплики --------------------------------- */
 
   /* Ссылку консультант пишет как «[Айфон 17 Pro](/product/iphone-17-pro)», а
@@ -1085,6 +1105,7 @@
   }
 
   function show() {
+    markSeen();
     state.open = true;
     root.classList.add('is-open');
     panel.removeAttribute('inert');
@@ -1157,6 +1178,8 @@
   if (waiting) {
     state.unread = waiting;
   }
+  // Ещё не открывал и разговора нет — вкладка зовёт (см. attractTabs).
+  if (!chatSeen() && !recall()) attractTabs(true);
   if (recall() || waiting) {
     var restoring = post('/api/chat/open', place()).then(function (d) {
       if (!d || !d.ok) return false;

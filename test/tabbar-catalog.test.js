@@ -107,19 +107,28 @@ test('нижняя панель: полоса как у i-store.by, значки
   assert.ok(css.indexOf('.chat-fab,.account-btn,.cart-btn{display:none}') > css.indexOf('@media(max-width:800px){\n  body.storefront{--tabbar-h'),
     'прячет их только мобильный блок — на компьютере круглая кнопка, значок и корзина остаются');
   assert.match(css, /\n\.chat-fab\{position:relative;[^}]*display:block/, 'базовое правило кнопки чата на месте');
-  /* Мигает САМ значок «Чата» — серый уходит в акцент и обратно, плавно. Колец
-   * и волн вокруг значка нет: владелец отверг их как неаккуратные. При
-   * prefers-reduced-motion значок стоит. */
-  assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico\{animation:tabbar-blink 1\.6s ease-in-out 0s infinite\}/);
-  assert.match(css, /@keyframes tabbar-blink\{0%,to\{color:#6e6e73\}50%\{color:#d2d2d7\}\}/, 'значок гаснет до светлого и проступает снова, а не уходит в акцент');
-  assert.doesNotMatch(tail, /\.tabbar-ico::before|tabbar-pulse|chat-wave/, 'колец и волн у вкладки нет');
-  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\[data-chat-open\] \.tabbar-ico\{animation:none\}/);
+  /* Значок «Чата» ВИБРИРУЕТ — качается с затухающим размахом и замирает на
+   * три четверти периода — и только пока окно ни разу не открывали: класс
+   * `is-attract` ставит chat.js по памяти браузера и снимает первым открытием.
+   * Анимируется один transform (композитор, без перерисовки); колец, волн и
+   * мигания цветом нет — владелец отверг их. При prefers-reduced-motion стоит. */
+  assert.match(tail, /\.tabbar-item\.is-attract \.tabbar-ico svg\{animation:tabbar-shake 3\.6s ease-in-out \.6s infinite;transform-origin:50% 60%\}/);
+  const shake = (css.match(/@keyframes tabbar-shake\{[^]*?\}\}/) || [])[0] || '';
+  assert.ok(shake, 'кадры вибрации на месте');
+  assert.match(shake, /0%,22%,to\{transform:rotate\(0\)\}/, 'три четверти периода значок стоит');
+  assert.doesNotMatch(shake, /color|opacity|width|height|top|left/, 'анимируется только transform');
+  assert.doesNotMatch(tail, /\.tabbar-ico::before|tabbar-pulse|tabbar-blink|chat-wave/, 'колец, волн и мигания цветом у вкладки нет');
+  assert.doesNotMatch(tail, /\[data-chat-open\] \.tabbar-ico\{animation/, 'вибрирует не любая вкладка чата, а только зовущая (is-attract)');
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\.is-attract \.tabbar-ico svg\{animation:none\}/);
+  assert.match(chat, /var SEEN = 'chat_seen_v1';/);
+  assert.match(chat, /if \(!chatSeen\(\) && !recall\(\)\) attractTabs\(true\);/, 'зовёт только того, кто окна не открывал и разговора не вёл');
+  assert.match(chat, /function show\(\) \{\s*markSeen\(\);/, 'первое открытие снимает вибрацию и запоминается');
+  assert.doesNotMatch(chat, /setInterval\([^)]*attract|setTimeout\([^)]*attract/, 'ни одного таймера ради вибрации');
   // Значок «вам написали» — красный, как у круглой кнопки; счётчик корзины — цветом темы.
   assert.match(tail, /\.tabbar-badge\{position:absolute;[^}]*background:var\(--accent\)[^}]*box-shadow:0 0 0 2px #fff\}/);
   assert.match(tail, /\.tabbar-badge-alert\{background:#eb5757\}/);
   assert.match(tail, /\.tabbar-item\.is-in \.tabbar-ico::after\{[^}]*background:var\(--accent\);box-shadow:0 0 0 2px #fff\}/);
   // Закрытое окно возвращает фокус туда, откуда открыли: на телефоне — на вкладку.
-  const chat = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
   assert.match(chat, /var back = button && button\.offsetParent !== null \? button : document\.querySelector\('\[data-chat-open\]'\);/);
   assert.match(chat, /tab\.setAttribute\('aria-label', 'Чат, новых сообщений: ' \+ state\.unread\)/);
   // Кнопка чата, тост и липкий ряд покупки поднимаются на высоту панели —
