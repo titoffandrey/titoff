@@ -73,13 +73,20 @@ function chat(options = {}) {
   document.createElement = tag => new Element(tag);
   document.createElementNS = (_, tag) => new Element(tag);
   document.createTextNode = text => { const node = new Element('text'); node.textContent = text; return node; };
-  const calls = [], sounds = [], timers = new Map();
+  const calls = [], sounds = [], timers = new Map(), stored = new Map();
   let serial = 0;
   const context = {
     document, Promise, Date, AbortController,
     FormData: class { append() {} },
     URL: { createObjectURL: () => 'blob:local-' + (++serial), revokeObjectURL() {} },
-    localStorage: { getItem: () => null, setItem() {} },
+    /* Память браузера: по умолчанию окно чата уже открывали (`chat_seen_v1`) —
+     * сценарии ниже про живой разговор, а не про первый визит; у нового
+     * посетителя (`options.fresh`) память пуста, и приветствие считается
+     * непрочитанным. Записи собираются в `stored`. */
+    localStorage: {
+      getItem: key => stored.has(key) ? stored.get(key) : (!options.fresh && key === 'chat_seen_v1' ? '1' : null),
+      setItem: (key, value) => stored.set(key, String(value))
+    },
     location: { pathname: '/' },
     ChatSound: { play: sound => sounds.push(sound) },
     matchMedia: () => ({ matches: false }),
@@ -97,7 +104,7 @@ function chat(options = {}) {
   const code = source('chat.js').replace(/\}\)\(\);\s*$/, 'window.audit = { state, send, open, show, hide, append, startPolling, pollOnce };\n})();');
   vm.runInNewContext(code, context);
   return {
-    ...context.audit, nodes, sendButton, document, calls, sounds, timers,
+    ...context.audit, nodes, sendButton, document, calls, sounds, timers, stored,
     timer(delay) {
       const entry = [...timers.entries()].find(([, timer]) => timer.delay === delay);
       assert.ok(entry, 'таймер ' + delay + ' существует');
@@ -176,6 +183,24 @@ test('одинаковая реплика из другой вкладки не 
   await flush();
   h.append({ role: 'user', text: 'Да', at: 101 });
   assert.equal(h.nodes['chat-log'].querySelectorAll('.chat-me').length, 2);
+});
+
+test('новому посетителю приветствие показано непрочитанным: «1» на кнопке и вкладке, первое открытие гасит и запоминает', async () => {
+  const h = chat({ fresh: true });
+  assert.equal(h.state.unread, 1, 'приветствие в окне и правда не прочитано');
+  assert.equal(h.nodes['chat-badge'].textContent, '1');
+  assert.equal(h.nodes['chat-badge'].hidden, false);
+  assert.equal(h.sounds.length, 0, 'без звука: это не входящее, а то, что лежало в окне с самого начала');
+  assert.equal(h.calls.length, 0, 'ни одного запроса: диалога на сервере ещё нет');
+  h.show();
+  await flush();
+  assert.equal(h.state.unread, 0);
+  assert.equal(h.nodes['chat-badge'].hidden, true);
+  assert.equal(h.stored.get('chat_seen_v1'), '1', 'первое открытие запомнено — в следующий заход единицы нет');
+  assert.equal(h.calls.filter(call => call.url === '/api/chat/read').length, 0, 'отметка прочтения без диалога на сервер не уходит');
+  // Уже открывал — единицы нет; сервер прислал настоящие непрочитанные — число его.
+  assert.equal(chat().state.unread, 0);
+  assert.equal(chat({ fresh: true, waiting: 3 }).state.unread, 3);
 });
 
 test('входящее в фоновую вкладку остаётся непрочитанным до возвращения', async () => {

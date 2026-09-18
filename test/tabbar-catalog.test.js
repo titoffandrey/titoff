@@ -107,23 +107,17 @@ test('нижняя панель: полоса как у i-store.by, значки
   assert.ok(css.indexOf('.chat-fab,.account-btn,.cart-btn{display:none}') > css.indexOf('@media(max-width:800px){\n  body.storefront{--tabbar-h'),
     'прячет их только мобильный блок — на компьютере круглая кнопка, значок и корзина остаются');
   assert.match(css, /\n\.chat-fab\{position:relative;[^}]*display:block/, 'базовое правило кнопки чата на месте');
-  /* Значок «Чата» ВИБРИРУЕТ — качается с затухающим размахом и замирает на
-   * три четверти периода — и только пока окно ни разу не открывали: класс
-   * `is-attract` ставит chat.js по памяти браузера и снимает первым открытием.
-   * Анимируется один transform (композитор, без перерисовки); колец, волн и
-   * мигания цветом нет — владелец отверг их. При prefers-reduced-motion стоит. */
-  assert.match(tail, /\.tabbar-item\.is-attract \.tabbar-ico svg\{animation:tabbar-shake 3\.6s ease-in-out \.6s infinite;transform-origin:50% 60%\}/);
-  const shake = (css.match(/@keyframes tabbar-shake\{[^]*?\}\}/) || [])[0] || '';
-  assert.ok(shake, 'кадры вибрации на месте');
-  assert.match(shake, /0%,22%,to\{transform:rotate\(0\)\}/, 'три четверти периода значок стоит');
-  assert.doesNotMatch(shake, /color|opacity|width|height|top|left/, 'анимируется только transform');
-  assert.doesNotMatch(tail, /\.tabbar-ico::before|tabbar-pulse|tabbar-blink|chat-wave/, 'колец, волн и мигания цветом у вкладки нет');
-  assert.doesNotMatch(tail, /\[data-chat-open\] \.tabbar-ico\{animation/, 'вибрирует не любая вкладка чата, а только зовущая (is-attract)');
-  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\.is-attract \.tabbar-ico svg\{animation:none\}/);
+  /* Анимаций у вкладки НЕТ ВОВСЕ — кольца, мигание и вибрацию владелец
+   * отверг. Внимание держит значок «1» у нового посетителя: приветствие
+   * консультанта в окне и правда не прочитано. Первое открытие гасит его и
+   * запоминается в браузере; тому, у кого разговор начат или сервер прислал
+   * настоящие непрочитанные, единица не подставляется. */
+  assert.doesNotMatch(tail, /animation|@keyframes|is-attract|tabbar-shake|tabbar-blink|tabbar-pulse/, 'у панели нет ни одной анимации');
   assert.match(chat, /var SEEN = 'chat_seen_v1';/);
-  assert.match(chat, /if \(!chatSeen\(\) && !recall\(\)\) attractTabs\(true\);/, 'зовёт только того, кто окна не открывал и разговора не вёл');
-  assert.match(chat, /function show\(\) \{\s*markSeen\(\);/, 'первое открытие снимает вибрацию и запоминается');
-  assert.doesNotMatch(chat, /setInterval\([^)]*attract|setTimeout\([^)]*attract/, 'ни одного таймера ради вибрации');
+  assert.match(chat, /if \(!waiting && !chatSeen\(\) && !recall\(\)\) \{ state\.unread = 1; paintBadge\(\); \}/,
+    'единица — только новому: без начатого разговора и без настоящих непрочитанных от сервера');
+  assert.match(chat, /function show\(\) \{\s*markSeen\(\);/, 'первое открытие запоминается — в следующий заход приветствие прочитано');
+  assert.doesNotMatch(chat, /attractTabs|is-attract/, 'вибрации в скрипте не осталось');
   // Значок «вам написали» — красный, как у круглой кнопки; счётчик корзины — цветом темы.
   assert.match(tail, /\.tabbar-badge\{position:absolute;[^}]*background:var\(--accent\)[^}]*box-shadow:0 0 0 2px #fff\}/);
   assert.match(tail, /\.tabbar-badge-alert\{background:#eb5757\}/);
