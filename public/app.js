@@ -518,13 +518,20 @@
         // подходит менеджеру так же, как звонок, и знать это надо до ввода.
         + '<p class="field-note">Введите номер ' + iconWord('whatsapp', 'WhatsApp')
         + ' или ' + iconWord('mobile', 'сотовый') + '</p></div>'
-        // Второй канал связи — по желанию: телефон уже обязателен, и требовать
-        // ещё и Telegram значило бы спрашивать одно и то же дважды. Звёздочки
-        // у подписи нет, и этого достаточно — отдельная строка «по желанию»
-        // повторяла бы то же самое словами.
-        + '<div class="field"><label for="co-contact">' + iconWord('telegram', 'Telegram')
-        + ' или ' + iconWord('mail', 'e-mail') + '</label>'
-        + '<input type="text" id="co-contact" maxlength="120" placeholder="@nickname или mail@example.com">'
+        /* Почта — по желанию: телефон уже обязателен, и требовать ещё и её
+         * значило бы спрашивать одно и то же дважды. Но именно по ней заводится
+         * личный кабинет: указал адрес — кабинет создаётся сам, пароль приходит
+         * письмом, и заказ виден в нём с любого устройства. Подпись под полем
+         * говорит это заранее — обещание, о котором узнают после оформления,
+         * читается как сюрприз. Что обещать, решает сервер (`data-account-*`):
+         * без почтового сервера пароль прислать нечем, и подписи нет.
+         *
+         * Прежнее «Telegram или e-mail» ушло: Telegram и WhatsApp менеджер и так
+         * находит по телефону, а свободное поле не годилось ни для кабинета, ни
+         * для чека. У прежних заявок строка `contact` остаётся как была. */
+        + '<div class="field"><label for="co-email">' + iconWord('mail', 'E-mail') + '</label>'
+        + '<input type="email" id="co-email" maxlength="120" inputmode="email" autocomplete="email" placeholder="mail@example.com">'
+        + accountEmailNote()
         + '</div>'
         + '</div>'
         /* Адрес покупателя — ЕГО ДАННЫЕ, наравне с именем и контактом, поэтому
@@ -651,9 +658,9 @@
    */
   var FORM_KEY = 'checkout_v1';
   var FORM_TTL = 7 * 24 * 60 * 60 * 1000;
-  var FORM_FIELDS = ['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'];
+  var FORM_FIELDS = ['co-first-name', 'co-last-name', 'co-phone', 'co-email', 'co-address'];
   var FORM_RADIOS = ['co-delivery', 'co-delivery-mode'];
-  var FORM_LIMITS = { 'co-first-name': 60, 'co-last-name': 60, 'co-phone': 24, 'co-contact': 120, 'co-address': 400 };
+  var FORM_LIMITS = { 'co-first-name': 60, 'co-last-name': 60, 'co-phone': 24, 'co-email': 120, 'co-address': 400 };
   function checkedValue(name) {
     var radios = document.querySelectorAll ? document.querySelectorAll('input[name="' + name + '"]') : [];
     for (var i = 0; i < radios.length; i++) if (radios[i].checked) return String(radios[i].value || '');
@@ -768,6 +775,35 @@
         // Это лишь кандидат. Настоящим выбором он станет после совпадения с
         // актуальным ответом /api/delivery/points.
         pickup.restoredCode = pickupCode;
+      }
+    }
+    /* Вошедший в кабинет: почта — ИЗ КАБИНЕТА всегда (заказ привяжется к нему
+     * в любом случае, и другой адрес в поле только запутал бы), имя и телефон —
+     * когда память формы их не помнит: набранное здесь важнее сохранённого в
+     * профиле. Поле остаётся обычным вводом, править его можно. */
+    var page = document.getElementById('checkout-page');
+    var accEmail = page ? String(page.getAttribute('data-account-email') || '') : '';
+    if (accEmail) {
+      var emailEl = document.getElementById('co-email');
+      if (emailEl && emailEl.value !== accEmail) {
+        emailEl.value = accEmail;
+        emailEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      var accName = String(page.getAttribute('data-account-name') || '').trim();
+      var first = document.getElementById('co-first-name');
+      var last = document.getElementById('co-last-name');
+      if (accName && first && last && !first.value && !last.value) {
+        var parts = accName.split(/\s+/);
+        first.value = cleanText(parts[0], 60);
+        last.value = cleanText(parts.slice(1).join(' '), 60);
+        first.dispatchEvent(new Event('change', { bubbles: true }));
+        if (last.value) last.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      var accPhone = String(page.getAttribute('data-account-phone') || '');
+      var phoneEl = document.getElementById('co-phone');
+      if (accPhone && phoneEl && !phoneEl.value) {
+        phoneEl.value = cleanText(accPhone, 24);
+        phoneEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
     // На `change`, то есть при уходе из поля, а не на каждую букву: запись в
@@ -2467,6 +2503,44 @@
      подхватывает ссылки с data-kind внутри блока с data-media и слушает
      документ, поэтому вызывать его отсюда не нужно вовсе. */
 
+  /* Личный кабинет: корзина и одноразовая плашка.
+   *
+   * Корзина живёт в localStorage и на сервере не видна: список в кабинете
+   * рисует этот же скрипт по тому же хранилищу, что и шторка корзины, — без
+   * второго расчёта цен и без запроса. Показывается ровно то, что уже в
+   * корзине: название, вариант, количество и сумма, а дальше — на оформление.
+   *
+   * `?flash=` после действия («Сохранено», «Пароль изменён») снимается из
+   * адреса сразу после показа, как в панели: иначе F5 доставал бы «Сохранено»
+   * спустя часы, а уведомление о действии, которого сейчас не было, читается
+   * как сбой. */
+  function initAccountPage() {
+    var box = document.getElementById('account-cart');
+    if (!box) return;
+    if (Cart.items.length) {
+      var count = Cart.count();
+      box.innerHTML = '<ul class="acc-cart-list">'
+        + Cart.items.map(function (i) {
+          var variant = [i.storage, i.color, i.band, i.bandSize].concat(optionValues(i)).filter(Boolean).join(' · ');
+          return '<li class="acc-cart-item"><div class="acc-cart-media">' + itemThumb(i) + '</div>'
+            + '<div class="acc-cart-body"><a class="acc-cart-name" href="/product/' + encodeURIComponent(i.id) + '">' + escapeHtml(i.name) + '</a>'
+            + (variant ? '<div class="acc-cart-variant">' + escapeHtml(variant) + '</div>' : '')
+            + '<div class="acc-cart-qty">' + escapeHtml(money(i.price)) + (i.qty > 1 ? ' × ' + i.qty : '') + '</div></div></li>';
+        }).join('')
+        + '</ul>'
+        + '<div class="acc-cart-foot"><span>' + count + ' ' + plural(count, 'товар', 'товара', 'товаров') + ' на <b>' + escapeHtml(money(Cart.total())) + '</b></span>'
+        + '<a class="btn btn-primary" href="/checkout">Оформить заказ</a></div>';
+    }
+    try {
+      if (window.history && history.replaceState && /[?&]flash=/.test(location.search)) {
+        var params = new URLSearchParams(location.search);
+        params.delete('flash');
+        var rest = params.toString();
+        history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+      }
+    } catch (e) {}
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     Cart.load();
     // Выбор промокода — ДО первого запроса корзины: иначе снявший скидку
@@ -2490,6 +2564,7 @@
     initHeroTicker();
     initMediaGuard();
     initNavMenu();
+    initAccountPage();
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && document.body.classList.contains('cart-open')) Cart.close();
@@ -3282,7 +3357,32 @@
 
   // Экран «заказ оформлен» — путь без онлайн-оплаты. При включённой оплате сюда
   // не приходим: заказ записан, и покупатель уходит на свою страницу оплаты.
-  function showOrderDone(number) {
+  /* Подпись под полем почты: что будет с адресом. Вошедшему — что заказ
+   * появится в его кабинете; остальным — что кабинет заведётся сам и пароль
+   * придёт письмом, но только когда сервер обещает прислать его
+   * (`data-account-auto`). Без кабинета подписи нет вовсе. */
+  function accountEmailNote() {
+    var page = document.getElementById('checkout-page');
+    if (!page || !page.hasAttribute('data-account')) return '';
+    if (page.getAttribute('data-account-email')) return '<p class="field-note">Заказ появится в вашем <a href="/account">личном кабинете</a></p>';
+    if (page.hasAttribute('data-account-auto')) return '<p class="field-note">Создадим личный кабинет и пришлём пароль на почту</p>';
+    return '';
+  }
+  // Отметка о кабинете на экране «заказ оформлен»: слова те же, что на странице
+  // оплаты (`accountNoteText` в lib/render.js), только собираются здесь — экран
+  // рисует браузер.
+  function accountDoneNote(account) {
+    if (!account || !account.email) return '';
+    var text = account.created
+      ? 'Мы создали для вас личный кабинет: пароль отправили на ' + account.email + '. Там будут все ваши заказы и отправления.'
+      : account.exists
+        ? 'На ' + account.email + ' уже есть личный кабинет — войдите, и этот заказ появится там.'
+        : '';
+    if (!text) return '';
+    return '<div class="order-success-next order-success-account"><span class="order-success-step" aria-hidden="true">2</span><div><strong>Личный кабинет</strong><p>'
+      + escapeHtml(text) + (account.exists ? ' <a href="/account/login">Войти</a>' : '') + '</p></div></div>';
+  }
+  function showOrderDone(number, account) {
     var page = document.getElementById('checkout-page');
     if (!page) return;
     var grid = page.querySelector('.checkout-grid') || page.querySelector('.checkout-done');
@@ -3297,6 +3397,7 @@
       + '<p class="order-success-copy">Мы сохранили заявку и передали её менеджеру.</p>'
       + '<div class="order-success-number"><span>Заказ</span><strong>' + escapeHtml(orderNo(number)) + '</strong></div>'
       + '<div class="order-success-next"><span class="order-success-step" aria-hidden="true">1</span><div><strong>Что дальше?</strong><p>Менеджер позвонит по указанному номеру, чтобы подтвердить наличие и детали заказа.</p></div></div>'
+      + accountDoneNote(account)
       + '<a class="btn btn-primary btn-lg" href="/">Продолжить покупки</a>'
       + '</section>';
     var ok = document.getElementById('order-success');
@@ -3415,7 +3516,7 @@
       // модулем, что отформатировал поле. Двух разборов одной строки быть не
       // должно, даже если оба дают один результат.
       phone: phoneValue(),
-      contact: val('co-contact'),
+      email: val('co-email'),
       address: val('co-address'),
       delivery: deliveryChoice(),
       deliveryMode: deliveryModeChoice(),
@@ -3467,7 +3568,7 @@
             // ждёт отправки цели.
             var next = function () {
               if (online && d.id) { startPayment(d.id, d.payNow, d.total); return; }
-              showOrderDone(d.number || '—');
+              showOrderDone(d.number || '—', d.account);
             };
             if (d.id && !d.draft) reachGoal('order', { order_price: Number(d.total) || 0, currency: 'RUB' }, 'order:' + d.id, next);
             else next();

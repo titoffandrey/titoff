@@ -75,6 +75,8 @@ function orderHarness(t, { shipping = 100 } = {}) {
     clientIp: () => '', cloudflareTrusted: () => false,
     metrics: { visitorId: () => null, context: () => ({}), describeRequest: async () => ({}) },
     metricsSkipped: () => true,
+    // Личный кабинет здесь не участвует: никто не вошёл, почты в заказе нет.
+    EMAIL: require('../lib/email'), CUSTOMERS: { enabled: () => false }, currentCustomer: () => null, accountForOrder: () => null,
     // Черновик менеджера не будит; заявка и заказ по своим реквизитам — будят сразу.
     notifyNewOrder: order => { if (order.draft) assert.fail('черновик не уведомляет менеджера'); notified.push(order.id); }
   });

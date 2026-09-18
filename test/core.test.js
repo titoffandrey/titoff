@@ -7130,7 +7130,7 @@ test('оформление помнит введённое — после неу
   /* Покупатель, у которого касса не выставила счёт, возвращается на оформление.
    * Контакты, адрес и выбранная доставка восстанавливаются из браузера самого
    * покупателя и протухают через неделю. */
-  assert.match(js, /FORM_FIELDS = \['co-first-name', 'co-last-name', 'co-phone', 'co-contact', 'co-address'\]/);
+  assert.match(js, /FORM_FIELDS = \['co-first-name', 'co-last-name', 'co-phone', 'co-email', 'co-address'\]/);
   assert.match(js, /FORM_RADIOS = \['co-delivery', 'co-delivery-mode'\]/);
   assert.match(js, /FORM_TTL/);
   assert.match(js, /initCheckoutMemory\(\);/, 'память подключается при сборке формы');
@@ -8209,7 +8209,7 @@ test('настройки идут разделами, и свёрнутая ст
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
   assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'domains', 'pay', 'price',
-    'chat', 'telegram', 'reviews', 'dadata', 'ym', 'legal', 'access']);
+    'chat', 'telegram', 'reviews', 'accounts', 'dadata', 'ym', 'legal', 'access']);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
    * описывает, что внутри: описание читают один раз, а видят каждый день. */
@@ -9144,7 +9144,12 @@ test('телефон обязателен и разбирается одним �
     assert.ok(js.indexOf(name + ':') > -1, 'нет глифа ' + name);
   }
   assert.match(js, /Введите номер ' \+ iconWord\('whatsapp', 'WhatsApp'\)/);
-  assert.match(js, /iconWord\('telegram', 'Telegram'\)/);
+  /* Второе поле — почта, а не прежнее «Telegram или e-mail»: по ней заводится
+   * личный кабинет, и свободное поле для этого не годилось. Тип `email` даёт
+   * нужную клавиатуру на телефоне, а проверяет адрес сервер. */
+  assert.match(js, /iconWord\('mail', 'E-mail'\)/);
+  assert.match(js, /<input type="email" id="co-email" maxlength="120" inputmode="email" autocomplete="email"/);
+  assert.doesNotMatch(js, /id="co-contact"/, 'прежнего свободного поля контакта нет');
   // Подписи, которые убрали: телефон больше не обещает трек-номер, а у второго
   // контакта нет строки «по желанию» — её заменяет отсутствие звёздочки.
   assert.doesNotMatch(js, /пришлём трек-номер/);
@@ -10899,8 +10904,11 @@ test('состояние оплаты красит панель одним на�
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   // Цвет тона задан ОДИН раз: по нему красятся плашка, строка и точка сводки.
   // Разъезжаются такие вещи молча — увидеть это можно только глазами.
+  // Строка заказа в личном кабинете красится тем же правилом: тон один на
+  // панель и на покупателя, вторая палитра означала бы разные цвета у одного
+  // состояния.
   for (const tone of ['ok', 'wait', 'warn', 'off']) {
-    const rule = new RegExp(`\\.o-stat-${tone},\\.o-row-${tone},\\.pay-tag\\.pay-${tone}\\{--tone:`);
+    const rule = new RegExp(`\\.o-stat-${tone},\\.o-row-${tone},\\.pay-tag\\.pay-${tone},\\.acc-tone-${tone}\\{--tone:`);
     assert.match(css, rule, 'тон ' + tone + ' раскрашен не одним правилом');
   }
   assert.match(css, /\.pay-tag\{[^}]*background:var\(--tone-soft\)/);

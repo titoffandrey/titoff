@@ -89,6 +89,12 @@ const LINKS = require('./public/chat-links');
 // Ответ консультанта печатается, а не падает целиком: пауза на прочтение
 // вопроса и ровный темп по длине ответа (см. шапку модуля).
 const TYPING = require('./lib/chat-typing');
+/* Личный кабинет покупателя: учётные записи (lib/customers.js) и письма к
+ * ним — пароль от кабинета, созданного при заказе, и ссылка восстановления
+ * (lib/mail.js). Адрес почты у заказа и кабинета одной формы — lib/email.js. */
+const CUSTOMERS = require('./lib/customers');
+const MAIL = require('./lib/mail');
+const EMAIL = require('./lib/email');
 const { App } = require('./lib/server-lib');
 LIVE.watch(db.DATA_DIR);
 
@@ -620,6 +626,42 @@ function adminAuthorized(req) {
   return !!(req.session && req.session.admin === authStamp(s.adminUsername, s.adminPasswordHash));
 }
 
+/* Вошедший покупатель — по подписанной сессии и отметке, привязанной к хешу
+ * его пароля (см. блок «Личный кабинет» ниже). Отметка не сошлась — сессия
+ * прежняя, пароль с тех пор сменили, и она недействительна. Выключенный в
+ * настройках кабинет никого вошедшим не считает. */
+function currentCustomer(req) {
+  const id = String(req.session && req.session.customerId || '');
+  if (!id) return null;
+  const s = settings();
+  if (!CUSTOMERS.enabled(s)) return null;
+  const customer = CUSTOMERS.byId(id);
+  if (!customer || req.session.customerStamp !== CUSTOMERS.stamp(customer, s.sessionSecret)) return null;
+  return customer;
+}
+function loginCustomer(req, customer) {
+  req.session.customerId = String(customer.id);
+  req.session.customerStamp = CUSTOMERS.stamp(customer, settings().sessionSecret);
+  adoptSessionOrders(req, customer);
+}
+function logoutCustomer(req) {
+  if (!req.session) return;
+  delete req.session.customerId;
+  delete req.session.customerStamp;
+}
+/* Заказы, оформленные ЭТИМ браузером с почтой кабинета, становятся заказами
+ * кабинета при входе. Ровно этим браузером: сессия, оформившая заказ, плюс
+ * пароль от ящика — это и есть владелец, а заказ без почты или с чужой
+ * остаётся как был. Иначе один чужой e-mail на оформлении показывал бы
+ * владельцу кабинета чужой заказ с адресом и телефоном. */
+function adoptSessionOrders(req, customer) {
+  const ids = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
+  for (const id of ids) {
+    const order = db.getOrder(String(id || ''));
+    if (order && !order.customerId && order.email && order.email === customer.email) db.attachOrderCustomer(order.id, customer.id);
+  }
+}
+
 // Защита входов от перебора паролей: временные счётчики попыток хранятся в памяти.
 const loginAttempts = new Map();
 /* Адрес посетителя. К нему привязаны счётчик попыток входа, все антиспам-лимиты
@@ -916,7 +958,10 @@ function pageOpts(req, extra) {
     categories: db.visibleCategories(),
     payRemind: payRemind(req),
     chatWaiting: chatWaiting(req),
-    ym: ymFor(req)
+    ym: ymFor(req),
+    // Значок кабинета в шапке отмечает вошедшего; самих данных страницам витрины
+    // не нужно, поэтому здесь только признак.
+    customer: !!currentCustomer(req)
   }, extra || {});
 }
 
@@ -1015,7 +1060,20 @@ app.get('/checkout', (req, res) => {
     // держать это в разметке значило бы завести второй источник правды о
     // скидке, а он разошёлся бы с ценами на первой же правке в панели.
     promoOn: PROMO.enabled(settings()),
-    notice
+    notice,
+    /* Личный кабинет: вошедшему подставляем почту, имя и телефон, а тому, кто
+     * не вошёл, поле почты обещает кабинет — но только когда есть чем прислать
+     * пароль. Что видит витрина — решает `checkoutPage`; ключей почты в
+     * разметке нет. */
+    account: (() => {
+      const s = settings();
+      if (!CUSTOMERS.enabled(s)) return null;
+      const customer = currentCustomer(req);
+      return {
+        auto: accountMailOn(s),
+        email: customer ? customer.email : '', name: customer ? customer.name : '', phone: customer ? customer.phone : ''
+      };
+    })()
   })));
 });
 
@@ -1048,9 +1106,12 @@ app.get('/track', (req, res) => {
    * Своему покупателю ссылка не нужна вовсе, а чужому эта страница не покажет
    * ничего. */
   const ids = Array.isArray(req.session && req.session.myOrders) ? req.session.myOrders : [];
+  const customer = currentCustomer(req);
   const orders = ids
     .map(id => db.getOrder(String(id || '')))
-    .filter(o => o && !db.isOrderArchived(o) && o.shipment);
+    // И заказы кабинета: вошедший видит свои посылки с любого устройства.
+    .concat(customer ? db.ordersForCustomer(customer.id) : [])
+    .filter((o, i, all) => o && all.indexOf(o) === i && !db.isOrderArchived(o) && o.shipment);
   res.send(R.trackingPage(settings(), pageOpts(req, { orders })));
 });
 
@@ -1068,7 +1129,7 @@ app.get('/track/:token', (req, res) => {
     // Удалённый заказ отслеживать нечего: для покупателя он закрыт так же, как
     // на странице оплаты.
     order: order && !db.isOrderArchived(order) ? order : null,
-    own: !!order && mine.includes(order.id)
+    own: !!order && ownsOrder(req, order)
   })));
 });
 
@@ -1100,6 +1161,241 @@ for (const [route, page] of [
     res.send(page(settings(), pageOpts(req, extra)));
   });
 }
+
+/* ============================ ЛИЧНЫЙ КАБИНЕТ ============================
+ * Вход по e-mail и паролю, свои заказы, отправления и корзина (lib/customers.js,
+ * страницы — `accountPage` и `accountAuthPage` в lib/render.js).
+ *
+ * Ключ — та же подписанная cookie-сессия, что у панели и у своих заказов:
+ * `customerId` плюс отметка `customerStamp`, привязанная к хешу пароля
+ * (`CUSTOMERS.stamp`). Сменил пароль — прежние сессии отваливаются сами, и
+ * это единственный способ выгнать того, кто увёл кабинет: ссылка
+ * восстановления нужна ровно в этом случае.
+ *
+ * Формы обычные: POST и страница заново, ошибка — той же страницей с кодом 400
+ * и введённым адресом в поле, удача — редирект с `?flash=`. Скрипта у
+ * кабинета нет, кроме корзины: она живёт в localStorage.
+ *
+ * Блок снимается целиком вместе с lib/customers.js, lib/mail.js и страницами в
+ * lib/render.js; заказы при этом целы — привязка живёт необязательным полем
+ * `customerId`.
+ */
+
+// Кабинет выключен в настройках — его страниц не существует, как и значка в
+// шапке: «не найдено», а не пустая страница входа.
+function accountsOff(req, res) {
+  if (CUSTOMERS.enabled(settings())) return false;
+  sendNotFound(req, res);
+  return true;
+}
+// Есть ли чем слать письма: без почты кабинет работает, но сам при заказе не
+// заводится, а «забыли пароль» честно говорит, что восстановление недоступно.
+function accountMailOn(s) { return CUSTOMERS.enabled(s) && MAIL.configured(s); }
+
+function accountAuth(req, res, opts) {
+  const o = opts || {};
+  const s = settings();
+  res.send(R.accountAuthPage(s, pageOpts(req, Object.assign({ mailOn: accountMailOn(s) }, o))), o.status || 200);
+}
+function accountHome(req, res, customer, opts) {
+  const o = opts || {};
+  res.send(R.accountPage(settings(), pageOpts(req, Object.assign({
+    customer: CUSTOMERS.publicView(customer), orders: db.ordersForCustomer(customer.id)
+  }, o))), o.status || 200);
+}
+const accountFlash = (text, extra) => '/account?flash=' + encodeURIComponent(text) + (extra || '');
+const ACCOUNT_TOO_MANY = 'Слишком много попыток. Подождите 15 минут и попробуйте снова.';
+
+/* Абсолютный адрес для писем. Публичный origin развёртывания — прежде всего:
+ * ссылка восстановления с чужим `Host` уводила бы покупателя на чужой домен
+ * вместе с ключом. На бою `PUBLIC_ORIGIN` задан всегда; запасной `originOf`
+ * остаётся для разработки на localhost. */
+function mailOrigin(req) { return paymentOrigin(req) || originOf(req); }
+
+// Письмо с паролем — кабинет завёлся сам при заказе.
+function accountPasswordMail(s, customer, password, order, origin) {
+  const name = String(customer.name || '').trim();
+  return {
+    to: customer.email,
+    subject: `Личный кабинет ${s.storeName}` + (order ? ` — заказ ${R.orderNo(order.number)}` : ''),
+    text: `Здравствуйте${name ? ', ' + name : ''}!\n\n`
+      + (order
+        ? `Вы оформили заказ ${R.orderNo(order.number)} в магазине «${s.storeName}». `
+        : `Вы зарегистрировались в магазине «${s.storeName}». `)
+      + 'Мы создали для вас личный кабинет: в нём видны заказы, оплата и отслеживание посылок.\n\n'
+      + `Вход: ${origin}/account/login\n`
+      + `Логин: ${customer.email}\n`
+      + `Пароль: ${password}\n\n`
+      + 'Пароль можно сменить в кабинете в любой момент.\n'
+      + 'Если вы ничего не оформляли, просто не отвечайте на это письмо.'
+  };
+}
+// Письмо со ссылкой восстановления. Пароля в нём нет намеренно (см.
+// lib/customers.js): ссылка ничего не меняет, пока по ней не пришли.
+function accountResetMail(s, customer, token, origin) {
+  return {
+    to: customer.email,
+    subject: `Новый пароль для кабинета ${s.storeName}`,
+    text: 'Здравствуйте!\n\n'
+      + `Кто-то (надеемся, вы) попросил восстановить пароль от личного кабинета в магазине «${s.storeName}». `
+      + 'Чтобы задать новый пароль, откройте ссылку — она действует один час:\n\n'
+      + `${origin}/account/reset/${token}\n\n`
+      + 'Если это были не вы, ничего делать не нужно: пароль останется прежним.'
+  };
+}
+
+/* Кабинет для только что оформленного заказа.
+ *
+ * Вошедший покупатель уже привязан к заказу (`customerId` в самом заказе), и
+ * делать нечего. Не вошедший, но указавший почту, получает кабинет ЗДЕСЬ И
+ * СЕЙЧАС: запись, вошедшая сессия, заказ в ней, а пароль — письмом. Письмо
+ * уходит в фоне и ответа заказу не задерживает: SMTP занимает секунды, а это
+ * последний шаг покупки. Не дошло — покупатель в кабинете задаёт пароль сам
+ * (`autoPassword`), а ошибка видна в логе.
+ *
+ * Почта чужого кабинета заказ к нему НЕ привязывает: адрес на оформлении
+ * пишет кто угодно, и один чужой e-mail показывал бы владельцу кабинета чужой
+ * заказ с адресом и телефоном. Привяжется он, когда владелец войдёт в кабинет
+ * из этого же браузера (`adoptSessionOrders`): сессия, оформившая заказ, плюс
+ * пароль — это и есть его владелец. */
+function accountForOrder(req, s, order, customer, email) {
+  if (customer || !email || !CUSTOMERS.enabled(s)) return null;
+  if (CUSTOMERS.byEmail(email)) return { exists: true, email };
+  if (!MAIL.configured(s)) return null;
+  const password = CUSTOMERS.generatePassword();
+  const made = CUSTOMERS.create({ email, password, name: order.customerName, phone: order.phone, auto: true });
+  if (!made.ok) return null;
+  loginCustomer(req, made.customer);
+  db.attachOrderCustomer(order.id, made.customer.id);
+  MAIL.send(s, accountPasswordMail(s, made.customer, password, order, mailOrigin(req)))
+    .catch(e => console.error(`Письмо с паролем на ${email} не отправлено: ${MAIL.explain(e)}`));
+  return { created: true, email };
+}
+
+app.get('/account', (req, res) => {
+  if (accountsOff(req, res)) return;
+  const customer = currentCustomer(req);
+  if (!customer) return res.redirect('/account/login');
+  accountHome(req, res, customer, { flash: req.query.flash, open: req.query.open });
+});
+app.get('/account/login', (req, res) => {
+  if (accountsOff(req, res)) return;
+  if (currentCustomer(req)) return res.redirect('/account');
+  accountAuth(req, res, { mode: 'login', flash: req.query.flash });
+});
+app.post('/account/login', async (req, res) => {
+  if (accountsOff(req, res)) return;
+  const typed = String(req.body.email || '').trim().slice(0, 120);
+  const email = EMAIL.valid(typed);
+  /* Предел и по сессии с адресом, и по самому ящику: перебор пароля к одному
+   * кабинету идёт с разных адресов, а перебор ящиков — с одного. */
+  if (floodLimited(req, 'acc-login', 30, 300, 15 * 60 * 1000)
+    || (email && rateLimited(req, 'acc-login-mail', 15, 15 * 60 * 1000, email))) {
+    return accountAuth(req, res, { mode: 'login', email: typed, error: ACCOUNT_TOO_MANY, status: 429 });
+  }
+  const customer = email ? await CUSTOMERS.verify(email, req.body.password) : null;
+  // Чужой адрес и неверный пароль — один ответ: по форме входа не должно быть
+  // видно, кто здесь покупал.
+  if (!customer) return accountAuth(req, res, { mode: 'login', email: typed, error: 'Неверная почта или пароль', status: 400 });
+  CUSTOMERS.touchLogin(customer.id);
+  loginCustomer(req, customer);
+  res.redirect('/account');
+});
+app.get('/account/register', (req, res) => {
+  if (accountsOff(req, res)) return;
+  if (currentCustomer(req)) return res.redirect('/account');
+  accountAuth(req, res, { mode: 'register' });
+});
+app.post('/account/register', (req, res) => {
+  if (accountsOff(req, res)) return;
+  const typed = String(req.body.email || '').trim().slice(0, 120);
+  if (floodLimited(req, 'acc-reg', 5, 40, 60 * 60 * 1000)) {
+    return accountAuth(req, res, { mode: 'register', email: typed, error: ACCOUNT_TOO_MANY, status: 429 });
+  }
+  const made = CUSTOMERS.create({ email: typed, password: req.body.password });
+  if (!made.ok) return accountAuth(req, res, { mode: 'register', email: typed, error: made.error, status: 400 });
+  loginCustomer(req, made.customer);
+  res.redirect(accountFlash('Кабинет создан. Заказы, оформленные с этой почтой, будут появляться здесь.'));
+});
+app.post('/account/logout', (req, res) => {
+  logoutCustomer(req);
+  res.redirect('/');
+});
+app.post('/account/profile', (req, res) => {
+  if (accountsOff(req, res)) return;
+  const customer = currentCustomer(req);
+  if (!customer) return res.redirect('/account/login');
+  const saved = CUSTOMERS.update(customer.id, { name: req.body.name, phone: req.body.phone });
+  if (!saved.ok) return accountHome(req, res, customer, { error: saved.error, status: 400 });
+  res.redirect(accountFlash('Сохранено'));
+});
+app.post('/account/password', async (req, res) => {
+  if (accountsOff(req, res)) return;
+  const customer = currentCustomer(req);
+  if (!customer) return res.redirect('/account/login');
+  if (floodLimited(req, 'acc-pass', 10, 60, 15 * 60 * 1000)) {
+    return accountHome(req, res, customer, { error: ACCOUNT_TOO_MANY, status: 429, open: 'password' });
+  }
+  /* Присланный письмом пароль покупатель не выбирал — его мы не спрашиваем.
+   * Свой пароль без старого не меняется: открытая на чужом компьютере сессия
+   * иначе отбирала бы кабинет насовсем. */
+  if (!customer.autoPassword) {
+    const ok = await auth.verifyPasswordAsync(String(req.body.current || ''), customer.passHash);
+    if (!ok) return accountHome(req, res, customer, { error: 'Текущий пароль не подходит', status: 400, open: 'password' });
+  }
+  const set = CUSTOMERS.setPassword(customer.id, req.body.password);
+  if (!set.ok) return accountHome(req, res, customer, { error: set.error, status: 400, open: 'password' });
+  // Новый хеш — новая отметка сессии: эта вкладка остаётся, остальные выходят.
+  loginCustomer(req, set.customer);
+  res.redirect(accountFlash('Пароль изменён'));
+});
+app.get('/account/forgot', (req, res) => {
+  if (accountsOff(req, res)) return;
+  accountAuth(req, res, { mode: 'forgot' });
+});
+app.post('/account/forgot', (req, res) => {
+  if (accountsOff(req, res)) return;
+  const s = settings();
+  if (!accountMailOn(s)) return accountAuth(req, res, { mode: 'forgot' });
+  const typed = String(req.body.email || '').trim().slice(0, 120);
+  const email = EMAIL.valid(typed);
+  if (!email) return accountAuth(req, res, { mode: 'forgot', email: typed, error: 'Укажите e-mail — адрес вида mail@example.ru', status: 400 });
+  /* Письмо стоит чужого почтового сервера и чужого терпения: три на ящик в
+   * час и десять с адреса. Ответ при этом тот же, что и при удаче, — по нему
+   * не должно быть видно, есть ли такой кабинет. */
+  if (floodLimited(req, 'acc-forgot', 10, 60, 60 * 60 * 1000) || rateLimited(req, 'acc-forgot-mail', 3, 60 * 60 * 1000, email)) {
+    return accountAuth(req, res, { mode: 'forgot', email: typed, error: ACCOUNT_TOO_MANY, status: 429 });
+  }
+  const customer = CUSTOMERS.byEmail(email);
+  if (customer) {
+    const token = CUSTOMERS.issueReset(customer.id);
+    if (token) {
+      MAIL.send(s, accountResetMail(s, customer, token, mailOrigin(req)))
+        .catch(e => console.error(`Письмо восстановления на ${email} не отправлено: ${MAIL.explain(e)}`));
+    }
+  }
+  accountAuth(req, res, { mode: 'sent', email });
+});
+const RESET_STALE = 'Ссылка устарела или уже использована — запросите новую';
+app.get('/account/reset/:token', (req, res) => {
+  if (accountsOff(req, res)) return;
+  const customer = CUSTOMERS.byResetToken(req.params.token);
+  if (!customer) return accountAuth(req, res, { mode: 'forgot', error: RESET_STALE, status: 400 });
+  accountAuth(req, res, { mode: 'reset', token: String(req.params.token) });
+});
+app.post('/account/reset/:token', (req, res) => {
+  if (accountsOff(req, res)) return;
+  if (floodLimited(req, 'acc-reset', 10, 60, 15 * 60 * 1000)) {
+    return accountAuth(req, res, { mode: 'forgot', error: ACCOUNT_TOO_MANY, status: 429 });
+  }
+  const customer = CUSTOMERS.byResetToken(req.params.token);
+  if (!customer) return accountAuth(req, res, { mode: 'forgot', error: RESET_STALE, status: 400 });
+  const set = CUSTOMERS.setPassword(customer.id, req.body.password);
+  if (!set.ok) return accountAuth(req, res, { mode: 'reset', token: String(req.params.token), error: set.error, status: 400 });
+  loginCustomer(req, set.customer);
+  res.redirect(accountFlash('Пароль сохранён'));
+});
+/* ============================ /ЛИЧНЫЙ КАБИНЕТ ============================ */
 
 /* Собственная метрика запускается автоматически при первом открытии страницы.
  *
@@ -1570,6 +1866,7 @@ function notifyNewOrder(order) {
     // имеют вовсе, у них остаётся только строка контакта.
     + `👤 Получатель: ${tgEsc(order.customerName) || '—'}\n`
     + (order.phone ? `📞 Телефон: ${tgEsc(R.phoneText(order.phone))}\n` : '')
+    + (order.email ? `✉️ E-mail: ${tgEsc(order.email)}\n` : '')
     + (order.contact ? `✉️ Ещё контакт: ${tgEsc(order.contact)}\n` : '')
     + (order.delivery ? `🚚 Доставка: ${tgEsc([DELIVERY.nameOf(order.delivery), DELIVERY.shortModeOf(order.delivery, order.deliveryMode)].filter(Boolean).join(', '))}`
       + `${order.deliveryPrice ? ` — ${R.money(order.deliveryPrice, ss)}` : ''}\n` : '')
@@ -1651,6 +1948,11 @@ function checkoutRequestHash(body) {
   };
   // Старые запросы без этого поля сохраняют прежний отпечаток для повторов.
   if (b.paymentPayableTotal !== undefined) shape.paymentPayableTotal = String(b.paymentPayableTotal);
+  // Почта — по тому же правилу: только когда она есть. Запрос без неё обязан
+  // давать прежний отпечаток, иначе повтор с вкладки прежней версии не нашёл
+  // бы свой заказ.
+  const email = String(b.email || '').trim();
+  if (email) shape.email = email;
   return crypto.createHash('sha256').update(JSON.stringify(shape)).digest('hex');
 }
 
@@ -1868,6 +2170,14 @@ app.post('/api/order', async (req, res) => {
   if (!phoneCheck.ok) return res.json({ ok: false, error: phoneCheck.error }, 400);
   const phone = phoneCheck.e164;
   const contact = String(req.body.contact || '').trim().slice(0, 120);
+  /* Почта — по желанию, но если указана, то адресом: на неё уходит пароль от
+   * кабинета, и опечатка здесь означает письмо в никуда. Вошедшему покупателю
+   * поле подставлено из кабинета; заказ привязывается к нему в любом случае —
+   * даже если он вписал другой адрес. */
+  const emailTyped = String(req.body.email || '').trim().slice(0, 120);
+  const email = EMAIL.valid(emailTyped);
+  if (emailTyped && !email) return res.json({ ok: false, error: 'E-mail введён с ошибкой — адрес вида mail@example.ru' }, 400);
+  const customer = CUSTOMERS.enabled(s) ? currentCustomer(req) : null;
   // Получатель и доставка обязательны: заказ идёт с предоплатой и уезжает
   // перевозчиком, а не «уточним при подтверждении», как было у заявки.
   const firstName = String(req.body.firstName || '').trim().slice(0, 60);
@@ -1987,6 +2297,8 @@ app.post('/api/order', async (req, res) => {
     promoCode: promo.promo ? promo.promo.code : '',
     promoDiscount: promo.promo ? promoSaved : 0,
     firstName, lastName, phone, contact, address, delivery,
+    email: email || (customer ? customer.email : ''),
+    customerId: customer ? customer.id : '',
     comment: String(req.body.comment || '').slice(0, 1000),
     deliveryMode, deliveryPrice: ship.price, deliveryZone: ship.zone,
     pickupCode: point && point.official ? point.code : '', pickupAddress
@@ -2056,10 +2368,17 @@ app.post('/api/order', async (req, res) => {
   // cookie-сессию покупателя (как id своего отзыва), поэтому запустить оплату
   // можно только по своей заявке, а не по чужой, угадав идентификатор.
   rememberOwnOrder(req, order);
+  /* Личный кабинет для этого заказа (см. `accountForOrder`). Отметка уходит и
+   * в ответ — экран «заказ оформлен» её покажет, — и в сессию для страницы
+   * оплаты: туда покупатель попадает следующим же переходом, и там ему
+   * обязаны сказать, что пароль ушёл письмом. Вошедший ничего не получает:
+   * его заказ и так в кабинете. */
+  const account = accountForOrder(req, s, order, customer, email);
+  if (account && (order.draft || order.payMode === 'own')) req.session.accountNote = Object.assign({ order: order.id }, account);
   // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
   // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
   // её чистит pay.js, когда способ выбран).
-  res.json(orderApiBody(order, false, s, shownPayableTotal));
+  res.json(Object.assign(orderApiBody(order, false, s, shownPayableTotal), account ? { account } : {}));
 });
 
 /* ============================ ОНЛАЙН-ЧАТ ВИТРИНЫ ============================
@@ -2938,8 +3257,18 @@ TGCHAT.start({
 // Свой ли это заказ. Ключ — подписанная cookie-сессия, в которой id появился при
 // оформлении: иначе оплату чужой заявки открывал бы любой, кто угадал номер.
 function ownOrder(req, id) {
-  const mine = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
-  return mine.includes(String(id || '')) ? db.getOrder(String(id)) : null;
+  const order = db.getOrder(String(id || ''));
+  return order && ownsOrder(req, order) ? order : null;
+}
+/* Заказ свой по любому из двух ключей: он в подписанной сессии этого браузера
+ * (оформлен здесь) либо привязан к вошедшему кабинету — тогда он свой с
+ * любого устройства. */
+function ownsOrder(req, order) {
+  if (!order) return false;
+  const mine = Array.isArray(req.session && req.session.myOrders) ? req.session.myOrders : [];
+  if (mine.includes(String(order.id))) return true;
+  const customer = order.customerId ? currentCustomer(req) : null;
+  return !!customer && order.customerId === customer.id;
 }
 
 // Уведомление менеджеру об оплате. Общее для вебхука и опроса статуса: оба пути
@@ -3832,7 +4161,14 @@ app.get('/pay/:id', async (req, res) => {
   // действующего счёта.
   const currentOrder = ownOrder(req, req.params.id);
   if (!currentOrder) return sendNotFound(req, res);
+  /* Отметка о кабинете, созданном при этом заказе, — ОДНОРАЗОВАЯ и живёт в
+   * сессии, как `restoreOrder`: показывается на первой же странице оплаты и
+   * стирается. Только у своего заказа: чужой номер её не выдаст. */
+  const accountNote = req.session.accountNote && req.session.accountNote.order === currentOrder.id
+    ? req.session.accountNote : null;
+  if (req.session.accountNote) delete req.session.accountNote;
   res.send(R.payPage(s, currentOrder, pageOpts(req, {
+    accountNote,
     methods: ctx.methods,
     currencies: ctx.codes,
     currency: ctx.currency,
@@ -5564,6 +5900,33 @@ app.post('/admin/settings', async (req, res) => {
   }
   patch.crocopayCurrencyChoice = req.body.crocopayCurrencyChoice !== undefined;
 
+  /* Личный кабинет и почта. Галочка — как все: снятая приходит отсутствием
+   * поля, секцию узнаём по `accountsForm`. Сервер, порт и адреса проверяются
+   * ДО записи: с мусором в них письмо с паролем уходило бы в никуда, а владелец
+   * видел бы «Сохранено». Пароль почты — обычный секрет: пустое поле оставляет
+   * сохранённый, галочка стирает. */
+  if (req.body.accountsForm !== undefined) patch.accountsOn = req.body.accountsOn !== undefined;
+  if (req.body.mailHost !== undefined) {
+    const host = String(req.body.mailHost).trim().toLowerCase().slice(0, 120);
+    if (host && !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) {
+      return fail('Почтовый сервер — имя вида smtp.example.ru, без схемы и порта');
+    }
+    patch.mailHost = host;
+  }
+  if (req.body.mailPort !== undefined) {
+    const raw = String(req.body.mailPort).replace(/\s+/g, '');
+    if (!raw) patch.mailPort = '';
+    else if (!/^\d{1,5}$/.test(raw) || Number(raw) < 1 || Number(raw) > 65535) return fail(`Порт почтового сервера — число от 1 до 65535 или пусто (${MAIL.PORT_TLS})`);
+    else patch.mailPort = Number(raw);
+  }
+  if (req.body.mailUser !== undefined) patch.mailUser = String(req.body.mailUser).trim().slice(0, 200);
+  keepOrReplaceSecret('mailPass', 'clearMailPass', 300);
+  if (req.body.mailFrom !== undefined) {
+    const raw = String(req.body.mailFrom).trim();
+    if (raw && !EMAIL.valid(raw)) return fail('Адрес отправителя — адрес вида shop@example.ru');
+    patch.mailFrom = EMAIL.valid(raw);
+  }
+  if (req.body.mailFromName !== undefined) patch.mailFromName = String(req.body.mailFromName).trim().slice(0, 80);
   /* Онлайн-чат витрины.
    *
    * Галочка снимается отсутствием поля в теле формы, как у касс и уведомлений
@@ -5659,6 +6022,31 @@ app.post('/admin/settings', async (req, res) => {
   // Мост в Telegram держит длинный опрос со СТАРЫМ токеном: без этого вызова
   // он продолжил бы работать с ним до перезапуска процесса, а новый чат молчал.
   TGCHAT.sync(settings());
+  /* «Сохранить и отправить письмо» — вторая кнопка той же формы. Настройки уже
+   * записаны, письмо идёт по ним же и ЖДЁТСЯ: это действие владельца в панели,
+   * а не покупателя на витрине, и ответ ему нужен здесь и сейчас. Отказ
+   * остаётся плашкой на странице (ошибка не гаснет), удача — обычной карточкой. */
+  if (req.body.mailTest !== undefined) {
+    const next = settings();
+    const to = EMAIL.valid(req.body.mailTestTo) || EMAIL.valid(next.contactEmail) || EMAIL.valid(next.mailFrom);
+    let problem = '';
+    if (!MAIL.configured(next)) problem = 'почта не настроена: нужны сервер и адрес отправителя';
+    else if (!to) problem = 'укажите адрес, на который отправить проверочное письмо';
+    else {
+      try {
+        await MAIL.send(next, {
+          to, subject: `Проверка почты ${next.storeName}`,
+          text: `Это проверочное письмо из панели магазина «${next.storeName}». Если вы его читаете, почта настроена: пароли от личного кабинета будут доходить до покупателей.`
+        });
+      } catch (e) { problem = MAIL.explain(e); }
+    }
+    if (problem) {
+      return res.send(A.settingsPage(next, db, 'Настройки сохранены, но проверочное письмо не ушло: ' + problem, 'err',
+        { live, open: open ? open + ',accounts' : 'accounts' }));
+    }
+    return res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено. Проверочное письмо отправлено на ' + to)
+      + '&open=' + encodeURIComponent(open ? open + ',accounts' : 'accounts'));
+  }
   res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено')
     + (open ? '&open=' + encodeURIComponent(open) : ''));
 });

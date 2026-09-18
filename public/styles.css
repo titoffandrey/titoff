@@ -601,17 +601,17 @@ body.admin{background:var(--bg2)}
    --tone — точка и полоска, --tone-ink — текст плашки, --tone-soft — её фон,
    --tone-row — подложка строки. Последняя заметно бледнее: плашка на экране
    одна, а строк полсотни, и на их подложке текст обязан читаться как на белом. */
-.o-stat-ok,.o-row-ok,.pay-tag.pay-ok{--tone:#0b7a37;--tone-ink:#0b7a37;--tone-soft:#e7f6ed;--tone-row:#f4fbf7}
-.o-stat-wait,.o-row-wait,.pay-tag.pay-wait{--tone:#e8940c;--tone-ink:#8a5600;--tone-soft:#fff4e2;--tone-row:#fffbf3}
-.o-stat-warn,.o-row-warn,.pay-tag.pay-warn{--tone:#bf4800;--tone-ink:#a83f00;--tone-soft:#ffefe6;--tone-row:#fff7f2}
-.o-stat-off,.o-row-off,.pay-tag.pay-off{--tone:#b0b0b6;--tone-ink:#6e6e73;--tone-soft:#f0f0f2;--tone-row:#f8f8f9}
+.o-stat-ok,.o-row-ok,.pay-tag.pay-ok,.acc-tone-ok{--tone:#0b7a37;--tone-ink:#0b7a37;--tone-soft:#e7f6ed;--tone-row:#f4fbf7}
+.o-stat-wait,.o-row-wait,.pay-tag.pay-wait,.acc-tone-wait{--tone:#e8940c;--tone-ink:#8a5600;--tone-soft:#fff4e2;--tone-row:#fffbf3}
+.o-stat-warn,.o-row-warn,.pay-tag.pay-warn,.acc-tone-warn{--tone:#bf4800;--tone-ink:#a83f00;--tone-soft:#ffefe6;--tone-row:#fff7f2}
+.o-stat-off,.o-row-off,.pay-tag.pay-off,.acc-tone-off{--tone:#b0b0b6;--tone-ink:#6e6e73;--tone-soft:#f0f0f2;--tone-row:#f8f8f9}
 /* «Оплата не завершена» — покупатель дошёл до кассы, но реквизитов не получил.
    Синевато-серый: это не тревога (оранжевый) и не «денег не будет» (серый), а
    заявка, которую надо довести руками. */
-.o-stat-idle,.o-row-idle,.pay-tag.pay-idle{--tone:#5b6f9c;--tone-ink:#4a5c85;--tone-soft:#eef1f8;--tone-row:#f9fafd}
+.o-stat-idle,.o-row-idle,.pay-tag.pay-idle,.acc-tone-idle{--tone:#5b6f9c;--tone-ink:#4a5c85;--tone-soft:#eef1f8;--tone-row:#f9fafd}
 /* Черновик — та же семья цвета, но бледнее: заявка есть, а заказа ещё нет. */
-.o-stat-draft,.o-row-draft,.pay-tag.pay-draft{--tone:#94a1bb;--tone-ink:#5f6d8a;--tone-soft:#f3f5fa;--tone-row:#fcfcfe}
-.o-stat-none,.pay-tag.pay-none{--tone:#d2d2d7;--tone-ink:#6e6e73;--tone-soft:#f4f4f6}
+.o-stat-draft,.o-row-draft,.pay-tag.pay-draft,.acc-tone-draft{--tone:#94a1bb;--tone-ink:#5f6d8a;--tone-soft:#f3f5fa;--tone-row:#fcfcfe}
+.o-stat-none,.pay-tag.pay-none,.acc-tone-none{--tone:#d2d2d7;--tone-ink:#6e6e73;--tone-soft:#f4f4f6}
 /* Плашка — точка и подпись цветом тона на бледной заливке. Прежде заливка была
    сплошной, а слева стоял глиф (⏳ ✓ ⚠): эмодзи приезжали цветными из
    системного шрифта, спорили с цветом самой плашки и в каждой системе
@@ -1322,6 +1322,12 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .search-toggle{min-width:42px;min-height:42px;border:1px solid transparent}
 .search-toggle svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
 .search-toggle[aria-expanded="true"]{background:var(--bg2);border-color:var(--border-soft)}
+/* Личный кабинет — тем же волосяным штрихом, что лупа: один язык значков в
+   шапке. Вошедший отмечен точкой акцентного цвета в углу — как значок
+   непрочитанного у чата, только без числа: сказать тут нужно одно — «вы вошли». */
+.account-btn{min-width:42px;min-height:42px;border:1px solid transparent;color:var(--text);text-decoration:none}
+.account-btn svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.account-btn.is-in::after{content:"";position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px #fff}
 /* Поиск раскрывается ВТОРЫМ рядом шапки. В закрытом состоянии он не занимает
    места, а inert в разметке убирает поле из порядка Tab. */
 .header-search{max-height:0;overflow:hidden;opacity:0;visibility:hidden;transform:translateY(-5px);
@@ -6694,4 +6700,86 @@ details.metric-rules{margin-bottom:14px}
   .legal-table-wrap{border:0;overflow:visible}
   .rc-table th{background:transparent}
   a[href]::after{content:none}
+}
+
+/* ---------- Личный кабинет покупателя ---------- */
+/* Карточки на сером, как шаги оформления: у кабинета те же вопросы — что с
+   заказом, где посылка, что в корзине, — и выглядеть он обязан той же рукой.
+   Сетка `auto-fit`: на широком экране заказы и отправления встают рядом, на
+   телефоне — друг под другом, без медиазапроса. */
+.acc-page{max-width:980px;padding-top:6px;padding-bottom:44px}
+.acc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:12px 0 18px}
+.acc-head h1{margin:0;font-size:clamp(24px,4.6vw,31px);letter-spacing:-.02em}
+.acc-sub{margin:4px 0 0;color:var(--muted);font-size:14.5px;overflow-wrap:anywhere}
+.acc-head form{flex:none;padding-top:4px}
+.acc-flash{margin:0 0 16px;padding:11px 14px;border:1px solid #b9dfc5;border-radius:12px;background:#f4fbf7;font-size:14px}
+.acc-flash.err{border-color:#f3c2bd;background:#fff6f5}
+.acc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:14px 16px;align-items:start}
+.acc-card{background:#fff;border:1px solid var(--border-soft,var(--border));border-radius:20px;padding:20px 22px;min-width:0}
+.acc-card h2{display:flex;align-items:center;gap:9px;margin:0 0 14px;font-size:19px;letter-spacing:-.02em}
+.acc-count{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:99px;background:var(--bg2);color:var(--muted);font-size:12.5px;font-weight:650}
+.acc-empty,.acc-copy{margin:0;color:var(--muted);font-size:14px;line-height:1.55}
+.acc-empty a,.acc-copy a{color:var(--accent)}
+/* Заказы занимают всю ширину: у строки заказа три колонки, и в половине экрана
+   они не помещаются рядом с отправлениями. */
+.acc-card#orders{grid-column:1/-1}
+.acc-orders{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.acc-order{padding:13px 15px;border:1px solid var(--border-soft);border-radius:15px;background:var(--tone-row,#fff);box-shadow:inset 3px 0 0 var(--tone,transparent)}
+.acc-order-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;font-size:15px}
+.acc-order-date{color:var(--muted);font-size:13px}
+.acc-state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:3px 9px 3px 8px;border-radius:20px;background:var(--tone-soft);color:var(--tone-ink);font-size:11.5px;font-weight:600;white-space:nowrap}
+.acc-state i{width:6px;height:6px;flex:none;border-radius:50%;background:var(--tone)}
+.acc-order-body{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:6px;font-size:14px}
+.acc-order-items{min-width:0;color:#424245;line-height:1.45}
+.acc-more{color:var(--muted)}
+.acc-order-sum{flex:none;font-size:16px;letter-spacing:-.01em}
+.acc-order-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}
+.acc-order-acts .btn{min-height:38px;padding:8px 15px;font-size:14px}
+.acc-ships{margin:0}
+.acc-form .field:last-of-type{margin-bottom:14px}
+.acc-form .btn{min-height:42px}
+/* Смена пароля — под раскрытием: раз в жизни, а форма занимает половину
+   карточки. У кабинета с присланным паролем она открыта сразу — там это
+   первое, что стоит сделать. */
+.acc-fold summary{cursor:pointer;font-size:14.5px;color:var(--accent);list-style:none}
+.acc-fold summary::-webkit-details-marker{display:none}
+.acc-fold summary::after{content:" ›";display:inline-block;transform:rotate(90deg);margin-left:4px;transition:transform .16s}
+.acc-fold[open] summary::after{transform:rotate(-90deg)}
+.acc-fold[open] summary{margin-bottom:14px}
+/* Корзина в кабинете рисуется скриптом по localStorage — те же названия и
+   миниатюры, что в шторке, ровно столько, чтобы узнать содержимое. */
+.acc-cart-list{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:10px}
+.acc-cart-item{display:flex;gap:12px;align-items:center}
+.acc-cart-media{flex:none;width:52px;height:52px;border-radius:12px;overflow:hidden;background:var(--bg2)}
+.acc-cart-media img{width:100%;height:100%;object-fit:cover;display:block}
+.acc-cart-body{min-width:0}
+.acc-cart-name{display:block;font-size:14px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acc-cart-name:hover{color:var(--accent)}
+.acc-cart-variant{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acc-cart-qty{font-size:13px;color:#424245;margin-top:2px}
+.acc-cart-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.acc-cart-foot b{color:var(--text)}
+/* Вход и регистрация — одна карточка по центру, ширина под форму, а не под
+   страницу: поле e-mail во всю ширину монитора читается как строка ввода в
+   полметра. */
+.acc-auth{max-width:520px;padding-bottom:44px}
+.acc-auth-card{margin-top:12px;padding:26px 26px 22px}
+.acc-auth-title{margin:0 0 16px;font-size:clamp(22px,4.2vw,26px);letter-spacing:-.02em}
+.acc-auth-copy{margin:0 0 16px;color:#424245;font-size:14.5px;line-height:1.55}
+.acc-auth .acc-form .btn{margin-top:4px}
+.acc-links{margin:16px 0 0;font-size:14px;color:var(--muted)}
+.acc-links a{color:var(--accent)}
+.acc-auth-hint{margin:10px 0 0;font-size:13px;color:var(--muted);line-height:1.5}
+/* Отметка о кабинете на странице оплаты: та же спокойная плашка, что у
+   возврата на оформление, — это справка, а не тревога. */
+.acc-note{display:flex;gap:10px;align-items:flex-start;margin:0 0 18px;padding:11px 14px;border:1px solid #b9dfc5;border-radius:12px;background:#f4fbf7;font-size:14px;line-height:1.5;color:#1d1d1f}
+.acc-note svg{flex:none;width:20px;height:20px;margin-top:1px;fill:none;stroke:#0b7a37;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.acc-note a{color:var(--accent);font-weight:600}
+.order-success-account p a{color:var(--accent);font-weight:600}
+@media(max-width:800px){
+  .acc-card{padding:16px 15px;border-radius:16px}
+  .acc-head{flex-direction:column;align-items:stretch}
+  .acc-head form .btn{width:100%}
+  .acc-auth-card{padding:20px 16px 18px}
+  .acc-order-acts .btn{flex:1;justify-content:center}
 }

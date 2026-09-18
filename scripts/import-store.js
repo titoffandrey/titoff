@@ -59,6 +59,9 @@ const SITE_FIELDS = {
   'реквизиты продавца': ['legalOperator', 'legalInn', 'legalOgrn', 'legalDetails', 'legalAddress', 'privacyEmail',
     'bankAccount', 'bankName', 'bankBik', 'bankCorr', 'bankInn', 'bankKpp'],
   'Telegram': ['telegramBotToken', 'telegramChatId', 'chatChatId'],
+  // Почта отправителя называет сайт в каждом письме, а логин с паролем — его
+  // ящик: у второго магазина они свои.
+  'почта': ['mailHost', 'mailPort', 'mailUser', 'mailPass', 'mailFrom', 'mailFromName'],
   // Номер счётчика стоит в HTML открытым текстом, и сервисы обратного поиска
   // связывают сайты с одним номером ПУБЛИЧНО — у второго сайта он свой.
   'Яндекс Метрика': ['ymCounterId'],
