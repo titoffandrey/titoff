@@ -7241,6 +7241,139 @@ test('оформление помнит введённое — после неу
     'возврат из BFCache перечитывает актуальную корзину');
 });
 
+test('поле адреса растёт под текст, ведёт себя как строка и одинаково на оформлении и в кабинете', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  /* Полный адрес («Свердловская обл, г Екатеринбург, ул Малышева, д 51, кв 12»)
+   * в однострочный input шириной с телефон не помещается: начало уезжает за
+   * левый край, и покупатель видит только хвост — а сверяет он именно город и
+   * улицу. Поле — растущий textarea в одну строку. */
+  const field = '<textarea id="co-address" class="addr-input" rows="1" maxlength="400" placeholder="Город, улица, дом" autocomplete="street-address" enterkeyhint="done"';
+  assert.ok(js.includes(field), 'адрес на оформлении — растущий textarea');
+  assert.doesNotMatch(js, /<input type="text" id="co-address"/);
+  // В кабинете ТО ЖЕ поле: разметку даёт `addressField()` в lib/render.js, и
+  // атрибуты у обоих совпадают — один адрес у покупателя, один вид у поля.
+  const account = render.accountPage(SETTINGS, { customer: { id: 'c', email: 'b@example.ru', address: 'г Тула, ул Советская, д 7' }, orders: [] });
+  const cabinet = account.match(/<textarea id="acc-address"[^>]*>/)[0];
+  for (const attr of ['class="addr-input"', 'rows="1"', 'maxlength="400"', 'placeholder="Город, улица, дом"', 'autocomplete="street-address"', 'enterkeyhint="done"', 'role="combobox"', 'aria-autocomplete="list"']) {
+    assert.ok(cabinet.includes(attr), 'у поля в кабинете нет ' + attr);
+  }
+  assert.match(account, /initAccountPage|app\.js/, 'кабинет грузит скрипт витрины');
+  assert.match(js, /function initAccountPage\(\)[\s\S]{0,700}initAddressSuggest\(address, document\.getElementById\('acc-address-list'\)\);\s*initAddressField\(address\);/,
+    'в кабинете у адреса те же подсказки и тот же рост');
+  // На оформлении подсказки регистрируются РАНЬШЕ поля: их обработчик Enter
+  // обязан выбрать подсказку до того, как поле закроет ввод.
+  assert.ok(js.indexOf("initAddressSuggest(document.getElementById('co-address')") < js.indexOf("initAddressField(document.getElementById('co-address'))"));
+
+  /* В одну строку поле обязано быть ТОЙ ЖЕ высоты, что соседние input'ы: те же
+   * поля и тот же межстрочный (`inherit`, как у input через `font:inherit`) —
+   * совпадение по построению, а не подбором числа. Общее `.field textarea`
+   * задаёт 112 px и `resize:vertical`, и класс обязан это перебить. */
+  assert.match(css, /\.field textarea\.addr-input\{display:block;min-height:46px;height:auto;padding:11px 14px;line-height:inherit;resize:none;overflow:hidden;overflow-wrap:anywhere\}/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
+  assert.match(mobile, /\.co-block \.field input\[type=text\],\.co-block \.field input\[type=tel\],\.co-block \.field input\[type=email\]\{min-height:44px;padding:9px 12px/,
+    'на телефоне почта той же высоты, что имя и телефон');
+  assert.match(mobile, /\.co-block \.field textarea\.addr-input\{min-height:44px;padding:9px 12px;border-radius:11px\}/,
+    'на телефоне адрес той же высоты, что соседи');
+  // Кегль полю класс не задаёт: на сенсорном экране действует общее правило 16 px.
+  assert.doesNotMatch(css, /addr-input\{[^}]*font-size/);
+
+  /* Поведение — исполнением самих функций на фейковом элементе: одной строкой
+   * высоту задаёт CSS (style.height пуст), переполнилось — скрипт; Enter не
+   * переносит строку, а закрывает ввод, если подсказку не выбрали; перевод
+   * строки из вставки схлопывается в запятую. */
+  const from = js.indexOf('function fitAddressField(el)');
+  const to = js.indexOf('// ===== Подсказки адреса');
+  assert.ok(from > -1 && to > from);
+  const listeners = [];
+  const fakeWindow = { addEventListener: (type, fn) => listeners.push([type, fn]) };
+  const api = new Function('window', js.slice(from, to) + '\nreturn { fitAddressField, initAddressField };')(fakeWindow);
+  const el = {
+    value: '', style: {}, scrollHeight: 44, clientHeight: 44, offsetHeight: 46, blurred: 0, handlers: {},
+    addEventListener(type, fn) { this.handlers[type] = fn; }, blur() { this.blurred++; }
+  };
+  api.initAddressField(el);
+  assert.equal(el.style.height, '', 'одна строка — высоту даёт CSS, как у input');
+  el.scrollHeight = 66; el.value = 'длинный адрес';
+  el.handlers.input();
+  assert.equal(el.style.height, '68px', 'переполнилось — высота по содержимому плюс рамка');
+  el.scrollHeight = 44; el.handlers.change();
+  assert.equal(el.style.height, '', 'ужалось — снова CSS');
+  el.value = 'г Екатеринбург,\nул Малышева\r\n\tд 5';
+  el.handlers.input();
+  assert.equal(el.value, 'г Екатеринбург, ул Малышева, д 5', 'перенос из вставки — запятая с пробелом, без двойных запятых');
+  const plain = { key: 'Enter', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  el.handlers.keydown(plain);
+  assert.equal(plain.defaultPrevented, true, 'Enter не переносит строку');
+  assert.equal(el.blurred, 1, 'без выбранной подсказки Enter закрывает ввод');
+  const chosen = { key: 'Enter', defaultPrevented: true, preventDefault() {} };
+  el.handlers.keydown(chosen);
+  assert.equal(el.blurred, 1, 'подсказка выбрана (событие уже погашено) — фокус остаётся');
+  const composing = { key: 'Enter', isComposing: true, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  el.handlers.keydown(composing);
+  assert.equal(composing.defaultPrevented, false, 'Enter в подсказке IME выбирает слово');
+  assert.ok(listeners.some(([type]) => type === 'resize'), 'поворот телефона меняет перенос — высота пересчитывается');
+
+  // Сервер хранит адрес одной строкой тем же правилом — и в заказе, и в кабинете.
+  const ADDRESS = require('../lib/address');
+  assert.equal(ADDRESS.normalize(' г Екатеринбург,\n ул  Малышева, д 5 '), 'г Екатеринбург, ул Малышева, д 5');
+  assert.equal(ADDRESS.normalize('x'.repeat(500)).length, ADDRESS.MAX);
+});
+
+test('адрес на оформлении: из кабинета или из памяти формы — побеждает то, что менялось позже', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  /* У адреса два источника с разными вопросами: память формы помнит текущую
+   * попытку (вернулся после отказа кассы — набранный адрес на месте), кабинет
+   * помнит человека (сменил адрес в профиле — оформление обязано показать
+   * новый). Ни «память важнее» (как у имени), ни «кабинет важнее» не годятся:
+   * первое ломает правку в профиле, второе — возврат после неудачной оплаты.
+   * Решает сравнение отметок времени. */
+  const from = js.indexOf("var FORM_KEY = 'checkout_v1';");
+  const to = js.indexOf('function initAddressQuote()', from);
+  const factory = new Function('document', 'localStorage', 'window', 'Event', 'cleanText', 'pickup',
+    js.slice(from, to) + '\nreturn { rememberCheckout, initCheckoutMemory };');
+  function run(saved, account) {
+    const fields = {};
+    for (const id of ['co-first-name', 'co-last-name', 'co-phone', 'co-email', 'co-address']) {
+      fields[id] = { value: '', events: [], addEventListener() {}, dispatchEvent(e) { this.events.push(e.type); } };
+    }
+    const page = { getAttribute: name => account && Object.prototype.hasOwnProperty.call(account, name) ? String(account[name]) : null };
+    const store = new Map(saved ? [['checkout_v1', JSON.stringify(saved)]] : []);
+    const doc = { getElementById: id => id === 'checkout-page' ? page : fields[id] || null, querySelectorAll: () => [] };
+    const api = factory(doc, { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) },
+      { addEventListener() {} }, class { constructor(type) { this.type = type; } }, (v, max) => String(v == null ? '' : v).trim().slice(0, max), null);
+    api.initCheckoutMemory();
+    return fields;
+  }
+  const now = Date.now();
+  const account = { 'data-account-email': 'b@example.ru', 'data-account-name': 'Иван Петров', 'data-account-phone': '+79991234567',
+    'data-account-address': 'г Тула, ул Советская, д 7', 'data-account-address-at': now - 60000 };
+
+  // Памяти нет — адрес из кабинета, и событие `change` будит расчёт доставки.
+  let f = run(null, account);
+  assert.equal(f['co-address'].value, 'г Тула, ул Советская, д 7');
+  assert.deepEqual(f['co-address'].events, ['change']);
+  assert.equal(f['co-first-name'].value, 'Иван'); assert.equal(f['co-last-name'].value, 'Петров');
+  // Память свежее правки в кабинете — набранное на оформлении остаётся.
+  f = run({ at: now, 'co-address': 'г Москва, ул Тверская, д 1' }, account);
+  assert.equal(f['co-address'].value, 'г Москва, ул Тверская, д 1');
+  // Память старше — адрес сменили в кабинете уже после неё, и он побеждает.
+  f = run({ at: now - 120000, 'co-address': 'г Москва, ул Тверская, д 1', 'co-first-name': 'Пётр' }, account);
+  assert.equal(f['co-address'].value, 'г Тула, ул Советская, д 7');
+  assert.equal(f['co-first-name'].value, 'Пётр', 'имя по-прежнему из памяти: у него правило прежнее');
+  assert.deepEqual(f['co-address'].events, ['change'], 'адрес из кабинета подставлен ровно один раз');
+  // В памяти адреса нет вовсе — из кабинета, какой бы старой память ни была.
+  f = run({ at: now, 'co-first-name': 'Пётр' }, account);
+  assert.equal(f['co-address'].value, 'г Тула, ул Советская, д 7');
+  // В кабинете адреса нет — как раньше: память, и только она.
+  f = run({ at: now - 120000, 'co-address': 'г Москва, ул Тверская, д 1' }, Object.assign({}, account, { 'data-account-address': '', 'data-account-address-at': 0 }));
+  assert.equal(f['co-address'].value, 'г Москва, ул Тверская, д 1');
+  // Гость — атрибутов кабинета нет, память работает как прежде.
+  f = run({ at: now, 'co-address': 'г Москва, ул Тверская, д 1' }, null);
+  assert.equal(f['co-address'].value, 'г Москва, ул Тверская, д 1');
+});
+
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'order-request-id-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -9607,11 +9740,15 @@ test('адрес обязан быть полным: населённый пун
 test('способ доставки заперт, пока адрес не полон, и стоит ПОСЛЕ адреса', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
-  const form = js.slice(js.indexOf("<span class=\"co-step\" aria-hidden=\"true\">3</span>Доставка"), js.indexOf('co-submit'));
+  // Срез — с шага «Получатель»: поле адреса стоит там, а срез от шага
+  // «Доставка» его не содержал вовсе, и `indexOf` отвечал −1 — проверка
+  // проходила впустую.
+  const form = js.slice(js.indexOf('>2</span>Получатель'), js.indexOf('co-submit'));
 
   // Адрес первым, способ доставки за ним: цена зависит от региона, и до адреса
   // у карточек нечего показать, кроме прочерка.
-  assert.ok(form.indexOf('co-address') < form.indexOf('co-ways'), 'адрес обязан идти выше способа доставки');
+  assert.ok(form.indexOf('id="co-address"') > -1 && form.indexOf('id="co-address"') < form.indexOf('id="co-ways"'),
+    'адрес обязан идти выше способа доставки');
   assert.ok(form.indexOf('co-ways') < form.indexOf('co-modes'), 'варианты — внутри блока способов');
   // Блок собирается запертым: до ответа сервера адрес заведомо не проверен.
   assert.match(form, /class="co-ways is-locked" id="co-ways"/);
@@ -9804,7 +9941,9 @@ test('адрес пункта выдачи в заказе берётся из �
   assert.match(route, /PICKUP\.findPoint\(delivery, req\.body\.pickupCode\)/);
   assert.match(route, /if \(!point\) return res\.json\(\{ ok: false, error: 'Выберите пункт выдачи' \}/);
   assert.match(route, /pickupAddress = PICKUP\.addressOf\(point\)/);
-  assert.match(route, /const address = String\(req\.body\.address \|\| ''\)\.trim\(\)/);
+  // Адрес покупателя — одной строкой, тем же правилом, что у кабинета
+  // (`ADDRESS.normalize`): перенос из вставки не должен уехать в накладную.
+  assert.match(route, /const address = ADDRESS\.normalize\(req\.body\.address\)/);
   // Пункт берётся только у «в пункт выдачи»: курьеру он ни к чему.
   assert.match(route, /if \(deliveryMode === 'pvz'\)/);
   // Оба адреса проверяются на полноту, и оба — до записи заказа.
@@ -9886,9 +10025,13 @@ test('список пунктов витрина берёт у сервера и
    * (покупатель выбрал подсказку, уже стоявшую в поле), — а `dropPickup()` к
    * этому моменту список уже стёр. Список оставался пустым насовсем, с вечным
    * «ищем пункты», и помогала только смена перевозчика. */
-  const chooseFn = js.slice(js.indexOf('function choose(i)'), js.indexOf('function ask(q)'));
+  // Что делать с выбранной подсказкой, решает оформление — колбэком
+  // `initAddressSuggest`: сами подсказки общие с кабинетом, а координаты,
+  // доставка и пункты нужны только здесь.
+  const chooseFn = js.slice(js.indexOf("initAddressSuggest(document.getElementById('co-address')"), js.indexOf("initAddressField(document.getElementById('co-address'))"));
   assert.match(chooseFn, /setGeo\(s\.lat, s\.lon, s\.value\)/);
   assert.match(chooseFn, /loadPoints\(\)/, 'выбор подсказки обязан перезапросить пункты сам');
+  assert.match(js, /function choose\(i\)[\s\S]{0,400}if \(onChoose\) onChoose\(s\)/, 'выбор подсказки отдаётся колбэку');
 
   // Координаты живут в памяти формы рядом с адресом: без этого восстановленная
   // форма оставалась без расстояний, и адрес приходилось вводить заново.

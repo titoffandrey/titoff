@@ -68,7 +68,7 @@ function orderHarness(t, { shipping = 100 } = {}) {
     db, R, PAY, PAYMENTS, crypto, console, settings: () => settings,
     PROMO: require('../lib/promo'), PRICING: require('../lib/pricing'),
     PHONE: require('../public/phone'), DELIVERY: require('../lib/delivery'),
-    ADDRESS: { checkAddress: () => ({ ok: true }) },
+    ADDRESS: { checkAddress: () => ({ ok: true }), normalize: require('../lib/address').normalize },
     SHIP: { quote: () => ({ ok: true, price: shipping, zone: 'synthetic' }) },
     paymentOrigin: () => 'https://shop.example', ORDER_REUSE_TTL: 30 * 60000,
     anonymousSessionId: () => 'synthetic-session', rateLimited: () => false,

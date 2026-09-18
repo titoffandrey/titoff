@@ -5219,6 +5219,17 @@ details.metric-rules{margin-bottom:14px}
 /* Подсказки адреса: список привязан к самому полю, а не ко всему блоку —
    иначе он уезжал бы вниз на высоту подписи под полем. */
 .suggest-box{position:relative}
+/* Поле адреса — textarea, растущий под текст (высоту считает `initAddressField`
+   в app.js), а не однострочный input: полный адрес шириной с телефон не
+   помещается, и начало — город и улица, то, что сверяют, — уезжало за левый
+   край. В одну строку поле обязано быть ТОЙ ЖЕ высоты, что соседние input'ы,
+   иначе адрес выглядел бы полем из другой формы, — поэтому у него те же поля,
+   что у input, и тот же межстрочный: у полей он унаследован от body через
+   `font:inherit` (замер: 24 px при кегле 16), и `inherit` здесь повторяет это
+   по построению, при любом кегле, а не подбором числа. `resize:none` и
+   `overflow:hidden` — тянуть уголок незачем, высоту даёт содержимое; общее
+   `.field textarea{min-height:112px}` перебивается классом. */
+.field textarea.addr-input{display:block;min-height:46px;height:auto;padding:11px 14px;line-height:inherit;resize:none;overflow:hidden;overflow-wrap:anywhere}
 /* display:block обязателен: подпись — <span>, и рядом с полем, которое не
    тянется на всю ширину (файловый ввод), она иначе прилипает к нему сбоку и
    обтекает кнопку «Выбрать файлы». Отступ сверху и так задан как у блока. */
@@ -5531,7 +5542,8 @@ details.metric-rules{margin-bottom:14px}
 
   .co-block .field{margin-bottom:11px}
   .co-block .field label{margin-bottom:5px;font-size:12.5px}
-  .co-block .field input[type=text],.co-block .field input[type=tel]{min-height:44px;padding:9px 12px;font-size:15px;border-radius:11px}
+  .co-block .field input[type=text],.co-block .field input[type=tel],.co-block .field input[type=email]{min-height:44px;padding:9px 12px;font-size:15px;border-radius:11px}
+  .co-block .field textarea.addr-input{min-height:44px;padding:9px 12px;border-radius:11px}
   .field .phone-box input[type=tel]{padding-left:45px}
   .phone-flag{left:10px}
   .field-note{margin-top:4px;font-size:11.5px;line-height:1.35}

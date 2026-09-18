@@ -110,7 +110,43 @@ test('кабинет: регистрация, вход, смена пароля,
   assert.equal(customers.touchLogin(auto.customer.id).autoPassword, false);
   assert.match(customers.generatePassword(), /^[a-hj-km-np-z2-9]{8}$/, 'без 0, 1, l и o — их путают, набирая с письма');
   assert.deepEqual(Object.keys(customers.publicView(auto.customer)).sort(),
-    ['autoPassword', 'createdAt', 'email', 'id', 'lastLoginAt', 'name', 'phone'], 'наружу — без хеша и ключей');
+    ['address', 'addressAt', 'autoPassword', 'createdAt', 'email', 'id', 'lastLoginAt', 'name', 'phone'], 'наружу — без хеша и ключей');
+});
+
+test('кабинет: адрес доставки — свой, с проверкой полноты, из первого заказа и с отметкой правки', t => {
+  const { customers } = freshStore(t);
+  const made = customers.create({ email: 'addr@example.ru', password: '123456' });
+  assert.equal(made.customer.address, ''); assert.equal(made.customer.addressAt, 0);
+
+  // Проверяется ТОЙ ЖЕ полнотой, что и заказ: «Екатеринбург» — не адрес.
+  const short = customers.update(made.customer.id, { address: 'Екатеринбург' });
+  assert.equal(short.ok, false); assert.match(short.error, /не хватает улицы и номера дома/);
+  assert.equal(customers.byId(made.customer.id).address, '', 'негодный адрес не записан');
+  // Хранится одной строкой: перенос из вставки и ряды пробелов схлопнуты.
+  const before = Date.now();
+  const ok = customers.update(made.customer.id, { address: ' г Екатеринбург,\n ул  Малышева, д 5 ' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.customer.address, 'г Екатеринбург, ул Малышева, д 5');
+  assert.ok(ok.customer.addressAt >= before, 'правка адреса помечена временем');
+  // Тот же адрес заново отметку не двигает: по ней оформление решает, что свежее.
+  const at = ok.customer.addressAt;
+  const same = customers.update(made.customer.id, { address: 'г Екатеринбург, ул Малышева, д 5', name: 'Иван' });
+  assert.equal(same.customer.addressAt, at);
+  assert.equal(same.customer.name, 'Иван');
+  // Правка имени без поля адреса адрес не трогает; пустой адрес — законное «стереть».
+  assert.equal(customers.update(made.customer.id, { name: 'Пётр' }).customer.address, 'г Екатеринбург, ул Малышева, д 5');
+  assert.equal(customers.update(made.customer.id, { address: '' }).customer.address, '');
+
+  // Из заказа адрес берётся только в пустой кабинет: заданный принадлежит покупателю.
+  assert.equal(customers.rememberAddress(made.customer.id, ''), null, 'пустой адрес ничего не пишет');
+  assert.equal(customers.rememberAddress(made.customer.id, 'г Москва, ул Тверская, д 1').address, 'г Москва, ул Тверская, д 1');
+  assert.equal(customers.rememberAddress(made.customer.id, 'г Казань, ул Баумана, д 2'), null, 'заказ на другой адрес сохранённый не перебивает');
+  assert.equal(customers.byId(made.customer.id).address, 'г Москва, ул Тверская, д 1');
+  assert.equal(customers.rememberAddress('нет-такого', 'г Москва, ул Тверская, д 1'), null);
+  // Автосозданный кабинет берёт адрес из заказа сразу, как имя и телефон.
+  const auto = customers.create({ email: 'auto2@example.ru', password: customers.generatePassword(), address: 'г Пермь, ул Ленина, д 3', auto: true });
+  assert.equal(auto.customer.address, 'г Пермь, ул Ленина, д 3');
+  assert.ok(auto.customer.addressAt > 0);
 });
 
 test('заказ знает почту и кабинет, а привязка не перебивает чужую', t => {
@@ -401,7 +437,7 @@ test('маршруты кабинета: регистрация, вход, чу�
 test('кабинет заводится сам при заказе с почтой: пароль письмом, сессия вошедшая, заказ привязан', async t => {
   const { db, customers, sent, call, box, settings } = routes(t);
   const session = { myOrders: [] };
-  const order = db.createOrder({ items: [], total: 1000, firstName: 'Иван', lastName: 'Петров', phone: '+79991234567', email: 'new@example.ru' });
+  const order = db.createOrder({ items: [], total: 1000, firstName: 'Иван', lastName: 'Петров', phone: '+79991234567', email: 'new@example.ru', address: 'г Тула, ул Советская, д 7' });
   session.myOrders.push(order.id);
   // Объект приходит из песочницы vm — сравниваем по значениям, а не по прототипу.
   const plain = v => JSON.parse(JSON.stringify(v));
@@ -416,6 +452,7 @@ test('кабинет заводится сам при заказе с почто
   const customer = customers.byEmail('new@example.ru');
   assert.equal(customer.autoPassword, true);
   assert.equal(customer.name, 'Иван Петров'); assert.equal(customer.phone, '+79991234567');
+  assert.equal(customer.address, 'г Тула, ул Советская, д 7', 'адрес заказа стал адресом кабинета');
   assert.equal(session.customerId, customer.id, 'сессия уже вошедшая');
   assert.equal(db.getOrder(order.id).customerId, customer.id, 'заказ привязан');
   assert.equal(await customers.verify('new@example.ru', password) !== null, true, 'присланный пароль подходит');
@@ -485,7 +522,9 @@ test('страницы кабинета: состояния заказов сл�
   assert.equal(R.accountOrderState(orders[2], now).label, 'Отменён');
   assert.equal(R.accountOrderState(orders[3], now).label, 'Не завершён');
   assert.equal(R.accountOrderState({ id: 'x', createdAt: now, total: 1 }, now).label, 'Принят');
-  const html = R.accountPage(settings, { customer: { id: 'c', email: 'b@example.ru', name: 'Иван' }, orders, now });
+  const html = R.accountPage(settings, { customer: { id: 'c', email: 'b@example.ru', name: 'Иван', address: 'г Тула, ул Советская, д 7' }, orders, now });
+  // Адрес доставки в профиле — то же растущее поле с подсказками, что на оформлении.
+  assert.match(html, /<label for="acc-address">Адрес доставки<\/label><div class="suggest-box"><textarea id="acc-address" class="addr-input" rows="1" maxlength="400" name="address"[^>]*enterkeyhint="done"[^>]*role="combobox"[^>]*aria-controls="acc-address-list"[^>]*>г Тула, ул Советская, д 7<\/textarea><div class="suggest-list" id="acc-address-list" role="listbox" hidden>/);
   assert.match(html, /href="\/pay\/o1">Оплатить/);
   assert.match(html, /href="\/receipt\/o2">Товарный чек/);
   assert.match(html, /href="\/track\/a{32}">Отследить/);
@@ -525,8 +564,17 @@ test('оформление: поле почты, привязка к вошед�
   const guest = R.checkoutPage(settings, { account: { auto: true, email: '', name: '', phone: '' } });
   assert.match(guest, /id="checkout-page"[^>]*data-account="1" data-account-auto="1"/);
   assert.doesNotMatch(guest, /data-account-email/);
-  const logged = R.checkoutPage(settings, { account: { auto: true, email: 'b@example.ru', name: 'Иван Петров', phone: '+79991234567' } });
-  assert.match(logged, /data-account-email="b@example\.ru" data-account-name="Иван Петров" data-account-phone="\+79991234567"/);
+  const logged = R.checkoutPage(settings, { account: { auto: true, email: 'b@example.ru', name: 'Иван Петров', phone: '+79991234567', address: 'г Тула, ул Советская, д 7', addressAt: 1700000000000 } });
+  assert.match(logged, /data-account-email="b@example\.ru" data-account-name="Иван Петров" data-account-phone="\+79991234567" data-account-address="г Тула, ул Советская, д 7" data-account-address-at="1700000000000"/);
+  // Адрес и отметка едут и тогда, когда адреса нет: скрипт читает атрибуты, а не гадает.
+  assert.match(R.checkoutPage(settings, { account: { auto: true, email: 'b@example.ru', name: '', phone: '' } }), /data-account-address="" data-account-address-at="0"/);
+  // Маршрут отдаёт их из записи кабинета, а первый заказ вошедшего учит пустой кабинет адресу.
+  assert.match(serverSource, /address: customer \? String\(customer\.address \|\| ''\) : '', addressAt: customer \? Number\(customer\.addressAt\) \|\| 0 : 0/);
+  assert.match(serverSource, /CUSTOMERS\.create\(\{ email, password, name: order\.customerName, phone: order\.phone, address: order\.address, auto: true \}\)/);
+  assert.match(serverSource, /CUSTOMERS\.update\(customer\.id, \{ name: req\.body\.name, phone: req\.body\.phone, address: req\.body\.address \}\)/);
+  assert.match(serverSource, /if \(customer\) CUSTOMERS\.rememberAddress\(customer\.id, order\.address\)/);
+  // Политика называет адрес среди данных кабинета: собираем — значит называем.
+  assert.match(R.privacyPage(settings, {}), /имя, телефон и адрес доставки из профиля/);
   const off = R.checkoutPage(settings, { account: null });
   assert.doesNotMatch(off, /data-account/);
   const route = serverSource.slice(serverSource.indexOf("app.post('/api/order'"), serverSource.indexOf('/* ============================ ОНЛАЙН-ЧАТ'));

@@ -1087,7 +1087,11 @@ app.get('/checkout', (req, res) => {
       const customer = currentCustomer(req);
       return {
         auto: accountMailOn(s),
-        email: customer ? customer.email : '', name: customer ? customer.name : '', phone: customer ? customer.phone : ''
+        email: customer ? customer.email : '', name: customer ? customer.name : '', phone: customer ? customer.phone : '',
+        // Адрес — с отметкой времени: по ней витрина решает, что подставлять,
+        // адрес из кабинета или набранный на оформлении (побеждает то, что
+        // менялось позже — см. `initCheckoutMemory` в public/app.js).
+        address: customer ? String(customer.address || '') : '', addressAt: customer ? Number(customer.addressAt) || 0 : 0
       };
     })()
   })));
@@ -1279,7 +1283,7 @@ function accountForOrder(req, s, order, customer, email) {
   if (CUSTOMERS.byEmail(email)) return { exists: true, email };
   if (!MAIL.configured(s)) return null;
   const password = CUSTOMERS.generatePassword();
-  const made = CUSTOMERS.create({ email, password, name: order.customerName, phone: order.phone, auto: true });
+  const made = CUSTOMERS.create({ email, password, name: order.customerName, phone: order.phone, address: order.address, auto: true });
   if (!made.ok) return null;
   loginCustomer(req, made.customer);
   db.attachOrderCustomer(order.id, made.customer.id);
@@ -1341,7 +1345,7 @@ app.post('/account/profile', (req, res) => {
   if (accountsOff(req, res)) return;
   const customer = currentCustomer(req);
   if (!customer) return res.redirect('/account/login');
-  const saved = CUSTOMERS.update(customer.id, { name: req.body.name, phone: req.body.phone });
+  const saved = CUSTOMERS.update(customer.id, { name: req.body.name, phone: req.body.phone, address: req.body.address });
   if (!saved.ok) return accountHome(req, res, customer, { error: saved.error, status: 400 });
   res.redirect(accountFlash('Сохранено'));
 });
@@ -2211,7 +2215,9 @@ app.post('/api/order', async (req, res) => {
    * Адрес обязан быть полным: населённый пункт, улица и дом. По «Екатеринбургу»
    * нельзя ни оформить накладную, ни посчитать доставку, а заказ уже оплачен.
    */
-  const address = String(req.body.address || '').trim().slice(0, 400);
+  // Одной строкой: перенос, вставленный вместе с адресом, уехал бы в накладную
+  // и в Telegram как есть (`ADDRESS.normalize` — то же правило у кабинета).
+  const address = ADDRESS.normalize(req.body.address);
   if (!address) return res.json({ ok: false, error: 'Укажите адрес' }, 400);
   const addressCheck = ADDRESS.checkAddress(address);
   if (!addressCheck.ok) return res.json({ ok: false, error: addressCheck.error }, 400);
@@ -2391,6 +2397,9 @@ app.post('/api/order', async (req, res) => {
    * его заказ и так в кабинете. */
   const account = accountForOrder(req, s, order, customer, email);
   if (account && (order.draft || order.payMode === 'own')) req.session.accountNote = Object.assign({ order: order.id }, account);
+  // Вошедший без адреса в кабинете получает его из этого заказа — так же, как
+  // автосозданный кабинет берёт имя и телефон. Заданный адрес заказ не трогает.
+  if (customer) CUSTOMERS.rememberAddress(customer.id, order.address);
   // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
   // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
   // её чистит pay.js, когда способ выбран).

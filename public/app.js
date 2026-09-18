@@ -542,10 +542,17 @@
          */
         // Значок у подписи — как у Telegram и почты строкой выше: булавка
         // говорит «сюда поедет заказ» до того, как прочитано само слово.
+        /* Само поле — РАСТУЩИЙ textarea, а не однострочный input: полный адрес
+         * («Свердловская обл, г Екатеринбург, ул Малышева, д 51, кв 12») в
+         * строку шириной с телефон не помещается, начало уезжает за левый край,
+         * и покупатель видит только хвост — а сверяет он именно город и улицу.
+         * Ведёт себя поле как строка: Enter закрывает ввод, а не переносит
+         * строку (`initAddressField`). Разметка та же, что у `addressField()`
+         * в lib/render.js — им рисуется адрес в кабинете. */
         + '<div class="field"><label for="co-address">' + iconWord('pin', 'Адрес') + ' <span class="req">*</span></label>'
         + '<div class="suggest-box">'
-        + '<input type="text" id="co-address" maxlength="400" placeholder="Город, улица, дом" autocomplete="street-address"'
-        + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list" required>'
+        + '<textarea id="co-address" class="addr-input" rows="1" maxlength="400" placeholder="Город, улица, дом" autocomplete="street-address" enterkeyhint="done"'
+        + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list" required></textarea>'
         + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
         + '</div>'
         + '<p class="field-note" id="co-address-note">' + escapeHtml(addressNote()) + '</p></div>'
@@ -563,7 +570,35 @@
         + '</div>'
         + '</div>';
       initPhoneInput();
-      initAddressSuggest();
+      initAddressSuggest(document.getElementById('co-address'), document.getElementById('co-address-list'), function (s) {
+        // Координаты дома приходят вместе с подсказкой — по ним ищутся ближайшие
+        // пункты выдачи. У неточной подсказки (город целиком) их нет вовсе, и
+        // поиск уйдёт по названию города.
+        dropPickup();
+        setGeo(s.lat, s.lon, s.value);
+        // Выбор из списка не даёт события ввода, а адрес изменился — цену
+        // доставки пересчитываем сразу, без задержки.
+        quoteDelivery(0);
+        /* И СПИСОК ПУНКТОВ — ОТДЕЛЬНО, а не «его перезапросит quoteDelivery».
+         *
+         * Он перезапросит только когда адрес правда изменился: при совпадении
+         * строки `quoteDelivery` выходит первой же проверкой и `syncDelivery` не
+         * зовёт вовсе. А совпадение — обычное дело: покупатель выбирает подсказку,
+         * которая уже стоит в поле (дописал и стёр символ, вернулся в поле,
+         * выбрал тот же дом). `dropPickup()` выше список к этому моменту уже
+         * стёр — и он оставался пустым насовсем, с вечным «ищем пункты».
+         * Помогала только смена перевозчика: она зовёт `syncDelivery` сама.
+         *
+         * Повторным запросом это не грозит: `loadPoints` ключуется адресом,
+         * перевозчиком и координатами, а уже идущий запрос по тому же ключу
+         * второй раз не уходит.
+         */
+        loadPoints();
+        rememberCheckout();
+      });
+      // После подсказок: их обработчик Enter обязан идти первым — выбрать
+      // подсказку, — и только потом поле решает, закрывать ли ввод.
+      initAddressField(document.getElementById('co-address'));
       initDeliveryChoice();
       initAddressQuote();
       // Последней: она подставляет сохранённое и будит обработчики выше.
@@ -724,6 +759,15 @@
     if (raw !== null && !fresh) {
       try { localStorage.removeItem(FORM_KEY); } catch (e) {}
     }
+    /* Чей адрес подставлять — решается ДО восстановления: и цикл по полям, и
+     * проверка координат обязаны знать, что в поле в итоге окажется. Само
+     * правило описано у блока кабинета ниже: побеждает то, что менялось позже. */
+    var page = document.getElementById('checkout-page');
+    var accEmail = page ? String(page.getAttribute('data-account-email') || '') : '';
+    var accAddress = accEmail ? cleanText(page.getAttribute('data-account-address'), 400) : '';
+    var accAddressAt = accEmail ? Number(page.getAttribute('data-account-address-at')) || 0 : 0;
+    var savedAddress = fresh && typeof saved['co-address'] === 'string' ? cleanText(saved['co-address'], 400) : '';
+    var useAccountAddress = !!accAddress && !(savedAddress && at > accAddressAt);
     if (fresh) {
       /* Координаты — ПЕРЕД полями: восстановление адреса даёт `change`, тот
        * запускает расчёт доставки, а его ответ уже запрашивает пункты. Поставь
@@ -744,7 +788,7 @@
           // Сверяем с тем адресом, который в поле и ОСТАНЕТСЯ: уже набранное
           // покупателем важнее запомненного, и восстановление его не трогает.
           var addrEl = document.getElementById('co-address');
-          var willBe = addrEl && addrEl.value ? addrEl.value : cleanText(saved['co-address'], 400);
+          var willBe = addrEl && addrEl.value ? addrEl.value : useAccountAddress ? accAddress : cleanText(saved['co-address'], 400);
           setGeo(gLat, gLon, gAddr);
           if (!geoFits(willBe)) setGeo(null, null);
         }
@@ -756,6 +800,9 @@
         // того же maxlength, который видит покупатель.
         var value = typeof saved[id] === 'string'
           ? cleanText(saved[id], FORM_LIMITS[id] || 400) : '';
+        // Адрес из кабинета свежее запомненного — его подставит блок кабинета
+        // ниже, а память в это поле не пишет (см. `useAccountAddress`).
+        if (id === 'co-address' && useAccountAddress) return;
         // Уже набранное не трогаем: своё всегда важнее запомненного.
         if (!el || !value || el.value) return;
         el.value = value;
@@ -780,9 +827,19 @@
     /* Вошедший в кабинет: почта — ИЗ КАБИНЕТА всегда (заказ привяжется к нему
      * в любом случае, и другой адрес в поле только запутал бы), имя и телефон —
      * когда память формы их не помнит: набранное здесь важнее сохранённого в
-     * профиле. Поле остаётся обычным вводом, править его можно. */
-    var page = document.getElementById('checkout-page');
-    var accEmail = page ? String(page.getAttribute('data-account-email') || '') : '';
+     * профиле. Поле остаётся обычным вводом, править его можно.
+     *
+     * АДРЕС — ТОТ, ЧТО МЕНЯЛСЯ ПОЗЖЕ. У него два источника с разными
+     * вопросами: память формы помнит текущую попытку (вернулся после неудачной
+     * оплаты — набранный адрес на месте), кабинет помнит человека (сменил адрес
+     * в профиле — оформление обязано его показать). Правило «память важнее»,
+     * как у имени, здесь ломало бы второе: поправил адрес в кабинете, открыл
+     * оформление — а там прежний, из памяти недельной давности. Правило
+     * «кабинет важнее» ломало бы первое: набрал адрес подарка, касса отказала,
+     * вернулся — а в поле снова свой. Отметка времени есть у обоих
+     * (`saved.at` и `data-account-address-at`), и сравнение решает без
+     * догадок; память на этой странице обновляется каждым `change`, поэтому
+     * после первого же захода она знает про адрес кабинета сама. */
     if (accEmail) {
       var emailEl = document.getElementById('co-email');
       if (emailEl && emailEl.value !== accEmail) {
@@ -804,6 +861,11 @@
       if (accPhone && phoneEl && !phoneEl.value) {
         phoneEl.value = cleanText(accPhone, 24);
         phoneEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      var addressEl = document.getElementById('co-address');
+      if (useAccountAddress && addressEl && !addressEl.value) {
+        addressEl.value = accAddress;
+        addressEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
     // На `change`, то есть при уходе из поля, а не на каждую букву: запись в
@@ -1617,12 +1679,59 @@
         });
     }, delay == null ? 350 : delay);
   }
+  /* ===== Поле адреса растёт под текст =====
+   * Одна строка, пока адрес короткий, и столько строк, сколько нужно, когда он
+   * длинный: адрес виден целиком, а не хвостом. Ведёт себя при этом как
+   * строка, а не как textarea:
+   * — Enter не переносит строку. Подсказка активна — её выбирает обработчик
+   *   списка (он зарегистрирован раньше и гасит событие); иначе Enter
+   *   закрывает ввод: убирает фокус, то есть на телефоне прячет клавиатуру
+   *   (на ней он и подписан «Готово» — `enterkeyhint`), а на оформлении тем
+   *   же `blur` запускает расчёт доставки сразу, без ожидания паузы;
+   * — перевод строки из вставки схлопывается в запятую с пробелом: адрес,
+   *   скопированный из письма или заметок, приходит в две-три строки.
+   *   Сервер всё равно хранит адрес одной строкой (`ADDRESS.normalize`), а
+   *   здесь покупатель видит то, что уедет в заказ.
+   * Высота пересчитывается на каждое изменение — и на `change` тоже:
+   * значение, подставленное скриптом (память формы, кабинет), события
+   * `input` не даёт. Пока адрес помещается в строку, высоту задаёт ТОЛЬКО CSS
+   * — ровно ту же, что у соседних input'ов; скрипт вмешивается лишь когда
+   * текст перестал помещаться (`scrollHeight` больше видимого), иначе
+   * целочисленный `scrollHeight` округлял бы одну строку на полпикселя выше
+   * соседей. Без скрипта поле остаётся textarea в одну строку с прокруткой. */
+  function fitAddressField(el) {
+    if (!el || !el.style) return;
+    el.style.height = '';
+    if (el.scrollHeight > el.clientHeight) {
+      el.style.height = (el.scrollHeight + (el.offsetHeight - el.clientHeight)) + 'px';
+    }
+  }
+  function initAddressField(el) {
+    if (!el) return;
+    el.addEventListener('input', function () {
+      if (/[\r\n\t]/.test(el.value)) {
+        el.value = el.value.replace(/\s*[\r\n\t]+\s*/g, ', ').replace(/,(\s*,)+/g, ',').replace(/^,\s*/, '');
+      }
+      fitAddressField(el);
+    });
+    el.addEventListener('change', function () { fitAddressField(el); });
+    el.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      var chosen = e.defaultPrevented;
+      e.preventDefault();
+      if (!chosen) el.blur();
+    });
+    window.addEventListener('resize', function () { fitAddressField(el); });
+    fitAddressField(el);
+  }
+
   // ===== Подсказки адреса (dadata.ru через наш /api/address-suggest) =====
   // Подсказки — помощь, а не условие: если ключ не настроен, запрос не удался или
   // покупатель печатает быстрее ответа, поле остаётся обычным текстовым вводом.
-  function initAddressSuggest() {
-    var input = document.getElementById('co-address');
-    var list = document.getElementById('co-address-list');
+  // Поле и список — параметры: те же подсказки стоят у адреса в кабинете, а что
+  // делать с выбранным (на оформлении — координаты, доставка, пункты), решает
+  // вызывающий через `onChoose`.
+  function initAddressSuggest(input, list, onChoose) {
     if (!input || !list) return;
     var items = [], active = -1, timer = null, seq = 0, lastQuery = null, off = false;
 
@@ -1658,30 +1767,9 @@
       lastQuery = s.value;      // выбранное значение заново не переспрашиваем
       close();
       input.focus();
-      // Координаты дома приходят вместе с подсказкой — по ним ищутся ближайшие
-      // пункты выдачи. У неточной подсказки (город целиком) их нет вовсе, и
-      // поиск уйдёт по названию города.
-      dropPickup();
-      setGeo(s.lat, s.lon, s.value);
-      // Выбор из списка не даёт события ввода, а адрес изменился — цену
-      // доставки пересчитываем сразу, без задержки.
-      quoteDelivery(0);
-      /* И СПИСОК ПУНКТОВ — ОТДЕЛЬНО, а не «его перезапросит quoteDelivery».
-       *
-       * Он перезапросит только когда адрес правда изменился: при совпадении
-       * строки `quoteDelivery` выходит первой же проверкой и `syncDelivery` не
-       * зовёт вовсе. А совпадение — обычное дело: покупатель выбирает подсказку,
-       * которая уже стоит в поле (дописал и стёр символ, вернулся в поле,
-       * выбрал тот же дом). `dropPickup()` выше список к этому моменту уже
-       * стёр — и он оставался пустым насовсем, с вечным «ищем пункты».
-       * Помогала только смена перевозчика: она зовёт `syncDelivery` сама.
-       *
-       * Повторным запросом это не грозит: `loadPoints` ключуется адресом,
-       * перевозчиком и координатами, а уже идущий запрос по тому же ключу
-       * второй раз не уходит.
-       */
-      loadPoints();
-      rememberCheckout();
+      // Значение подставлено скриптом — события ввода нет, а поле растёт по нему.
+      fitAddressField(input);
+      if (onChoose) onChoose(s);
     }
     function ask(q) {
       var my = ++seq;
@@ -1710,6 +1798,8 @@
       if (list.hidden) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+      // Enter с активной подсказкой выбирает её и гасит событие — по этому
+      // признаку `initAddressField` понимает, что закрывать ввод не надо.
       else if (e.key === 'Enter') { if (active > -1) { e.preventDefault(); choose(active); } }
       else if (e.key === 'Escape') { close(); }
     });
@@ -2535,8 +2625,16 @@
    * как сбой. */
   function initAccountPage() {
     var box = document.getElementById('account-cart');
-    if (!box) return;
-    if (Cart.items.length) {
+    var address = document.getElementById('acc-address');
+    if (!box && !address) return;
+    // Адрес доставки в профиле — то же поле, что на оформлении: подсказки и
+    // рост под текст. Выбранная подсказка здесь ничего не считает — адрес
+    // просто сохраняется формой.
+    if (address) {
+      initAddressSuggest(address, document.getElementById('acc-address-list'));
+      initAddressField(address);
+    }
+    if (box && Cart.items.length) {
       var count = Cart.count();
       box.innerHTML = '<ul class="acc-cart-list">'
         + Cart.items.map(function (i) {
