@@ -53,13 +53,16 @@ test('нижняя панель: пять вкладок как у i-store.by, �
   assert.match(bar, /<button class="tabbar-item" type="button" data-chat-open aria-controls="chat-panel">/);
   // Счётчики — свои узлы, но пишут в них те же скрипты, что и в шапку.
   assert.match(bar, /<span class="tabbar-badge" data-cart-count aria-hidden="true" hidden>0<\/span>/);
-  assert.match(bar, /<span class="tabbar-badge" data-chat-badge aria-hidden="true" hidden>0<\/span>/);
+  assert.match(bar, /<span class="tabbar-badge tabbar-badge-alert" data-chat-badge aria-hidden="true" hidden>0<\/span>/);
   assert.match(app, /querySelectorAll\('\[data-cart-count\]'\)/);
   assert.match(chat, /querySelectorAll\('\[data-chat-badge\]'\)/);
   assert.match(chat, /closest\('\[data-chat-open\]'\)/);
   // Ожидающее сообщение от менеджера зажигает счётчик и на вкладке.
   const waiting = R.homePage(SETTINGS, DB, { chatWaiting: 3 });
-  assert.match(waiting, /<span class="tabbar-badge" data-chat-badge aria-hidden="true">3<\/span>/);
+  assert.match(waiting, /<span class="tabbar-badge tabbar-badge-alert" data-chat-badge aria-hidden="true">3<\/span>/);
+  // Точка «вошёл» у кабинета — как у значка в шапке: на телефоне значка в шапке нет.
+  assert.match(R.homePage(SETTINGS, DB, { customer: { id: 'c' } }), /<a class="tabbar-item is-in" href="\/account">/);
+  assert.doesNotMatch(bar, /tabbar-item is-in/);
 
   const off = R.homePage(OFF, DB, {});
   const offBar = (off.match(/<nav class="tabbar"[\s\S]*?<\/nav>/) || [])[0];
@@ -77,7 +80,7 @@ test('нижняя панель: выбранная вкладка — по ст
   assert.equal(active(R.aboutPage(SETTINGS, {})), '', 'у «О компании» своей вкладки нет');
 });
 
-test('нижняя панель: числа сняты с i-store.by, поднимает чат, тост и ряд покупки', () => {
+test('нижняя панель: полоса как у i-store.by, значки крупнее, поднимает тост и ряд покупки', () => {
   // Только телефон: в базовом слое панель спрятана, показывает её мобильный блок.
   assert.match(css, /\.tabbar\{display:none\}/);
   assert.match(tail, /body\.storefront\{--tabbar-h:calc\(61px \+ env\(safe-area-inset-bottom,0px\)\);padding-bottom:var\(--tabbar-h\)\}/);
@@ -86,14 +89,42 @@ test('нижняя панель: числа сняты с i-store.by, подни
   assert.match(bar, /border-radius:12px 12px 0 0/);
   assert.match(bar, /box-shadow:0 -3px 10px rgba\(0,0,0,\.1\)/);
   assert.match(bar, /background:#fff/);
+  /* Значок и подпись крупнее образца (просьба владельца 18 сентября 2026 —
+   * «слишком плохо видно»): 24 px вместо 20, подпись 11/14 весом 500 вместо
+   * 10/14, серый значка — --muted вместо #888. Полоса и вкладка прежние. */
   const item = (tail.match(/\.tabbar-item\{([^}]*)\}/) || [])[1] || '';
   assert.match(item, /height:56px/);
-  assert.match(item, /gap:5px/);
-  assert.match(item, /font-size:10px;line-height:14px/);
+  assert.match(item, /gap:4px/);
+  assert.match(item, /font-size:11px;line-height:14px;font-weight:500/);
   assert.match(item, /flex:1 1 0/);
-  assert.match(tail, /\.tabbar-ico\{[^}]*height:20px;color:#888\}/);
-  assert.match(tail, /\.tabbar-ico svg\{width:20px;height:20px/);
+  assert.match(tail, /\.tabbar-ico\{[^}]*height:24px;color:#6e6e73\}/);
+  assert.match(tail, /\.tabbar-ico svg\{position:relative;z-index:1;width:24px;height:24px/);
   assert.match(tail, /\.tabbar-item\.is-active,\.tabbar-item\.is-active \.tabbar-ico\{color:var\(--accent\)\}/);
+  /* Дубли на телефоне спрятаны: круглая кнопка чата и значок кабинета в шапке
+   * повторяли вкладки той же панели, а кнопка ещё и закрывала угол каталога.
+   * Правило живёт в мобильном блоке — на компьютере оба на месте. */
+  assert.match(tail, /\.chat-fab,\.account-btn\{display:none\}/);
+  assert.ok(css.indexOf('.chat-fab,.account-btn{display:none}') > css.indexOf('@media(max-width:800px){\n  body.storefront{--tabbar-h'),
+    'прячет их только мобильный блок — на компьютере круглая кнопка и значок остаются');
+  assert.match(css, /\n\.chat-fab\{position:relative;[^}]*display:block/, 'базовое правило кнопки чата на месте');
+  /* Пульс вкладки «Чат» — кольца, а не залитые круги: под серым контурным
+   * значком залитый круг чужого цвета глушил бы сам значок. Период тот же, что у
+   * chat-wave круглой кнопки; анимируются только opacity и transform; при
+   * prefers-reduced-motion кольца стоят и не видны. */
+  assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico::before,\.tabbar-item\[data-chat-open\] \.tabbar-ico::after\{content:"";position:absolute;\s*inset:-3px;z-index:0;border-radius:50%;border:1\.5px solid var\(--accent\);animation:tabbar-pulse 2\.6s linear 0s infinite\}/);
+  assert.match(tail, /\.tabbar-item\[data-chat-open\] \.tabbar-ico::after\{animation-delay:1\.3s\}/);
+  const pulse = (css.match(/@keyframes tabbar-pulse\{([^}]*\}[^}]*\}[^}]*)\}/) || [])[0] || '';
+  assert.ok(pulse, 'кадры пульса на месте');
+  assert.doesNotMatch(pulse, /width|height|border|top|left/, 'анимируются только opacity и transform');
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\s*\.tabbar-item\[data-chat-open\] \.tabbar-ico::before,\.tabbar-item\[data-chat-open\] \.tabbar-ico::after\{animation:none;opacity:0\}/);
+  // Значок «вам написали» — красный, как у круглой кнопки; счётчик корзины — цветом темы.
+  assert.match(tail, /\.tabbar-badge\{position:absolute;[^}]*background:var\(--accent\)[^}]*box-shadow:0 0 0 2px #fff\}/);
+  assert.match(tail, /\.tabbar-badge-alert\{background:#eb5757\}/);
+  assert.match(tail, /\.tabbar-item\.is-in \.tabbar-ico::after\{[^}]*background:var\(--accent\);box-shadow:0 0 0 2px #fff\}/);
+  // Закрытое окно возвращает фокус туда, откуда открыли: на телефоне — на вкладку.
+  const chat = fs.readFileSync(path.join(__dirname, '..', 'public', 'chat.js'), 'utf8');
+  assert.match(chat, /var back = button && button\.offsetParent !== null \? button : document\.querySelector\('\[data-chat-open\]'\);/);
+  assert.match(chat, /tab\.setAttribute\('aria-label', 'Чат, новых сообщений: ' \+ state\.unread\)/);
   // Кнопка чата, тост и липкий ряд покупки поднимаются на высоту панели —
   // правила стоят в конце файла, после своих блоков.
   assert.match(tail, /\.chat-widget\{bottom:calc\(12px \+ var\(--tabbar-h\)\)\}/);

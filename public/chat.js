@@ -579,7 +579,16 @@
     // То же число на вкладке «Чат» нижней панели (телефон): узел свой, а
     // значение одно, и рисуется оно из одного места.
     var tabs = document.querySelectorAll('[data-chat-badge]');
-    for (var i = 0; i < tabs.length; i++) { tabs[i].textContent = badge.textContent; tabs[i].hidden = !state.unread; }
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].textContent = badge.textContent; tabs[i].hidden = !state.unread;
+      // Число уходит и в имя самой вкладки: на телефоне она — единственная
+      // кнопка чата, а значок для скринридера скрыт.
+      var tab = tabs[i].closest && tabs[i].closest('[data-chat-open]');
+      if (tab) {
+        if (state.unread) tab.setAttribute('aria-label', 'Чат, новых сообщений: ' + state.unread);
+        else tab.removeAttribute('aria-label');
+      }
+    }
     if (button) {
       button.setAttribute('aria-label', state.unread ? 'Чат с магазином, новых сообщений: ' + state.unread : 'Чат с магазином');
     }
@@ -1100,7 +1109,11 @@
     panel.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('chat-locked');
     resetViewport();
-    if (button) { button.setAttribute('aria-expanded', 'false'); button.focus(); }
+    if (button) button.setAttribute('aria-expanded', 'false');
+    // Фокус — туда, откуда окно открыли: на телефоне круглой кнопки нет
+    // (спрятана стилем), и он возвращается на вкладку «Чат» нижней панели.
+    var back = button && button.offsetParent !== null ? button : document.querySelector('[data-chat-open]');
+    if (back) back.focus();
   }
 
   /* Клавиатура выезжает уже ПОСЛЕ того, как фокус встал в поле, и `resize`

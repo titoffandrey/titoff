@@ -6881,29 +6881,66 @@ details.metric-rules{margin-bottom:14px}
    перекладки страницы. Место под ней внизу страницы отводит padding у body,
    иначе последняя строка подвала пряталась бы под полосой.
 
-   Всё, что и так стоит у нижнего края (кнопка чата, липкий ряд покупки на
-   странице товара, тост), поднимается на её высоту: правила идут в конце файла
-   ПОСЛЕ своих блоков — при равной специфичности побеждает последнее. Высота с
-   вырезом под домашнюю полосу iPhone лежит в одной переменной --tabbar-h. */
+   Всё, что и так стоит у нижнего края (липкий ряд покупки на странице товара,
+   тост), поднимается на её высоту: правила идут в конце файла ПОСЛЕ своих
+   блоков — при равной специфичности побеждает последнее. Высота с вырезом под
+   домашнюю полосу iPhone лежит в одной переменной --tabbar-h.
+
+   ЗНАЧОК И ПОДПИСЬ КРУПНЕЕ, ЧЕМ У ОБРАЗЦА (18 сентября 2026, просьба
+   владельца — «слишком плохо видно»): значок 24 px вместо 20, подпись 11/14
+   весом 500 вместо 10/14, серый значка темнее (#6e6e73 — тот же --muted, что
+   у подписей витрины, вместо #888). Высота полосы и вкладки прежние: 24 + 4 +
+   14 = 42 px содержимого в 56 у вкладки, запас сверху остался.
+
+   ДУБЛИ В ШАПКЕ И В УГЛУ НА ТЕЛЕФОНЕ СПРЯТАНЫ: значок кабинета в шапке и
+   круглая кнопка чата повторяли вкладки «Кабинет» и «Чат» той же панели — две
+   двери в одно место на одном экране, а круглая кнопка вдобавок закрывала
+   правый нижний угол каталога (см. снимок владельца). Вкладка «Чат» теперь
+   единственная дверь в чат на телефоне, и внимание к ней держит ПУЛЬС: две
+   волны акцентного цвета расходятся от значка и тают — тот же приём, что у
+   круглой кнопки (chat-wave), только под значком 24 px и на прозрачном фоне.
+   На компьютере всё как было: панели нет, кнопка в углу и значок в шапке на
+   месте. */
 .tabbar{display:none}
 @media(max-width:800px){
   body.storefront{--tabbar-h:calc(61px + env(safe-area-inset-bottom,0px));padding-bottom:var(--tabbar-h)}
   .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:38;display:flex;align-items:stretch;height:var(--tabbar-h);
     padding:0 0 calc(5px + env(safe-area-inset-bottom,0px));background:#fff;border-radius:12px 12px 0 0;
     box-shadow:0 -3px 10px rgba(0,0,0,.1)}
-  .tabbar-item{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;
-    height:56px;margin:0;padding:0 3px 2px;border:0;background:none;color:var(--text);font:inherit;font-size:10px;line-height:14px;
+  .tabbar-item{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;
+    height:56px;margin:0;padding:0 3px 2px;border:0;background:none;color:var(--text);font:inherit;font-size:11px;line-height:14px;font-weight:500;
     text-align:center;text-decoration:none;cursor:pointer;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
-  .tabbar-ico{position:relative;display:flex;align-items:flex-end;height:20px;color:#888}
-  .tabbar-ico svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .tabbar-ico{position:relative;display:flex;align-items:flex-end;height:24px;color:#6e6e73}
+  .tabbar-ico svg{position:relative;z-index:1;width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
   .tabbar-label{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .tabbar-item.is-active,.tabbar-item.is-active .tabbar-ico{color:var(--accent)}
   .tabbar-item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:10px}
-  /* Счётчик — кружок цвета темы в правом верхнем углу значка, как
-     `header-cart__count` у них (17 px, белая цифра). */
-  .tabbar-badge{position:absolute;top:-6px;right:-11px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  /* Точка «вошёл» у кабинета — та же, что у значка в шапке (.account-btn.is-in). */
+  .tabbar-item.is-in .tabbar-ico::after{content:"";position:absolute;top:-1px;right:-3px;z-index:2;width:8px;height:8px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 0 2px #fff}
+  /* Счётчик — кружок в правом верхнем углу значка, как `header-cart__count`
+     у образца (белая цифра, белая обводка от значка). У корзины — цвет темы,
+     у чата — красный: там это «вам написали», а не число, и на вкладке с
+     пульсом того же акцента синий кружок сливался бы с волной. Выше волн и
+     значка (z-index 3). */
+  .tabbar-badge{position:absolute;top:-6px;right:-10px;z-index:3;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
     background:var(--accent);color:#fff;font-size:11px;font-weight:600;line-height:17px;text-align:center;box-shadow:0 0 0 2px #fff}
+  .tabbar-badge-alert{background:#eb5757}
   .tabbar-badge[hidden]{display:none}
+  /* Пульс значка чата: два КОЛЬЦА акцентного цвета вокруг значка (30 px —
+     значок с полем в 3 px), каждое за 2.6 с растёт до 1.7 и тает; второе со
+     сдвигом в полпериода, чтобы одна волна всегда была в дороге. Период и
+     кривая те же, что у chat-wave круглой кнопки, но волна — кольцо, а не
+     залитый круг: у кнопки волна того же цвета, что она сама, и читается её
+     продолжением, а под серым контурным значком залитый круг чужого цвета
+     выглядел бы плашкой и глушил бы сам значок. Кольцо значка не касается.
+     Анимируются только opacity и transform. */
+  .tabbar-item[data-chat-open] .tabbar-ico::before,.tabbar-item[data-chat-open] .tabbar-ico::after{content:"";position:absolute;
+    inset:-3px;z-index:0;border-radius:50%;border:1.5px solid var(--accent);animation:tabbar-pulse 2.6s linear 0s infinite}
+  .tabbar-item[data-chat-open] .tabbar-ico::after{animation-delay:1.3s}
+  /* Круглой кнопки чата и значка кабинета в шапке на телефоне нет: их место
+     заняли вкладки. Окно чата при этом на месте — его открывает вкладка. */
+  .chat-fab,.account-btn{display:none}
   /* Всё, что стояло у нижнего края, поднимается над панелью. */
   .chat-widget{bottom:calc(12px + var(--tabbar-h))}
   .toast{bottom:calc(16px + var(--tabbar-h))}
@@ -6915,5 +6952,9 @@ details.metric-rules{margin-bottom:14px}
 @media(max-width:720px){
   /* Кнопка чата на странице товара — над рядом покупки, а он теперь над панелью. */
   .product-page .chat-widget{bottom:calc(84px + var(--tabbar-h,0px))}
+}
+@keyframes tabbar-pulse{0%{opacity:.6;transform:scale(1)}40%{opacity:.6}to{opacity:0;transform:scale(1.7)}}
+@media (prefers-reduced-motion:reduce){
+  .tabbar-item[data-chat-open] .tabbar-ico::before,.tabbar-item[data-chat-open] .tabbar-ico::after{animation:none;opacity:0}
 }
 @media print{.tabbar{display:none!important}}
