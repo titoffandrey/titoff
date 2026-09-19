@@ -546,7 +546,8 @@ test('страницы кабинета: состояния заказов сл�
   assert.doesNotMatch(html, /можно и просто цифры/);
   assert.match(html, /<meta name="robots" content="noindex/);
   assert.doesNotMatch(html, /data-ym=/, 'счётчика Яндекса в кабинете нет');
-  assert.match(html, /account-btn is-in/, 'значок в шапке отмечает вошедшего');
+  assert.match(html, /<a class="icon-btn account-btn" href="\/account"/, 'значок в шапке без отметки «вошёл»');
+  assert.doesNotMatch(html, /is-in/);
   // Кабинет выключен — значка нет вовсе; включён — есть даже у гостя.
   const off = R.homePage(Object.assign({}, settings, { accountsOn: false }), { visibleProducts: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 }) }, {});
   assert.doesNotMatch(off, /account-btn/);

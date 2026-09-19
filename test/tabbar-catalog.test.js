@@ -60,9 +60,11 @@ test('нижняя панель: пять вкладок как у i-store.by, �
   // Ожидающее сообщение от менеджера зажигает счётчик и на вкладке.
   const waiting = R.homePage(SETTINGS, DB, { chatWaiting: 3 });
   assert.match(waiting, /<span class="tabbar-badge tabbar-badge-alert" data-chat-badge aria-hidden="true">3<\/span>/);
-  // Точка «вошёл» у кабинета — как у значка в шапке: на телефоне значка в шапке нет.
-  assert.match(R.homePage(SETTINGS, DB, { customer: { id: 'c' } }), /<a class="tabbar-item is-in" href="\/account">/);
-  assert.doesNotMatch(bar, /tabbar-item is-in/);
+  // Отметки «вошёл» у кабинета нет (снята 20 сентября 2026): синяя точка в углу
+  // силуэта читалась уведомлением, которого нет. Ни на вкладке, ни в шапке.
+  const signedIn = R.homePage(SETTINGS, DB, { customer: { id: 'c' } });
+  assert.match(signedIn, /<a class="tabbar-item" href="\/account">/);
+  assert.doesNotMatch(signedIn, /is-in/);
 
   const off = R.homePage(OFF, DB, {});
   const offBar = (off.match(/<nav class="tabbar"[\s\S]*?<\/nav>/) || [])[0];
@@ -123,7 +125,7 @@ test('нижняя панель: полоса как у i-store.by, значки
   // Значок «вам написали» — красный, как у круглой кнопки; счётчик корзины — цветом темы.
   assert.match(tail, /\.tabbar-badge\{position:absolute;[^}]*background:var\(--accent\)[^}]*box-shadow:0 0 0 2px #fff\}/);
   assert.match(tail, /\.tabbar-badge-alert\{background:#eb5757\}/);
-  assert.match(tail, /\.tabbar-item\.is-in \.tabbar-ico::after\{[^}]*background:var\(--accent\);box-shadow:0 0 0 2px #fff\}/);
+  assert.doesNotMatch(css, /is-in/, 'точки «вошёл» нет ни у вкладки, ни у значка в шапке');
   // Закрытое окно возвращает фокус туда, откуда открыли: на телефоне — на вкладку.
   assert.match(chat, /var back = button && button\.offsetParent !== null \? button : document\.querySelector\('\[data-chat-open\]'\);/);
   assert.match(chat, /tab\.setAttribute\('aria-label', 'Чат, новых сообщений: ' \+ state\.unread\)/);
