@@ -532,7 +532,18 @@ test('страницы кабинета: состояния заказов сл�
   assert.match(html, /и ещё 2 товара/);
   assert.match(html, /<section class="acc-card" id="shipments"/);
   assert.match(html, /trk-mine-item trk-cdek/);
-  assert.match(html, /id="account-cart"/, 'корзину рисует скрипт');
+  /* КОРЗИНЫ В КАБИНЕТЕ НЕТ (20 сентября 2026, по просьбе владельца): у неё
+   * своя вкладка нижней панели и шторка в шапке. Крошек «Главная / Личный
+   * кабинет» тоже нет, а «Выйти» стоит ПОСЛЕ всех разделов маленькой кнопкой —
+   * в шапке рядом с заголовком оно было самой заметной кнопкой страницы. */
+  assert.doesNotMatch(html, /id="account-cart"|id="cart"|acc-cart/);
+  assert.doesNotMatch(html, /class="breadcrumb"/);
+  assert.match(html, /<\/div>\s*<form method="post" action="\/account\/logout" class="acc-logout"><button class="btn btn-sm" type="submit">Выйти<\/button><\/form>\s*<\/div>/);
+  assert.ok(html.indexOf('id="password"') < html.indexOf('class="acc-logout"'), '«Выйти» — после последнего раздела');
+  assert.doesNotMatch(html, /acc-head[\s\S]{0,300}\/account\/logout/, 'в шапке кабинета кнопки выхода нет');
+  // Подсказка про пароль — без «можно и просто цифры»: минимум и так сказан.
+  assert.match(html, /Не короче 6 знаков\.<\/p>/);
+  assert.doesNotMatch(html, /можно и просто цифры/);
   assert.match(html, /<meta name="robots" content="noindex/);
   assert.doesNotMatch(html, /data-ym=/, 'счётчика Яндекса в кабинете нет');
   assert.match(html, /account-btn is-in/, 'значок в шапке отмечает вошедшего');
@@ -548,6 +559,26 @@ test('страницы кабинета: состояния заказов сл�
   assert.match(login, /Зарегистрироваться/);
   const reset = R.accountAuthPage(settings, { mode: 'reset', token: 'b'.repeat(32) });
   assert.match(reset, /action="\/account\/reset\/b{32}"/);
+  /* ВХОД ЗАНИМАЕТ ЭКРАН ЦЕЛИКОМ и без крошек: блок не ниже высоты окна без
+   * шапки (и нижней панели на телефоне — `--tabbar-h`), форма по центру
+   * свободного места, все надписи по центру, поле ввода набирается слева. На
+   * телефоне у карточки нет рамки — рамка вокруг формы на весь экран читалась
+   * бы окном в окне. */
+  assert.doesNotMatch(login, /class="breadcrumb"/);
+  assert.doesNotMatch(reset, /можно и просто цифры/);
+  const css = fs.readFileSync(path.join(ROOT, 'public', 'styles.css'), 'utf8');
+  const auth = (css.match(/\n\.acc-auth\{([^}]*)\}/) || [])[1] || '';
+  assert.match(auth, /display:flex;flex-direction:column;justify-content:center/);
+  assert.match(auth, /text-align:center/);
+  assert.match(auth, /min-height:calc\(100dvh - 58px - var\(--tabbar-h,0px\)\)/);
+  assert.match(css, /\.acc-auth input\{text-align:start\}/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){\n  .acc-card{'));
+  assert.match(mobile, /\.acc-auth\{min-height:calc\(100vh - 54px\);min-height:calc\(100dvh - 54px - var\(--tabbar-h,0px\)\)/);
+  assert.match(mobile, /\.acc-auth-card\{[^}]*border:0;border-radius:0;background:transparent\}/);
+  // «Выйти» — маленькая кнопка по центру под разделами, а «Пароль» после
+  // снятия корзины идёт во всю ширину сетки, как заказы.
+  assert.match(css, /\.acc-logout\{margin:22px 0 0;text-align:center\}/);
+  assert.match(css, /\.acc-card#password\{grid-column:1\/-1\}/);
   // Отметка о созданном кабинете — на странице оплаты и на экране «оформлено» одними словами.
   assert.match(R.accountNoteText({ created: true, email: 'b@example.ru' }), /пароль отправили на b@example\.ru/);
   const pay = R.payPage(settings, { id: 'o1', number: 100001, createdAt: now, total: 1000, items: [], payMode: 'own' },

@@ -3442,11 +3442,14 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
    заказом, где посылка, что в корзине, — и выглядеть он обязан той же рукой.
    Сетка `auto-fit`: на широком экране заказы и отправления встают рядом, на
    телефоне — друг под другом, без медиазапроса. */
-.acc-page{max-width:980px;padding-top:6px;padding-bottom:44px}
-.acc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:12px 0 18px}
+.acc-page{max-width:980px;padding-top:22px;padding-bottom:36px}
+.acc-head{margin:0 0 18px}
 .acc-head h1{margin:0;font-size:clamp(24px,4.6vw,31px);letter-spacing:-.02em}
 .acc-sub{margin:4px 0 0;color:var(--muted);font-size:14.5px;overflow-wrap:anywhere}
-.acc-head form{flex:none;padding-top:4px}
+/* «Выйти» — ПОСЛЕ всех разделов и маленькой кнопкой (20 сентября 2026): это
+   действие раз в жизни, а в шапке рядом с заголовком оно было самой заметной
+   кнопкой кабинета — на телефоне вдобавок во всю ширину. */
+.acc-logout{margin:22px 0 0;text-align:center}
 .acc-flash{margin:0 0 16px;padding:11px 14px;border:1px solid #b9dfc5;border-radius:12px;background:#f4fbf7;font-size:14px}
 .acc-flash.err{border-color:#f3c2bd;background:#fff6f5}
 .acc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:14px 16px;align-items:start}
@@ -3458,6 +3461,10 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 /* Заказы занимают всю ширину: у строки заказа три колонки, и в половине экрана
    они не помещаются рядом с отправлениями. */
 .acc-card#orders{grid-column:1/-1}
+/* Пароль — тоже во всю ширину: после снятия корзины карточек в сетке три, и
+   свёрнутый «Сменить пароль» одной строкой стоял в левой колонке рядом с
+   пустотой во всю правую. Во всю ширину это тонкая полоса под профилем. */
+.acc-card#password{grid-column:1/-1}
 .acc-orders{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .acc-order{padding:13px 15px;border:1px solid var(--border-soft);border-radius:15px;background:var(--tone-row,#fff);box-shadow:inset 3px 0 0 var(--tone,transparent)}
 .acc-order-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;font-size:15px}
@@ -3481,25 +3488,25 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .acc-fold summary::after{content:" ›";display:inline-block;transform:rotate(90deg);margin-left:4px;transition:transform .16s}
 .acc-fold[open] summary::after{transform:rotate(-90deg)}
 .acc-fold[open] summary{margin-bottom:14px}
-/* Корзина в кабинете рисуется скриптом по localStorage — те же названия и
-   миниатюры, что в шторке, ровно столько, чтобы узнать содержимое. */
-.acc-cart-list{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:10px}
-.acc-cart-item{display:flex;gap:12px;align-items:center}
-.acc-cart-media{flex:none;width:52px;height:52px;border-radius:12px;overflow:hidden;background:var(--bg2)}
-.acc-cart-media img{width:100%;height:100%;object-fit:cover;display:block}
-.acc-cart-body{min-width:0}
-.acc-cart-name{display:block;font-size:14px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acc-cart-name:hover{color:var(--accent)}
-.acc-cart-variant{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acc-cart-qty{font-size:13px;color:#424245;margin-top:2px}
-.acc-cart-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
-.acc-cart-foot b{color:var(--text)}
-/* Вход и регистрация — одна карточка по центру, ширина под форму, а не под
-   страницу: поле e-mail во всю ширину монитора читается как строка ввода в
-   полметра. */
-.acc-auth{max-width:520px;padding-bottom:44px}
-.acc-auth-card{margin-top:12px;padding:26px 26px 22px}
-.acc-auth-title{margin:0 0 16px;font-size:clamp(22px,4.2vw,26px);letter-spacing:-.02em}
+/* ВХОД ЗАНИМАЕТ ЭКРАН ЦЕЛИКОМ (20 сентября 2026, по просьбе владельца).
+   Прежде карточка стояла под крошками у верхнего края, а под ней сразу шёл
+   подвал — на телефоне экран входа выглядел обрывком страницы. Теперь блок
+   не ниже высоты окна без шапки (и без нижней панели на телефоне — её
+   высота приезжает в `--tabbar-h` у body), а форма стоит ПО ЦЕНТРУ свободного
+   места: заголовок, два поля, кнопка — экран одного действия, как в
+   приложении. Подвал уезжает за сгиб. `100dvh` вторым объявлением: на
+   телефоне `100vh` считает адресную строку, а браузер без `dvh` оставит
+   первое. Ширина по-прежнему под форму, а не под страницу: поле e-mail во всю
+   ширину монитора читается как строка ввода в полметра.
+
+   ВСЕ НАДПИСИ ПО ЦЕНТРУ — заголовок, подписи полей, подсказки, ссылки под
+   кнопкой; поле ввода при этом набирается слева: почта по центру строки
+   читается хуже, а печатают её глядя в поле. */
+.acc-auth{display:flex;flex-direction:column;justify-content:center;max-width:520px;padding-bottom:24px;text-align:center;
+  min-height:calc(100vh - 58px);min-height:calc(100dvh - 58px - var(--tabbar-h,0px))}
+.acc-auth input{text-align:start}
+.acc-auth-card{margin:0;padding:26px 26px 22px}
+.acc-auth-title{margin:0 0 18px;font-size:clamp(22px,4.2vw,26px);letter-spacing:-.02em}
 .acc-auth-copy{margin:0 0 16px;color:#424245;font-size:14.5px;line-height:1.55}
 .acc-auth .acc-form .btn{margin-top:4px}
 .acc-links{margin:16px 0 0;font-size:14px;color:var(--muted)}
@@ -3513,9 +3520,13 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .order-success-account p a{color:var(--accent);font-weight:600}
 @media(max-width:800px){
   .acc-card{padding:16px 15px;border-radius:16px}
-  .acc-head{flex-direction:column;align-items:stretch}
-  .acc-head form .btn{width:100%}
-  .acc-auth-card{padding:20px 16px 18px}
+  .acc-page{padding-top:16px}
+  /* На телефоне у входа НЕТ карточки: рамка вокруг формы на весь экран
+     читалась бы окном в окне. Поля и кнопка стоят прямо на странице, шапка
+     здесь 54 px, и её же вычитаем из высоты. */
+  .acc-auth{min-height:calc(100vh - 54px);min-height:calc(100dvh - 54px - var(--tabbar-h,0px));padding-bottom:16px}
+  .acc-auth-card{padding:0 2px;border:0;border-radius:0;background:transparent}
+  .acc-auth-title{margin-bottom:22px;font-size:26px}
   .acc-order-acts .btn{flex:1;justify-content:center}
 }
 

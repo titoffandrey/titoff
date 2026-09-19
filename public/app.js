@@ -2612,42 +2612,24 @@
      подхватывает ссылки с data-kind внутри блока с data-media и слушает
      документ, поэтому вызывать его отсюда не нужно вовсе. */
 
-  /* Личный кабинет: корзина и одноразовая плашка.
+  /* Личный кабинет: адрес доставки и одноразовая плашка.
    *
-   * Корзина живёт в localStorage и на сервере не видна: список в кабинете
-   * рисует этот же скрипт по тому же хранилищу, что и шторка корзины, — без
-   * второго расчёта цен и без запроса. Показывается ровно то, что уже в
-   * корзине: название, вариант, количество и сумма, а дальше — на оформление.
+   * Корзины в кабинете больше нет (снята 20 сентября 2026): у неё своя вкладка
+   * нижней панели и шторка в шапке, а третий список того же содержимого в
+   * кабинете отвечал на вопрос, который там не задают.
    *
    * `?flash=` после действия («Сохранено», «Пароль изменён») снимается из
    * адреса сразу после показа, как в панели: иначе F5 доставал бы «Сохранено»
    * спустя часы, а уведомление о действии, которого сейчас не было, читается
    * как сбой. */
   function initAccountPage() {
-    var box = document.getElementById('account-cart');
     var address = document.getElementById('acc-address');
-    if (!box && !address) return;
+    if (!address) return;
     // Адрес доставки в профиле — то же поле, что на оформлении: подсказки и
     // рост под текст. Выбранная подсказка здесь ничего не считает — адрес
     // просто сохраняется формой.
-    if (address) {
-      initAddressSuggest(address, document.getElementById('acc-address-list'));
-      initAddressField(address);
-    }
-    if (box && Cart.items.length) {
-      var count = Cart.count();
-      box.innerHTML = '<ul class="acc-cart-list">'
-        + Cart.items.map(function (i) {
-          var variant = [i.storage, i.color, i.band, i.bandSize].concat(optionValues(i)).filter(Boolean).join(' · ');
-          return '<li class="acc-cart-item"><div class="acc-cart-media">' + itemThumb(i) + '</div>'
-            + '<div class="acc-cart-body"><a class="acc-cart-name" href="/product/' + encodeURIComponent(i.id) + '">' + escapeHtml(i.name) + '</a>'
-            + (variant ? '<div class="acc-cart-variant">' + escapeHtml(variant) + '</div>' : '')
-            + '<div class="acc-cart-qty">' + escapeHtml(money(i.price)) + (i.qty > 1 ? ' × ' + i.qty : '') + '</div></div></li>';
-        }).join('')
-        + '</ul>'
-        + '<div class="acc-cart-foot"><span>' + count + ' ' + plural(count, 'товар', 'товара', 'товаров') + ' на <b>' + escapeHtml(money(Cart.total())) + '</b></span>'
-        + '<a class="btn btn-primary" href="/checkout">Оформить заказ</a></div>';
-    }
+    initAddressSuggest(address, document.getElementById('acc-address-list'));
+    initAddressField(address);
     try {
       if (window.history && history.replaceState && /[?&]flash=/.test(location.search)) {
         var params = new URLSearchParams(location.search);
