@@ -234,18 +234,22 @@ async function startStore(work) {
   const settings = JSON.parse(fs.readFileSync(sp, 'utf8'));
   Object.assign(settings, { chatEnabled: true, aiApiKey: 'sk-critical-css-probe', contactTelegram: 'store', contactPhone: '+79990000000', contactEmail: 'shop@example.com', contactHours: '09:00–22:00 МСК' });
   fs.writeFileSync(sp, JSON.stringify(settings));
-  // У каждого товара — фото и уменьшенные копии, иначе плитки и карточки
-  // рисовались бы плейсхолдером и правила `img` в них не проверялись бы.
+  // У каждого товара — ДВА фото и уменьшенные копии, иначе плитки и карточки
+  // рисовались бы плейсхолдером и правила `img` в них не проверялись бы. Два, а
+  // не одно: стрелки и точки галереи появляются только от второго снимка, и с
+  // одним `.g-arrow` в набор не попадал — на посадочном заходе кнопки первый
+  // кадр стояли голыми серыми плитками под кадром, пока не приедет полный файл.
   const pp = path.join(dataDir, 'products.json');
   const products = JSON.parse(fs.readFileSync(pp, 'utf8'));
   const up = path.join(dataDir, 'uploads');
   fs.mkdirSync(up, { recursive: true });
   const IMG = require('../lib/images');
   for (const p of products) {
-    const name = p.id + '.webp';
-    fs.writeFileSync(path.join(up, name), WEBP_1PX);
-    for (const size of IMG.CARD_SIZES) fs.writeFileSync(path.join(up, IMG.cardName(name, size)), WEBP_1PX);
-    p.images = [name];
+    p.images = [p.id + '.webp', p.id + '-2.webp'];
+    for (const name of p.images) {
+      fs.writeFileSync(path.join(up, name), WEBP_1PX);
+      for (const size of IMG.CARD_SIZES) fs.writeFileSync(path.join(up, IMG.cardName(name, size)), WEBP_1PX);
+    }
   }
   fs.writeFileSync(pp, JSON.stringify(products));
   const ids = {

@@ -1919,6 +1919,143 @@ test('панель набрана Roboto, и шрифт лежит у нас, а
   assert.ok(order[0] > -1 && order[1] > order[0], 'панель грузит styles.css, а за ним admin.css');
 });
 
+test('в admin.css нет ни одного правила витрины', () => {
+  /* Правило разделения одно: в admin.css уезжает правило, у которого КАЖДЫЙ
+   * селектор содержит класс или id, которого на витрине нет. Разборщик 19
+   * сентября 2026 промахнулся ровно на одном — `.g-arrow`: стрелки галереи
+   * появляются только у товара с двумя и более фото, и на данных, по которым
+   * шла классификация, таких не оказалось. На витрине кнопки остались голыми:
+   * две серые плитки под кадром вместо стрелок по краям (снимок владельца,
+   * 20 сентября 2026). Поэтому набор классов витрины здесь собирается по
+   * ЖИВОЙ разметке — страницы рендерятся с данными, где есть всё условное:
+   * фото, ремешки, группы, отзывы с вложениями, счета в разных состояниях,
+   * отправление, кабинет, карта, — плюс классы, которые ставят скрипты
+   * витрины. Правило admin.css, у которого хоть один селектор целиком из этих
+   * классов, — правило витрины, и лежит оно не там. */
+  const CSS = require('../lib/css-rules');
+  const TRACKING = require('../lib/tracking');
+  const ss = Object.assign(dbCore.defaultSettings(), {
+    storeName: 'Тест', tagline: 'Слоган', chatEnabled: true, aiApiKey: 'k', logoImage: 'logo.webp',
+    contactTelegram: 'shop', contactWhatsApp: '+79991234567', contactPhone: '+79991234567', contactEmail: 'a@b.ru',
+    contactHours: '09:00–22:00 МСК', storeAddress: 'г Москва, ул Тверская, д 1', storeGeo: '55.749792, 37.537186',
+    storePhotos: ['s1.webp', 's2.webp'], legalName: 'ИП Иванов', legalInn: '123456789012', legalOgrn: '123456789012345',
+    ownPayOn: true, ownPayPhone: '+79991234567', ownPayCard: '2200123412341234', ownPayOwner: 'Иван И.', ownPayBank: 'ЮMoney'
+  });
+  const rich = p => Object.assign({}, p, { images: ['a.webp', 'b.webp', 'c.webp'], stockLevel: 'few' });
+  const iphone = rich(catalog.products.find(p => p.id === 'iphone-17-pro-max'));
+  const watch = rich(catalog.products.find(p => p.bands && p.bands.length));
+  const mac = rich(catalog.products.find(p => p.options && p.options.length > 1));
+  const review = (i, extra) => Object.assign({
+    id: 'r' + i, productId: iphone.id, author: 'Иван', rating: 5 - (i % 3), text: 'Отзыв ' + i, status: 'approved',
+    createdAt: Date.now() - i * 86400000, delivery: i % 2 ? 'cdek' : 'ozon', config: 'Чёрный · 256 ГБ',
+    photos: i % 2 ? ['p' + i + '.webp'] : [], videos: i % 3 ? [] : ['v' + i + '.mp4'], previews: { ['p' + i + '.webp']: 't' + i + '.webp' },
+    reply: i % 4 ? null : { text: 'Спасибо!', at: Date.now() }
+  }, extra || {});
+  const reviews = Array.from({ length: 20 }, (_, i) => review(i));
+  const db = Object.assign({}, CATALOG_DB, {
+    getProducts: () => [iphone, watch, mac].concat(catalog.products),
+    visibleProducts: () => [iphone, watch, mac].concat(catalog.products),
+    visibleProduct: id => [iphone, watch, mac].concat(catalog.products).find(p => p.id === id) || null,
+    reviewsForProduct: (id, approvedOnly) => id === iphone.id ? (approvedOnly ? reviews : reviews.concat([review(99, { status: 'pending' })])) : []
+  });
+  const remind = { id: 'a1b2', number: '482913', total: 68200, expiresAt: Date.now() + 9 * 60 * 1000 };
+  const base = { origin: 'https://shop.example', payRemind: remind, chatWaiting: 2, ym: '12345678', landing: false };
+  const order = {
+    id: 'a1b2', number: '482913', createdAt: Date.now() - 60000, total: 139680, itemsTotal: 138970, deliveryPrice: 710,
+    items: [{ id: 'p1', name: 'iPhone 17 Pro Max 512 ГБ, Космический чёрный', price: 129990, qty: 1 }, { id: 'p2', name: 'AirTag', price: 8980, qty: 2 }],
+    promoCode: 'SALE', promoDiscount: 15000, customerName: 'Пётр Петров', phone: '+79991234567',
+    address: 'г Екатеринбург, ул Малышева, д 5', pickupAddress: 'Свердловская область, Екатеринбург, ул Малышева, 53', pickupCode: 'EKB1',
+    delivery: 'cdek', deliveryMode: 'pvz'
+  };
+  const withPay = payment => Object.assign({}, order, { payment });
+  const methods = [
+    { id: 'SBP_ONLINE', name: 'СБП', hint: 'по номеру телефона', kind: 'phone' },
+    { id: 'TO_CARD', name: 'Перевод на карту', hint: 'номер карты', kind: 'card' },
+    { id: 'CARD_ONLINE', name: 'Карта или СБП', hint: 'на странице банка', kind: 'link', hosted: true }
+  ];
+  const shipment = TRACKING.normalize(TRACKING.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Екатеринбург', zone: 'ural', seed: 'a1b2', startedAt: Date.now() - 2 * 86400000, days: 5 }));
+  shipment.steps[3].hold = true;
+  const shipped = Object.assign({}, order, { shipment, payment: { status: 'paid', method: 'SBP_ONLINE', paidAt: Date.now() - 86400000 } });
+  const ozonShip = Object.assign({}, order, { id: 'c3d4', number: '482914', shipment: TRACKING.normalize(TRACKING.build({ carrier: 'ozon', mode: 'courier', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'c3d4', startedAt: Date.now() - 86400000, days: 4 })) });
+  const pages = {
+    'главная': render.homePage(ss, db, base),
+    'каталог': render.catalogPage(ss, db, base),
+    'категория': render.catalogPage(ss, db, Object.assign({ category: iphone.category }, base)),
+    'поиск': render.catalogPage(ss, db, Object.assign({ q: 'айфон' }, base)),
+    'поиск пустой': render.catalogPage(ss, db, Object.assign({ q: 'zzzzzz' }, base)),
+    'товар с отзывами': render.productPage(ss, db, iphone, Object.assign({ ownReviews: [review(99, { status: 'pending' })], reviewSort: 'low', reviewPage: 2 }, base)),
+    'часы': render.productPage(ss, db, watch, base),
+    'mac': render.productPage(ss, db, mac, base),
+    'распродано': render.productPage(ss, db, Object.assign({}, iphone, { id: 'sold', inStock: false }), base),
+    'без цены': render.productPage(ss, db, Object.assign({}, iphone, { id: 'nop', hidePrice: true }), base),
+    'оформление': render.checkoutPage(ss, Object.assign({ restoreOrder: 'a1b2', account: { email: 'a@b.ru', name: 'Иван', phone: '+79991234567', address: 'г Тула, ул Советская, д 7', addressAt: 1 } }, base)),
+    'оплата: выбор': render.payPage(ss, Object.assign({}, order, { draft: true }), Object.assign({ methods, currencies: ['RUB', 'USD'], currency: 'RUB', accountNote: { email: 'a@b.ru', created: true } }, base)),
+    'оплата: карта': render.payPage(ss, withPay({ provider: 'meridianpay', status: 'pending', method: 'TO_CARD', invoiceId: '11111111-2222-3333-4444-555555555555', requisite: '2200123412341234', bank: 'Т-Банк', owner: 'Иван И.', expiresAt: Date.now() + 600000 }), base),
+    'оплата: сбп': render.payPage(ss, withPay({ provider: 'crocopay', status: 'pending', method: 'SBP_ONLINE', invoiceId: '11111111-2222-3333-4444-555555555555', requisite: '79991234567', bank: 'Сбербанк', owner: 'Иван И.', expiresAt: Date.now() + 600000 }), base),
+    'оплата: ссылка': render.payPage(ss, withPay({ provider: 'alfabank', status: 'pending', method: 'CARD_ONLINE', invoiceId: '11111111-2222-3333-4444-555555555555', requisite: 'https://pay.example/x', expiresAt: Date.now() + 600000 }), base),
+    'оплата: свои реквизиты': render.payPage(ss, Object.assign({}, order, { payMode: 'own' }), Object.assign({ own: { ready: true, phone: '+79991234567', card: '2200123412341234', owner: 'Иван И.', bank: 'ЮMoney' } }, base)),
+    'оплата: оплачено': render.payPage(ss, shipped, base),
+    'оплата: истёк': render.payPage(ss, withPay({ provider: 'crocopay', status: 'expired', method: 'TO_CARD', invoiceId: '11111111-2222-3333-4444-555555555555', requisite: '2200123412341234', expiresAt: Date.now() - 1000 }), Object.assign({ methods }, base)),
+    'оплата: сумма не сошлась': render.payPage(ss, withPay({ provider: 'crocopay', status: 'mismatch', method: 'TO_CARD', invoiceId: '11111111-2222-3333-4444-555555555555', requisite: '2200123412341234', expiresAt: Date.now() - 1000 }), base),
+    'оплата: возврат': render.payPage(ss, withPay({ status: 'refunded', method: 'TO_CARD' }), base),
+    'оплата: отменена': render.payPage(ss, Object.assign({}, order, { payMode: 'own', manualVoid: { at: Date.now(), by: 'customer' } }), base),
+    'оплата: время вышло': render.payPage(ss, Object.assign({}, order, { payMode: 'own', createdAt: Date.now() - 3 * 3600000 }), base),
+    'чек': render.receiptPage(ss, shipped, base),
+    'отслеживание: лента': render.trackingPage(ss, Object.assign({ token: shipment.token, order: shipped, own: true }, base)),
+    'отслеживание: ozon': render.trackingPage(ss, Object.assign({ token: ozonShip.shipment.token, order: ozonShip }, base)),
+    'отслеживание: мои': render.trackingPage(ss, Object.assign({ orders: [shipped, ozonShip] }, base)),
+    'отслеживание: не найдено': render.trackingPage(ss, Object.assign({ token: 'x'.repeat(32) }, base)),
+    'кабинет: вход': render.accountAuthPage(ss, Object.assign({ mode: 'login', mailOn: true, email: 'a@b.ru' }, base)),
+    'кабинет: сброс': render.accountAuthPage(ss, Object.assign({ mode: 'reset', mailOn: true }, base)),
+    'кабинет': render.accountPage(ss, Object.assign({ customer: { id: 'c', email: 'a@b.ru', name: 'Иван', phone: '+79991234567', address: 'г Тула, ул Советская, д 7', autoPassword: true }, orders: [shipped, ozonShip, Object.assign({}, order, { id: 'e5', draft: true }), withPay({ status: 'expired', method: 'TO_CARD', expiresAt: 1 })], open: 'password' }, base)),
+    'о компании': render.aboutPage(ss, Object.assign({ mapPoster: 'abc123.webp' }, base)),
+    'политика': render.privacyPage(ss, base),
+    'согласие': render.personalDataConsentPage(ss, base),
+    'публикация': render.publicationConsentPage(ss, base),
+    'гарантия': render.warrantyPage(ss, base),
+    'возврат': render.returnsPage(ss, base),
+    'не найдено': render.notFoundPage(ss, base),
+    'блок': render.blockedPage(ss)
+  };
+  // Классы и id — разные множества: `.rv-text` панели и `id="rv-text"` у поля
+  // отзыва на витрине — не одно и то же.
+  const used = new Set();
+  for (const html of Object.values(pages)) {
+    for (const m of String(html).matchAll(/\s(class|id)="([^"]*)"/g)) for (const t of m[2].split(/\s+/)) if (t) used.add((m[1] === "id" ? "#" : ".") + t);
+  }
+  // Классы, которые ставят скрипты витрины: строки у class=, className,
+  // classList и селекторов. Панельные скрипты сюда не входят намеренно.
+  for (const f of ['app.js', 'chat.js', 'pay.js', 'media-lightbox.js', 'receipt.js', 'mobile-shell.js', 'phone.js']) {
+    const js = fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
+    for (const m of js.matchAll(/class=\\?["']([^"'\\]+)|className\s*=\s*["']([^"']+)|classList\.\w+\(([^)]*)\)|(?:querySelector(?:All)?|closest|matches)\(\s*["']([^"']+)|getElementById\(\s*["']([^"']+)/g)) {
+      for (const t of (m[1] || m[2] || '').split(/\s+/)) if (t) used.add('.' + t);
+      if (m[5]) used.add('#' + m[5]);
+      for (const q of (m[3] || '').matchAll(/["']([\w-]+)["']/g)) used.add('.' + q[1]);
+      for (const q of (m[4] || '').matchAll(/[.#][\w-]+/g)) used.add(q[0]);
+    }
+  }
+  assert.ok(used.has('.g-arrow') && used.has('.trk-delay') && used.has('.review-media') && used.has('.band-tab') && used.has('#g-dots'), 'условные классы витрины в наборе — иначе проверка слепа');
+
+  const tokensOf = sel => {
+    const s = sel.replace(/\[[^\]]*\]/g, ' ').replace(/:not\(([^)]*)\)/g, ' $1 ').replace(/::?[\w-]+(\([^)]*\))?/g, ' ');
+    return Array.from(s.matchAll(/[.#][\w-]+/g), m => m[0]);
+  };
+  const strayed = [];
+  for (const leaf of CSS.flatten(CSS.parse(ADMIN_CSS))) {
+    if (leaf.node.type !== 'rule') continue;
+    for (const sel of CSS.splitSelectors(leaf.node.selector)) {
+      const toks = tokensOf(sel);
+      if (toks.length && toks.every(t => used.has(t))) strayed.push(leaf.chain.map(a => a.prelude).concat(sel).join(' '));
+    }
+  }
+  assert.deepEqual(strayed, [], 'правила витрины в admin.css — витрина их не грузит');
+  // Обратная сторона той же ошибки: класс из живой разметки витрины обязан
+  // быть описан в styles.css хоть одним правилом, если он описан в admin.css.
+  const styled = new Set();
+  for (const leaf of CSS.flatten(CSS.parse(STORE_CSS))) if (leaf.node.type === 'rule') for (const t of tokensOf(leaf.node.selector)) styled.add(t);
+  for (const t of ['.g-arrow', '.g-prev', '.g-next', '.g-dots']) assert.ok(styled.has(t), t + ': стрелки и точки галереи описаны в styles.css');
+});
+
 test('ось графика — шесть целых подписей, как у Trends', () => {
   /* Делений на оси пять, подписей шесть — 0, 20, 40, 60, 80 и 100% высоты поля:
    * ровно столько же у Trends. Отсюда же потолок обязан делиться на пять. Пока
@@ -18688,14 +18825,18 @@ test('появляющиеся поверхности идут по общей �
  * `backdrop-filter` при прежних 70% белого делает хуже, чем было, — то же
  * просвечивание, но теперь поверх резкой картинки. */
 test('prefers-reduced-transparency доводит липкие поверхности до непрозрачных', () => {
-  // Блок есть в обоих файлах: у витрины — шапка и ряд покупки, у панели —
-  // стрелка меню места в метрике. Селектор ищется в своём файле.
-  const blocks = [STORE_CSS, ADMIN_CSS].map(f => (f.replace(/\/\*[\s\S]*?\*\//g, '')
-    .match(/@media \(prefers-reduced-transparency:reduce\)\{([\s\S]*?)\n\}/) || [])[1] || '');
-  assert.ok(blocks[0] && blocks[1], 'блока prefers-reduced-transparency нет в одном из файлов');
+  // Все три поверхности — витринные (шапка, ряд покупки, стрелка галереи),
+  // и блок лежит в styles.css. До 20 сентября 2026 `.g-arrow` из него жил в
+  // admin.css — разборщик 19 сентября принял стрелку галереи за панельную, и
+  // тест тогда подогнали под промах («стрелка меню места в метрике»); витрина
+  // admin.css не грузит, так что правило там не значило ничего.
+  const block = (STORE_CSS.replace(/\/\*[\s\S]*?\*\//g, '')
+    .match(/@media \(prefers-reduced-transparency:reduce\)\{([\s\S]*?)\n\}/) || [])[1] || '';
+  assert.ok(block, 'блока prefers-reduced-transparency нет в styles.css');
+  assert.doesNotMatch(ADMIN_CSS, /\.g-arrow/, 'стрелка галереи — витрина, в admin.css ей не место');
   for (const sel of ['.site-header', '.product .buy-row', '.g-arrow']) {
     const rule = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}');
-    const decl = blocks.map(b => (b.match(rule) || [])[1] || '').join('');
+    const decl = (block.match(rule) || [])[1] || '';
     assert.match(decl, /background:#fff/, sel + ': фон обязан стать непрозрачным');
     assert.match(decl, /backdrop-filter:none/, sel + ': размытие обязано сняться');
   }

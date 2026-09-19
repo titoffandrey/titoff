@@ -1,7 +1,7 @@
 /* СГЕНЕРИРОВАНО scripts/build-critical-css.js из public/styles.css — РУКАМИ НЕ ПРАВИТЬ.
  * Правила первого экрана витрины (product), уезжают инлайном в <head> на
  * посадочном заходе (см. layout() в lib/render.js), полный styles.css грузится
- * следом без блокировки. Правил: 322. Правишь styles.css — прогони
+ * следом без блокировки. Правил: 345. Правишь styles.css — прогони
  * `npm run css:critical`; свежесть сторожит test/critical-css.test.js. */
 :root{--accent:#0071e3; --bg:#ffffff; --bg2:#f5f5f7; --text:#1d1d1f; --muted:#6e6e73; --border:#d2d2d7; --radius:18px; --radius-sm:12px; --shadow:0 2px 14px rgba(0,0,0,.06); --shadow-lg:0 12px 40px rgba(0,0,0,.14); --max:1180px; --gold:#ff9f0a; --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1); --sale:#e31076; --price-was:#6d747c;}
 *{box-sizing:border-box}
@@ -132,7 +132,25 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .rev-page:hover{background:var(--bg2);border-color:var(--border)}
 .rev-page:active{transform:scale(.96)}
 .gallery{position:relative}
+.g-arrow{position:absolute;top:50%;transform:translateY(-50%); width:36px;height:36px;border-radius:50%;padding:0;cursor:pointer; display:flex;align-items:center;justify-content:center; border:1px solid rgba(17,17,26,.05); background:rgba(255,255,255,.74);color:rgba(29,29,31,.66); box-shadow:0 2px 10px rgba(17,17,26,.07); transition:background .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease;z-index:2; -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+@media (hover:hover) and (pointer:fine){
+  .g-arrow:hover{background:#fff;color:#1d1d1f;box-shadow:0 6px 20px rgba(17,17,26,.14);transform:translateY(-50%) scale(1.07)}
+}
+.g-arrow:active{transform:translateY(-50%) scale(.95)}
+.g-arrow:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.g-prev{left:6px}
+.g-next{right:6px}
+.g-arrow svg{width:15px;height:15px;display:block}
 .g-dots{display:flex;justify-content:center;gap:8px;margin-top:14px;min-height:8px}
+.g-dot{width:8px;height:8px;border-radius:50%;border:none;padding:0;cursor:pointer; background:rgba(0,0,0,.2);transition:background .2s ease}
+.g-dot:hover{background:rgba(0,0,0,.34)}
+.g-dot.active{background:#1d1d1f}
+@media(max-width:560px){
+  .g-arrow{width:32px;height:32px}
+  .g-prev{left:4px}
+  .g-next{right:4px}
+  .g-arrow svg{width:14px;height:14px}
+}
 .add-to-cart{position:relative;overflow:hidden;border-radius:14px; background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(0,0,0,.06)); transition:transform .14s cubic-bezier(.2,.8,.2,1),filter .18s,box-shadow .22s,background-color .2s}
 @media (hover:hover) and (pointer:fine){
   .add-to-cart:hover{transform:translateY(-1px);filter:brightness(1.05);box-shadow:0 8px 20px rgba(0,0,0,.14)}
@@ -237,7 +255,17 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .spec-item{gap:11px;padding:8px 0;border-bottom:1px solid var(--border-soft)}
 .spec-ico,.spec-ico svg{width:28px;height:28px;max-height:28px}
 .spec-txt{padding-top:2px;font-size:15px;line-height:1.44;letter-spacing:-.018em}
+.g-arrow{width:42px;height:42px;background:rgba(255,255,255,.92);color:var(--text);border-color:rgba(17,17,26,.06);box-shadow:0 3px 14px rgba(17,17,26,.09)}
+.g-arrow svg{width:17px;height:17px}
+.g-prev{left:6px}
+.g-next{right:6px}
+@media(min-width:1200px){
+  .g-prev{left:-21px}
+  .g-next{right:-21px}
+  .g-arrow{background:#fff;box-shadow:0 4px 16px rgba(17,17,26,.13)}
+}
 .g-dots{margin-top:16px;gap:7px}
+.g-dot{width:7px;height:7px}
 .gallery-main{background:#f5f5f7;isolation:isolate}
 .gallery-main img{mix-blend-mode:darken}
 #reviews{border-top:1px solid var(--border-soft)}
@@ -312,6 +340,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 @media (prefers-reduced-transparency:reduce){
   .site-header{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
   .product .buy-row{background:#fff;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .g-arrow{background:#fff;color:#1d1d1f;-webkit-backdrop-filter:none;backdrop-filter:none}
   .cart-overlay{-webkit-backdrop-filter:none;backdrop-filter:none}
 }
 .band-group{margin-top:4px}
