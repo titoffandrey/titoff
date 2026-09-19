@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js",
+    "css:critical": "node scripts/build-critical-css.js",
+    "css:critical:verify": "node scripts/build-critical-css.js --verify",
     "reset:admin": "node scripts/reset-admin-password.js",
     "reviews:demo": "node scripts/demo-reviews.js --apply",
     "reviews:demo:remove": "node scripts/demo-reviews.js --remove",

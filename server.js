@@ -961,7 +961,12 @@ function pageOpts(req, extra) {
     ym: ymFor(req),
     // Значок кабинета в шапке отмечает вошедшего; самих данных страницам витрины
     // не нужно, поэтому здесь только признак.
-    customer: !!currentCustomer(req)
+    customer: !!currentCustomer(req),
+    // Посадочный ли это заход: пришедшему со своей же страницы полный CSS уже
+    // лежит в кэше, и критические стили ему не инлайнятся (см. stylesTag в
+    // lib/render.js). `Sec-Fetch-Site` ставит сам браузер, скриптом его не
+    // подделать, и шлёт он его и при нашем `Referrer-Policy: no-referrer`.
+    landing: String(req.headers['sec-fetch-site'] || '').toLowerCase() !== 'same-origin'
   }, extra || {});
 }
 

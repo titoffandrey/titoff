@@ -219,23 +219,24 @@ test('прежние адреса каталога уводятся на /catalo
  * приоритет — у одной первой (девять «высоких» приоритетов разом означали бы,
  * что высокого нет ни у одной), а у плитки есть srcset с sizes под её сетку:
  * одна копия 320 на экране с DPR 2 растягивалась до мыла. */
-test('плитки категорий: первый ряд грузится сразу, приоритет у первой, srcset под сетку плиток', () => {
+test('плитки категорий: первый ряд грузится сразу и с приоритетом целиком, srcset со ступенью 200 и sizes под снимок плитки', () => {
   const os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tiles-'));
-  for (const n of ['a.webp', 'a-c320.webp', 'a-c480.webp', 'a-c640.webp']) fs.writeFileSync(path.join(dir, n), 'x');
+  for (const n of ['a.webp', 'a-c200.webp', 'a-c320.webp', 'a-c480.webp', 'a-c640.webp']) fs.writeFileSync(path.join(dir, n), 'x');
   const cats = ['iPhone', 'Mac', 'iPad', 'Apple Watch', 'AirPods'];
   const list = cats.map((c, i) => ({ id: 'p' + i, name: c + ' X', category: c, price: 1000, images: ['a.webp'] }));
   const db = { UPLOAD_DIR: dir, visibleProducts: () => list, visibleCategories: () => cats };
   const imgs = R.categoryTiles(db, {}, {}).match(/<img[^>]*>/g);
   assert.equal(imgs.length, 5);
-  assert.match(imgs[0], /loading="eager"[^>]*fetchpriority="high"/, 'первая плитка — LCP, у неё приоритет');
-  assert.match(imgs[1], /loading="eager"/); assert.doesNotMatch(imgs[1], /fetchpriority/);
-  assert.match(imgs[2], /loading="eager"/); assert.doesNotMatch(imgs[2], /fetchpriority/);
-  assert.match(imgs[3], /loading="lazy"/, 'со второго ряда плитки ленивые');
+  // LCP — одна из плиток первого ряда, и какая, наперёд не знает никто
+  // (PageSpeed назвал вторую при приоритете у первой): высокий приоритет у
+  // всех трёх, а не у девяти.
+  for (const i of [0, 1, 2]) assert.match(imgs[i], /loading="eager"[^>]*fetchpriority="high"/, 'плитка ' + i + ' первого ряда — сразу и с приоритетом');
+  assert.match(imgs[3], /loading="lazy"/, 'со второго ряда плитки ленивые'); assert.doesNotMatch(imgs[3], /fetchpriority/);
   for (const img of imgs) {
-    assert.match(img, /srcset="\/uploads\/a-c320\.webp 320w, \/uploads\/a-c480\.webp 480w, \/uploads\/a-c640\.webp 640w"/);
-    assert.match(img, /sizes="\(min-width:1248px\) 240px, \(min-width:801px\) 22vw, 30vw"/, 'sizes повторяет сетку .cat-grid');
-    assert.match(img, /src="\/uploads\/a-c320\.webp"/, 'запасной src — самая мелкая копия');
+    assert.match(img, /srcset="\/uploads\/a-c200\.webp 200w, \/uploads\/a-c320\.webp 320w, \/uploads\/a-c480\.webp 480w, \/uploads\/a-c640\.webp 640w"/);
+    assert.match(img, /sizes="\(min-width:1248px\) 240px, \(min-width:801px\) calc\(25vw - 60px\), calc\(33\.3vw - 39px\)"/, 'sizes — ширина снимка, а не плитки: поля вычтены');
+    assert.match(img, /src="\/uploads\/a-c200\.webp"/, 'запасной src — самая мелкая копия');
   }
   // Ряд категорий на каталоге — плитки по 54 px: там мелкая копия без srcset, как было.
   const row = R.categoryTiles(db, {}, { row: true }).match(/<img[^>]*>/g)[0];
@@ -243,6 +244,14 @@ test('плитки категорий: первый ряд грузится ср
   // Сетка плиток: три колонки на телефоне и четыре на компьютере — числа sizes.
   assert.match(css, /\.cat-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(min-width:640px\)\{\.cat-grid\{grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
-  assert.match(css.slice(css.indexOf('@media(max-width:800px){')), /\.cat-grid\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
+  assert.match(mobile, /\.cat-grid\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\);gap:8px\}/);
+  // Из чего сложены числа `sizes`: на телефоне поля страницы 20, зазор 8, поля
+  // плитки 10 → снимок = 33,3vw − 39; от 801 px поля 24, зазор 16, поля плитки
+  // 18 → 25vw − 60. Поменялось любое из них — пересчитай TILE_SIZES_ATTR.
+  assert.match(mobile, /\.container\{padding-inline:20px\}/);
+  assert.match(mobile, /\.cat-grid \.cat-tile-media\{aspect-ratio:1\/1;padding:8px 10px 0\}/);
+  assert.match(css, /\.container\{padding-inline:24px\}/);
+  assert.match(css, /\.cat-tile-media\{[^}]*padding:12px 18px 0\}/);
   fs.rmSync(dir, { recursive: true, force: true });
 });

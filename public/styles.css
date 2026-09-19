@@ -1546,7 +1546,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .legal-note-ico{flex:none;width:27px;height:27px;margin-top:1px;color:var(--accent)}
 /* Селектор с `.legal-section` — не украшение: у абзацев раздела свои цвет и
    отступ той же специфичности, и без него плашка набиралась бы обычным серым
-   текстом с полем снизу. */
+   текстом с полем снизу.
    Полужирная в плашке ровно одна фраза — та, ради которой её и читают; набери
    мы весь текст одним весом, выделять было бы нечего. */
 .legal-section .legal-note p{margin:0;color:var(--text);font-weight:500}
