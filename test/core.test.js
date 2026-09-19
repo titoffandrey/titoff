@@ -4055,7 +4055,7 @@ test('подвал — разделы: каталог, страницы поку
   // Каждая колонка названа: подпись видна глазами, а имя разделу-ориентиру даёт
   // aria-label — колонок стало четыре, и безымянными они читались бы как один
   // длинный список ссылок.
-  assert.match(html, /<nav class="footer-col" aria-label="Каталог">[\s\S]*?<div class="footer-col-head">Каталог<\/div>/);
+  assert.match(html, /<nav class="footer-col footer-cats" aria-label="Каталог">[\s\S]*?<div class="footer-col-head">Каталог<\/div>/);
   assert.match(html, /<li><a href="\/catalog\?category=iPhone">iPhone<\/a><\/li>/);
   assert.match(html, /<nav class="footer-col" aria-label="Информация">[\s\S]*?<div class="footer-col-head">Информация<\/div>/);
   assert.match(html, /<div class="footer-col-head">Контакты<\/div>/);
@@ -4092,6 +4092,33 @@ test('подвал — разделы: каталог, страницы поку
   assert.match(mobileCols, /justify-content:center/);
   assert.doesNotMatch(mobileCols, /grid/, 'ряд подвала на телефоне остаётся flex\'ом');
   assert.match(mobile, /\.footer-about,\.footer-contacts\{flex:0 0 100%/);
+
+  /* ПОДВАЛ НА ТЕЛЕФОНЕ КОМПАКТНЫЙ (20 сентября 2026, по просьбе владельца):
+   * четырьмя колонками он занимал 930 px на 375 px экрана. Что ужато:
+   * - «Каталога» нет вовсе (`.footer-cats`): те же категории стоят во вкладке
+   *   нижней панели и в меню шапки, а девять строк здесь — треть подвала.
+   *   Разметка при этом общая: сервер о ширине экрана не знает, прячет CSS;
+   * - заголовков блоков нет: строка ссылок и контакты со значками говорят
+   *   сами за себя, aria-label у разделов остаётся;
+   * - ссылки «Информации» — строкой с переносом, а не столбиком из шести;
+   * - контакты — по два в ряд (телефон с почтой, Telegram с WhatsApp), часы
+   *   работы своей строкой; реквизиты — одной строкой с переносом.
+   * Все правила живут ТОЛЬКО в мобильном блоке: на десктопе колонки, заголовки
+   * и каталог остаются как были. */
+  assert.match(mobile, /\.footer-cats\{display:none\}/);
+  assert.match(mobile, /\.footer-col-head\{display:none\}/);
+  assert.match(mobile, /\.footer-col-list\{display:flex;flex-wrap:wrap;justify-content:center/);
+  assert.match(mobile, /\.footer-contacts\{display:flex;flex-wrap:wrap;justify-content:center/);
+  assert.match(mobile, /\.foot-hours\{flex:0 0 100%/, 'часы работы занимают свою строку, иначе ломают пары контактов');
+  assert.match(mobile, /\.foot-req\{display:flex;flex-wrap:wrap;justify-content:center/);
+  const desktopFooter = css.slice(css.indexOf('.footer-cols{'), css.indexOf('@media(max-width:800px){'));
+  assert.doesNotMatch(desktopFooter, /\.footer-cats|\.footer-col-head\{[^}]*display:none/);
+  assert.match(desktopFooter, /\.footer-col-list\{display:grid/);
+  assert.match(desktopFooter, /\.footer-contacts\{display:grid/);
+  // Мобильные строки контактов ограничены подвалом: у «О компании» те же
+  // `.msg-link` и `.msg-ico`, и правило подвала не должно менять их размер.
+  assert.match(mobile, /\.site-footer \.msg-link,\.foot-hours\{min-height:32px;font-size:14px\}/);
+  assert.match(mobile, /\.site-footer \.msg-ico\{width:18px;height:18px\}/);
 });
 
 test('цвета подвала — из подвала Google Trends, и одни на все его части', () => {
