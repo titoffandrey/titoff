@@ -5617,6 +5617,9 @@ app.post('/admin/settings', async (req, res) => {
   // `reviewsForm` говорит, что секция вообще пришла — без него снятие было бы
   // неотличимо от запроса без этой секции (то же правило, что у способов оплаты).
   if (req.body.reviewsForm !== undefined) patch.reviewPhotos = req.body.reviewPhotos !== undefined;
+  // Объём памяти стартовой сборки в названии карточки (`R.cardName`). Та же
+  // механика: секцию узнаём по скрытому `brandForm`, галочку — по наличию поля.
+  if (req.body.brandForm !== undefined) patch.cardNameStorage = req.body.cardNameStorage !== undefined;
   patch.adminUsername = short(req.body.adminUsername, 100).trim() || current.adminUsername || 'admin';
   if (req.body.adminPassword && String(req.body.adminPassword).trim()) {
     patch.adminPasswordHash = auth.hashPassword(String(req.body.adminPassword).trim());
