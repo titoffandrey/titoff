@@ -70,6 +70,8 @@ test('styles.css разбирается целиком: ни одного «ут
  * показал бы «0» в шапке до прихода полного файла. */
 const ANCHORS = {
   home: [':root', 'body.storefront', '.site-header', '.nav-wrap', '.nav-panel', '.cart-badge[hidden]', '.tabbar', '.store-hero', '.cat-grid', '.cat-tile-media', '.card-media'],
+  // «Весь каталог на главной» (`homeCatalog`): под слоганом сразу сетка карточек.
+  'home-catalog': [':root', 'body.storefront', '.site-header', '.nav-wrap', '.nav-panel', '.cart-badge[hidden]', '.tabbar', '.store-hero', '.store-hero + .section', '.grid', '.card', '.card-media', '.card-price'],
   catalog: [':root', '.site-header', '.nav-wrap', '.cart-badge[hidden]', '.tabbar', '.cat-row', '.grid', '.card', '.card-price'],
   product: [':root', '.site-header', '.nav-wrap', '.cart-badge[hidden]', '.tabbar', '.product-gallery', '.swatch', '.storage-opt', '.option-opt', '.band-tab', '.buy-row', '.btn-primary', '.trust']
 };
@@ -149,15 +151,26 @@ test('макет: посадочный заход инлайнит набор и
   assert.ok(pp.includes('<style>' + MIN.css(MIN.css(fs.readFileSync(path.join(ROOT, 'public', 'critical', 'product.css'), 'utf8'))).trim() + '</style>'), 'товар инлайнит critical/product.css');
   assert.equal(render.criticalKind({ tab: 'cart', landing: true }), '');
   assert.equal(render.criticalKind({ tab: 'home' }), 'home');
+  assert.equal(render.criticalKind({ tab: 'home', homeCatalog: true }), 'home-catalog');
   assert.equal(render.criticalKind({ productPage: true, tab: 'catalog' }), 'product');
+  // Главная с включённым «весь каталог на главной» — свой набор: первый экран у
+  // неё другой (сетка под слоганом), и набор обычной главной ей не подходит.
+  const homeCatalog = render.homePage(Object.assign({}, settings, { homeCatalog: true }), DB, { origin: 'https://shop.example', landing: true });
+  assert.ok(homeCatalog.includes('<style>' + MIN.css(MIN.css(fs.readFileSync(path.join(ROOT, 'public', 'critical', 'home-catalog.css'), 'utf8'))).trim() + '</style>'), 'главная-каталог инлайнит critical/home-catalog.css');
+  assert.ok(!homeCatalog.includes('<style>' + expected + '</style>'), 'а не набор обычной главной');
   assert.match(render.stylesTag({ tab: 'cart', landing: true }), /^<link rel="stylesheet" href="\/static\/styles\.css\?v=[^"]+">$/);
 });
 
 test('генератор и макет перечисляют одни и те же виды страниц, посадочный заход считается по Sec-Fetch-Site, а команда есть в package.json', () => {
   const script = fs.readFileSync(path.join(ROOT, 'scripts', 'build-critical-css.js'), 'utf8');
-  for (const kind of render.CRITICAL_KINDS) assert.match(script, new RegExp('^    ' + kind + ': \\[', 'm'), `в генераторе нет набора ${kind}`);
-  const kindsInScript = script.slice(script.indexOf('function kinds('), script.indexOf('}', script.indexOf('return {', script.indexOf('function kinds(')))).match(/^    (\w+): \[/gm).map(s => s.trim().replace(/: \[$/, ''));
+  // У каждого вида — свой origin (главная-каталог снимается со второго
+  // экземпляра магазина) и список адресов; ключи те же, что у макета.
+  for (const kind of render.CRITICAL_KINDS) assert.match(script, new RegExp("^    '?" + kind + "'?: \\{ origin: store\\.\\w+, paths: \\[", 'm'), `в генераторе нет набора ${kind}`);
+  const kindsBody = script.slice(script.indexOf('function kinds('), script.indexOf('\n}', script.indexOf('return {', script.indexOf('function kinds('))));
+  const kindsInScript = [...kindsBody.matchAll(/^    '?([\w-]+)'?: \{ origin: /gm)].map(m => m[1]);
   assert.deepStrictEqual(kindsInScript, render.CRITICAL_KINDS);
+  assert.match(script, /'home-catalog': \{ origin: store\.altOrigin/, 'главная-каталог снимается со второго экземпляра (homeCatalog включён)');
+  assert.match(script, /\{ homeCatalog: true \}/, 'второй экземпляр поднимается с включённой галочкой');
   const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   assert.match(server, /landing: String\(req\.headers\['sec-fetch-site'\] \|\| ''\)\.toLowerCase\(\) !== 'same-origin'/, 'pageOpts решает посадочный заход по Sec-Fetch-Site');
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

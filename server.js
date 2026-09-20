@@ -5620,6 +5620,8 @@ app.post('/admin/settings', async (req, res) => {
   // Объём памяти стартовой сборки в названии карточки (`R.cardName`). Та же
   // механика: секцию узнаём по скрытому `brandForm`, галочку — по наличию поля.
   if (req.body.brandForm !== undefined) patch.cardNameStorage = req.body.cardNameStorage !== undefined;
+  // Весь каталог на главной (`R.homePage`) — той же секцией «Оформление».
+  if (req.body.brandForm !== undefined) patch.homeCatalog = req.body.homeCatalog !== undefined;
   patch.adminUsername = short(req.body.adminUsername, 100).trim() || current.adminUsername || 'admin';
   if (req.body.adminPassword && String(req.body.adminPassword).trim()) {
     patch.adminPasswordHash = auth.hashPassword(String(req.body.adminPassword).trim());

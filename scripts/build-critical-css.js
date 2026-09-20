@@ -68,12 +68,21 @@ const VIEWPORTS = [
  * и одним общим набором главная возила бы чужие правила. Ключи обязаны
  * совпадать с CRITICAL_KINDS в lib/render.js — закреплено тестом. Товаров два:
  * с ремешками (часы) и с группами доп. характеристик (iPhone) — у них разные
- * ряды выбора. */
-function kinds(ids) {
+ * ряды выбора.
+ *
+ * «Главных» две: обычная (плитки категорий и «Популярное») и с включённой
+ * настройкой «весь каталог на главной» (`homeCatalog` в настройках, вид
+ * `home-catalog`) — у той под слоганом сразу сетка карточек, то есть другой
+ * первый экран. Настройка — свойство сайта, а не адреса, поэтому вторая главная
+ * снимается со ВТОРОГО экземпляра магазина (`startStore` поднимает его на копии
+ * данных с включённой галочкой); у каждого набора свой origin. */
+function kinds(store) {
+  const ids = store.ids;
   return {
-    home: ['/'],
-    catalog: ['/catalog', '/catalog?category=' + encodeURIComponent('iPhone'), '/catalog?q=iphone'],
-    product: ['/product/' + ids.phone, '/product/' + ids.watch]
+    home: { origin: store.origin, paths: ['/'] },
+    'home-catalog': { origin: store.altOrigin, paths: ['/'] },
+    catalog: { origin: store.origin, paths: ['/catalog', '/catalog?category=' + encodeURIComponent('iPhone'), '/catalog?q=iphone'] },
+    product: { origin: store.origin, paths: ['/product/' + ids.phone, '/product/' + ids.watch] }
   };
 }
 
@@ -257,6 +266,22 @@ async function startStore(work) {
     watch: (products.find(p => p.bands && p.bands.length) || products[0]).id,
     any: products[0]
   };
+  /* Второй экземпляр — тот же магазин с включённым «весь каталог на главной»
+   * (`homeCatalog`): у такой главной первый экран другой, и набор `home-catalog`
+   * снимается с неё (см. `kinds`). Копия данных, а не второй посев: посев
+   * идёт секунды, а отличаться экземпляры должны одной галочкой. */
+  const altDir = path.join(work, 'data-home-catalog');
+  fs.cpSync(dataDir, altDir, { recursive: true });
+  const altSp = path.join(altDir, 'settings.json');
+  fs.writeFileSync(altSp, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(altSp, 'utf8')), { homeCatalog: true })));
+  const main = await launch(dataDir);
+  const alt = await launch(altDir);
+  return { origin: main.origin, altOrigin: alt.origin, ids, stop: () => Promise.all([main.stop(), alt.stop()]) };
+}
+
+// Один процесс магазина на своём каталоге данных и свободном порту.
+async function launch(dataDir) {
+  const env = Object.assign({}, process.env, { STORE_DATA_DIR: dataDir, GEOIP_ENABLED: '0' });
   const port = await freePort();
   const proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: Object.assign({}, env, { PORT: String(port) }), stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';
@@ -270,7 +295,7 @@ async function startStore(work) {
   // Остановка ждёт выхода процесса: он дописывает метрику на диск, и уборка
   // каталога под ним споткнулась бы о свежий файл.
   const stop = () => new Promise(resolve => { proc.once('exit', () => resolve()); proc.kill(); setTimeout(resolve, 3000); });
-  return { origin, ids, stop };
+  return { origin, stop };
 }
 
 /* ------------------------------ Отбор правил ------------------------------ */
@@ -312,7 +337,7 @@ async function collect(chrome, store) {
   const flatSel = [...new Set(probes.flat())];
   const medias = [...new Set(leaves.flatMap(l => l.chain.filter(a => a.name === 'media').map(a => a.prelude)))];
   const supports = [...new Set(leaves.flatMap(l => l.chain.filter(a => a.name === 'supports').map(a => a.prelude)))];
-  const byKind = kinds(store.ids);
+  const byKind = kinds(store);
   const keep = {};
   for (const k of Object.keys(byKind)) keep[k] = new Set();
   const unknown = new Set();
@@ -331,9 +356,9 @@ async function collect(chrome, store) {
     const supportsOk = await page.eval(`(${JSON.stringify(supports)}).map(function(p){try{return CSS.supports(p.replace(/^@supports\\s*/i,''))}catch(e){return false}})`);
     const mediaMatch = new Map(medias.map((m, i) => [m, mediaOk[i]]));
     const supportsMatch = new Map(supports.map((m, i) => [m, supportsOk[i]]));
-    for (const kind of Object.keys(byKind)) for (const url of byKind[kind]) {
+    for (const kind of Object.keys(byKind)) for (const url of byKind[kind].paths) {
       const kept = keep[kind];
-      await page.open(store.origin + url);
+      await page.open(byKind[kind].origin + url);
       const res = await page.eval(`${PROBE}(${JSON.stringify(flatSel)})`);
       const hit = new Map(flatSel.map((s, i) => [s, res[i]]));
       leaves.forEach((leaf, i) => {
@@ -351,7 +376,7 @@ async function collect(chrome, store) {
           if (v) { kept.add(i); return; }
         }
       });
-      process.stderr.write(`  ${vp.name.padEnd(6)} ${noScript ? 'без js' : 'с js  '} ${kind.padEnd(8)} ${url.padEnd(34)} правил: ${kept.size}\n`);
+      process.stderr.write(`  ${vp.name.padEnd(6)} ${noScript ? 'без js' : 'с js  '} ${kind.padEnd(12)} ${url.padEnd(34)} правил: ${kept.size}\n`);
     }
     await page.close();
   }
@@ -410,7 +435,7 @@ async function build() {
     for (const kind of Object.keys(keep)) {
       const kept = prune(tree, keep[kind], leaves, { i: 0 });
       out[kind] = header(kind, keep[kind].size) + RULES.stringify(kept) + '\n';
-      process.stderr.write(`${kind.padEnd(8)} правил: ${keep[kind].size} из ${leaves.length}, ${MIN.css(out[kind]).length} байт без комментариев (полный styles.css — ${full}).\n`);
+      process.stderr.write(`${kind.padEnd(12)} правил: ${keep[kind].size} из ${leaves.length}, ${MIN.css(out[kind]).length} байт без комментариев (полный styles.css — ${full}).\n`);
     }
     return out;
   } finally {
@@ -461,13 +486,13 @@ async function verify() {
   let bad = 0;
   try {
     await chrome.connect();
-    const byKind = kinds(store.ids);
+    const byKind = kinds(store);
     for (const vp of VIEWPORTS) {
       const full = await chrome.page(); await full.setup(vp, { noScript: true });
       const crit = await chrome.page(); await crit.setup(vp, { noScript: true, block: '*styles.css*' });
-      for (const kind of Object.keys(byKind)) for (const url of byKind[kind]) {
-        await full.open(store.origin + url);
-        await crit.open(store.origin + url);
+      for (const kind of Object.keys(byKind)) for (const url of byKind[kind].paths) {
+        await full.open(byKind[kind].origin + url);
+        await crit.open(byKind[kind].origin + url);
         const sheets = await crit.eval('document.styleSheets.length');
         const a = await full.eval(SNAPSHOT);
         const b = await crit.eval(SNAPSHOT);
@@ -486,7 +511,7 @@ async function verify() {
           }
         }
         bad += diff;
-        process.stderr.write(`  ${vp.name.padEnd(6)} ${kind.padEnd(8)} ${url.padEnd(34)} ${diff ? 'РАСХОЖДЕНИЙ ' + diff : 'совпало'}${sheets === 0 ? ' (нет стилей вовсе!)' : ''}\n`);
+        process.stderr.write(`  ${vp.name.padEnd(6)} ${kind.padEnd(12)} ${url.padEnd(34)} ${diff ? 'РАСХОЖДЕНИЙ ' + diff : 'совпало'}${sheets === 0 ? ' (нет стилей вовсе!)' : ''}\n`);
         for (const line of shown) process.stderr.write(`      ${line}\n`);
       }
       await full.close(); await crit.close();
