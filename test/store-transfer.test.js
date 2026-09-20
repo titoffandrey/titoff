@@ -237,8 +237,7 @@ test('выкатка заливает на сервер только то, чт�
   for (const dir of ['data/', '.claude/', 'apple_svg/', 'apple-photos/', 'tmp/', 'output/']) {
     assert.ok(ignore.split('\n').includes(dir), '.gitignore обязан знать ' + dir);
   }
-  // Список сайтов и выкатка на все разом. Сам список локальный: домены разных
-  // магазинов не должны стоять рядом в открытом репозитории — в git только образец.
+  // Назначение одного независимого проекта локальное: в git только образец.
   const all = fs.readFileSync(path.join(ROOT, 'deploy', 'deploy-all.sh'), 'utf8');
   assert.match(all, /sites\.txt/);
   assert.match(all, /sites\.example\.txt/, 'без списка скрипт показывает, откуда его взять');

@@ -4,7 +4,7 @@
 # Запускается НА СЕРВЕРЕ под root. Обычно его не набирают руками — его приносит
 # `deploy/install.sh` с ноутбука:
 #
-#   ./deploy/install.sh <ssh-алиас> <домен> [git-url]
+#   ./deploy/install.sh <ssh-алиас> <домен>
 #
 # Вручную (когда репозиторий уже лежит на сервере):
 #   DOMAIN=shop.example bash deploy/setup-server.sh

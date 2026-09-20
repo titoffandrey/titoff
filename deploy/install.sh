@@ -1,10 +1,10 @@
 #!/bin/bash
 # Установка магазина на новый VPS — запускается С НОУТБУКА.
 #
-#   ./deploy/install.sh <ssh-алиас> <домен> [git-url]
+#   ./deploy/install.sh <ssh-алиас> <домен>
 #
 # Например:
-#   ./deploy/install.sh istore3-onion shop.example git@github.com:me/istore.git
+#   ./deploy/install.sh store-onion shop.example
 #
 # Что должно быть сделано ДО этого:
 #   1. VPS арендован, домен куплен, A-запись домена указывает на его адрес;
@@ -18,24 +18,21 @@
 # нигде: связка «наш ноутбук → этот сервер» не должна появляться ни в одном логе.
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/deploy/project-target.sh"
+load_project_target "$ROOT"
 ALIAS="${1:-}"
 DOMAIN="${2:-}"
-REPO="${3:-}"
-
-if [ -z "$ALIAS" ] || [ -z "$DOMAIN" ]; then
-  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+# Публикуется именно локальный проект; произвольный git-url обошёл бы привязку.
+REPO=''
+if [ "$#" != 2 ]; then
+  echo 'Использование: ./deploy/install.sh <SSH-алиас проекта> <домен проекта>' >&2
   exit 1
 fi
-
-# Алиас обязан быть настроен в ~/.ssh/config: только там прописан прокси через
-# Tor. Голое имя хоста или IP в аргументе — это как раз то, чего мы избегаем.
-if ! ssh -G "$ALIAS" 2>/dev/null | grep -qi '^proxycommand.*\(socks\|9150\|9050\|torsocks\|nc \)'; then
-  echo "У алиаса «$ALIAS» в ~/.ssh/config нет прокси через Tor."
-  echo 'Подключаться к серверу магазина напрямую нельзя. Поправьте конфиг и повторите.'
-  exit 1
-fi
-
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+require_project_target "$ALIAS" "$DOMAIN"
+require_tor_alias
+# Эта проверка не отключается FORCE_DEPLOY и выполняется до первой записи.
+require_remote_project
 
 # Откуда выкачен сервер. Файл лежит в каталоге ДАННЫХ, а не проекта: проект
 # перезаписывается заливкой, данные — никогда.
