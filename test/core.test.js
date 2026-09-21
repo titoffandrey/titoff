@@ -8399,12 +8399,10 @@ test('потолок кассы больше не гасит товары: за�
   assert.match(server, /const draft = orderMode === 'cashbox';/);
   assert.match(server, /const payMode = orderMode === 'own' \? 'own' : '';/);
   assert.doesNotMatch(server, /PAYMENTS\.limitFor\(/, 'отказа по сумме на оформлении больше нет');
-  // Подгонка доставки под круглое число не выталкивает заказ за потолок кассы.
-  assert.match(server, /SHIP\.quote\(delivery, deliveryMode, address, total, shipCeiling\(s, total\)\)/);
-  assert.match(server, /shipCeiling\(settings\(\), goods\)/, 'предварительный расчёт витрины считает тем же потолком');
-  const ceiling = new Function('PAYMENTS', server.slice(server.indexOf('function shipCeiling('), server.indexOf("app.post('/api/order'")) + '\nreturn shipCeiling;')({ cashboxMax: () => 20000 });
-  assert.equal(ceiling({}, 19950), 20000, 'заказ у потолка округляется в его границах');
-  assert.equal(ceiling({}, 67990), 0, 'заказ дороже потолка в кассу не идёт — подгонка свободна');
+  // Перевозчик получает свой тариф: потолок кассы определяет только путь оплаты.
+  assert.match(server, /SHIP\.quote\(delivery, deliveryMode, address, total\)/);
+  assert.match(server, /SHIP\.quoteAll\(address, goods\)/);
+
 });
 
 test('витрина подписывает кнопку по сумме: касса — «Оплатить», дороже — заявка', () => {
@@ -9476,70 +9474,74 @@ test('зона доставки определяется по адресу, а �
   assert.equal(Z.isValidZone('европа'), false);
 });
 
-test('сетка тарифов полная, курьер дороже ПВЗ, а итог с доставкой круглый', () => {
+test('сетка доставки полная, варианты различаются и не меняются ради суммы товаров', () => {
   const Z = require('../lib/delivery-zones');
   const SHIP = require('../lib/delivery-price');
   const DELIVERY = require('../lib/delivery');
-  const CROCO = require('../lib/payments');
 
-  // Сетка обязана быть полной: пропущенная клетка — это заказ, который нельзя
-  // оформить, потому что доставку не посчитать.
-  for (const m of DELIVERY.METHODS) {
-    for (const mode of m.modes) {
-      for (const z of Z.ZONES) {
-        assert.ok(SHIP.rate(m.id, mode.id, z.id) > 0, `нет тарифа: ${m.id}/${mode.id}/${z.id}`);
+  for (const method of DELIVERY.METHODS) {
+    for (const zone of Z.ZONES) {
+      for (const mode of method.modes) {
+        assert.ok(SHIP.rate(method.id, mode.id, zone.id) > 0, `нет тарифа: ${method.id}/${mode.id}/${zone.id}`);
       }
+      assert.ok(SHIP.rate(method.id, 'courier', zone.id) > SHIP.rate(method.id, 'pvz', zone.id));
     }
-    for (const z of Z.ZONES) {
-      assert.ok(SHIP.rate(m.id, 'courier', z.id) > SHIP.rate(m.id, 'pvz', z.id),
-        `курьер обязан быть дороже пункта выдачи: ${m.id}/${z.id}`);
-    }
-    // Отправка из Москвы: чем дальше, тем дороже.
-    assert.ok(SHIP.rate(m.id, 'pvz', 'dfo') > SHIP.rate(m.id, 'pvz', 'msk'));
-    // Зона «регион не опознан» не должна быть самой дешёвой — недобор оплатит магазин.
-    assert.ok(SHIP.rate(m.id, 'pvz', 'ru') > SHIP.rate(m.id, 'pvz', 'msk'));
+    assert.ok(SHIP.rate(method.id, 'pvz', 'dfo') > SHIP.rate(method.id, 'pvz', 'msk'));
+    assert.ok(SHIP.rate(method.id, 'pvz', 'ru') > SHIP.rate(method.id, 'pvz', 'msk'));
   }
-  // Неизвестный способ, вариант или зона — ноль, а не выдуманная цена.
   assert.equal(SHIP.rate('почта', 'pvz', 'msk'), 0);
   assert.equal(SHIP.rate('cdek', 'дрон', 'msk'), 0);
   assert.equal(SHIP.rate('cdek', 'pvz', 'европа'), 0);
 
-  const addresses = ['г Москва, ул Тверская', 'Екатеринбург', 'г Владивосток', 'ПВЗ у метро'];
+  const addresses = ['г Москва, ул Тверская', 'Тула', 'Санкт-Петербург', 'Казань', 'Сочи',
+    'Екатеринбург', 'Новосибирск', 'г Владивосток', 'ПВЗ у метро'];
+  const amounts = [0.01, 1990, 10000, 19690, 19700, 19840, 23250, 67990, 99990, 189990, 245000, 349990.37];
   for (const address of addresses) {
-    for (const goods of [1990, 7990, 23250, 67990, 99990, 189990, 245000]) {
-      const all = SHIP.quoteAll(address, goods);
-      for (const m of DELIVERY.METHODS) {
-        for (const mode of m.modes) {
-          const q = SHIP.quote(m.id, mode.id, address, goods);
-          // Витрина и заказ считают ОДНИМ И ТЕМ ЖЕ: quote — это срез quoteAll,
-          // иначе показанная цена разошлась бы с той, что уйдёт в заказ.
-          assert.equal(q.price, all.prices[m.id][mode.id], 'quote и quoteAll обязаны совпадать');
-          assert.ok(q.price > 0);
-          // До сотен итог округляется всегда — окно шире 100 ₽ при любом тарифе.
-          assert.equal((goods + q.price) % 100, 0, `итог не круглый: ${goods} + ${q.price}`);
-          // Округление вверх не выводит заказ за потолок одной покупки: такую
-          // сумму касса не проведёт.
-          assert.ok(goods + q.price <= CROCO.MAX_TOTAL);
-          // Цена держится около тарифа, а не улетает ради круглого числа.
-          assert.ok(Math.abs(q.price - q.base) <= Math.max(150, q.base * 0.3),
-            `цена ушла от тарифа: ${q.price} против ${q.base}`);
+    const expected = SHIP.quoteAll(address, 1000).prices;
+    for (const goods of amounts) {
+      // Старый необязательный аргумент кассового потолка тоже не меняет доставку.
+      for (const ceiling of [undefined, 0, 20000, 250000, 900000]) {
+        const all = SHIP.quoteAll(address, goods, ceiling);
+        assert.deepEqual(all.prices, expected, `тариф зависит от суммы или кассы: ${address}, ${goods}, ${ceiling}`);
+        for (const method of DELIVERY.METHODS) {
+          for (const mode of method.modes) {
+            const q = SHIP.quote(method.id, mode.id, address, goods, ceiling);
+            assert.equal(q.ok, true);
+            assert.equal(q.price, all.prices[method.id][mode.id], 'предпросмотр и заказ расходятся');
+            assert.equal(q.price, q.base, 'стоимость доставки искажена ради круглого итога');
+            assert.equal(q.total, goods + q.price);
+            assert.ok(all.prices.cdek[mode.id] > all.prices.ozon[mode.id], 'разница сетки между перевозчиками потеряна');
+          }
+          assert.ok(all.prices[method.id].courier > all.prices[method.id].pvz);
         }
-        // После подгонки курьер тоже обязан остаться дороже: рядом в одном ряду
-        // «курьером дешевле» читалось бы как ошибка витрины.
-        assert.ok(all.prices[m.id].courier > all.prices[m.id].pvz,
-          `подгонка сломала порядок: ${m.id} на ${goods} по адресу «${address}»`);
       }
     }
   }
-
-  // Круглая тысяча — когда попадает: 67 990 + 1 010 = 69 000.
-  assert.equal(SHIP.quote('cdek', 'pvz', 'г Владивосток', 67990).price, 1010);
-  assert.equal(SHIP.quote('cdek', 'pvz', 'г Владивосток', 67990).total, 69000);
-  // Пустая корзина — чистый тариф, подгонять нечего.
-  assert.equal(SHIP.quote('cdek', 'pvz', 'г Москва', 0).price, SHIP.rate('cdek', 'pvz', 'msk'));
-  // Неизвестный вариант — отказ, а не «доставка бесплатно».
   assert.equal(SHIP.quote('cdek', 'дрон', 'г Москва', 67990).ok, false);
   assert.equal(SHIP.quote('cdek', 'дрон', 'г Москва', 67990).price, 0);
+});
+
+test('доставка сохраняет разные оценки перевозчиков на прежних коллизиях округления', () => {
+  const SHIP = require('../lib/delivery-price');
+  const expected = { cdek: { pvz: 300, courier: 520 }, ozon: { pvz: 220, courier: 430 } };
+  // Раньше 19 690/19 700 давали одинаковую цену ПВЗ, 10 000/67 990 — курьера;
+  // на 19 840 оценка OZON падала с 220 до 160 ради круглого итога.
+  for (const goods of [10000, 19690, 19700, 19840, 67990]) {
+    assert.deepEqual(SHIP.quoteAll('г Москва, ул Тверская, д 1', goods).prices, expected);
+  }
+  assert.equal(SHIP.quote('cdek', 'pvz', 'г Москва', 19690).total, 19990);
+});
+
+test('без выбранных товаров доставка не получает цену', () => {
+  const SHIP = require('../lib/delivery-price');
+  for (const goods of [undefined, null, '', 0, -1, NaN, Infinity, -Infinity, 'не число']) {
+    const all = SHIP.quoteAll('г Москва, ул Тверская, д 1', goods);
+    assert.equal(all.prices, null);
+    const selected = SHIP.quote('cdek', 'pvz', 'г Москва', goods);
+    assert.equal(selected.ok, false);
+    assert.equal(selected.price, 0);
+    assert.equal(selected.total, 0);
+  }
 });
 
 test('срок доставки: сетка полная, курьер не опережает ПВЗ, а текст склоняется', () => {
@@ -9767,7 +9769,7 @@ test('куда доставить — обязательный выбор, а е
   assert.ok(route.indexOf('Выберите, куда доставить') < route.indexOf('db.createOrder'), 'проверка обязана идти до записи');
   // Цена доставки считается на сервере заново — клиентской цифре верим не больше,
   // чем клиентской цене товара.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, shipCeiling\(s, total\)\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total\)/);
   assert.match(route, /total: grandTotal, itemsTotal: total/);
   assert.doesNotMatch(route, /req\.body\.deliveryPrice/, 'цену доставки витрина не присылает');
 
@@ -10079,7 +10081,7 @@ test('адрес пункта выдачи в заказе берётся из �
     'адрес покупателя обязан проверяться до записи');
   // Зона считается по адресу ПОКУПАТЕЛЯ: иначе цена менялась бы от выбора
   // пункта, и показанная сумма разошлась бы с той, что уйдёт в заказ.
-  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total, shipCeiling\(s, total\)\)/);
+  assert.match(route, /SHIP\.quote\(delivery, deliveryMode, address, total\)/);
 
   // Хранилище отсеивает мусор в коде, но существование пункта проверяет маршрут:
   // lib/db не может требовать lib/pickup — вышло бы кольцо require.
@@ -12132,29 +12134,17 @@ test('диапазон суммы заказа задаётся в настро�
   assert.match(render.homePage(tight, { ...db, getProducts: () => [sold], visibleProducts: () => [sold] }, { category: '', q: '', origin: '' }),
     /<a class="btn btn-primary btn-block btn-soldout" href="\/product\/vision">Нет в наличии<\/a>/);
 
-  /* Подгонка доставки под круглый итог обязана двигаться в тех же границах:
-   * округлять ВВЕРХ за потолок — значит собрать заказ, который касса не
-   * проведёт. Потолок приходит параметром: модуль доставки о настройках не
-   * знает и знать не должен. */
+  // Тариф не подгоняется под кассовый потолок. Тот меняет только доступность
+  // кассы для итоговой суммы; запрос/свои реквизиты остаются запасным путём.
   const addr = 'г Москва, ул Тверская, д 1';
   const capped = SHIP.quoteAll(addr, 249700, 250000).prices.cdek;
   const uncapped = SHIP.quoteAll(addr, 249700, 900000).prices.cdek;
-  // Округлённый вариант, помещающийся под потолок, выбирается как обычно.
-  assert.equal(249700 + capped.pvz, 250000);
-  /* А вот курьеру под потолком места нет вовсе: любой круглый итог с ним уходит
-   * за 250 000. Тогда берётся чистый тариф, а не подогнанная цена — и заказ у
-   * самого потолка просто не оформляется. Это задокументированное следствие, а
-   * не недосмотр: «заказ на 249 900 ₽ может не пройти — доставка выведет его за
-   * потолок». */
-  assert.equal(capped.courier, SHIP.rate('cdek', 'courier', 'msk'));
-  assert.notEqual(uncapped.courier, capped.courier, 'без потолка подгонка свободна');
-  assert.ok(249700 + uncapped.courier > 250000, 'без потолка итог уходит за него');
-  // Сверяем с теми же настройками, при которых считали доставку: у `on` потолок
-  // расширен до 900 000, и итог с курьером там как раз проходит.
+  assert.deepEqual(capped, { pvz: 300, courier: 520 });
+  assert.deepEqual(uncapped, capped);
+  assert.deepEqual(SHIP.quoteAll(addr, 249700, 0).prices.cdek, capped);
   assert.equal(PAYMENTS.payable(249700 + capped.courier, tight), false);
   assert.equal(PAYMENTS.payable(249700 + capped.courier, on), true);
-  // Ноль означает «потолка нет» (оплата на витрине выключена).
-  assert.ok(SHIP.quoteAll(addr, 249700, 0).prices.cdek.pvz > 0);
+
 });
 
 test('форма настроек не сохраняет кривой диапазон суммы', () => {

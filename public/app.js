@@ -386,6 +386,7 @@
     var side = document.getElementById('checkout-side');
     var action = document.getElementById('checkout-action');
     if (!items || !side) return;
+    if (!Cart.availableCount()) resetDeliveryQuote();
 
     var page = document.getElementById('checkout-page');
     if (page) page.classList.toggle('is-empty', !Cart.items.length);   // пустая корзина — одна колонка по центру
@@ -595,9 +596,8 @@
     syncPromo();
     renderRail();
     syncSubmit();
-    // Состав корзины меняет и подгонку итога под круглое число, поэтому цену
-    // доставки пересчитываем — но только когда адрес уже введён.
-    if (addressValue()) quoteDelivery(0);
+    // Состав меняет расчёт. Пустой выбор сбрасывает его, сохраняя поля формы.
+    quoteDelivery(0);
   }
 
   // Кнопка оформления: сумма на ней, доступность и причина отказа под ней.
@@ -984,14 +984,14 @@
       ? 'Промокод ' + promoView.code : 'Скидка';
     side.innerHTML = '<div class="co-line">' + lineLabel('bag', 'Товары (' + count + ')') + '<span>' + goods + '</span></div>'
       + (saved > 0 ? '<div class="co-line co-line-save">' + lineLabel('tag', escapeHtml(saveLabel)) + '<span>−' + money(saved) + '</span></div>' : '')
-      + '<div class="co-line">' + lineLabel('truck', 'Доставка') + '<span>'
-      + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>'
+      + (count ? '<div class="co-line">' + lineLabel('truck', 'Доставка') + '<span>'
+      + (price == null ? '<i class="co-line-wait">по адресу</i>' : money(price)) + '</span></div>' : '')
       // Срок стоит СПРАВА, прямо под ценой доставки: правый столбец сводки — это
       // ответы числами, и «сколько» с «когда» читаются вместе. Слева при этом
       // остаётся перевозчик с вариантом, объясняющий саму цену. Подстрока
       // выровнена под подпись «Доставка», а не под её значок, — это уточнение к
       // строке выше, а не ещё одна строка расчёта.
-      + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
+      + (count && way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
         + escapeHtml(price != null ? shipDaysCurrent().replace(/[–—]/g, '-') : '') + '</span></div>' : '')
       + (paymentQuote && paymentQuote.direct && paymentQuote.discount > 0 && checkoutMode() === 'cashbox'
         ? '<div class="co-line"><span>Скидка при оплате</span><span>−' + money(paymentQuote.discount) + '</span></div>' : '')
@@ -1137,8 +1137,8 @@
           + (ico ? '<span class="co-mode-ico">' + coIcon(ico, 'co-ico') + '</span>' : '')
           + '<span class="co-mode-text"><b>' + escapeHtml(m.name) + '</b>'
           + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span>'
-          + '<span class="co-mode-price">' + (price == null ? '-' : money(price))
-          + (days ? '<i class="co-mode-days">' + escapeHtml(days.replace(/[–—]/g, '-')) + '</i>' : '') + '</span></label>';
+          + (Cart.availableCount() ? '<span class="co-mode-price">' + (price == null ? '-' : money(price))
+            + (days ? '<i class="co-mode-days">' + escapeHtml(days.replace(/[–—]/g, '-')) + '</i>' : '') + '</span>' : '') + '</label>';
       }).join('')
       + '</div>';
   }
@@ -1521,10 +1521,18 @@
    * устарел: показывать «не хватает дома» про адрес, который покупатель уже
    * дописал, нельзя.
    */
-  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, days: null, pending: false, timer: null, requestSeq: 0 };
+  var ship = { key: '', wanted: '', address: '', valid: false, error: '', prices: null, days: null, pending: false, timer: null, requestSeq: 0, controller: null };
+
+  function resetDeliveryQuote() {
+    clearTimeout(ship.timer); ship.timer = null;
+    ship.requestSeq++; ship.wanted = ''; ship.pending = false;
+    if (ship.controller) { ship.controller.abort(); ship.controller = null; }
+    ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
+    ship.prices = null; ship.days = null;
+  }
 
   function shipPrice(method, mode) {
-    if (!ship.prices || !method || !mode) return null;
+    if (!Cart.availableCount() || !ship.prices || !method || !mode) return null;
     var byMode = ship.prices[method];
     var price = byMode && byMode[mode];
     return typeof price === 'number' ? price : null;
@@ -1535,7 +1543,7 @@
    * карточке и другой в сводке.
    */
   function shipDays(method, mode) {
-    if (!ship.days || !method || !mode) return '';
+    if (!Cart.availableCount() || !ship.days || !method || !mode) return '';
     var byMode = ship.days[method];
     var text = byMode && byMode[mode];
     return typeof text === 'string' ? text : '';
@@ -1559,6 +1567,7 @@
 
   // Подсказка и сбой расчёта могут блокировать одну кнопку, но это разные уведомления.
   function checkoutAmountNotice() {
+    if (!Cart.availableCount()) return { type: 'info', message: '' };
     var fee = checkoutFeeQuote();
     if (!fee) {
       var page = document.getElementById('checkout-page');
@@ -1585,35 +1594,31 @@
   }
   // Запрос идёт с задержкой: адрес набирают по букве, а цена меняется только с
   // регионом. Повтор того же запроса не отправляется — ключом служит сам адрес
-  // вместе с суммой товаров (от неё зависит подгонка итога под круглое число).
+  // вместе с суммой выбранных товаров (без товаров расчёта нет).
   function quoteDelivery(delay) {
     var address = addressValue();
     var total = Cart.total();
     var key = total + '|' + address;
-    if (!address) {
-      clearTimeout(ship.timer); ship.timer = null;
-      ship.requestSeq++; ship.wanted = ''; ship.pending = false;
-      ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
-      ship.prices = null; ship.days = null;
+    if (!Cart.availableCount() || !address) {
+      resetDeliveryQuote();
       syncDelivery();
       return;
     }
     if (key === ship.key || ship.pending && ship.wanted === key) return;
-    clearTimeout(ship.timer);
-    // Пока новый адрес считается, прежняя цена и признак «адрес полный» больше
-    // не относятся к форме. Сбрасываем их сразу, ещё до debounce: иначе на 350 мс
-    // оставались активными доставка и итог от предыдущего города.
-    ship.key = ''; ship.address = ''; ship.valid = false; ship.error = '';
-    ship.prices = null; ship.days = null; ship.pending = false;
+    // Старый расчёт отменяем ещё до debounce; поля и выбор доставки не трогаем.
+    resetDeliveryQuote();
     ship.wanted = key;
-    var requestSeq = ++ship.requestSeq;
+    var requestSeq = ship.requestSeq;
     syncDelivery();
     ship.timer = setTimeout(function () {
       ship.timer = null;
       if (ship.requestSeq !== requestSeq || ship.wanted !== key) return;
+      if (!Cart.availableCount() || total !== Cart.total() || address !== addressValue()) { quoteDelivery(0); return; }
       ship.pending = true;
+      ship.controller = window.AbortController ? new window.AbortController() : null;
       fetch('/api/delivery/quote', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: ship.controller ? ship.controller.signal : undefined,
         body: JSON.stringify({ address: address, total: total })
       })
         .then(function (r) { return r.json(); })
@@ -1621,7 +1626,8 @@
           // Старый запрос не меняет даже `pending`: в это время уже может идти
           // новый, и ложный false запустил бы его второй раз.
           if (ship.requestSeq !== requestSeq || ship.wanted !== key) return;
-          ship.pending = false;
+          if (!Cart.availableCount() || total !== Cart.total() || address !== addressValue()) { quoteDelivery(0); return; }
+          ship.pending = false; ship.controller = null;
           if (!d || !d.ok) return;
           ship.key = key; ship.address = address;
           ship.valid = !!d.valid; ship.error = d.error || '';
@@ -1632,7 +1638,8 @@
           // Сеть подвела — ни цену, ни разбор адреса не выдумываем: выбор
           // способа останется запертым, а решать всё равно серверу при заказе.
           if (ship.requestSeq !== requestSeq || ship.wanted !== key) return;
-          ship.pending = false;
+          if (!Cart.availableCount() || total !== Cart.total() || address !== addressValue()) { quoteDelivery(0); return; }
+          ship.pending = false; ship.controller = null;
           syncDelivery();
         });
     }, delay == null ? 350 : delay);
