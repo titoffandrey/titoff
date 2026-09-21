@@ -79,6 +79,45 @@ test('кабинет: регистрация, вход, смена пароля,
   assert.equal(await customers.verify('buyer@example.ru', '654321'), null);
   assert.equal(await customers.verify('nobody@example.ru', '123456'), null);
 
+  /* ВХОД ПО ТЕЛЕФОНУ — вторым логином, в любой привычной записи: введённое
+   * приводится к E.164 тем же модулем, что телефон покупателя в заказе. */
+  assert.equal(customers.loginKey(' Buyer@Example.RU '), 'buyer@example.ru');
+  assert.equal(customers.loginKey('8 (999) 123-45-67'), '+79991234567');
+  assert.equal(customers.loginKey('admin'), ''); assert.equal(customers.loginKind('+7 999 123-45-67'), 'phone');
+  assert.equal(customers.byPhone('8 999 123 45 67').id, made.customer.id);
+  assert.equal(customers.byLogin('+7 (999) 123-45-67').id, made.customer.id);
+  assert.equal(await customers.verify('89991234567', '123456'), customers.byId(made.customer.id));
+  assert.equal(await customers.verify('+79991234568', '123456'), null);
+  assert.equal(customers.loginText(made.customer), 'buyer@example.ru · +7 999 123-45-67');
+  // Один номер — один кабинет: занятый номер второй записи не достаётся.
+  const samePhone = customers.create({ login: '+7 999 123-45-67', password: '123456' });
+  assert.equal(samePhone.ok, false); assert.equal(samePhone.exists, true); assert.match(samePhone.error, /этим номером/);
+  // Кабинет по одному телефону, без почты: регистрация одним полем «логин».
+  const phoneOnly = customers.create({ login: '8 999 000-11-22', password: '123456' });
+  assert.equal(phoneOnly.ok, true); assert.equal(phoneOnly.customer.email, ''); assert.equal(phoneOnly.customer.phone, '+79990001122');
+  assert.equal(await customers.verify('+7 999 000-11-22', '123456'), customers.byId(phoneOnly.customer.id));
+  assert.equal(customers.loginText(phoneOnly.customer), '+7 999 000-11-22');
+  assert.match(customers.create({ login: 'не логин', password: '123456' }).error, /e-mail или номер телефона/);
+  assert.match(customers.create({ password: '123456' }).error, /e-mail или номер телефона/);
+  // Логины правятся в профиле: чужие не берутся, последний не стирается.
+  assert.match(customers.update(phoneOnly.customer.id, { email: 'buyer@example.ru' }).error, /другому кабинету/);
+  assert.match(customers.update(phoneOnly.customer.id, { phone: '' }).error, /хотя бы один способ входа/);
+  assert.match(customers.update(made.customer.id, { phone: '+7 999 000-11-22' }).error, /другому кабинету/);
+  assert.equal(customers.update(phoneOnly.customer.id, { email: 'Second@Example.ru' }).customer.email, 'second@example.ru');
+  assert.equal(customers.update(phoneOnly.customer.id, { phone: '' }).ok, true, 'с почтой телефон стереть можно');
+  assert.equal(customers.byPhone('+79990001122'), null);
+  // Кабинет учится контактам с заказа: пустое поле заполняется, занятое — нет.
+  assert.equal(customers.rememberContacts(phoneOnly.customer.id, { email: 'other@example.ru', phone: '+7 999 123-45-67' }), null, 'почта уже задана, номер занят первым кабинетом — дописывать нечего');
+  assert.equal(customers.rememberContacts(phoneOnly.customer.id, { phone: '+7 999 000-11-22' }).phone, '+79990001122');
+  assert.equal(customers.byId(phoneOnly.customer.id).email, 'second@example.ru', 'заданная почта заказом не перебивается');
+  /* Номер на двоих из прежних записей (телефон стал логином позже) на вход не
+   * годится ни одному — иначе первый попавшийся получил бы чужой кабинет. */
+  db.writeJson('customers', db.readJson('customers', []).map(c => c.id === phoneOnly.customer.id ? Object.assign({}, c, { phone: '+79991234567' }) : c));
+  assert.equal(customers.byPhone('+79991234567'), null);
+  assert.equal(await customers.verify('+79991234567', '123456'), null);
+  assert.equal(await customers.verify('buyer@example.ru', '123456') !== null, true, 'по почте оба входят как раньше');
+  db.writeJson('customers', db.readJson('customers', []).filter(c => c.id !== phoneOnly.customer.id));
+
   // Отметка сессии привязана к хешу пароля: сменили пароль — прежняя не годится.
   const stamp = customers.stamp(made.customer, 'secret');
   assert.equal(stamp.length, 24);
@@ -362,11 +401,12 @@ test('маршруты кабинета: регистрация, вход, чу�
   assert.match(res.html, /Забыли пароль\?/);
   assert.match(res.html, /minlength="6"/);
 
-  // Регистрация: короткий пароль — отказ с введённым адресом; годный — вход.
+  assert.match(res.html, /<label for="acc-login">E-mail или телефон<\/label>/, 'поле логина одно на оба');
+  // Регистрация: короткий пароль — отказ с введённым логином; годный — вход.
   const session = { myOrders: [] };
-  res = await call('POST', '/account/register', session, { email: 'Buyer@Example.ru', password: '12345' });
+  res = await call('POST', '/account/register', session, { login: 'Buyer@Example.ru', password: '12345' });
   assert.equal(res.status, 400); assert.match(res.html, /не меньше 6/); assert.match(res.html, /value="Buyer@Example.ru"/);
-  res = await call('POST', '/account/register', session, { email: 'Buyer@Example.ru', password: '123456' });
+  res = await call('POST', '/account/register', session, { login: 'Buyer@Example.ru', password: '123456' });
   assert.equal(res.status, 302); assert.match(res.location, /^\/account\?flash=/);
   assert.match(session.customerId, /^[a-f0-9]{16}$/);
   assert.equal(box.currentCustomer({ session }).email, 'buyer@example.ru');
@@ -374,15 +414,39 @@ test('маршруты кабинета: регистрация, вход, чу�
   assert.match(res.html, /buyer@example\.ru/); assert.match(res.html, /Заказов пока нет/);
   assert.match(res.html, /Сменить пароль/); assert.match(res.html, /name="current"/, 'свой пароль меняется только со старым');
 
-  // Вход: чужой адрес и неверный пароль — один ответ.
+  // Вход: чужой логин и неверный пароль — один ответ.
   const other = {};
-  res = await call('POST', '/account/login', other, { email: 'buyer@example.ru', password: '000000' });
-  assert.equal(res.status, 400); assert.match(res.html, /Неверная почта или пароль/);
-  const noOne = await call('POST', '/account/login', {}, { email: 'nobody@example.ru', password: '000000' });
-  assert.equal(noOne.status, 400); assert.equal(noOne.html.includes('Неверная почта или пароль'), true);
-  res = await call('POST', '/account/login', other, { email: 'BUYER@example.ru', password: '123456' });
+  res = await call('POST', '/account/login', other, { login: 'buyer@example.ru', password: '000000' });
+  assert.equal(res.status, 400); assert.match(res.html, /Неверный e-mail, телефон или пароль/);
+  const noOne = await call('POST', '/account/login', {}, { login: 'nobody@example.ru', password: '000000' });
+  assert.equal(noOne.status, 400); assert.equal(noOne.html.includes('Неверный e-mail, телефон или пароль'), true);
+  assert.equal((await call('POST', '/account/login', {}, { login: 'admin', password: '123456' })).status, 400, 'не адрес и не номер — отказ, без похода в scrypt');
+  res = await call('POST', '/account/login', other, { login: 'BUYER@example.ru', password: '123456' });
   assert.equal(res.location, '/account');
   assert.equal(other.customerId, session.customerId);
+  // Телефон — второй логин: в профиле задали, по нему и входят, в любой записи.
+  res = await call('POST', '/account/profile', session, { name: 'Иван', email: 'buyer@example.ru', phone: '8 999 123-45-67', address: '' });
+  assert.equal(res.status, 302);
+  const byPhone = {};
+  res = await call('POST', '/account/login', byPhone, { login: '+7 (999) 123-45-67', password: '123456' });
+  assert.equal(res.location, '/account'); assert.equal(byPhone.customerId, session.customerId);
+  res = await call('GET', '/account', byPhone);
+  assert.match(res.html, /acc-sub">buyer@example\.ru · \+7 999 123-45-67</, 'в шапке кабинета оба логина');
+  assert.match(res.html, /<label for="acc-email">E-mail<\/label><input type="email" id="acc-email" name="email" value="buyer@example\.ru"/);
+  // Регистрация по одному телефону: без почты, вход по номеру, восстанавливать нечем.
+  const phoneSession = {};
+  res = await call('POST', '/account/register', phoneSession, { login: '8 999 000-11-22', password: '123456' });
+  assert.equal(res.status, 302); assert.match(decodeURIComponent(res.location), /с этим номером телефона/);
+  assert.equal(box.currentCustomer({ session: phoneSession }).phone, '+79990001122');
+  res = await call('GET', '/account', phoneSession);
+  assert.match(res.html, /acc-sub">\+7 999 000-11-22</);
+  res = await call('POST', '/account/forgot', {}, { login: '+7 999 000-11-22' });
+  assert.match(res.html, /Письмо отправлено/); assert.match(res.html, /к номеру \+7 999 000-11-22 привязан кабинет с e-mail/);
+  assert.equal(sent.length, 0, 'почты у кабинета нет — письмо не уходит, а ответ тот же');
+  res = await call('POST', '/account/register', {}, { login: '+7 999 000 11 22', password: '123456' });
+  assert.equal(res.status, 400); assert.match(res.html, /этим номером уже есть/);
+  res = await call('POST', '/account/forgot', {}, { login: 'просто слова' });
+  assert.equal(res.status, 400); assert.match(res.html, /Укажите e-mail или номер телефона/);
 
   // Заказ кабинета свой с любого устройства, чужой — нет.
   const order = db.createOrder({ items: [], total: 1000, customerId: session.customerId });
@@ -402,15 +466,20 @@ test('маршруты кабинета: регистрация, вход, чу�
   assert.equal(box.currentCustomer({ session: other }), null, 'прежняя сессия с другого устройства вышла');
   assert.equal(await customers.verify('buyer@example.ru', '654321') !== null, true);
 
-  // Восстановление: письмо со ссылкой, чужой адрес отвечает так же, ссылка одноразовая.
-  res = await call('POST', '/account/forgot', {}, { email: 'buyer@example.ru' });
+  // Восстановление: письмо со ссылкой (и по телефону — на почту кабинета),
+  // чужой логин отвечает так же, ссылка одноразовая.
+  res = await call('POST', '/account/forgot', {}, { login: '8 999 123-45-67' });
+  assert.match(res.html, /Письмо отправлено/); assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'buyer@example.ru', 'по телефону ссылка уходит на почту того же кабинета');
+  sent.length = 0;
+  res = await call('POST', '/account/forgot', {}, { login: 'buyer@example.ru' });
   assert.match(res.html, /Письмо отправлено/);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].to, 'buyer@example.ru');
   const link = sent[0].text.match(/https:\/\/shop\.example\/account\/reset\/([a-f0-9]{32})/);
   assert.ok(link, 'ссылка — по публичному адресу, а не по Host запроса');
   assert.doesNotMatch(sent[0].text, /654321/, 'пароля в письме нет — ссылка ничего не меняет, пока по ней не пришли');
-  res = await call('POST', '/account/forgot', {}, { email: 'nobody@example.ru' });
+  res = await call('POST', '/account/forgot', {}, { login: 'nobody@example.ru' });
   assert.match(res.html, /Письмо отправлено/); assert.equal(sent.length, 1);
   res = await call('GET', '/account/reset/:token', {}, {}, { token: 'f'.repeat(32) });
   assert.equal(res.status, 400); assert.match(res.html, /устарела/);
@@ -473,13 +542,23 @@ test('кабинет заводится сам при заказе с почто
   assert.deepEqual(plain(box.accountForOrder({ session: guest }, settings, second, null, 'new@example.ru')), { exists: true, email: 'new@example.ru' });
   assert.equal(db.getOrder(second.id).customerId, '');
   assert.equal(guest.customerId, undefined);
-  res = await call('POST', '/account/login', guest, { email: 'new@example.ru', password: '123456' });
+  res = await call('POST', '/account/login', guest, { login: 'new@example.ru', password: '123456' });
   assert.equal(res.location, '/account');
   assert.equal(db.getOrder(second.id).customerId, customer.id, 'вход из сессии, оформившей заказ, привязал его');
   const foreign = db.createOrder({ items: [], total: 500, email: 'someone-else@example.ru' });
   const guest2 = { myOrders: [foreign.id] };
-  await call('POST', '/account/login', guest2, { email: 'new@example.ru', password: '123456' });
+  await call('POST', '/account/login', guest2, { login: 'new@example.ru', password: '123456' });
   assert.equal(db.getOrder(foreign.id).customerId, '', 'заказ с чужой почтой не привязывается');
+  // Заказ с ТЕМ ЖЕ телефоном и другой почтой — свой: кабинет мог быть заведён по номеру.
+  const byPhoneOrder = db.createOrder({ items: [], total: 500, email: 'other@example.ru', phone: '+79991234567' });
+  const guest3 = { myOrders: [byPhoneOrder.id] };
+  await call('POST', '/account/login', guest3, { login: '8 999 123-45-67', password: '123456' });
+  assert.equal(db.getOrder(byPhoneOrder.id).customerId, customer.id, 'вход по телефону привязал заказ с тем же номером');
+  // Номер заказа уже принадлежит кабинету — второй на тот же номер не заводится.
+  const fourth = db.createOrder({ items: [], total: 500, email: 'fourth@example.ru', phone: '+79991234567' });
+  assert.deepEqual(plain(box.accountForOrder({ session: { myOrders: [fourth.id] } }, settings, fourth, null, 'fourth@example.ru')), { exists: true, phone: '+79991234567' });
+  assert.equal(customers.byEmail('fourth@example.ru'), null);
+  assert.match(R.accountNoteText({ exists: true, phone: '+79991234567' }), /К номеру \+7 999 123-45-67 уже привязан личный кабинет/);
 
   // Без почты кабинет при заказе не создаётся; вошедший — ничего не получает.
   settings.mailHost = '';
@@ -593,18 +672,20 @@ test('страницы кабинета: состояния заказов сл�
 
 test('оформление: поле почты, привязка к вошедшему и отпечаток без почты как прежде', () => {
   const settings = Object.assign(require('../lib/db').defaultSettings(), { storeName: 'Тест' });
-  const guest = R.checkoutPage(settings, { account: { auto: true, email: '', name: '', phone: '' } });
+  const guest = R.checkoutPage(settings, { account: { auto: true, in: false, email: '', name: '', phone: '' } });
   assert.match(guest, /id="checkout-page"[^>]*data-account="1" data-account-auto="1"/);
-  assert.doesNotMatch(guest, /data-account-email/);
-  const logged = R.checkoutPage(settings, { account: { auto: true, email: 'b@example.ru', name: 'Иван Петров', phone: '+79991234567', address: 'г Тула, ул Советская, д 7', addressAt: 1700000000000 } });
-  assert.match(logged, /data-account-email="b@example\.ru" data-account-name="Иван Петров" data-account-phone="\+79991234567" data-account-address="г Тула, ул Советская, д 7" data-account-address-at="1700000000000"/);
+  assert.doesNotMatch(guest, /data-account-email|data-account-in/);
+  const logged = R.checkoutPage(settings, { account: { auto: true, in: true, email: 'b@example.ru', name: 'Иван Петров', phone: '+79991234567', address: 'г Тула, ул Советская, д 7', addressAt: 1700000000000 } });
+  assert.match(logged, /data-account-in="1" data-account-email="b@example\.ru" data-account-name="Иван Петров" data-account-phone="\+79991234567" data-account-address="г Тула, ул Советская, д 7" data-account-address-at="1700000000000"/);
   // Адрес и отметка едут и тогда, когда адреса нет: скрипт читает атрибуты, а не гадает.
-  assert.match(R.checkoutPage(settings, { account: { auto: true, email: 'b@example.ru', name: '', phone: '' } }), /data-account-address="" data-account-address-at="0"/);
+  assert.match(R.checkoutPage(settings, { account: { auto: true, in: true, email: 'b@example.ru', name: '', phone: '' } }), /data-account-address="" data-account-address-at="0"/);
+  // Кабинет по одному телефону: вошёл — имя, телефон и адрес едут, почта пустая.
+  assert.match(R.checkoutPage(settings, { account: { auto: true, in: true, email: '', name: 'Иван', phone: '+79991234567' } }), /data-account-in="1" data-account-email="" data-account-name="Иван" data-account-phone="\+79991234567"/);
   // Маршрут отдаёт их из записи кабинета, а первый заказ вошедшего учит пустой кабинет адресу.
   assert.match(serverSource, /address: customer \? String\(customer\.address \|\| ''\) : '', addressAt: customer \? Number\(customer\.addressAt\) \|\| 0 : 0/);
   assert.match(serverSource, /CUSTOMERS\.create\(\{ email, password, name: order\.customerName, phone: order\.phone, address: order\.address, auto: true \}\)/);
-  assert.match(serverSource, /CUSTOMERS\.update\(customer\.id, \{ name: req\.body\.name, phone: req\.body\.phone, address: req\.body\.address \}\)/);
-  assert.match(serverSource, /if \(customer\) CUSTOMERS\.rememberAddress\(customer\.id, order\.address\)/);
+  assert.match(serverSource, /CUSTOMERS\.update\(customer\.id, \{ name: req\.body\.name, email: req\.body\.email, phone: req\.body\.phone, address: req\.body\.address \}\)/);
+  assert.match(serverSource, /if \(customer\) \{ CUSTOMERS\.rememberAddress\(customer\.id, order\.address\); CUSTOMERS\.rememberContacts\(customer\.id, \{ email: order\.email, phone: order\.phone \}\); \}/);
   // Политика называет адрес среди данных кабинета: собираем — значит называем.
   assert.match(R.privacyPage(settings, {}), /имя, телефон и адрес доставки из профиля/);
   const off = R.checkoutPage(settings, { account: null });

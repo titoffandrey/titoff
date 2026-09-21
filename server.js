@@ -656,9 +656,13 @@ function logoutCustomer(req) {
  * владельцу кабинета чужой заказ с адресом и телефоном. */
 function adoptSessionOrders(req, customer) {
   const ids = Array.isArray(req.session.myOrders) ? req.session.myOrders : [];
+  // Заказ считается своим и по телефону: кабинет, заведённый по номеру, почты
+  // может не иметь вовсе, а номер в заказе — тот же, что и логин.
+  const same = order => (order.email && order.email === customer.email)
+    || (order.phone && customer.phone && order.phone === customer.phone);
   for (const id of ids) {
     const order = db.getOrder(String(id || ''));
-    if (order && !order.customerId && order.email && order.email === customer.email) db.attachOrderCustomer(order.id, customer.id);
+    if (order && !order.customerId && same(order)) db.attachOrderCustomer(order.id, customer.id);
   }
 }
 
@@ -1091,7 +1095,7 @@ app.get('/checkout', (req, res) => {
       if (!CUSTOMERS.enabled(s)) return null;
       const customer = currentCustomer(req);
       return {
-        auto: accountMailOn(s),
+        auto: accountMailOn(s), in: !!customer,
         email: customer ? customer.email : '', name: customer ? customer.name : '', phone: customer ? customer.phone : '',
         // Адрес — с отметкой времени: по ней витрина решает, что подставлять,
         // адрес из кабинета или набранный на оформлении (побеждает то, что
@@ -1188,8 +1192,11 @@ for (const [route, page] of [
 }
 
 /* ============================ ЛИЧНЫЙ КАБИНЕТ ============================
- * Вход по e-mail и паролю, свои заказы, отправления и корзина (lib/customers.js,
- * страницы — `accountPage` и `accountAuthPage` в lib/render.js).
+ * Вход по e-mail ИЛИ телефону и паролю, свои заказы и отправления
+ * (lib/customers.js, страницы — `accountPage` и `accountAuthPage` в lib/render.js).
+ * Поле логина на входе одно, «E-mail или телефон»; к хранимой форме его
+ * приводит `CUSTOMERS.loginKey()` — теми же модулями, что почту заказа и
+ * телефон покупателя.
  *
  * Ключ — та же подписанная cookie-сессия, что у панели и у своих заказов:
  * `customerId` плюс отметка `customerStamp`, привязанная к хешу пароля
@@ -1249,7 +1256,7 @@ function accountPasswordMail(s, customer, password, order, origin) {
         : `Вы зарегистрировались в магазине «${s.storeName}». `)
       + 'Мы создали для вас личный кабинет: в нём видны заказы, оплата и отслеживание посылок.\n\n'
       + `Вход: ${origin}/account/login\n`
-      + `Логин: ${customer.email}\n`
+      + `Логин: ${customer.email}` + (customer.phone ? ` (или ваш телефон ${R.phoneText(customer.phone) || customer.phone})` : '') + '\n'
       + `Пароль: ${password}\n\n`
       + 'Пароль можно сменить в кабинете в любой момент.\n'
       + 'Если вы ничего не оформляли, просто не отвечайте на это письмо.'
@@ -1286,6 +1293,9 @@ function accountResetMail(s, customer, token, origin) {
 function accountForOrder(req, s, order, customer, email) {
   if (customer || !email || !CUSTOMERS.enabled(s)) return null;
   if (CUSTOMERS.byEmail(email)) return { exists: true, email };
+  // Номер заказа уже принадлежит кабинету — это его владелец: заводить второй
+  // кабинет на тот же номер нельзя, а войти он может и по телефону.
+  if (order.phone && CUSTOMERS.byPhone(order.phone)) return { exists: true, phone: order.phone };
   if (!MAIL.configured(s)) return null;
   const password = CUSTOMERS.generatePassword();
   const made = CUSTOMERS.create({ email, password, name: order.customerName, phone: order.phone, address: order.address, auto: true });
@@ -1310,18 +1320,19 @@ app.get('/account/login', (req, res) => {
 });
 app.post('/account/login', async (req, res) => {
   if (accountsOff(req, res)) return;
-  const typed = String(req.body.email || '').trim().slice(0, 120);
-  const email = EMAIL.valid(typed);
-  /* Предел и по сессии с адресом, и по самому ящику: перебор пароля к одному
-   * кабинету идёт с разных адресов, а перебор ящиков — с одного. */
+  // Поле одно — «E-mail или телефон»; `email` принимается ради прежних форм.
+  const typed = String(req.body.login != null ? req.body.login : (req.body.email || '')).trim().slice(0, 120);
+  const key = CUSTOMERS.loginKey(typed);
+  /* Предел и по сессии с адресом, и по самому логину: перебор пароля к одному
+   * кабинету идёт с разных адресов, а перебор логинов — с одного. */
   if (floodLimited(req, 'acc-login', 30, 300, 15 * 60 * 1000)
-    || (email && rateLimited(req, 'acc-login-mail', 15, 15 * 60 * 1000, email))) {
-    return accountAuth(req, res, { mode: 'login', email: typed, error: ACCOUNT_TOO_MANY, status: 429 });
+    || (key && rateLimited(req, 'acc-login-mail', 15, 15 * 60 * 1000, key))) {
+    return accountAuth(req, res, { mode: 'login', login: typed, error: ACCOUNT_TOO_MANY, status: 429 });
   }
-  const customer = email ? await CUSTOMERS.verify(email, req.body.password) : null;
-  // Чужой адрес и неверный пароль — один ответ: по форме входа не должно быть
+  const customer = key ? await CUSTOMERS.verify(key, req.body.password) : null;
+  // Чужой логин и неверный пароль — один ответ: по форме входа не должно быть
   // видно, кто здесь покупал.
-  if (!customer) return accountAuth(req, res, { mode: 'login', email: typed, error: 'Неверная почта или пароль', status: 400 });
+  if (!customer) return accountAuth(req, res, { mode: 'login', login: typed, error: 'Неверный e-mail, телефон или пароль', status: 400 });
   CUSTOMERS.touchLogin(customer.id);
   loginCustomer(req, customer);
   res.redirect('/account');
@@ -1333,14 +1344,17 @@ app.get('/account/register', (req, res) => {
 });
 app.post('/account/register', (req, res) => {
   if (accountsOff(req, res)) return;
-  const typed = String(req.body.email || '').trim().slice(0, 120);
+  const typed = String(req.body.login != null ? req.body.login : (req.body.email || '')).trim().slice(0, 120);
   if (floodLimited(req, 'acc-reg', 5, 40, 60 * 60 * 1000)) {
-    return accountAuth(req, res, { mode: 'register', email: typed, error: ACCOUNT_TOO_MANY, status: 429 });
+    return accountAuth(req, res, { mode: 'register', login: typed, error: ACCOUNT_TOO_MANY, status: 429 });
   }
-  const made = CUSTOMERS.create({ email: typed, password: req.body.password });
-  if (!made.ok) return accountAuth(req, res, { mode: 'register', email: typed, error: made.error, status: 400 });
+  const made = CUSTOMERS.create({ login: typed, password: req.body.password });
+  if (!made.ok) return accountAuth(req, res, { mode: 'register', login: typed, error: made.error, status: 400 });
   loginCustomer(req, made.customer);
-  res.redirect(accountFlash('Кабинет создан. Заказы, оформленные с этой почтой, будут появляться здесь.'));
+  const byPhone = !made.customer.email;
+  res.redirect(accountFlash(byPhone
+    ? 'Кабинет создан. Заказы, оформленные с этим номером телефона, будут появляться здесь.'
+    : 'Кабинет создан. Заказы, оформленные с этой почтой, будут появляться здесь.'));
 });
 app.post('/account/logout', (req, res) => {
   logoutCustomer(req);
@@ -1350,7 +1364,7 @@ app.post('/account/profile', (req, res) => {
   if (accountsOff(req, res)) return;
   const customer = currentCustomer(req);
   if (!customer) return res.redirect('/account/login');
-  const saved = CUSTOMERS.update(customer.id, { name: req.body.name, phone: req.body.phone, address: req.body.address });
+  const saved = CUSTOMERS.update(customer.id, { name: req.body.name, email: req.body.email, phone: req.body.phone, address: req.body.address });
   if (!saved.ok) return accountHome(req, res, customer, { error: saved.error, status: 400 });
   res.redirect(accountFlash('Сохранено'));
 });
@@ -1382,24 +1396,27 @@ app.post('/account/forgot', (req, res) => {
   if (accountsOff(req, res)) return;
   const s = settings();
   if (!accountMailOn(s)) return accountAuth(req, res, { mode: 'forgot' });
-  const typed = String(req.body.email || '').trim().slice(0, 120);
-  const email = EMAIL.valid(typed);
-  if (!email) return accountAuth(req, res, { mode: 'forgot', email: typed, error: 'Укажите e-mail — адрес вида mail@example.ru', status: 400 });
-  /* Письмо стоит чужого почтового сервера и чужого терпения: три на ящик в
-   * час и десять с адреса. Ответ при этом тот же, что и при удаче, — по нему
-   * не должно быть видно, есть ли такой кабинет. */
-  if (floodLimited(req, 'acc-forgot', 10, 60, 60 * 60 * 1000) || rateLimited(req, 'acc-forgot-mail', 3, 60 * 60 * 1000, email)) {
-    return accountAuth(req, res, { mode: 'forgot', email: typed, error: ACCOUNT_TOO_MANY, status: 429 });
+  /* Логин любой — e-mail или телефон, — но ссылка уходит только на почту:
+   * другого канала у магазина нет. У кабинета, заведённого по телефону без
+   * почты, восстанавливать нечем, и ответ об этом не говорит: он тот же, что
+   * при удаче, — по нему не должно быть видно, есть ли такой кабинет. */
+  const typed = String(req.body.login != null ? req.body.login : (req.body.email || '')).trim().slice(0, 120);
+  const key = CUSTOMERS.loginKey(typed);
+  if (!key) return accountAuth(req, res, { mode: 'forgot', login: typed, error: 'Укажите e-mail или номер телефона, с которым входите в кабинет', status: 400 });
+  /* Письмо стоит чужого почтового сервера и чужого терпения: три на логин в
+   * час и десять с адреса. */
+  if (floodLimited(req, 'acc-forgot', 10, 60, 60 * 60 * 1000) || rateLimited(req, 'acc-forgot-mail', 3, 60 * 60 * 1000, key)) {
+    return accountAuth(req, res, { mode: 'forgot', login: typed, error: ACCOUNT_TOO_MANY, status: 429 });
   }
-  const customer = CUSTOMERS.byEmail(email);
-  if (customer) {
+  const customer = CUSTOMERS.byLogin(key);
+  if (customer && customer.email) {
     const token = CUSTOMERS.issueReset(customer.id);
     if (token) {
       MAIL.send(s, accountResetMail(s, customer, token, mailOrigin(req)))
-        .catch(e => console.error(`Письмо восстановления на ${email} не отправлено: ${MAIL.explain(e)}`));
+        .catch(e => console.error(`Письмо восстановления на ${customer.email} не отправлено: ${MAIL.explain(e)}`));
     }
   }
-  accountAuth(req, res, { mode: 'sent', email });
+  accountAuth(req, res, { mode: 'sent', login: key.includes('@') ? key : (R.phoneText(key) || key), via: key.includes('@') ? 'email' : 'phone' });
 });
 const RESET_STALE = 'Ссылка устарела или уже использована — запросите новую';
 app.get('/account/reset/:token', (req, res) => {
@@ -2388,7 +2405,9 @@ app.post('/api/order', async (req, res) => {
   if (account && (order.draft || order.payMode === 'own')) req.session.accountNote = Object.assign({ order: order.id }, account);
   // Вошедший без адреса в кабинете получает его из этого заказа — так же, как
   // автосозданный кабинет берёт имя и телефон. Заданный адрес заказ не трогает.
-  if (customer) CUSTOMERS.rememberAddress(customer.id, order.address);
+  // Так же кабинет без почты или без телефона учится им с первого заказа: это
+  // второй логин и (у почты) единственный путь восстановить пароль.
+  if (customer) { CUSTOMERS.rememberAddress(customer.id, order.address); CUSTOMERS.rememberContacts(customer.id, { email: order.email, phone: order.phone }); }
   // `pay` решает сервер, а не витрина: только он знает пересчитанную сумму и
   // пределы кассы. По нему же витрина решает, чистить ли корзину (у черновика
   // её чистит pay.js, когда способ выбран).

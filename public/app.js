@@ -729,9 +729,13 @@
      * проверка координат обязаны знать, что в поле в итоге окажется. Само
      * правило описано у блока кабинета ниже: побеждает то, что менялось позже. */
     var page = document.getElementById('checkout-page');
-    var accEmail = page ? String(page.getAttribute('data-account-email') || '') : '';
-    var accAddress = accEmail ? cleanText(page.getAttribute('data-account-address'), 400) : '';
-    var accAddressAt = accEmail ? Number(page.getAttribute('data-account-address-at')) || 0 : 0;
+    /* Вошёл ли покупатель, говорит `data-account-in`, а не наличие почты:
+     * кабинет бывает и по одному телефону (lib/customers.js), и имя с адресом
+     * ему подставляются так же. Почта подставляется, только когда она есть. */
+    var accIn = !!(page && page.hasAttribute('data-account-in'));
+    var accEmail = accIn ? String(page.getAttribute('data-account-email') || '') : '';
+    var accAddress = accIn ? cleanText(page.getAttribute('data-account-address'), 400) : '';
+    var accAddressAt = accIn ? Number(page.getAttribute('data-account-address-at')) || 0 : 0;
     var savedAddress = fresh && typeof saved['co-address'] === 'string' ? cleanText(saved['co-address'], 400) : '';
     var useAccountAddress = !!accAddress && !(savedAddress && at > accAddressAt);
     if (fresh) {
@@ -806,9 +810,9 @@
      * (`saved.at` и `data-account-address-at`), и сравнение решает без
      * догадок; память на этой странице обновляется каждым `change`, поэтому
      * после первого же захода она знает про адрес кабинета сама. */
-    if (accEmail) {
+    if (accIn) {
       var emailEl = document.getElementById('co-email');
-      if (emailEl && emailEl.value !== accEmail) {
+      if (accEmail && emailEl && emailEl.value !== accEmail) {
         emailEl.value = accEmail;
         emailEl.dispatchEvent(new Event('change', { bubbles: true }));
       }

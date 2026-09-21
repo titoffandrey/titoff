@@ -7523,7 +7523,10 @@ test('адрес на оформлении: из кабинета или из п
     for (const id of ['co-first-name', 'co-last-name', 'co-phone', 'co-email', 'co-address']) {
       fields[id] = { value: '', events: [], addEventListener() {}, dispatchEvent(e) { this.events.push(e.type); } };
     }
-    const page = { getAttribute: name => account && Object.prototype.hasOwnProperty.call(account, name) ? String(account[name]) : null };
+    // Вошёл — признак `data-account-in` (кабинет бывает и без почты), поэтому
+    // поддельная страница отвечает на `hasAttribute` тем же набором атрибутов.
+    const has = name => !!account && Object.prototype.hasOwnProperty.call(account, name);
+    const page = { getAttribute: name => has(name) ? String(account[name]) : null, hasAttribute: has };
     const store = new Map(saved ? [['checkout_v1', JSON.stringify(saved)]] : []);
     const doc = { getElementById: id => id === 'checkout-page' ? page : fields[id] || null, querySelectorAll: () => [] };
     const api = factory(doc, { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) },
@@ -7532,7 +7535,7 @@ test('адрес на оформлении: из кабинета или из п
     return fields;
   }
   const now = Date.now();
-  const account = { 'data-account-email': 'b@example.ru', 'data-account-name': 'Иван Петров', 'data-account-phone': '+79991234567',
+  const account = { 'data-account-in': '1', 'data-account-email': 'b@example.ru', 'data-account-name': 'Иван Петров', 'data-account-phone': '+79991234567',
     'data-account-address': 'г Тула, ул Советская, д 7', 'data-account-address-at': now - 60000 };
 
   // Памяти нет — адрес из кабинета, и событие `change` будит расчёт доставки.
@@ -7557,6 +7560,13 @@ test('адрес на оформлении: из кабинета или из п
   // Гость — атрибутов кабинета нет, память работает как прежде.
   f = run({ at: now, 'co-address': 'г Москва, ул Тверская, д 1' }, null);
   assert.equal(f['co-address'].value, 'г Москва, ул Тверская, д 1');
+  // Кабинет по одному телефону, без почты: имя, телефон и адрес подставляются,
+  // поле почты остаётся пустым — подставлять нечего.
+  f = run(null, Object.assign({}, account, { 'data-account-email': '' }));
+  assert.equal(f['co-address'].value, 'г Тула, ул Советская, д 7');
+  assert.equal(f['co-phone'].value, '+79991234567');
+  assert.equal(f['co-first-name'].value, 'Иван');
+  assert.equal(f['co-email'].value, '');
 });
 
 test('оформление имеет свой идемпотентный ключ и не принимает изменившуюся корзину частично', t => {
