@@ -122,26 +122,13 @@ test('утилита безопасно сбрасывает пароль пан
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'store-password-reset-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const script = path.join(__dirname, '..', 'scripts', 'reset-admin-password.js');
-  const run = (input, env) => execFileSync(process.execPath, [script], {
-    input, encoding: 'utf8', env: Object.assign({}, process.env, { STORE_DATA_DIR: dir }, env)
+  execFileSync(process.execPath, [script], {
+    input: 'новый-надёжный-пароль', encoding: 'utf8',
+    env: Object.assign({}, process.env, { STORE_DATA_DIR: dir, ADMIN_USERNAME: 'new-admin' })
   });
-  // Логин — e-mail или телефон, оба ложатся в хранимой форме: адрес нижним
-  // регистром, номер в E.164. Второе поле при этом не трогается.
-  let out = run('новый-надёжный-пароль', { ADMIN_LOGIN: 'Owner@Example.com' });
-  let stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-  assert.equal(stored.adminEmail, 'owner@example.com');
+  const stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+  assert.equal(stored.adminUsername, 'new-admin');
   assert.equal(auth.verifyPassword('новый-надёжный-пароль', stored.adminPasswordHash), true);
-  assert.match(out, /Вход «owner@example\.com»/);
-  out = run('ещё-один-пароль!', { ADMIN_LOGIN: '8 (999) 123-45-67' });
-  stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-  assert.equal(stored.adminPhone, '+79991234567');
-  assert.equal(stored.adminEmail, 'owner@example.com', 'адрес остался: задавали только телефон');
-  assert.match(out, /owner@example\.com · \+7 999 123-45-67/);
-  // Прежнее имя переменной понимается, а произвольная строка логином быть не может.
-  out = run('третий-пароль-панели', { ADMIN_USERNAME: 'owner2@example.com' });
-  stored = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-  assert.equal(stored.adminEmail, 'owner2@example.com');
-  assert.throws(() => run('четвёртый-пароль-панели', { ADMIN_LOGIN: 'new-admin' }), /e-mail или номер телефона/);
 });
 
 /* Каталог для тестов рендера берётся из `catalog.js`, а НЕ из живого хранилища.
@@ -5688,7 +5675,7 @@ test('срез отзывов сортирует и режет одинаков�
 
 test('подписи полей панели связаны с элементами форм', () => {
   const login = adminViews.loginPage({ storeName: 'Тест' }, null);
-  assert.match(login, /<label for="admin-login">E-mail или телефон<\/label><input id="admin-login"/);
+  assert.match(login, /<label for="admin-login">Логин<\/label><input id="admin-login"/);
   assert.match(login, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
   /* Связь ставит либо сама разметка (у полей настроек теперь свои id — их видно
    * в исходнике и по ним удобно ссылаться), либо `accessibleFields()` у тех, у
@@ -5758,11 +5745,10 @@ test('панель одна: /owner уводит на /admin, а прав мен
     assert.match(body, /guardAdmin\(req, res\)|guardApi\(req, res\)/, 'раздел без проверки входа: ' + name);
   }
 
-  // Маркер сессии завязан на текущие логины и хеш: смена реквизитов обязана
-  // разлогинивать все открытые сессии сама. Логины склеивает lib/admin-login.js.
-  assert.match(source, /function authStamp\(login, passwordHash\)/);
-  assert.match(source, /req\.session\.admin === authStamp\(LOGIN\.identity\(s\), s\.adminPasswordHash\)/);
-  assert.match(source, /const ok = LOGIN\.matches\(s, req\.body\.username\) && passwordOk;/, 'вход сверяет логин общим модулем, а не посимвольно');
+  // Маркер сессии завязан на текущие логин и хеш: смена реквизитов обязана
+  // разлогинивать все открытые сессии сама.
+  assert.match(source, /function authStamp\(username, passwordHash\)/);
+  assert.match(source, /req\.session\.admin === authStamp\(s\.adminUsername, s\.adminPasswordHash\)/);
 });
 
 test('домен нигде не выбирается приложением — его задаёт прокси', () => {
@@ -8489,14 +8475,7 @@ test('настройки идут разделами, и свёрнутая ст
   // валютой и текстом подвала.
   assert.match(html, /class="set-note">@manager/);
   assert.match(html, /фото разрешены/);
-  // Доступ в панель: пока e-mail и телефон не заданы, работает прежний логин,
-  // и строка называет его временным — это состояние, а не выбор владельца.
-  assert.match(html, /временный логин «root» — задайте e-mail или телефон/);
-  assert.match(html, /<details class="set is-warn" id="set-access"/);
-  const withLogins = adminViews.settingsPage(Object.assign({}, base, { adminEmail: 'owner@example.com', adminPhone: '+79991234567' }), db, null);
-  assert.match(withLogins, /вход: owner@example\.com · \+7 999 123-45-67/);
-  assert.match(withLogins, /<details class="set" id="set-access"/);
-  assert.match(withLogins, /name="adminPhone" type="tel" value="\+7 999 123-45-67"/, 'номер показан с разделителями');
+  assert.match(html, /логин: root/);
   assert.match(html, /ИП Иванов/);
   assert.match(html, /нет ключа — поле адреса остаётся обычным вводом/);
   assert.match(html, /выключены — цены ровно из каталога/);
