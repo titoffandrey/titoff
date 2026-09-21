@@ -200,6 +200,7 @@
   var promoChoice = null;
   // Последний отказ сервера («такого промокода нет») — показывается под полем.
   var promoError = '';
+  var promoNoticeType = 'info';
 
   function promoEnabled() {
     var page = document.getElementById('checkout-page');
@@ -324,6 +325,7 @@
     if (input) input.placeholder = promoView.fallback || 'Промокод';
     var note = document.getElementById('co-promo-note');
     if (note) {
+      note.dataset.toastType = promoNoticeType;
       note.hidden = !promoError;
       note.textContent = promoError;
     }
@@ -341,7 +343,7 @@
     var code = cleanPromoCode(typed || (promoView && promoView.fallback) || '');
     promoError = '';
     syncPromo(); // Новая попытка закрывает предыдущую ошибку, даже с тем же ответом.
-    if (!code) { promoError = 'Введите промокод'; syncPromo(); return; }
+    if (!code) { promoNoticeType = 'info'; promoError = 'Введите промокод'; syncPromo(); return; }
     var btn = document.querySelector('.co-promo-apply');
     if (btn) btn.disabled = true;
     fetch('/api/promo', {
@@ -351,7 +353,7 @@
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (btn) btn.disabled = false;
-        if (!d || !d.ok) { promoError = (d && d.error) || 'Не удалось применить промокод'; syncPromo(); return; }
+        if (!d || !d.ok) { promoNoticeType = 'warning'; promoError = (d && d.error) || 'Не удалось применить промокод'; syncPromo(); return; }
         promoChoice = { code: code };
         savePromoChoice();
         if (input) input.value = '';
@@ -360,6 +362,7 @@
       })
       .catch(function () {
         if (btn) btn.disabled = false;
+        promoNoticeType = 'error';
         promoError = 'Нет связи - попробуйте ещё раз';
         syncPromo();
       });
@@ -603,7 +606,10 @@
     setText('co-btn-sum', money(orderTotal()));
     // Сумма вне пределов одной покупки — кнопка гаснет, а причина стоит прямо
     // под ней: серая кнопка без объяснения выглядит как поломка сайта.
-    var overLimit = totalLimitError(orderTotal()) || checkoutAmountError();
+    var amountNotice = checkoutAmountNotice();
+    var totalError = totalLimitError(orderTotal());
+    var overLimit = totalError || amountNotice.message;
+    var noticeType = totalError ? 'warning' : amountNotice.type;
     var submit = document.getElementById('checkout-submit');
     if (submit) {
       var canOrder = Cart.availableCount() > 0;
@@ -624,7 +630,8 @@
     var limitMsg = document.getElementById('order-msg');
     if (limitMsg && (overLimit || limitMsg.dataset.limit)) {
       limitMsg.hidden = !overLimit;
-      limitMsg.className = 'form-msg err';
+      limitMsg.dataset.toastType = noticeType;
+      limitMsg.className = 'form-msg' + (noticeType === 'error' ? ' err' : '');
       limitMsg.textContent = overLimit;
       if (overLimit) limitMsg.dataset.limit = '1'; else delete limitMsg.dataset.limit;
     }
@@ -1547,23 +1554,29 @@
   // Разрешаем оплату Platega только после показа полной суммы покупателю.
   // Ключ проверяет и адрес, и товары: старый тариф мог остаться между событиями.
   function checkoutAmountError() {
+    return checkoutAmountNotice().message;
+  }
+
+  // Подсказка и сбой расчёта могут блокировать одну кнопку, но это разные уведомления.
+  function checkoutAmountNotice() {
     var fee = checkoutFeeQuote();
     if (!fee) {
       var page = document.getElementById('checkout-page');
       return page && page.dataset && page.dataset.paymentFeePercent != null
-        ? 'Не удалось проверить сумму заказа. Обновите страницу и попробуйте ещё раз.' : '';
+        ? { type: 'error', message: 'Не удалось проверить сумму заказа. Обновите страницу и попробуйте ещё раз.' }
+        : { type: 'info', message: '' };
     }
     // Заказ кассе не по размеру или его сумма не собралась — он уходит по своим
     // реквизитам либо заявкой (см. checkoutMode), и проверять расчёт кассы нечего.
-    if (checkoutMode() !== 'cashbox') return '';
-    if (fee.direct && fee.paymentTotal === null) return 'Оплата этой суммы сейчас недоступна. Обратитесь в магазин.';
+    if (checkoutMode() !== 'cashbox') return { type: 'info', message: '' };
+    if (fee.direct && fee.paymentTotal === null) return { type: 'error', message: 'Оплата этой суммы сейчас недоступна. Обратитесь в магазин.' };
     var address = addressValue();
-    if (!address) return 'Укажите адрес, чтобы рассчитать полную сумму заказа.';
-    if (!deliveryChoice() || !deliveryModeChoice()) return 'Выберите способ и вариант доставки, чтобы увидеть полную сумму заказа.';
+    if (!address) return { type: 'info', message: 'Укажите адрес, чтобы рассчитать полную сумму заказа.' };
+    if (!deliveryChoice() || !deliveryModeChoice()) return { type: 'info', message: 'Выберите способ и вариант доставки, чтобы увидеть полную сумму заказа.' };
     if (!ship.valid || ship.pending || ship.key !== Cart.total() + '|' + address || shipCurrent() == null) {
-      return 'Дождитесь расчёта доставки и проверьте итоговую сумму перед оплатой.';
+      return { type: 'info', message: 'Дождитесь расчёта доставки и проверьте итоговую сумму перед оплатой.' };
     }
-    return '';
+    return { type: 'info', message: '' };
   }
 
   function addressValue() {
@@ -3408,7 +3421,7 @@
           .then(function (d) {
             msg.hidden = false;
             if (d.ok) {
-              msg.className = 'form-msg ok';
+              msg.className = 'form-msg ok'; msg.dataset.toastType = 'success';
               msg.textContent = d.message || 'Спасибо за отзыв!';
               rf.reset();
               var h = document.getElementById('rating-value'); if (h) h.value = 5;
@@ -3418,11 +3431,11 @@
               try { sessionStorage.setItem('review_thanks', '1'); } catch (e) {}
               setTimeout(function () { location.reload(); }, 400);
             } else {
-              msg.className = 'form-msg err';
+              msg.className = 'form-msg err'; msg.dataset.toastType = 'error';
               msg.textContent = d.error || 'Не удалось отправить отзыв';
             }
           })
-          .catch(function () { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Ошибка сети'; })
+          .catch(function () { msg.hidden = false; msg.className = 'form-msg err'; msg.dataset.toastType = 'error'; msg.textContent = 'Ошибка сети'; })
           .finally(function () { if (submit) { submit.disabled = false; submit.textContent = 'Отправить отзыв'; } });
       }
 
@@ -3436,7 +3449,7 @@
         var consent = document.getElementById('rv-consent');
         if (consent && !consent.checked) {
           var msg = document.getElementById('review-msg');
-          if (msg) { msg.hidden = true; msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Отметьте согласие - без него отзыв отправить нельзя'; }
+          if (msg) { msg.hidden = true; msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = 'Отметьте согласие - без него отзыв отправить нельзя'; }
           try { consent.focus(); } catch (err) {}
           return;
         }
@@ -3608,7 +3621,7 @@
     ];
     for (var c = 0; c < checks.length; c++) {
       if (!val(checks[c][0])) {
-        if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = checks[c][1]; }
+        if (msg) { msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = checks[c][1]; }
         var field = document.getElementById(checks[c][0]);
         if (field) { try { field.focus(); } catch (e) {} }
         return;
@@ -3618,7 +3631,7 @@
     // недобранный номер («+7 999») пустым не выглядит, а заказом не станет.
     var phone = phoneCheck();
     if (!phone.ok) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = phone.error; }
+      if (msg) { msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'warning'; msg.textContent = phone.error; }
       var phoneField = document.getElementById('co-phone');
       if (phoneField) { try { phoneField.focus(); } catch (e) {} }
       return;
@@ -3627,31 +3640,34 @@
     // Про другую (покупатель дописал адрес и нажал кнопку, не дождавшись ответа)
     // ничего не решаем: пусть отвечает сервер, он всё равно проверяет заново.
     if (ship.address === val('co-address') && !ship.valid && ship.error) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = ship.error; }
+      if (msg) { msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'warning'; msg.textContent = ship.error; }
       var addr = document.getElementById('co-address');
       if (addr) { try { addr.focus(); } catch (e) {} }
       return;
     }
     if (!deliveryChoice()) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите способ доставки'; }
+      if (msg) { msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = 'Выберите способ доставки'; }
       return;
     }
     if (!deliveryModeChoice()) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите, куда доставить: в пункт выдачи или курьером'; }
+      if (msg) { msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = 'Выберите, куда доставить: в пункт выдачи или курьером'; }
       return;
     }
     // Доставка в пункт выдачи без самого пункта — заказ без адреса назначения.
     // Полноту вписанного руками адреса проверит сервер, как и адрес покупателя.
     if (deliveryModeChoice() === 'pvz' && !pickup.code) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Выберите пункт выдачи'; }
+      if (msg) { msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = 'Выберите пункт выдачи'; }
       openPoints();
       return;
     }
     // Кнопка при такой сумме уже погашена, но проверяем ещё раз: сумму мог
     // изменить второй открытый таб.
-    var limitError = totalLimitError(orderTotal()) || checkoutAmountError();
+    var amountNotice = checkoutAmountNotice();
+    var totalError = totalLimitError(orderTotal());
+    var limitError = totalError || amountNotice.message;
+    var limitType = totalError ? 'warning' : amountNotice.type;
     if (limitError) {
-      if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = limitError; }
+      if (msg) { msg.hidden = false; msg.className = 'form-msg' + (limitType === 'error' ? ' err' : ''); msg.dataset.toastType = limitType; msg.textContent = limitError; }
       return;
     }
     var online = checkoutMode() !== 'request';
@@ -3748,18 +3764,18 @@
             clearOrderRequest(requestId);
             refreshCartFromServer().then(function () {
               if (msg) {
-                msg.hidden = false; msg.className = 'form-msg err';
+                msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'warning';
                 msg.textContent = d.error || 'Корзина изменилась. Проверьте новый итог и подтвердите заказ ещё раз.';
               }
             });
           } else if (msg) {
-            msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = d.error || 'Не удалось оформить заказ';
+            msg.hidden = false; msg.className = 'form-msg err'; msg.dataset.toastType = 'error'; msg.textContent = d.error || 'Не удалось оформить заказ';
           }
         }
       })
       .catch(function () {
         btn.disabled = false; btn.innerHTML = btnHtml;
-        if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Ошибка сети'; }
+        if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.dataset.toastType = 'error'; msg.textContent = 'Ошибка сети'; }
       });
   }
 })();

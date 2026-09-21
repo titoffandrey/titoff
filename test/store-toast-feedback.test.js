@@ -177,6 +177,7 @@ test('ошибка вложения чата приходит уведомлен
   h.nodes['chat-file'].dispatch('change');
   assert.equal(toast.calls.length, 1);
   assert.equal(toast.calls[0].type, 'warning');
+  assert.equal(Object.hasOwn(toast.calls[0], 'duration'), false);
   assert.match(toast.calls[0].text, /только фотографии/);
   assert.doesNotMatch(h.nodes['chat-log'].textContent, /только фотографии/);
   assert.match(h.nodes['chat-log'].textContent, /Разговор передан менеджеру/);
@@ -200,7 +201,7 @@ test('ошибка отправки чата сохраняет черновик
   assert.equal(h.state.mine[0].box.getAttribute('aria-label'), 'отправка не подтверждена');
   assert.equal(toast.calls.length, 1);
   assert.equal(toast.calls[0].type, 'error');
-  assert.equal(toast.calls[0].duration, 0);
+  assert.equal(Object.hasOwn(toast.calls[0], 'duration'), false);
   assert.doesNotMatch(h.nodes['chat-log'].textContent, /Не удалось подтвердить/);
   offline = false;
   h.send(h.nodes['chat-input'].value);
@@ -234,19 +235,35 @@ test('копирование оплаты сообщает успех или о�
   assert.equal(badButton.textContent, 'Копировать');
   assert.equal(toast.visible.size, 1);
   assert.ok(toast.calls.every(call => !call.text.includes('synthetic-requisite')));
+  assert.ok(toast.calls.every(call => !Object.hasOwn(call, 'duration')));
 });
 
-test('ошибка выбора оплаты остаётся уведомлением до успешного выставления счёта', async () => {
+test('подсказка выбора оплаты имеет тип info и срок по умолчанию, успешное выставление счёта закрывает её', async () => {
   const toast = toastRecorder(), h = payment({ toast, noMethod: true });
   h.nodes['pay-create'].dispatch('click');
-  assert.equal(toast.calls[0].type, 'error');
-  assert.equal(toast.calls[0].duration, 0);
+  assert.equal(toast.calls[0].type, 'info');
+  assert.equal(Object.hasOwn(toast.calls[0], 'duration'), false);
   assert.equal(h.nodes['pay-msg'].hidden, true);
   h.method.checked = true;
   h.nodes['pay-create'].dispatch('click');
   await flush();
   assert.equal(h.location.href, '/pay/order-test');
   assert.equal(toast.visible.size, 0);
+});
+
+test('отказ кассы и сбой сети при выставлении счёта остаются ошибками со сроком по умолчанию', async () => {
+  for (const fetch of [
+    async () => response({ ok: false, error: 'Касса временно недоступна' }),
+    async () => { throw new Error('offline'); }
+  ]) {
+    const toast = toastRecorder(), h = payment({ toast, fetch });
+    h.nodes['pay-create'].dispatch('click');
+    await flush();
+    assert.equal(toast.calls.length, 1);
+    assert.equal(toast.calls[0].type, 'error');
+    assert.equal(Object.hasOwn(toast.calls[0], 'duration'), false);
+    assert.equal(h.nodes['pay-create'].disabled, false);
+  }
 });
 
 test('ручная ошибка проверки оплаты видна один раз, фон молчит, успешная проверка закрывает ошибку', async () => {
@@ -259,7 +276,7 @@ test('ручная ошибка проверки оплаты видна оди�
   await flush();
   assert.equal(toast.calls.length, 1);
   assert.equal(toast.calls[0].type, 'error');
-  assert.equal(toast.calls[0].duration, 0);
+  assert.equal(Object.hasOwn(toast.calls[0], 'duration'), false);
   assert.equal(h.nodes['pay-state'].textContent, 'Ждём перевод…');
   h.document.dispatch('visibilitychange');
   await flush();
@@ -271,11 +288,12 @@ test('ручная ошибка проверки оплаты видна оди�
   assert.match(h.nodes['pay-state'].textContent, /Перевод пока не виден/);
 });
 
-test('без библиотеки уведомлений оплата сохраняет сообщение ошибки и подтверждение копирования', async () => {
+test('без библиотеки уведомлений оплата сохраняет подсказку и подтверждение копирования', async () => {
   const h = payment({ noMethod: true });
   h.nodes['pay-create'].dispatch('click');
   assert.equal(h.nodes['pay-msg'].hidden, false);
   assert.equal(h.nodes['pay-msg'].textContent, 'Выберите способ оплаты');
+  assert.equal(h.nodes['pay-msg'].className, 'form-msg');
   const button = copyClick(h);
   await flush();
   assert.equal(button.textContent, 'Скопировано');

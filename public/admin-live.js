@@ -354,7 +354,6 @@
   /* ------------------------------------------------------------ уведомления */
 
   // Сервер передаёт текст и адрес; общую карточку рисует SmoothUI BasicToast.
-  var NOTE_TTL = 12000;
 
   /* Уведомление о реплике В ТОМ ЖЕ ДИАЛОГЕ, который сейчас открыт, показывать
    * незачем: менеджер смотрит на эту переписку, реплика приезжает в ленту живым
@@ -403,7 +402,6 @@
     var link = card.querySelector('.a-note-link');
     var options = {
       type: card.getAttribute('data-toast-type') || 'info',
-      duration: NOTE_TTL,
       href: card.getAttribute('data-toast-href') || (link && link.getAttribute('href'))
     };
     if (window.StoreToast) window.StoreToast.show(message, options);

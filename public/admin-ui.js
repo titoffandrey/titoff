@@ -616,12 +616,13 @@
   var photoFiles = [], photoUrls = [];
 
   var photoToast;
-  function sayPhoto(text, error) {
+  function sayPhoto(text, type) {
+    type = type || 'info';
     if (photoToast) { photoToast.close(); photoToast = null; }
     if (window.StoreToast) {
       if (photoNote) photoNote.hidden = true;
       if (text) photoToast = window.StoreToast.show(text, {
-        type: error ? 'error' : 'info', duration: error ? 0 : 6000, id: 'admin-chat-photo'
+        type: type, id: 'admin-chat-photo'
       });
       return;
     }
@@ -629,8 +630,7 @@
     photoNote.textContent = text || '';
     photoNote.hidden = !text;
     photoNote.setAttribute('data-store-toast', '');
-    photoNote.setAttribute('data-toast-type', error ? 'error' : 'info');
-    photoNote.setAttribute('data-toast-duration', error ? '0' : '6000');
+    photoNote.setAttribute('data-toast-type', type);
   }
 
   function clearPhotoUrls() {
@@ -673,9 +673,9 @@
       if (file.size > maxPhotoBytes) { tooBig = true; continue; }
       photoFiles.push(file);
     }
-    if (notImage) sayPhoto('Приложить можно только фотографии.', true);
-    else if (tooBig) sayPhoto('Один снимок — не больше 6 МБ.', true);
-    else if (tooMany) sayPhoto('К сообщению можно приложить не больше ' + maxPhotos + ' фото.', true);
+    if (notImage) sayPhoto('Приложить можно только фотографии.', 'warning');
+    else if (tooBig) sayPhoto('Один снимок — не больше 6 МБ.', 'warning');
+    else if (tooMany) sayPhoto('К сообщению можно приложить не больше ' + maxPhotos + ' фото.', 'warning');
     else sayPhoto('');
     renderPhotos();
   }
@@ -701,7 +701,7 @@
       var text = String(field && field.value || '').trim();
       if (!text && !photoFiles.length) {
         e.preventDefault();
-        sayPhoto('Напишите сообщение или приложите фото.', true);
+        sayPhoto('Напишите сообщение или приложите фото.', 'info');
         if (field) field.focus();
         return;
       }
@@ -723,7 +723,7 @@
         })
         .catch(function () {
           if (sendButton) sendButton.disabled = false;
-          sayPhoto('Не удалось отправить. Проверьте соединение и попробуйте ещё раз.', true);
+          sayPhoto('Не удалось отправить. Проверьте соединение и попробуйте ещё раз.', 'error');
         });
     });
   }

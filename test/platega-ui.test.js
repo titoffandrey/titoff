@@ -331,14 +331,14 @@ test('в запрос заказа входят процент Platega и пре
     phoneCheck: () => ({ ok: true }), phoneValue: () => '+79990000000', ship: {},
     deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
     totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox',
-    checkoutAmountError: () => '',
+    checkoutAmountNotice: () => ({ type: 'info', message: '' }),
     Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }] }, promoFields() {},
     orderRequestId: () => 'test-request'
   };
   for (const fee of [FEE.included(1000, 8.5), FEE.included(1000, 0), null]) {
     const make = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
       phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-      checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountError } = env;
+      checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountNotice } = env;
       ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`);
     const payload = make(env, () => fee)({ innerHTML: 'Оплатить' });
     if (fee) {
@@ -353,7 +353,7 @@ test('в запрос заказа входят процент Platega и пре
   // Заказ дороже кассы полей комиссии не несёт: он в Platega не пойдёт.
   const away = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
     phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-    checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountError } = env;
+    checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountNotice } = env;
     ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`)(
     { ...env, checkoutMode: () => 'request' }, () => FEE.included(1000, 8.5))({ innerHTML: 'Оформить заказ' });
   assert.equal(Object.hasOwn(away, 'paymentFeePercent'), false);

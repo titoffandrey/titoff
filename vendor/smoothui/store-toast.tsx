@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import BasicToast, { type ToastType } from "./basic-toast";
 
@@ -78,7 +78,6 @@ function inferredType(element: HTMLElement): ToastType {
 }
 
 function ToastItem({ entry }: { entry: Entry }) {
-  const [paused, setPaused] = useState(false);
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let observer: MutationObserver | undefined;
@@ -93,16 +92,6 @@ function ToastItem({ entry }: { entry: Entry }) {
       element.setAttribute("aria-live", entry.type === "error" ? "assertive" : "polite");
       element.setAttribute("aria-atomic", "true");
       element.querySelector("button")?.setAttribute("aria-label", "Закрыть уведомление");
-      let hovered = false;
-      let focused = false;
-      const updatePause = () => setPaused(hovered || focused);
-      const mouseEnter = () => { hovered = true; updatePause(); };
-      const mouseLeave = () => { hovered = false; updatePause(); };
-      const focusIn = () => { focused = true; updatePause(); };
-      const focusOut = (event: FocusEvent) => {
-        focused = element.contains(event.relatedTarget as Node | null);
-        updatePause();
-      };
       const click = (event: MouseEvent) => {
         if (!(event.target as Element).closest("button") && entry.href) location.assign(entry.href);
       };
@@ -118,10 +107,6 @@ function ToastItem({ entry }: { entry: Entry }) {
         element.tabIndex = 0;
         element.setAttribute("aria-label", `${entry.message}. Нажмите Enter, чтобы открыть`);
       }
-      element.addEventListener("mouseenter", mouseEnter);
-      element.addEventListener("mouseleave", mouseLeave);
-      element.addEventListener("focusin", focusIn);
-      element.addEventListener("focusout", focusOut);
       element.addEventListener("click", click);
       element.addEventListener("keydown", keyDown);
       const resize = typeof ResizeObserver === "function" ? new ResizeObserver(scheduleLayout) : undefined;
@@ -136,10 +121,6 @@ function ToastItem({ entry }: { entry: Entry }) {
       cleanup = () => {
         cancelAnimationFrame(readyFrame);
         resize?.disconnect();
-        element.removeEventListener("mouseenter", mouseEnter);
-        element.removeEventListener("mouseleave", mouseLeave);
-        element.removeEventListener("focusin", focusIn);
-        element.removeEventListener("focusout", focusOut);
         element.removeEventListener("click", click);
         element.removeEventListener("keydown", keyDown);
         entry.element = undefined;
@@ -156,7 +137,7 @@ function ToastItem({ entry }: { entry: Entry }) {
     className={`store-toast-card store-toast-${entry.key}`}
     message={entry.message}
     type={entry.type}
-    duration={paused ? 0 : entry.duration}
+    duration={entry.duration}
     isVisible={entry.visible}
     onClose={entry.close}
   />;
@@ -177,7 +158,7 @@ function show(message: string, options: Options = {}, source?: HTMLElement): Han
   if (!text) return { close() {} };
   const type = types.has(options.type || "") ? options.type! : "info";
   const duration = Number.isFinite(options.duration) && options.duration! >= 0
-    ? options.duration! : type === "error" ? 0 : 6000;
+    ? options.duration! : 3000;
   if (options.id) {
     const previous = entries.find(entry => entry.id === String(options.id));
     if (previous) entries.splice(entries.indexOf(previous), 1);

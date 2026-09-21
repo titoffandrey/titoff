@@ -189,15 +189,15 @@
   /* ------------------------------ Выставить счёт ---------------------------- */
   var create = document.getElementById('pay-create');
   var msg = document.getElementById('pay-msg');
-  function showMsg(text) {
+  function showMsg(text, type) {
     if (window.StoreToast && typeof window.StoreToast.show === 'function') {
       if (msg) msg.hidden = true;
-      window.StoreToast.show(text, { type: 'error', duration: 0, id: 'pay-error' });
+      window.StoreToast.show(text, { type: type || 'error', id: 'pay-error' });
       return;
     }
     if (!msg) return;
     msg.hidden = false;
-    msg.className = 'form-msg err';
+    msg.className = type === 'info' ? 'form-msg' : 'form-msg err';
     msg.textContent = text;
   }
   function chosenMethod() {
@@ -272,7 +272,7 @@
   function startPayment(btn, label) {
     if (btn.disabled) return;
     var method = chosenMethod();
-    if (!method) { showMsg('Выберите способ оплаты'); return; }
+    if (!method) { showMsg('Выберите способ оплаты', 'info'); return; }
     var requestStorageKey = requestKey(method);
     var requestId = paymentRequestId(method);
     btn.disabled = true;
@@ -393,7 +393,7 @@
     if (!manual) return;
     var text = 'Не удалось проверить оплату. Проверьте соединение и попробуйте ещё раз.';
     if (window.StoreToast && typeof window.StoreToast.show === 'function') {
-      window.StoreToast.show(text, { type: 'error', duration: 0, id: 'pay-status-error' });
+      window.StoreToast.show(text, { type: 'error', id: 'pay-status-error' });
       if (stateBox) stateBox.textContent = hosted ? 'Ждём оплату…' : 'Ждём перевод…';
     } else if (stateBox) stateBox.textContent = text;
   }

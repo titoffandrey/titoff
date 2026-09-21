@@ -23,7 +23,7 @@
   function say(text, isError) {
     if (window.StoreToast) {
       if (msg) msg.hidden = true;
-      window.StoreToast.show(text, { type: isError ? 'error' : 'success', duration: isError ? 0 : 2500, id: 'admin-product-order' });
+      window.StoreToast.show(text, { type: isError ? 'error' : 'success', id: 'admin-product-order' });
       return;
     }
     if (!msg) return;
@@ -31,7 +31,6 @@
     msg.textContent = text;
     msg.setAttribute('data-store-toast', '');
     msg.setAttribute('data-toast-type', isError ? 'error' : 'success');
-    msg.setAttribute('data-toast-duration', isError ? '0' : '2500');
   }
 
   // Номера строк и крайние стрелки зависят от позиции, поэтому обновляются

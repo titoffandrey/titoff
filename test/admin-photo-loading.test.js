@@ -144,7 +144,7 @@ test('старый товар без уменьшенных копий полу�
   assert.deepEqual([...values.keys()], ['imgcolor:front.jpg', 'imgcolor:back.png']);
 });
 
-test('успешный повтор удаления фотографии закрывает прежнюю постоянную ошибку', async () => {
+test('успешный повтор удаления фотографии закрывает прежнюю ошибку до конца её показа', async () => {
   const vm = require('node:vm');
   const listeners = [], visible = new Map();
   let accepted = false, removed = false;
@@ -181,7 +181,7 @@ test('успешный повтор удаления фотографии зак
   await click();
   assert.equal(visible.size, 1);
   assert.equal(visible.get('admin-photo-manager').type, 'error');
-  assert.equal(visible.get('admin-photo-manager').duration, 0);
+  assert.equal(Object.hasOwn(visible.get('admin-photo-manager'), 'duration'), false, 'ошибка использует исходное время показа BasicToast');
   assert.equal(removed, false);
   accepted = true;
   await click();

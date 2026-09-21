@@ -6122,7 +6122,7 @@ test('форма настроек возвращает введённое, а н
   const failed = adminViews.settingsPage(saved, db, 'Укажите название магазина', 'err', { draft });
   assert.match(failed, /name="tagline" value="новый слоган"/, 'введённое значение потеряно');
   assert.match(failed, /name="contactPhone"[^>]*value="\+7 900"/);
-  assert.match(failed, /class="a-flash err"/);
+  assert.match(failed, /data-store-toast data-toast-type="info"/);
 
   // Снятая галочка приходит не значением, а ОТСУТСТВИЕМ поля. Если при возврате
   // с ошибкой искать её в сохранённых настройках, она снова отметится — и
@@ -7917,10 +7917,11 @@ test('панель: успех, информация и ошибки испол�
   const done = adminViews.ordersList(SETTINGS, db, 'Порядок сохранён', 1);
   const info = adminViews.ordersList(SETTINGS, db, 'Касса ещё ждёт оплату', 1);
   const bad = adminViews.settingsPage(SETTINGS, db, 'Укажите название магазина', 'err', { draft: {} });
-  assert.match(done, /data-store-toast data-toast-type="success" data-toast-duration="6000"/);
+  assert.match(done, /data-store-toast data-toast-type="success"/);
   assert.match(info, /data-store-toast data-toast-type="info"/);
-  assert.match(bad, /data-flash data-store-toast data-toast-type="error" data-toast-duration="0"/);
-  assert.match(bad, /role="alert">Укажите название магазина</);
+  assert.match(bad, /data-store-toast data-toast-type="info"/);
+  assert.match(bad, /role="status">Укажите название магазина</);
+  assert.doesNotMatch(done + info + bad, /data-toast-duration=/);
   assert.match(adminViews.ordersList(SETTINGS, db, 'Не удалось сохранить', 1), /data-toast-type="error"/);
   assert.match(adminViews.ordersList(SETTINGS, db, 'Касса выключена', 1), /data-toast-type="warning"/);
   assert.doesNotMatch(adminViews.ordersList(SETTINGS, db, '<img src=x onerror=alert(1)>', 1), /<img src=x/);
@@ -13387,7 +13388,7 @@ test('заказ, отзыв и реплика в чате приходят ка
 
   const card = adminViews.noteOrder(SETTINGS, db, order);
   assert.match(card, /class="a-note-order"/);
-  assert.match(card, /data-store-toast data-toast-type="info" data-toast-duration="12000"/);
+  assert.match(card, /data-store-toast data-toast-type="info"/);
   // Ссылка ведёт к самой заявке, а не в начало списка: разбирать событие будут
   // там, где оно случилось.
   assert.match(card, /href="\/admin\/orders#order-o1"/);
@@ -19112,10 +19113,10 @@ test('панель: «Сохранено» не повторяется при о
    * браузере, и тогда она пропала бы у тех, у кого скрипты не загрузились. */
   assert.doesNotMatch(code, /a-note-flash[^\n]*remove\(\)/, 'карточку скрипт не прячет сам');
 
-  // Ошибка формы не исчезает по таймеру: она нужна, пока человек правит поля.
+  // Время показа всех сообщений задаёт исходный BasicToast.
   const views = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
-  assert.match(views, /data-toast-duration="\$\{kind === 'error' \? 0 : 6000\}/,
-    'ошибка остаётся до явного закрытия карточки');
+  assert.doesNotMatch(views, /data-toast-duration=/,
+    'сервер не переопределяет исходное время показа компонента');
 });
 
 /* ======================= Яндекс Метрика ======================= */

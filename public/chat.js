@@ -888,7 +888,7 @@
   }
   function note(text, type, id) {
     if (window.StoreToast && typeof window.StoreToast.show === 'function') {
-      window.StoreToast.show(text, { type: type || 'warning', duration: 0, id: id || 'chat-attachment-error' });
+      window.StoreToast.show(text, { type: type || 'warning', id: id || 'chat-attachment-error' });
       return;
     }
     append({ role: 'system', text: text });

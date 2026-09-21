@@ -21,7 +21,7 @@
   function notify(message, type) {
     var kind = type || 'error';
     if (window.StoreToast) {
-      window.StoreToast.show(message, { type: kind, duration: kind === 'error' ? 0 : 6000, id: 'admin-photo-manager' });
+      window.StoreToast.show(message, { type: kind, id: 'admin-photo-manager' });
       return;
     }
     clearNotice();
@@ -29,7 +29,6 @@
     fallback.setAttribute('data-store-toast', '');
     fallback.setAttribute('data-toast-type', kind);
     fallback.setAttribute('data-toast-id', 'admin-photo-manager');
-    fallback.setAttribute('data-toast-duration', kind === 'error' ? '0' : '6000');
     fallback.textContent = message;
     box.appendChild(fallback);
   }
@@ -222,7 +221,7 @@
     if (status) status.textContent = message || '';
     // Полоса остаётся индикатором загрузки; итог и ошибки — общим уведомлением.
     if (state === 'error' || state === 'cancelled') {
-      notify(message, state === 'error' ? 'error' : 'info');
+      notify(message, state === 'error' ? (/^(?:Достигнут лимит|Можно выбрать|Файл больше)/.test(message) ? 'warning' : 'error') : 'info');
       progress.hidden = true;
     }
     var cancel = cancelFor(field);

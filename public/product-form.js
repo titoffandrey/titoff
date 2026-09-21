@@ -66,14 +66,13 @@
   function notify(message, type) {
     var kind = type || 'error';
     if (window.StoreToast) {
-      window.StoreToast.show(message, { type: kind, duration: kind === 'error' ? 0 : 6000, id: 'admin-product-upload' });
+      window.StoreToast.show(message, { type: kind, id: 'admin-product-upload' });
       return;
     }
     var fallback = document.createElement('p');
     fallback.setAttribute('data-store-toast', '');
     fallback.setAttribute('data-toast-type', kind);
     fallback.setAttribute('data-toast-id', 'admin-product-upload');
-    fallback.setAttribute('data-toast-duration', kind === 'error' ? '0' : '6000');
     fallback.textContent = message;
     form.appendChild(fallback);
   }
@@ -109,7 +108,7 @@
     var status = progress.querySelector('.photo-upload-status');
     if (status) status.textContent = message || '';
     if (state === 'error' || state === 'cancelled' || state === 'done') {
-      notify(message, state === 'error' ? 'error' : state === 'done' ? 'success' : 'info');
+      notify(message, state === 'error' ? (/^(?:Можно выбрать|Общий размер|Файл больше)/.test(message) ? 'warning' : 'error') : state === 'done' ? 'success' : 'info');
       progress.hidden = true;
     }
     var cancel = cancelFor(field);

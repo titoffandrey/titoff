@@ -34,18 +34,24 @@ test('витрина, админка и вход подключают одина
   checkAssets(login);
   assert.match(storefront, /id="toast"[^>]*data-store-toast[^>]*hidden/);
   assert.match(admin, /data-store-toast data-toast-type="success"/);
-  assert.match(login, /data-store-toast data-toast-type="error" data-toast-duration="0"/);
+  assert.match(login, /data-store-toast data-toast-type="error"/);
   assert.match(login, /Неверный пароль/);
+  assert.doesNotMatch(storefront + admin + login, /data-toast-duration=/);
 });
 
-test('постоянные ошибки и информационные ответы сервера передают тип без пользовательской разметки', () => {
+test('ошибки и информационные ответы сервера передают тип без пользовательской разметки', () => {
   const error = A.settingsPage(settings, db, '<img src=x onerror=alert(1)>', 'err', { draft: {} });
   const waiting = A.ordersList(settings, db, 'Касса ещё ждёт оплату', 1);
   const account = R.accountAuthPage(settings, { error: 'Не удалось сохранить' });
-  assert.match(error, /data-toast-type="error" data-toast-duration="0"/);
+  assert.match(error, /data-toast-type="error"/);
   assert.doesNotMatch(error, /<img src=x/);
   assert.match(waiting, /data-toast-type="info"/);
-  assert.match(account, /data-store-toast data-toast-type="error" data-toast-duration="0"/);
+  assert.match(account, /data-store-toast data-toast-type="error"/);
+  assert.doesNotMatch(error + waiting + account, /data-toast-duration=/);
+  const adminHint = A.settingsPage(settings, db, 'Укажите название магазина', 'err', { draft: {} });
+  const accountHint = R.accountAuthPage(settings, { error: 'Укажите e-mail' });
+  assert.match(adminHint, /data-toast-type="info"/);
+  assert.match(accountHint, /data-toast-type="info"/);
 });
 
 test('готовые файлы SmoothUI отдаются без повторной минификации и сохраняют атрибуцию', () => {
