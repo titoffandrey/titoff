@@ -5968,32 +5968,32 @@ test('строка заказа: оплата собрана одним блок
   assert.match(css, /\.a-orders td\{[^}]*vertical-align:middle/);
 });
 
-test('меню панели — кнопка в шапке и панель разделов, выезжающая слева', () => {
-  const css = PANEL_CSS;
+test('меню панели сохраняет навигацию, счётчики и управление без JavaScript', () => {
+  const css = PANEL_CSS + '\n' + fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-tailadmin.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
   const db = {
     getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [],
     getOrders: () => [], pendingReviewCount: () => 3, categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
   };
   const html = adminViews.dashboard(SETTINGS, db);
-  /* Кнопка стоит в шапке, панель выезжает слева поверх страницы. Ни боковой
-   * колонки, ни ленты разделов, ни кнопки выхода рядом с ними.
-   *
+  /* На широком экране разделы видны постоянно, на узком их открывает кнопка
+   * в шапке. В обоих случаях это одна навигация с живыми счётчиками.
    * Чекбокс лежит РЯДОМ с шапкой, а не внутри неё, и это не вкусовщина:
    * `backdrop-filter` у шапки делает её опорной для `position:fixed`, поэтому
    * панель внутри шапки считала бы координаты от неё, а не от окна. Кнопка при
    * этом остаётся в живом блоке — счётчик на ней обязан обновляться сам. */
   assert.match(html, /<input type="checkbox" id="a-menu" class="a-menu-check"/);
   assert.match(html, /<div class="a-menu-wrap">\s*<label class="a-menu-scrim" for="a-menu"/);
-  assert.match(html, /<nav class="a-menu-panel" data-live-part="menu">/);
+  assert.match(html, /<nav class="a-menu-panel"[^>]*data-live-part="menu"/);
   assert.match(html, /<div class="a-topbar" data-live-part="topbar"><label class="a-menu-btn" for="a-menu"/);
   assert.ok(html.indexOf('class="a-menu-check"') < html.indexOf('class="a-menu-wrap"'),
     'панель обязана идти ПОСЛЕ чекбокса — открывает её селектор соседа');
   assert.ok(html.indexOf('class="a-menu-wrap"') < html.indexOf('class="a-topbar"'),
     'кнопка в шапке — тоже сосед чекбокса, иначе рамка фокуса ей не достанется');
-  assert.equal(/a-sidebar/.test(html), false, 'боковой колонки больше нет');
   assert.equal(/\/admin\/logout/.test(html), false, 'выход переехал в настройки');
   assert.match(html, /admin-ui\.js/);
+  assert.ok(html.indexOf('/static/admin-tailadmin.css?') > html.indexOf('/static/admin.css?'),
+    'тема панели подключается после её базовых стилей');
   // Состояние — чекбокс: без скрипта меню всё равно открывается и закрывается,
   // а храниться ему негде — значит, и моргать на загрузке нечему.
   assert.equal(/nav-off|admin_nav_off/.test(html + css + js), false, 'прежнего состояния меню не осталось');
@@ -6009,47 +6009,14 @@ test('меню панели — кнопка в шапке и панель ра�
   const items = (menu.match(/class="a-nav-item/g) || []).length;
   assert.ok(items >= 6, 'разделов в меню стало подозрительно мало: ' + items);
   assert.equal((menu.match(/class="a-nav-ico"/g) || []).length, items, 'значки не у всех разделов');
-  // Служебное отбито волосяной линией — как «Справка» у образца.
+  // Витрина открывается отдельно и остаётся доступна из общего меню.
   assert.match(menu, /<span class="a-menu-sep"[^>]*><\/span>\s*<a class="a-nav-item" href="\/" target="_blank"/);
   // Незнакомый ключ не ломает разметку: подпись раздела остаётся и без значка.
   assert.equal(render.adminIcon('выдумка'), '');
   assert.equal(render.adminIcon(''), '');
   assert.match(render.adminIcon('orders'), /<svg class="a-nav-ico"/);
 
-  // Колонки нет — содержимое раздаётся во всю ширину.
-  assert.match(css, /\.a-content\{width:100%;max-width:1500px/);
-  /* Числа сняты с бокового меню Google Trends: панель 320 px со скруглением
-   * правого края, пункт 56 px пилюлей, выбранный залит голубым, разделитель
-   * волосяной, затемнение — чёрное под 40 %, движение — четверть секунды. */
-  assert.match(css, /\.a-menu-wrap\{position:fixed;inset:0;z-index:9;visibility:hidden/);
-  assert.match(css, /\.a-menu-scrim\{position:absolute;inset:0;background:#000;opacity:0/);
-  assert.match(css, /\.a-menu-panel\{position:absolute[^}]*width:0;overflow:hidden[^}]*border-radius:0 16px 16px 0/);
-  /* У `visibility` длительности нет — только задержка, и только на закрытие:
-     она переключается ступенькой, и с длительностью открытое меню оставалось бы
-     невидимым всю четверть секунды движения. На этом уже наступили. */
-  assert.match(css, /\.a-menu-wrap\{[^}]*transition:visibility 0s \.25s\}/);
-  assert.match(css, /\.a-menu-check:checked~\.a-menu-wrap\{visibility:visible;transition:visibility 0s\}/);
-  assert.match(css, /\.a-menu-check:checked~\.a-menu-wrap \.a-menu-scrim\{opacity:\.4\}/);
-  assert.match(css, /\.a-menu-check:checked~\.a-menu-wrap \.a-menu-panel\{width:min\(320px,calc\(100vw - 56px\)\)\}/);
-  assert.match(css, /\.a-menu-sep\{height:1px;margin:0 28px;background:#c4c7c5\}/);
-  assert.match(css, /\.a-nav-item\{[^}]*min-height:56px[^}]*border-radius:9999px[^}]*font-size:16px/);
-  assert.match(css, /\.a-nav-item\.active\{background:#c2e7ff;color:#004a77\}/);
-  /* Панель раскрывается ШИРИНОЙ, а содержимое лежит в блоке фиксированной
-   * ширины: иначе текст пересобирался бы на каждом кадре движения. */
-  assert.match(css, /\.a-menu-list\{width:min\(320px,calc\(100vw - 56px\)\)/);
-  // Сверху панель уходит под шапку, и высота у обеих одна — переменная.
-  assert.match(css, /body\.admin\{--a-topbar:66px/);
-  assert.match(css, /\.a-topbar\{height:var\(--a-topbar\)/);
-  assert.match(css, /\.a-menu-list\{[^}]*padding:calc\(var\(--a-topbar\) \+ 8px\)/);
-  /* На телефоне меню накрывает шапку, и слой ей приходится назвать явно:
-     `backdrop-filter` делает её отдельным контекстом наложения, и Chromium
-     рисует её поверх позиционированной панели, хотя сама она не позиционирована.
-     `static` тут вернул бы шапку наверх — на этом уже наступили. */
-  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
-  assert.match(mobile, /\.a-topbar\{position:relative;z-index:1;min-height:0/);
-  assert.equal(/\.a-topbar\{position:static/.test(mobile), false, 'у static слоя нет — меню окажется под шапкой');
-  assert.match(mobile, /\.a-menu-list\{padding-top:max\(8px,env\(safe-area-inset-top\)\)\}/);
-  /* Скрипту остаётся один Esc. Клика мимо в нём быть НЕ должно: затемнение —
+  /* Esc закрывает мобильное меню. Клика мимо в скрипте быть НЕ должно: затемнение —
    * подпись к тому же чекбоксу, и второй обработчик снимал бы галочку перед
    * тем, как её вернёт действие подписи, то есть меню не закрывалось бы. */
   assert.match(js, /menu\.checked = false/);
