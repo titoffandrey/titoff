@@ -8509,11 +8509,11 @@ test('витрина подписывает кнопку по сумме: кас
   const pl = { pay: '1', payFallback: 'request', payCashbox: '1', payMin: '1000', payMax: '20000' };
   assert.equal(mode(19430, pl, { direct: true, paymentTotal: 20000 }), 'cashbox');
   assert.equal(mode(19431, pl, { direct: true, paymentTotal: null, overLimit: true }), 'request');
-  // Подпись, значок и строка под кнопкой следуют режиму, а не одному атрибуту.
+  // Подпись и значок кнопки следуют режиму, а пояснение под ней убрано.
   assert.match(js, /function submitLabel\(\) \{ return checkoutMode\(\) !== 'request' \? 'Оплатить' : 'Оформить заказ'; \}/);
-  assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
+  assert.doesNotMatch(js, /Оплата не онлайн: менеджер свяжется с вами/);
   assert.match(js, /var want = checkoutMode\(\) === 'request' \? 'check' : 'lock';/);
-  assert.match(js, /if \(note && note\.textContent !== payNote\(\)\) note\.textContent = payNote\(\);/);
+  assert.doesNotMatch(js, /function payNote\(|checkout-pay-note/);
   // Поля комиссии Platega уезжают только у заказа, который правда идёт в кассу.
   assert.match(js, /if \(fee && checkoutMode\(\) === 'cashbox'\) \{\s*\n\s*payload\.paymentFeePercent = fee\.percent;/);
   assert.doesNotMatch(js, /co-pay|payMode|Оплатить после/);
@@ -9246,7 +9246,7 @@ test('на оформлении нет «обсудим при подтверж�
   // вела бы в платёжку, которой нет.
   const off = render.checkoutPage(ss, { origin: '' });
   assert.doesNotMatch(off, /data-pay="1"/);
-  assert.match(js, /Оплата не онлайн: менеджер свяжется с вами/);
+  assert.doesNotMatch(js, /Оплата не онлайн: менеджер свяжется с вами/);
 });
 
 test('шапка оформления стоит по центру на любой ширине', () => {
@@ -9308,7 +9308,8 @@ test('строка доставки в сводке не разваливает�
   assert.match(out, /Товары \(1\)/);
   assert.match(out, /data-ico="truck"/);
   assert.match(out, /СДЭК, в пункт выдачи/);
-  assert.match(out, /2–4 дня/);
+  assert.match(out, /2-4 дня/);
+  assert.doesNotMatch(out, /[–—]/);
   assert.match(out, /68500 ₽/);
   assert.doesNotMatch(out, /undefined/);
 });
@@ -9465,7 +9466,9 @@ test('телефон обязателен и разбирается одним �
   for (const name of ['whatsapp', 'mobile', 'telegram', 'mail']) {
     assert.ok(js.indexOf(name + ':') > -1, 'нет глифа ' + name);
   }
-  assert.match(js, /Введите номер ' \+ iconWord\('whatsapp', 'WhatsApp'\)/);
+  assert.match(js, /iconWord\('whatsapp', 'Телефон'\)/);
+  assert.doesNotMatch(js, /Введите номер ' \+ iconWord\('whatsapp'/);
+  assert.doesNotMatch(js, /accountEmailNote|Заказ появится в вашем|По нему считаем доставку/);
   /* Второе поле — почта, а не прежнее «Telegram или e-mail»: по ней заводится
    * личный кабинет, и свободное поле для этого не годилось. Тип `email` даёт
    * нужную клавиатуру на телефоне, а проверяет адрес сервер. */
@@ -9754,7 +9757,7 @@ test('срок доставки виден на оформлении рядом 
   // В сводке срок стоит справа, прямо под ценой доставки, и только когда цена
   // уже посчитана: «3–5 дней» без суммы обещало бы доставку неизвестно откуда.
   const rail = js.slice(js.indexOf('function renderRail'), js.indexOf('function renderRail') + 3000);
-  assert.match(rail, /price != null \? shipDaysCurrent\(\) : ''/);
+  assert.match(rail, /price != null \? shipDaysCurrent\(\)\.replace\(\/\[–—\]\/g, '-'\) : ''/);
 
   /* Тот же срок знает и консультант в чате: «уточнит менеджер» рядом с
    * написанным на этой же странице «3–5 дней» — два разных ответа на один
@@ -9937,7 +9940,8 @@ test('способ доставки заперт, пока адрес не по�
   assert.ok(form.indexOf('co-ways') < form.indexOf('co-modes'), 'варианты — внутри блока способов');
   // Блок собирается запертым: до ответа сервера адрес заведомо не проверен.
   assert.match(form, /class="co-ways is-locked" id="co-ways"/);
-  assert.match(form, /id="co-ways-note"/);
+  assert.doesNotMatch(form, /id="co-ways-note"/);
+  assert.match(form, /id="co-address-note" hidden/);
 
   // Запирание — это `disabled` у радио, а не спрятанные карточки: покупатель
   // видит, чем повезут, ещё до того как впишет улицу, а выбранное значение
@@ -18157,12 +18161,10 @@ test('снятый промокод не переживает открытие �
     'запись «снят» из localStorage больше не читается');
   // Прежняя запись «снят» ещё лежит у вернувшихся покупателей — её стираем.
   assert.match(js, /if \(raw\.off === true\) \{ savePromoChoice\(\); return; \}/);
-  // Подпись кнопки возврата — «Применить», как у кнопки формы рядом: для
-  // покупателя это одно действие. Код остаётся в доступном имени, иначе двух
-  // одинаковых с виду кнопок в строке не различить голосом.
-  assert.match(js, /back\.textContent = 'Применить'/);
-  assert.match(js, /back\.setAttribute\('aria-label', 'Применить промокод ' \+ promoView\.fallback\)/);
-  assert.doesNotMatch(js, /'Вернуть ' \+ promoView\.fallback/);
+  // Код по умолчанию остаётся серым в пустом поле и применяется общей
+  // кнопкой формы; отдельной подсказки и второго действия больше нет.
+  assert.match(js, /input\.placeholder = promoView\.fallback \|\| 'Промокод'/);
+  assert.doesNotMatch(js, /co-promo-back|function restorePromo\(|Промокод снят/);
 });
 
 test('код переименовывается в панели, и настройка «по умолчанию» едет с ним', () => {

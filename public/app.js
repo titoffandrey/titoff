@@ -284,16 +284,13 @@
       + ' autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">'
       + '<button type="submit" class="co-promo-apply">Применить</button>'
       + '</form>'
-      + '<p class="co-promo-note" id="co-promo-note" hidden><span id="co-promo-note-text"></span>'
-      + '<button type="button" class="co-promo-back" id="co-promo-back" hidden></button></p>'
+      + '<p class="co-promo-note is-err" id="co-promo-note" role="status" hidden></p>'
       + '</div>';
 
     var form = document.getElementById('co-promo-form');
     if (form) form.addEventListener('submit', function (e) { e.preventDefault(); applyPromo(); });
     var drop = document.getElementById('co-promo-drop');
     if (drop) drop.addEventListener('click', dropPromo);
-    var back = document.getElementById('co-promo-back');
-    if (back) back.addEventListener('click', restorePromo);
     syncPromo();
   }
 
@@ -323,31 +320,12 @@
      * и второй молча подменял бы уже применённый код. */
     var form = document.getElementById('co-promo-form');
     if (form) form.hidden = applied;
-
+    var input = document.getElementById('co-promo-input');
+    if (input) input.placeholder = promoView.fallback || 'Промокод';
     var note = document.getElementById('co-promo-note');
-    var back = document.getElementById('co-promo-back');
-    var text = promoError
-      || (promoView.off ? 'Промокод снят — цены в заказе без скидки.' : '');
     if (note) {
-      note.hidden = !text;
-      note.className = 'co-promo-note' + (promoError ? ' is-err' : '');
-      setText('co-promo-note-text', text);
-    }
-    /* Кнопка возврата показывается только когда есть куда возвращаться: код по
-     * умолчанию могли выключить в панели, пока покупатель ходил по витрине.
-     *
-     * Подпись у неё — «Применить», как у кнопки формы рядом: для покупателя это
-     * одно и то же действие, а прежнее «Вернуть SALE» заставляло его гадать,
-     * что такое SALE и куда его возвращают. Сам код при этом остаётся в
-     * доступном имени — двух одинаковых с виду кнопок в одной строке иначе не
-     * различить ни голосом, ни с клавиатуры. */
-    if (back) {
-      var canBack = !promoError && promoView.off && !!promoView.fallback;
-      back.hidden = !canBack;
-      if (canBack) {
-        back.textContent = 'Применить';
-        back.setAttribute('aria-label', 'Применить промокод ' + promoView.fallback);
-      }
+      note.hidden = !promoError;
+      note.textContent = promoError;
     }
   }
 
@@ -359,7 +337,8 @@
   }
   function applyPromo() {
     var input = document.getElementById('co-promo-input');
-    var code = cleanPromoCode(input ? input.value : '');
+    var typed = input ? input.value.trim() : '';
+    var code = cleanPromoCode(typed || (promoView && promoView.fallback) || '');
     promoError = '';
     if (!code) { promoError = 'Введите промокод'; syncPromo(); return; }
     var btn = document.querySelector('.co-promo-apply');
@@ -380,7 +359,7 @@
       })
       .catch(function () {
         if (btn) btn.disabled = false;
-        promoError = 'Нет связи — попробуйте ещё раз';
+        promoError = 'Нет связи - попробуйте ещё раз';
         syncPromo();
       });
   }
@@ -388,14 +367,6 @@
   // всегда, а новые цены всё равно приедут ответом корзины.
   function dropPromo() {
     promoChoice = { off: true };
-    promoError = '';
-    savePromoChoice();
-    repriceCart();
-  }
-  // «Вернуть» — это возврат к состоянию по умолчанию, то есть отсутствие выбора:
-  // так покупатель получит код витрины, даже если владелец сменил его.
-  function restorePromo() {
-    promoChoice = null;
     promoError = '';
     savePromoChoice();
     repriceCart();
@@ -418,7 +389,7 @@
       items.innerHTML = '<div class="checkout-empty">'
         + '<div class="checkout-empty-ico" aria-hidden="true">' + coIcon('cart', 'co-empty-ico') + '</div>'
         + '<h2>В корзине пока пусто</h2>'
-        + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
+        + '<p>Выберите товары в каталоге - они появятся здесь.</p>'
         + '<a class="btn btn-primary btn-lg" href="/catalog">Перейти в каталог</a></div>';
       // Удаление последнего товара снимает DOM формы без navigation/pagehide.
       // Сохраняем активное поле прямо перед этим, иначе последняя правка могла
@@ -453,7 +424,7 @@
           + '<div class="co-item-body">'
           + '<h3 class="co-item-name">' + escapeHtml(i.name) + '</h3>'
           + (variant ? '<div class="co-item-variant">' + escapeHtml(variant) + '</div>' : '')
-          + (out ? '<div class="co-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
+          + (out ? '<div class="co-item-warn">Нет в наличии - позиция не попадёт в заказ</div>' : '')
           // Цена за штуку — тем же набором классов, что и в карточке каталога:
           // розовая цена, зачёркнутая старая с наклонной чертой, розовый процент.
           + '<div class="co-item-unit' + (i.qty > 1 ? ' is-relevant' : '') + '">'
@@ -476,7 +447,7 @@
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Уменьшить количество">−</button>'
           + '<span>' + i.qty + '</span>'
           + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Увеличить количество"'
-          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ — не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
+          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ - не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
           + '<button type="button" class="co-remove" data-act="rm" data-key="' + k + '" aria-label="Удалить из корзины" title="Удалить">'
           + '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3h6M4 6h12M6.5 6l.6 10a1.4 1.4 0 0 0 1.4 1.3h3a1.4 1.4 0 0 0 1.4-1.3l.6-10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
           + '</button>'
@@ -508,30 +479,20 @@
          * страны — см. `public/phone.js`; своей разметки скрипт телефона не
          * создаёт, поэтому без него поле остаётся обычным вводом. */
         + '<div class="co-contacts">'
-        + '<div class="field"><label for="co-phone">Телефон <span class="req">*</span></label>'
+        + '<div class="field"><label for="co-phone">' + iconWord('whatsapp', 'Телефон') + ' <span class="req">*</span></label>'
         + '<div class="phone-box">'
         + '<span class="phone-flag" aria-hidden="true"></span>'
         + '<input type="tel" id="co-phone" inputmode="tel" autocomplete="tel" maxlength="24"'
         + ' placeholder="+7 900 000-00-00" required>'
-        + '</div>'
-        // Подпись говорит, КАКОЙ номер нужен, а не что с ним будет: WhatsApp
-        // подходит менеджеру так же, как звонок, и знать это надо до ввода.
-        + '<p class="field-note">Введите номер ' + iconWord('whatsapp', 'WhatsApp')
-        + ' или ' + iconWord('mobile', 'сотовый') + '</p></div>'
-        /* Почта — по желанию: телефон уже обязателен, и требовать ещё и её
-         * значило бы спрашивать одно и то же дважды. Но именно по ней заводится
-         * личный кабинет: указал адрес — кабинет создаётся сам, пароль приходит
-         * письмом, и заказ виден в нём с любого устройства. Подпись под полем
-         * говорит это заранее — обещание, о котором узнают после оформления,
-         * читается как сюрприз. Что обещать, решает сервер (`data-account-*`):
-         * без почтового сервера пароль прислать нечем, и подписи нет.
+        + '</div></div>'
+        /* Почта необязательна: телефон уже указан. По почте сервер может
+         * создать кабинет и прислать пароль, если отправка писем настроена.
          *
          * Прежнее «Telegram или e-mail» ушло: Telegram и WhatsApp менеджер и так
          * находит по телефону, а свободное поле не годилось ни для кабинета, ни
          * для чека. У прежних заявок строка `contact` остаётся как была. */
         + '<div class="field"><label for="co-email">' + iconWord('mail', 'E-mail') + '</label>'
         + '<input type="email" id="co-email" maxlength="120" inputmode="email" autocomplete="email" placeholder="mail@example.com">'
-        + accountEmailNote()
         + '</div>'
         + '</div>'
         /* Адрес покупателя — ЕГО ДАННЫЕ, наравне с именем и контактом, поэтому
@@ -555,7 +516,7 @@
         + ' role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="co-address-list" required></textarea>'
         + '<div class="suggest-list" id="co-address-list" role="listbox" hidden></div>'
         + '</div>'
-        + '<p class="field-note" id="co-address-note">' + escapeHtml(addressNote()) + '</p></div>'
+        + '<p class="field-note" id="co-address-note" hidden></p></div>'
         + '</div>'
         // Способ доставки идёт ПОСЛЕ адреса: цена зависит от региона, и до
         // адреса у карточек нечего показать, кроме прочерка.
@@ -566,7 +527,6 @@
         + deliveryChoiceHtml()
         + '<div class="co-modes" id="co-modes"></div>'
         + '<div class="co-points" id="co-points" hidden></div>'
-        + '<p class="co-ways-note" id="co-ways-note">Укажите адрес — от него зависят сроки и стоимость доставки.</p>'
         + '</div>'
         + '</div>';
       initPhoneInput();
@@ -622,7 +582,7 @@
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
         + '<p class="form-msg" id="order-msg" hidden></p>'
-        + '<p class="form-legal-note"><span id="checkout-pay-note">' + payNote() + '</span>'
+        + '<p class="form-legal-note">'
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
     }
@@ -660,8 +620,6 @@
         if (ico.dataset.ico !== want) { ico.innerHTML = coIcon(want, 'btn-ico'); ico.dataset.ico = want; }
       }
     }
-    var note = document.getElementById('checkout-pay-note');
-    if (note && note.textContent !== payNote()) note.textContent = payNote();
     var limitMsg = document.getElementById('order-msg');
     if (limitMsg && (overLimit || limitMsg.dataset.limit)) {
       limitMsg.hidden = !overLimit;
@@ -1026,7 +984,7 @@
       // выровнена под подпись «Доставка», а не под её значок, — это уточнение к
       // строке выше, а не ещё одна строка расчёта.
       + (way ? '<div class="co-line co-line-muted co-line-sub"><span>' + escapeHtml(way) + '</span><span>'
-        + escapeHtml(price != null ? shipDaysCurrent() : '') + '</span></div>' : '')
+        + escapeHtml(price != null ? shipDaysCurrent().replace(/[–—]/g, '-') : '') + '</span></div>' : '')
       + (paymentQuote && paymentQuote.direct && paymentQuote.discount > 0 && checkoutMode() === 'cashbox'
         ? '<div class="co-line"><span>Скидка при оплате</span><span>−' + money(paymentQuote.discount) + '</span></div>' : '')
       + '<div class="co-total"><span>Итого</span><b>' + money(orderTotal()) + '</b></div>';
@@ -1043,23 +1001,12 @@
   // ведёт. В режиме заявок платить на сайте нечем — там она остаётся
   // «Оформить заказ».
   function submitLabel() { return checkoutMode() !== 'request' ? 'Оплатить' : 'Оформить заказ'; }
-  // Под кнопкой — одна короткая строка и ссылка на политику второй строкой.
-  // Прежнее объяснение про номер карты занимало три строки и читалось как
-  // оправдание: покупателю на этом шаге важно только, чем он платит.
-  function payNote() {
-    var page = document.getElementById('checkout-page');
-    var flow = page && page.dataset && page.dataset.payFlow;
-    var mode = checkoutMode();
-    if (mode === 'cashbox' && flow === 'sbp') return 'Оплата через СБП на защищённой странице';
-    if (mode === 'cashbox' && flow === 'choice') return 'Способ оплаты выберете на следующем шаге';
-    return mode !== 'request' ? 'Оплата переводом по реквизитам' : 'Оплата не онлайн: менеджер свяжется с вами';
-  }
 
   // Текст отказа по сумме заказа или пустая строка. Заказ вне пределов не
   // оформляется вовсе: кнопка гаснет, а сервер такую сумму всё равно не примет.
   function totalLimitError(sum) {
-    if (ORDER_MAX && sum > ORDER_MAX) return 'Один заказ — не более ' + money(ORDER_MAX) + '. Разделите покупку на несколько заказов.';
-    if (ORDER_MIN && sum > 0 && sum < ORDER_MIN) return 'Минимальная сумма заказа — ' + money(ORDER_MIN) + '.';
+    if (ORDER_MAX && sum > ORDER_MAX) return 'Один заказ - не более ' + money(ORDER_MAX) + '. Разделите покупку на несколько заказов.';
+    if (ORDER_MIN && sum > 0 && sum < ORDER_MIN) return 'Минимальная сумма заказа - ' + money(ORDER_MIN) + '.';
     return '';
   }
 
@@ -1100,17 +1047,15 @@
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
     return '';
   }
-  /* Подсказка под адресом. Чего не хватает, говорит СЕРВЕР (см. quoteDelivery):
+  /* Ошибка под адресом. Чего не хватает, говорит СЕРВЕР (см. quoteDelivery):
    * своя проверка в скрипте пропускала бы адрес, который сервер потом отвергает.
    *
    * Про перевозчиков здесь больше ничего нет: поле стало адресом самого
-   * покупателя, и пункт выдачи в него не вписывают. Зато сказано, зачем адрес
-   * нужен тому, кто собирается забрать заказ сам.
+   * покупателя, и пункт выдачи в него не вписывают.
    */
   function addressNote() {
-    if (addressValue() && ship.address === addressValue() && !ship.valid && ship.error) return ship.error;
-    return 'По нему считаем доставку и подбираем ближайшие пункты выдачи.'
-      + ' Например: г Екатеринбург, ул Малышева, д 5.';
+    if (addressValue() && ship.address === addressValue() && !ship.valid && ship.error) return ship.error.replace(/[–—]/g, '-');
+    return '';
   }
   // Ошибку показываем не красным полем, а подписью: адрес дописывают на ходу, и
   // алый текст под каждой второй буквой читался бы как поломка формы.
@@ -1119,6 +1064,7 @@
     if (!note) return;
     var bad = !!(addressValue() && ship.address === addressValue() && !ship.valid);
     note.textContent = addressNote();
+    note.hidden = !note.textContent;
     note.className = bad ? 'field-note field-note-warn' : 'field-note';
   }
   function deliveryChoiceHtml() {
@@ -1183,8 +1129,8 @@
           + (ico ? '<span class="co-mode-ico">' + coIcon(ico, 'co-ico') + '</span>' : '')
           + '<span class="co-mode-text"><b>' + escapeHtml(m.name) + '</b>'
           + (m.hint ? '<i>' + escapeHtml(m.hint) + '</i>' : '') + '</span>'
-          + '<span class="co-mode-price">' + (price == null ? '—' : money(price))
-          + (days ? '<i class="co-mode-days">' + escapeHtml(days) + '</i>' : '') + '</span></label>';
+          + '<span class="co-mode-price">' + (price == null ? '-' : money(price))
+          + (days ? '<i class="co-mode-days">' + escapeHtml(days.replace(/[–—]/g, '-')) + '</i>' : '') + '</span></label>';
       }).join('')
       + '</div>';
   }
@@ -1205,8 +1151,6 @@
     box.classList.toggle('is-locked', !!locked);
     var inputs = box.querySelectorAll('input[type="radio"]');
     for (var i = 0; i < inputs.length; i++) inputs[i].disabled = !!locked;
-    var note = document.getElementById('co-ways-note');
-    if (note) note.hidden = !locked;
   }
   // Название перевозчика живёт в правой сводке, подсказка — под адресом, а
   // варианты доставки зависят от выбранного перевозчика, поэтому обновляем всё.
@@ -1446,8 +1390,8 @@
     if (!pickup.items.length) {
       box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
         + '<p class="co-points-note">' + (pickup.ready
-          ? 'Рядом с вашим адресом пунктов не нашлось — выберите доставку курьером.'
-          : 'Списка пунктов этого перевозчика у нас сейчас нет — выберите доставку курьером или другого перевозчика.')
+          ? 'Рядом с вашим адресом пунктов не нашлось - выберите доставку курьером.'
+          : 'Списка пунктов этого перевозчика у нас сейчас нет - выберите доставку курьером или другого перевозчика.')
         + '</p>';
       syncSubmit();
       return;
@@ -2117,12 +2061,12 @@
           + '<div class="cart-item-info">'
           + '<div class="cart-item-name">' + escapeHtml(i.name) + '</div>'
           + (variant ? '<div class="cart-item-variant">' + escapeHtml(variant) + '</div>' : '')
-          + (out ? '<div class="cart-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
+          + (out ? '<div class="cart-item-warn">Нет в наличии - позиция не попадёт в заказ</div>' : '')
           + '<div class="cart-item-price">' + money(i.price) + '</div>'
           + '<div class="cart-item-controls">'
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button><span>' + i.qty + '</span>'
           + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше"'
-          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ — не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
+          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ - не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
           + '<button type="button" class="cart-remove" data-act="rm" data-key="' + k + '">Удалить</button>'
           + '</div></div></div>';
       }).join('');
@@ -2146,7 +2090,7 @@
   // покупатель видит один и тот же вид и на витрине, и на странице оплаты.
   function orderNo(number) {
     var digits = String(number == null ? '' : number).replace(/^ORD-?/i, '').trim();
-    return digits ? '№' + digits : '—';
+    return digits ? '№' + digits : '-';
   }
 
   // Кнопка «в корзину» как переключатель: показывает статус в зависимости от корзины.
@@ -2849,7 +2793,7 @@
       input.value = v;
       if (plus) {
         plus.disabled = v >= cap;
-        plus.title = plus.disabled ? 'Больше нельзя: один заказ — не более ' + money(ORDER_MAX) : '';
+        plus.title = plus.disabled ? 'Больше нельзя: один заказ - не более ' + money(ORDER_MAX) : '';
       }
     }
     if (qtyBox) {
@@ -3330,7 +3274,7 @@
           var max = Number(rvPhotos.dataset.max) || 0;
           // «фото» не склоняется, поэтому одна форма подходит любому числу
           rvNote.textContent = !n ? ''
-            : (max && n > max ? 'Выбрано ' + n + ' фото — отправим первые ' + max : 'Выбрано ' + n + ' фото');
+            : (max && n > max ? 'Выбрано ' + n + ' фото - отправим первые ' + max : 'Выбрано ' + n + ' фото');
         });
       }
 
@@ -3376,7 +3320,7 @@
         var consent = document.getElementById('rv-consent');
         if (consent && !consent.checked) {
           var msg = document.getElementById('review-msg');
-          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Отметьте согласие — без него отзыв отправить нельзя'; }
+          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Отметьте согласие - без него отзыв отправить нельзя'; }
           try { consent.focus(); } catch (err) {}
           return;
         }
@@ -3457,17 +3401,6 @@
 
   // Экран «заказ оформлен» — путь без онлайн-оплаты. При включённой оплате сюда
   // не приходим: заказ записан, и покупатель уходит на свою страницу оплаты.
-  /* Подпись под полем почты: что будет с адресом. Вошедшему — что заказ
-   * появится в его кабинете; остальным — что кабинет заведётся сам и пароль
-   * придёт письмом, но только когда сервер обещает прислать его
-   * (`data-account-auto`). Без кабинета подписи нет вовсе. */
-  function accountEmailNote() {
-    var page = document.getElementById('checkout-page');
-    if (!page || !page.hasAttribute('data-account')) return '';
-    if (page.getAttribute('data-account-email')) return '<p class="field-note">Заказ появится в вашем <a href="/account">личном кабинете</a></p>';
-    if (page.hasAttribute('data-account-auto')) return '<p class="field-note">Создадим личный кабинет и пришлём пароль на почту</p>';
-    return '';
-  }
   // Отметка о кабинете на экране «заказ оформлен»: слова те же, что на странице
   // оплаты (`accountNoteText` в lib/render.js), только собираются здесь — экран
   // рисует браузер.
@@ -3476,7 +3409,7 @@
     var text = account.created
       ? 'Мы создали для вас личный кабинет: пароль отправили на ' + account.email + '. Там будут все ваши заказы и отправления.'
       : account.exists
-        ? 'На ' + account.email + ' уже есть личный кабинет — войдите, и этот заказ появится там.'
+        ? 'На ' + account.email + ' уже есть личный кабинет - войдите, и этот заказ появится там.'
         : '';
     if (!text) return '';
     return '<div class="order-success-next order-success-account"><span class="order-success-step" aria-hidden="true">2</span><div><strong>Личный кабинет</strong><p>'
@@ -3668,7 +3601,7 @@
             // ждёт отправки цели.
             var next = function () {
               if (online && d.id) { startPayment(d.id, d.payNow, d.total); return; }
-              showOrderDone(d.number || '—', d.account);
+              showOrderDone(d.number || '-', d.account);
             };
             if (d.id && !d.draft) reachGoal('order', { order_price: Number(d.total) || 0, currency: 'RUB' }, 'order:' + d.id, next);
             else next();

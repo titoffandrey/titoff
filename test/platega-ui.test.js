@@ -241,23 +241,10 @@ test('оформление получает процент только при �
   }
 });
 
-test('подпись оформления не обещает СБП при выборе нескольких платёжных способов', () => {
+test('оформление не показывает пояснения о способе оплаты под кнопкой', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-  const begin = source.indexOf('  function payNote(');
-  const end = source.indexOf('  // Текст отказа по сумме заказа', begin);
-  const page = { dataset: { pay: '1', payFlow: 'sbp' } };
-  let mode = 'cashbox';
-  const payNote = new Function('document', 'checkoutMode', `${source.slice(begin, end)}\nreturn payNote;`)(
-    { getElementById: () => page }, () => mode
-  );
-  assert.equal(payNote(), 'Оплата через СБП на защищённой странице');
-  page.dataset.payFlow = 'choice';
-  assert.equal(payNote(), 'Способ оплаты выберете на следующем шаге');
-  // Заказ дороже кассы идёт своими реквизитами — подпись про кассу ему не обещается.
-  mode = 'own';
-  assert.equal(payNote(), 'Оплата переводом по реквизитам');
-  mode = 'request';
-  assert.equal(payNote(), 'Оплата не онлайн: менеджер свяжется с вами');
+  assert.doesNotMatch(source, /function payNote\(|checkout-pay-note/);
+  assert.doesNotMatch(source, /Оплата через СБП на защищённой странице|Способ оплаты выберете на следующем шаге/);
 });
 
 test('оформление сохраняет цены и итог без строки комиссии после скидки и смены доставки', () => {
@@ -388,7 +375,7 @@ test('неизвестная или устаревшая доставка бло
         ? { dataset: configured ? { paymentFeePercent: String(percent) } : {} } : { value: address } },
     phoneCheck: () => ({ ok: true }), phoneValue: () => '+79990000000', ship,
     deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
-    totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox', payNote: () => '', coIcon: () => '',
+    totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox', coIcon: () => '',
     Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }], total: () => 1000, availableCount: () => 1 },
     promoFields() {}, orderRequestId: () => 'test-request', setText() {}, money: String,
     submitLabel: () => 'Оплатить', addressValue: () => address, shipCurrent: () => price,
@@ -396,7 +383,7 @@ test('неизвестная или устаревшая доставка бло
   };
   const ui = new Function('env', `const { rememberCheckout, document, phoneCheck,
     phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-    checkoutMode, payNote, coIcon, Cart, promoFields, orderRequestId, setText, money, submitLabel,
+    checkoutMode, coIcon, Cart, promoFields, orderRequestId, setText, money, submitLabel,
     addressValue, shipCurrent, checkoutFeeQuote } = env;
     ${amount}\n${sync}\n${source.slice(begin, send)}\nreturn payload; }
     return { syncSubmit, submitOrder };`)(env);
