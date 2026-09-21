@@ -14,6 +14,7 @@ const FAVICON = fs.readFileSync(path.join(__dirname, 'public', 'favicon.ico'));
 
 const db = require('./lib/db');
 const auth = require('./lib/auth');
+const LOGIN = require('./lib/admin-login');
 const { sendTelegram } = require('./lib/telegram');
 const { suggestAddress } = require('./lib/dadata');
 const CROCO = require('./lib/crocopay');
@@ -613,17 +614,20 @@ function consentAccepted(value) {
   return value === true || ['1', 'true', 'on', 'yes'].includes(String(value || '').toLowerCase());
 }
 
-// Маркер зависит от текущего логина и хеша пароля, но не раскрывает их в cookie.
+// Маркер зависит от текущих логинов и хеша пароля, но не раскрывает их в cookie.
 // После смены реквизитов все старые сессии перестают проходить guard автоматически.
-function authStamp(username, passwordHash) {
+// Логин — e-mail и телефон из настроек (lib/admin-login.js); `LOGIN.identity()`
+// склеивает их в одну строку, а у прежней установки отдаёт её старый логин как
+// есть — маркер тогда тот же, что и до обновления, и владельца не выбрасывает.
+function authStamp(login, passwordHash) {
   return crypto.createHmac('sha256', settings().sessionSecret)
-    .update(['admin', username || '', passwordHash || ''].join('\0')).digest('base64url').slice(0, 24);
+    .update(['admin', login || '', passwordHash || ''].join('\0')).digest('base64url').slice(0, 24);
 }
 // Учётная запись одна и с полными правами: делить их стало не с кем, когда
 // пропали домены со своими администраторами.
 function adminAuthorized(req) {
   const s = settings();
-  return !!(req.session && req.session.admin === authStamp(s.adminUsername, s.adminPasswordHash));
+  return !!(req.session && req.session.admin === authStamp(LOGIN.identity(s), s.adminPasswordHash));
 }
 
 /* Вошедший покупатель — по подписанной сессии и отметке, привязанной к хешу
@@ -4395,12 +4399,15 @@ app.get('/admin/login', (req, res) => {
 app.post('/admin/login', async (req, res) => {
   if (loginBlocked(req)) return res.send(A.loginPage(settings(), TOO_MANY), 429);
   const s = settings();
-  // Scrypt выполняется и при неверном логине: время ответа не выдаёт имя учётной записи.
+  // Scrypt выполняется и при неверном логине: время ответа не выдаёт учётную запись.
   const passwordOk = await auth.verifyPasswordAsync(req.body.password, s.adminPasswordHash);
-  const ok = req.body.username === s.adminUsername && passwordOk;
-  if (!ok) { loginFail(req); return res.send(A.loginPage(s, 'Неверный логин или пароль'), 401); }
+  /* Логин — e-mail или телефон в любой привычной записи: «Owner@Mail.ru»,
+   * «8 999 123-45-67», «+7 (999) 123-45-67». К хранимой форме его приводит
+   * lib/admin-login.js теми же модулями, что почту заказа и телефон покупателя. */
+  const ok = LOGIN.matches(s, req.body.username) && passwordOk;
+  if (!ok) { loginFail(req); return res.send(A.loginPage(s, 'Неверный e-mail/телефон или пароль'), 401); }
   loginOk(req);
-  req.session.admin = authStamp(s.adminUsername, s.adminPasswordHash);
+  req.session.admin = authStamp(LOGIN.identity(s), s.adminPasswordHash);
   res.redirect('/admin');
 });
 app.post('/admin/logout', (req, res) => { req.session = null; res.redirect('/admin/login'); });
@@ -5607,7 +5614,25 @@ app.post('/admin/settings', async (req, res) => {
   if (req.body.brandForm !== undefined) patch.cardNameStorage = req.body.cardNameStorage !== undefined;
   // Весь каталог на главной (`R.homePage`) — той же секцией «Оформление».
   if (req.body.brandForm !== undefined) patch.homeCatalog = req.body.homeCatalog !== undefined;
-  patch.adminUsername = short(req.body.adminUsername, 100).trim() || current.adminUsername || 'admin';
+  /* Доступ в панель: логин — e-mail и телефон, оба приводятся к хранимой форме
+   * ДО записи (адрес нижним регистром, номер в E.164), как контакты витрины.
+   * Цена промаха здесь выше любой другой в форме: негодный логин — это
+   * запертая панель, и узнать об этом владелец успел бы только на следующем
+   * входе. Оба поля пустыми оставить нельзя, если хоть одно было заполнено:
+   * прежний логин «admin» после этого не возвращается (lib/admin-login.js), и
+   * «Сохранить» молча заперло бы панель. У установки, которая ещё на прежнем
+   * логине, пустые поля законны — он и продолжает работать. */
+  if (req.body.adminEmail !== undefined || req.body.adminPhone !== undefined) {
+    const rawEmail = String(req.body.adminEmail == null ? '' : req.body.adminEmail).trim();
+    const rawPhone = String(req.body.adminPhone == null ? '' : req.body.adminPhone).trim();
+    const email = EMAIL.valid(rawEmail);
+    const phone = PHONE.store(rawPhone);
+    if (rawEmail && !email) return fail('E-mail для входа в панель введён с ошибкой — например: owner@example.com');
+    if (rawPhone && !phone) return fail('Телефон для входа в панель введён с ошибкой — например: +7 999 123-45-67');
+    if (!email && !phone && LOGIN.configured(current)) return fail('Укажите e-mail или телефон для входа в панель — без них в неё будет не войти');
+    patch.adminEmail = email;
+    patch.adminPhone = phone;
+  }
   if (req.body.adminPassword && String(req.body.adminPassword).trim()) {
     patch.adminPasswordHash = auth.hashPassword(String(req.body.adminPassword).trim());
   }
@@ -6098,8 +6123,13 @@ const httpServer = app.listen(PORT, HOST, () => {
   console.log(`  Витрина:  http://localhost:${PORT}`);
   console.log(`  Панель:   http://localhost:${PORT}/admin`);
   if (auth.verifyPassword('admin', s.adminPasswordHash)) {
-    console.warn(`\n  ВНИМАНИЕ: у панели демонстрационный пароль (admin / admin).`);
+    console.warn(`\n  ВНИМАНИЕ: у панели демонстрационный пароль «admin» (вход: ${LOGIN.describe(s) || LOGIN.legacy(s) || 'admin'}).`);
     console.warn('  Смените его в /admin/settings до публикации сайта или задайте ADMIN_PASSWORD при первом запуске.');
+  }
+  // Логин панели — e-mail или телефон; прежний «admin» работает лишь до тех пор,
+  // пока не задан ни один из них, и об этом стоит сказать при каждом старте.
+  if (!LOGIN.configured(s)) {
+    console.warn(`\n  ВНИМАНИЕ: вход в панель по временному логину «${LOGIN.legacy(s)}» — задайте e-mail или телефон в /admin/settings → «Доступ в панель».`);
   }
   // База пунктов выдачи — единственное, чьё отсутствие ничем себя не проявляет:
   // оформление работает как раньше, просто ближайшие пункты не предлагаются.
