@@ -64,8 +64,14 @@
     return out;
   }
 
+  var photoColorNames = null;
   function updateSelects(named) {
     var names = named.map(function (c) { return c.name; });
+    // Цена, наличие и оттенок не меняют варианты привязки фото. У товара
+    // с большой галереей не пересоздаём сотни селектов на каждый ввод.
+    var signature = JSON.stringify(names);
+    if (signature === photoColorNames) return;
+    photoColorNames = signature;
     document.querySelectorAll('select.img-color').forEach(function (sel) {
       var cur = sel.value;
       var html = '<option value="">— общее —</option>';

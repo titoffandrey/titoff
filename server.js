@@ -4714,6 +4714,7 @@ app.post('/admin/products/:id/images/add', async (req, res) => {
   db.updateProduct(current.id, { images, imageColors, imageBands });
   res.json({ ok: true, images: added.map(f => ({
     src: f,
+    preview: IMG.previewName(db.UPLOAD_DIR, f),
     color: (color && valid) ? color : '',
     band: bandValid ? band : ''
   })) });

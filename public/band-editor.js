@@ -135,7 +135,15 @@
 
   // У каждой карточки фото свой список ремешков — отдельный от списка корпусов,
   // потому что снимок несёт обе привязки сразу.
+  var photoBandNames = null;
   function updatePhotoSelects(groups) {
+    // Списки на всех фото зависят только от названий коллекций и цветов,
+    // а не от цен, наличия, оттенков или выбранного корпуса для загрузки.
+    var signature = JSON.stringify(groups.map(function (g) {
+      return [g.name, g.options.map(function (o) { return o.name; })];
+    }));
+    if (signature === photoBandNames) return;
+    photoBandNames = signature;
     document.querySelectorAll('select.img-band').forEach(function (sel) {
       var cur = sel.value;
       var html = '<option value="">— без ремешка —</option>';

@@ -18,6 +18,20 @@
   try { allOrder = JSON.parse(box.dataset.order || '[]'); } catch (e) { allOrder = []; }
   if (!Array.isArray(allOrder)) allOrder = [];
 
+  // Одного loading="lazy" недостаточно: браузер может заранее скачать даже
+  // скрытые фото. Пока группа закрыта, у снимков вообще нет src.
+  function loadGroup(group) {
+    if (!group.open) return;
+    group.querySelectorAll('img[data-src]').forEach(function (img) {
+      img.src = img.dataset.src;
+      delete img.dataset.src;
+    });
+  }
+  // toggle не всплывает, поэтому слушаем его в фазе захвата.
+  chips.addEventListener('toggle', function (e) {
+    if (e.target.classList.contains('img-group')) loadGroup(e.target);
+  }, true);
+
   function esc(s) { return String(s).replace(/[&<>\"]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[m]; }); }
   function colorNames() {
     var out = [];
@@ -81,7 +95,7 @@
       if (cBand === band && cCase === color) g = candidate;
     });
     if (!g) {
-      g = document.createElement('div');
+      g = document.createElement('details');
       g.className = 'img-group';
       if (band) { g.dataset.band = band; g.dataset.case = color; } else g.dataset.color = color;
       var swatch = band
@@ -90,10 +104,12 @@
       var title = band
         ? esc(bandLabel(band)) + (color ? '<span class="img-group-case">' + esc(color) + '</span>' : '')
         : (color ? esc(color) : 'Общие фото');
-      g.innerHTML = '<div class="img-group-head">' + swatch + title + '<span class="img-group-count"></span></div><div class="img-chips"></div>';
+      g.innerHTML = '<summary class="img-group-head">' + swatch + title + '<span class="img-group-count"></span></summary><div class="img-chips"></div>';
       chips.appendChild(g);
     }
     g.hidden = false;
+    // После загрузки или смены привязки показываем результат сразу.
+    g.open = true;
     return g;
   }
   function refreshGroups() {
@@ -108,6 +124,7 @@
         if (next) next.disabled = index === items.length - 1;
       });
       g.hidden = !items.length;
+      loadGroup(g);
     });
     if (chipsWrap) chipsWrap.hidden = !chips.querySelector('.img-chip');
   }
@@ -116,7 +133,7 @@
       chip.classList.toggle('is-main', !!src && chip.dataset.src === src);
     });
   }
-  function addChip(src, color, band) {
+  function addChip(src, color, band, preview) {
     if (chipsWrap) chipsWrap.hidden = false;
     var isFirst = allOrder.length === 0;
     var d = document.createElement('div');
@@ -124,7 +141,7 @@
     d.dataset.src = src;
     d.draggable = true;
     d.innerHTML =
-      '<div class="img-chip-media"' + (color ? ' data-case="' + esc(color) + '"' : '') + '><img src="/uploads/' + esc(src) + '" alt="">' +
+      '<div class="img-chip-media"' + (color ? ' data-case="' + esc(color) + '"' : '') + '><img data-src="/uploads/' + esc(preview || src) + '" loading="lazy" decoding="async" width="92" height="92" alt="">' +
       '<span class="img-main-badge">Главное</span>' +
       '<button type="button" class="img-main" title="Сделать главным фото" aria-label="Сделать главным фото">★</button>' +
       '<button type="button" class="img-del" title="Удалить фото" aria-label="Удалить фото">&times;</button></div>' +
@@ -221,7 +238,7 @@
         var json = null;
         try { json = JSON.parse(xhr.responseText); } catch (e) { json = null; }
         if (xhr.status >= 200 && xhr.status < 300 && json && json.ok) {
-          json.images.forEach(function (image) { addChip(image.src, image.color, image.band); });
+          json.images.forEach(function (image) { addChip(image.src, image.color, image.band, image.preview); });
           setUploadProgress(input, 100, position ? 'Готово · ' + position : 'Готово', 'done');
         } else if (json && json.error === 'image_limit') {
           setUploadProgress(input, 0, 'Достигнут лимит: ' + MAX_PRODUCT_IMAGES + ' фото товара', 'error');

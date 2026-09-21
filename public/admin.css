@@ -267,7 +267,12 @@ body.admin{background:var(--bg2)}
 /* группы фото по цветам */
 .img-groups{display:flex;flex-direction:column;gap:16px}
 .img-group{border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:#fff}
-.img-group-head{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:10px}
+.img-group-head{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--text);margin:0;cursor:pointer;list-style:none}
+.img-group-head::-webkit-details-marker{display:none}
+.img-group-head::before{content:'›';font-size:20px;line-height:1;transition:transform .15s}
+.img-group[open]>.img-group-head{margin-bottom:10px}
+.img-group[open]>.img-group-head::before{transform:rotate(90deg)}
+.img-group-head:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
 .img-group-head .swatch{width:16px;height:16px;border-radius:5px;margin:0;border:1px solid rgba(0,0,0,.15)}
 .swatch-any{background:linear-gradient(135deg,#e9e9ee 45%,#d4d4dc 55%)}
 .img-group-count{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted)}
