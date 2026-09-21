@@ -63,6 +63,21 @@
   var activeXhr = null;
   var activeState = null;
 
+  function notify(message, type) {
+    var kind = type || 'error';
+    if (window.StoreToast) {
+      window.StoreToast.show(message, { type: kind, duration: kind === 'error' ? 0 : 6000, id: 'admin-product-upload' });
+      return;
+    }
+    var fallback = document.createElement('p');
+    fallback.setAttribute('data-store-toast', '');
+    fallback.setAttribute('data-toast-type', kind);
+    fallback.setAttribute('data-toast-id', 'admin-product-upload');
+    fallback.setAttribute('data-toast-duration', kind === 'error' ? '0' : '6000');
+    fallback.textContent = message;
+    form.appendChild(fallback);
+  }
+
   function fieldFor(input) { return input.closest('.photo-upload-field'); }
   function progressFor(field) { return field && field.querySelector('.photo-upload-progress'); }
   function cancelFor(field) {
@@ -93,6 +108,10 @@
     }
     var status = progress.querySelector('.photo-upload-status');
     if (status) status.textContent = message || '';
+    if (state === 'error' || state === 'cancelled' || state === 'done') {
+      notify(message, state === 'error' ? 'error' : state === 'done' ? 'success' : 'info');
+      progress.hidden = true;
+    }
     var cancel = cancelFor(field);
     if (cancel) cancel.hidden = ['queued', 'uploading', 'processing'].indexOf(state) === -1;
   }
@@ -156,6 +175,7 @@
       state.files = accepted;
       render(state);
       if (state.files.length) {
+        if (tooLarge) notify('Пропущено фото больше 6 МБ: ' + tooLarge, 'warning');
         setProgress(field, 0, tooLarge ? 'В очереди · пропущено: ' + tooLarge : 'В очереди', 'queued');
       } else if (tooLarge) setProgress(field, 0, 'Файл больше 6 МБ', 'error');
       else {

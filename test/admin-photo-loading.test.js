@@ -143,3 +143,48 @@ test('старый товар без уменьшенных копий полу�
   assert.equal(values.size, 2);
   assert.deepEqual([...values.keys()], ['imgcolor:front.jpg', 'imgcolor:back.png']);
 });
+
+test('успешный повтор удаления фотографии закрывает прежнюю постоянную ошибку', async () => {
+  const vm = require('node:vm');
+  const listeners = [], visible = new Map();
+  let accepted = false, removed = false;
+  const flags = new Set();
+  const chip = {
+    dataset: { src: 'photo.webp' },
+    classList: {
+      contains: name => flags.has(name), add: name => flags.add(name), remove: name => flags.delete(name)
+    },
+    remove: () => { removed = true; }
+  };
+  const box = { dataset: { product: 'product', order: '["photo.webp"]' }, addEventListener() {}, querySelectorAll: () => [] };
+  const chips = { addEventListener() {}, querySelectorAll: () => [], querySelector: () => null };
+  const document = {
+    getElementById: id => id === 'photo-manager' ? box : id === 'img-chips' ? chips : null,
+    addEventListener: (name, callback) => { if (name === 'click') listeners.push(callback); },
+    querySelectorAll: () => []
+  };
+  const context = {
+    document, Promise,
+    fetch: async () => ({ json: async () => ({ ok: accepted }) }),
+    StoreToast: {
+      show: (message, options) => visible.set(options.id, { message, ...options }),
+      dismiss: id => visible.delete(id)
+    }
+  };
+  context.window = context;
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'photo-manager.js'), 'utf8'), context);
+  const button = { closest: () => chip };
+  const click = async () => {
+    for (const callback of listeners) callback({ preventDefault() {}, target: { closest: selector => selector === '.img-del' ? button : null } });
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+  };
+  await click();
+  assert.equal(visible.size, 1);
+  assert.equal(visible.get('admin-photo-manager').type, 'error');
+  assert.equal(visible.get('admin-photo-manager').duration, 0);
+  assert.equal(removed, false);
+  accepted = true;
+  await click();
+  assert.equal(removed, true);
+  assert.equal(visible.size, 0, 'исправленная ошибка не остаётся рядом с успешным результатом');
+});

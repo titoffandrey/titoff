@@ -17,17 +17,21 @@
   if (!Array.isArray(order) || !order.length) return;
   var busy = false;
   var dragged = null;
-  var msgTimer = null;
 
   function rows() { return Array.prototype.slice.call(body.querySelectorAll('tr[data-id]')); }
 
   function say(text, isError) {
+    if (window.StoreToast) {
+      if (msg) msg.hidden = true;
+      window.StoreToast.show(text, { type: isError ? 'error' : 'success', duration: isError ? 0 : 2500, id: 'admin-product-order' });
+      return;
+    }
     if (!msg) return;
-    clearTimeout(msgTimer);
     msg.hidden = false;
-    msg.className = 'form-msg' + (isError ? ' err' : ' ok');
     msg.textContent = text;
-    if (!isError) msgTimer = setTimeout(function () { msg.hidden = true; }, 2500);
+    msg.setAttribute('data-store-toast', '');
+    msg.setAttribute('data-toast-type', isError ? 'error' : 'success');
+    msg.setAttribute('data-toast-duration', isError ? '0' : '2500');
   }
 
   // Номера строк и крайние стрелки зависят от позиции, поэтому обновляются

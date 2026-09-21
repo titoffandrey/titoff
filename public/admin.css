@@ -40,34 +40,7 @@ body.admin{background:var(--bg2)}
 .a-content-wide{max-width:1320px}
 .a-flash{background:#e9f7ee;color:#1a7f37;border:1px solid #b7e3c6;padding:12px 16px;border-radius:12px;margin:16px 24px 0;font-size:14px}
 .a-flash.err{background:#fff0f0;color:#d70015;border-color:#f2b8bb}
-/* «Сохранено» гаснет само через пять секунд.
-   Плашка отвечает на вопрос «получилось?», и ответ этот нужен ровно один раз:
-   раньше она висела до следующего перехода, и на странице настроек «Сохранено»
-   от давней правки соседствовало с уже другим содержимым формы.
-   ГДЕ ОНА ОСТАЛАСЬ: «получилось» в панели уехало карточкой в угол
-   (`.a-note-flash` ниже) — плашкой сверху его было видно, только стоя в начале
-   страницы. Зелёной плашкой в потоке осталась одна страница диалога: шапки
-   панели у неё нет вовсе, и место у сообщения там своё.
-   ОШИБКА (`.a-flash.err`) не гаснет никогда: она отвечает на другой вопрос —
-   «почему не сохранилось», — и нужна всё время, пока человек правит форму.
-   Пропасть у него из-под рук вместе с объяснением она не имеет права.
-   Чистый CSS и ни строчки скрипта — по той же причине, по которой скриптов нет
-   у режима правки списка: плашку рисует сервер, и гаснуть она обязана и там,
-   где скрипты панели не загрузились.
-   Гаснет не только цвет: поля, рамка и высота уходят в ноль, иначе на месте
-   плашки осталась бы пустая полоса, читаемая как незагрузившийся блок.
-   `max-height` в 400px — заведомо больше любого сообщения: анимировать высоту
-   от `auto` нельзя, а стартовое значение применяется в момент начала анимации
-   и до него ничего не обрезает. */
-@keyframes a-flash-out{
-  from{opacity:1;max-height:400px}
-  to{opacity:0;visibility:hidden;transform:translateY(-6px);max-height:0;
-    margin-top:0;margin-bottom:0;padding-top:0;padding-bottom:0;border-width:0}
-}
-.a-flash:not(.err){overflow:hidden;animation:a-flash-out .45s ease 5s forwards}
-/* При выключенной анимации плашка не остаётся навсегда — она просто исчезает
-   без движения: «висит вечно» здесь хуже, чем «пропало резко». */
-@media (prefers-reduced-motion:reduce){.a-flash:not(.err){animation-duration:.01s}}
+/* Без JavaScript сообщения остаются доступными в потоке страницы. */
 .a-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:22px}
 .a-stat{background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);padding:18px;color:var(--text)}
 .a-stat:hover{box-shadow:var(--shadow)}
@@ -580,86 +553,6 @@ body.admin input::placeholder,body.admin textarea::placeholder{color:rgba(0,0,0,
   100%{box-shadow:0 0 0 0 rgba(11,122,55,0)}
 }
 @media(prefers-reduced-motion:reduce){.a-live i,.a-live.is-hit{animation:none}}
-/* УВЕДОМЛЕНИЯ О СОБЫТИЯХ: заказ, отзыв, реплика в чате.
-   Подмена блоков показывает событие молча — цифра в таблице поменялась, и всё,
-   — а понять, ЧТО случилось, можно было только стоя на нужном разделе. Карточка
-   приходит поверх страницы, с миниатюрой: по ней с одного взгляда видно, о каком
-   товаре (или о ком) речь.
-   Правый нижний угол, а не верхний: сверху липкая шапка со счётчиками, и
-   карточка накрывала бы ровно те цифры, которые сама и меняет.
-   `pointer-events` у контейнера сняты — иначе невидимая колонка во всю высоту
-   экрана перехватывала бы клики по странице под ней. */
-.a-notes{position:fixed;right:16px;bottom:16px;z-index:60;pointer-events:none;
-  display:flex;flex-direction:column-reverse;gap:10px;width:min(360px,calc(100vw - 32px))}
-.a-note{display:flex;align-items:flex-start;pointer-events:auto;background:#fff;
-  border:1px solid var(--border-soft);border-radius:16px;box-shadow:0 16px 40px rgba(17,17,26,.18);
-  animation:a-note-in .26s ease}
-/* Полоска слева — тем же приёмом, что тон строки заказа: тень, а не рамка,
-   поэтому она ничего не двигает. Цвета уже знакомы по панели: зелёный — деньги,
-   тёплый — очередь модерации, акцент магазина — разговор. */
-.a-note-order{box-shadow:inset 3px 0 0 #0b7a37,0 16px 40px rgba(17,17,26,.18)}
-.a-note-review{box-shadow:inset 3px 0 0 #bf4800,0 16px 40px rgba(17,17,26,.18)}
-.a-note-chat{box-shadow:inset 3px 0 0 var(--accent),0 16px 40px rgba(17,17,26,.18)}
-.a-note.is-out{opacity:0;transform:translateY(10px);transition:opacity .26s,transform .26s}
-.a-note-link{display:flex;flex:1;min-width:0;align-items:center;gap:11px;padding:11px 2px 11px 13px;color:inherit}
-.a-note-link:hover .a-note-text b{color:var(--accent)}
-.a-note-pic{flex:none;width:44px;height:44px}
-.a-note-thumb,.a-note-ico{display:grid;place-items:center;width:100%;height:100%;
-  border-radius:12px;overflow:hidden;background:var(--bg2)}
-.a-note-thumb img,.a-note-thumb svg{width:100%;height:100%;object-fit:contain;display:block}
-.a-note-ico svg{width:21px;height:21px;color:#8e8e93}
-.a-note-ava .chat-ava{width:44px;height:44px;font-size:17px}
-.a-note-text{min-width:0;line-height:1.3}
-.a-note-text b{display:block;font-size:13.5px;font-weight:640;letter-spacing:-.01em;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Вторая строка обрезается по ширине, а не переносится: карточек бывает
-   несколько разом, и растущие в высоту они закрыли бы полэкрана. */
-.a-note-text i{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--muted);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.a-note-x{flex:none;width:34px;height:34px;margin:6px 6px 0 0;padding:0;display:grid;place-items:center;
-  border:0;background:none;border-radius:9px;color:#b0b0b6;cursor:pointer}
-.a-note-x svg{width:15px;height:15px}
-.a-note-x:hover{background:var(--bg2);color:var(--text)}
-.a-note-x:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@keyframes a-note-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-/* ОТВЕТ НА СОБСТВЕННОЕ ДЕЙСТВИЕ — «Сохранено», «Товар удалён», «Касса ещё ждёт
-   оплату» — приходит той же карточкой, в тот же угол.
-   Плашкой сверху её было видно, только стоя в начале страницы: действие делают
-   там, где строка, а страница после него приходит заново и встаёт на начало.
-   Зелёная полоска слева — та же, что у заказа: «получилось».
-   Уходит карточка САМА и без единой строчки скрипта: сервер её рисует, значит
-   исчезать она обязана и там, где скрипты панели не загрузились. Скрипт только
-   убирает узел по концу анимации (`public/admin-ui.js`), поэтому шесть секунд
-   записаны здесь и больше нигде — двумя копиями они разъехались бы молча.
-   Под курсором карточка не уходит: читать уведомление, которое исчезает
-   из-под руки, невозможно. Цена — попасть курсором ровно в те 0,4 с, что идёт
-   само угасание: карточка замрёт полупрозрачной, пока курсор не уйдёт.
-   `visibility` в конце обязателен: без скриптов узел останется в колонке, и
-   невидимая карточка перехватывала бы клики по странице под ней. */
-.a-note-flash{box-shadow:inset 3px 0 0 #0b7a37,0 16px 40px rgba(17,17,26,.18);
-  animation:a-note-in .26s ease,a-note-away .4s ease 6s forwards}
-.a-note-flash:hover,.a-note-flash:focus-within{animation-play-state:paused}
-.a-note-say{display:flex;flex:1;min-width:0;align-items:center;gap:11px;padding:12px 2px 12px 13px;
-  font-size:13.5px;font-weight:560;letter-spacing:-.01em;line-height:1.35}
-.a-note-msg{min-width:0;overflow-wrap:break-word}
-.a-note-tick{flex:none;display:grid;place-items:center;width:26px;height:26px;
-  border-radius:50%;background:#e9f7ee;color:#0b7a37}
-.a-note-tick svg{width:15px;height:15px}
-@keyframes a-note-away{to{opacity:0;visibility:hidden;transform:translateY(10px)}}
-@media(max-width:640px){
-  /* На телефоне карточка занимает всю ширину: в 360 px колонка справа оставляла
-     бы поле, в котором всё равно ничего нет. */
-  .a-notes{right:10px;left:10px;bottom:10px;width:auto}
-  /* Отдельным объявлением, а не внутри строки выше: без поддержки `env()`
-     недействительным становится всё объявление целиком, и карточка вернулась бы
-     под домашнюю полосу iPhone вместо того, чтобы просто её не учитывать. */
-  .a-notes{bottom:calc(10px + env(safe-area-inset-bottom))}
-}
-@media(prefers-reduced-motion:reduce){.a-note{animation:none}.a-note.is-out{transition:none}
-  /* Карточка «получилось» не остаётся навсегда — она просто исчезает без
-     движения: «висит вечно» здесь хуже, чем «пропало резко». Правило то же, что
-     у плашки `.a-flash`. */
-  .a-note-flash{animation:a-note-away .01s ease 6s forwards}}
 /* Выход переехал сюда со страницы «Настройки»: в шапке кнопка стояла рядом с
    разделами и нажималась вместо них, а нужна она раз в жизни. */
 /* В блоке выхода осталась одна кнопка: заголовок «Выход» и объяснение, что

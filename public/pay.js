@@ -116,11 +116,19 @@
     var text = btn.dataset.copy || '';
     if (!text) return;
     copyText(text).then(function () {
+      if (window.StoreToast && typeof window.StoreToast.show === 'function') {
+        window.StoreToast.show('Скопировано', { type: 'success', id: 'pay-copy' });
+        return;
+      }
       var was = btn.textContent;
       btn.textContent = 'Скопировано';
       btn.classList.add('is-done');
       setTimeout(function () { btn.textContent = was; btn.classList.remove('is-done'); }, 1600);
     }).catch(function () {
+      if (window.StoreToast && typeof window.StoreToast.show === 'function') {
+        window.StoreToast.show('Не удалось скопировать. Выделите реквизиты вручную.', { type: 'warning', id: 'pay-copy' });
+        return;
+      }
       // Разовый отказ (нет разрешения, старый браузер) не должен оставлять
       // кнопку с этой подписью навсегда: реквизит рядом, его можно выделить
       // руками, а со следующей попытки копирование обычно срабатывает.
@@ -182,6 +190,11 @@
   var create = document.getElementById('pay-create');
   var msg = document.getElementById('pay-msg');
   function showMsg(text) {
+    if (window.StoreToast && typeof window.StoreToast.show === 'function') {
+      if (msg) msg.hidden = true;
+      window.StoreToast.show(text, { type: 'error', duration: 0, id: 'pay-error' });
+      return;
+    }
     if (!msg) return;
     msg.hidden = false;
     msg.className = 'form-msg err';
@@ -308,6 +321,7 @@
         // Hosted-способ продолжает оплату на защищённой странице сервиса.
         // Обычные реквизиты и любой непригодный адрес возвращают к нашему заказу.
         if (d && d.ok) {
+          if (window.StoreToast && typeof window.StoreToast.dismiss === 'function') window.StoreToast.dismiss('pay-error');
           // На ссылку кассы уходим не отсюда, а через перезагруженную страницу
           // оплаты с `?go=1` (см. autoOpen выше): так она остаётся в истории.
           var target = safePayUrl(d.url);
@@ -375,6 +389,15 @@
   var busy = false;
   var pollTimer = null;
 
+  function checkFailed(manual) {
+    if (!manual) return;
+    var text = 'Не удалось проверить оплату. Проверьте соединение и попробуйте ещё раз.';
+    if (window.StoreToast && typeof window.StoreToast.show === 'function') {
+      window.StoreToast.show(text, { type: 'error', duration: 0, id: 'pay-status-error' });
+      if (stateBox) stateBox.textContent = hosted ? 'Ждём оплату…' : 'Ждём перевод…';
+    } else if (stateBox) stateBox.textContent = text;
+  }
+
   function poll(manual) {
     if (busy || state !== 'pending') return;
     busy = true;
@@ -384,9 +407,10 @@
       .then(function (d) {
         busy = false;
         if (!d || !d.ok) {
-          if (manual && stateBox) stateBox.textContent = 'Не удалось проверить оплату. Проверьте соединение и попробуйте ещё раз.';
+          checkFailed(manual);
           return;
         }
+        if (window.StoreToast && typeof window.StoreToast.dismiss === 'function') window.StoreToast.dismiss('pay-status-error');
         // Любое состояние, кроме ожидания, меняет всю страницу целиком.
         if (d.state && d.state !== 'pending') { location.reload(); return; }
         if (manual && stateBox) stateBox.textContent = hosted
@@ -395,7 +419,7 @@
       })
       .catch(function () {
         busy = false;
-        if (manual && stateBox) stateBox.textContent = 'Не удалось проверить оплату. Проверьте соединение и попробуйте ещё раз.';
+        checkFailed(manual);
       });
   }
 

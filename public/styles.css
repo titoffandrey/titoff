@@ -511,8 +511,6 @@ body.cart-open .cart-drawer{transform:translateX(0)}
 .cart-total{display:flex;justify-content:space-between;font-size:18px;font-weight:600;margin-bottom:12px}
 
 /* ===== Тост ===== */
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--text);color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;z-index:80;opacity:0;transition:opacity .25s var(--ease-out),transform .25s var(--ease-out);box-shadow:var(--shadow-lg);max-width:90vw;text-align:center}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ===== Планшеты/десктоп ===== */
 @media(min-width:640px){
@@ -1752,7 +1750,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .order-success-step{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--text);color:#fff;font-size:13px;font-weight:700}
 .order-success-next strong{display:block;margin:1px 0 3px;font-size:13px}
 .order-success-next p{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
-.toast{bottom:calc(24px + env(safe-area-inset-bottom));border-radius:14px;box-shadow:var(--shadow-lg)}
 
 /* Значки клиента: флаг страны, устройство, система, браузер. Одной строкой и
    открыто, а не в свёртке: с одного взгляда видно, кто и с чего зашёл.
@@ -3660,7 +3657,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
   .chat-fab,.account-btn,.cart-btn{display:none}
   /* Всё, что стояло у нижнего края, поднимается над панелью. */
   .chat-widget{bottom:calc(12px + var(--tabbar-h))}
-  .toast{bottom:calc(16px + var(--tabbar-h))}
   /* Липкий ряд покупки на странице товара липнет к ВЕРХУ панели, а не к низу
      экрана; вырез под домашнюю полосу теперь у панели, и свой отступ ряду не
      нужен — вместе с отрицательным полем, которое его гасило в потоке. */

@@ -1,0 +1,4 @@
+/* Оригинальные utility-классы Basic Toast компилируются Tailwind без замены цветов. */
+@import "tailwindcss" source(none);
+@source "./basic-toast.tsx";
+@custom-variant dark (&:where(.dark, .dark *));

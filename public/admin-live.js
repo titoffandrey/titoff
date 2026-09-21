@@ -112,6 +112,7 @@
 
   // Что человек уже решил сам: раскрыл свёртку, отметил галочку, выбрал пункт.
   function ownedByUser(el, name) {
+    if (name === 'data-store-toast-enhanced' && el.hasAttribute('data-store-toast')) return true;
     if (el.tagName === 'INPUT' && el.type === 'hidden') return false;
     if (name === 'open' && el.tagName === 'DETAILS') return true;
     /* Приближённая карта — тоже его решение. Кадр живёт в `viewBox`, а метрика
@@ -352,26 +353,8 @@
 
   /* ------------------------------------------------------------ уведомления */
 
-  /* Заказ, отзыв и реплика в чате приходят сами, и подмена блоков показывает их
-   * молча: цифра в таблице поменялась — а что именно случилось, видно, только
-   * если стоишь на нужном разделе. Поэтому событие приезжает отдельным
-   * сообщением канала и ложится карточкой поверх страницы.
-   *
-   * Разметку карточки прислал СЕРВЕР (`noteCard()` в lib/admin-views.js) — здесь
-   * её не собирают, как и разметку любой строки: второй рендер в браузере
-   * разъехался бы с серверным на первой правке.
-   */
-  var NOTE_TTL = 12000;        // сколько карточка висит сама по себе
-  var NOTE_KEEP = 4;           // сколько их держим на экране разом
-
-  /* Уводит карточку `public/admin-ui.js`: он грузится на каждой странице панели,
-   * и правило «как она исчезает» одно на события канала и на ответ сервера
-   * («Сохранено»), который приезжает готовой карточкой прямо в разметке. Второй
-   * копии здесь быть не должно — она разъехалась бы на первой правке. */
-  function noteHide(card) {
-    var notes = window.AdminNotes;
-    if (notes) notes.hide(card);
-  }
+  // Сервер передаёт текст и адрес; общую карточку рисует SmoothUI BasicToast.
+  var NOTE_TTL = 12000;
 
   /* Уведомление о реплике В ТОМ ЖЕ ДИАЛОГЕ, который сейчас открыт, показывать
    * незачем: менеджер смотрит на эту переписку, реплика приезжает в ленту живым
@@ -416,15 +399,15 @@
      * как звучит чат, быть не должно. */
     if (window.ChatSound) window.ChatSound.play('in');
     if (noteMine(card)) return;
-    box.insertBefore(card, box.firstChild);
-    // Старые уводим сами: десяток карточек закрыл бы половину экрана — ровно
-    // тем, ради чего панель и открыта.
-    while (box.children.length > NOTE_KEEP) noteHide(box.lastElementChild);
-    var timer = setTimeout(function () { noteHide(card); }, NOTE_TTL);
-    // Пока на карточку смотрят (курсор на ней), она не исчезает: читать
-    // уведомление, которое уходит из-под руки, невозможно.
-    card.addEventListener('mouseenter', function () { clearTimeout(timer); });
-    card.addEventListener('mouseleave', function () { timer = setTimeout(function () { noteHide(card); }, NOTE_TTL); });
+    var message = card.getAttribute('data-toast-message') || card.textContent;
+    var link = card.querySelector('.a-note-link');
+    var options = {
+      type: card.getAttribute('data-toast-type') || 'info',
+      duration: NOTE_TTL,
+      href: card.getAttribute('data-toast-href') || (link && link.getAttribute('href'))
+    };
+    if (window.StoreToast) window.StoreToast.show(message, options);
+    else box.insertBefore(card, box.firstChild);
   }
 
   /* ------------------------------------------------------------------- канал */

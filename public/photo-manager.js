@@ -18,6 +18,27 @@
   try { allOrder = JSON.parse(box.dataset.order || '[]'); } catch (e) { allOrder = []; }
   if (!Array.isArray(allOrder)) allOrder = [];
 
+  function notify(message, type) {
+    var kind = type || 'error';
+    if (window.StoreToast) {
+      window.StoreToast.show(message, { type: kind, duration: kind === 'error' ? 0 : 6000, id: 'admin-photo-manager' });
+      return;
+    }
+    clearNotice();
+    var fallback = document.createElement('p');
+    fallback.setAttribute('data-store-toast', '');
+    fallback.setAttribute('data-toast-type', kind);
+    fallback.setAttribute('data-toast-id', 'admin-photo-manager');
+    fallback.setAttribute('data-toast-duration', kind === 'error' ? '0' : '6000');
+    fallback.textContent = message;
+    box.appendChild(fallback);
+  }
+
+  function clearNotice() {
+    if (window.StoreToast) window.StoreToast.dismiss('admin-photo-manager');
+    box.querySelectorAll('[data-toast-id="admin-photo-manager"]').forEach(function (notice) { notice.remove(); });
+  }
+
   // Одного loading="lazy" недостаточно: браузер может заранее скачать даже
   // скрытые фото. Пока группа закрыта, у снимков вообще нет src.
   function loadGroup(group) {
@@ -199,6 +220,11 @@
     }
     var status = progress.querySelector('.photo-upload-status');
     if (status) status.textContent = message || '';
+    // Полоса остаётся индикатором загрузки; итог и ошибки — общим уведомлением.
+    if (state === 'error' || state === 'cancelled') {
+      notify(message, state === 'error' ? 'error' : 'info');
+      progress.hidden = true;
+    }
     var cancel = cancelFor(field);
     if (cancel) cancel.hidden = ['queued', 'uploading', 'processing'].indexOf(state) === -1;
   }
@@ -240,6 +266,7 @@
         if (xhr.status >= 200 && xhr.status < 300 && json && json.ok) {
           json.images.forEach(function (image) { addChip(image.src, image.color, image.band, image.preview); });
           setUploadProgress(input, 100, position ? 'Готово · ' + position : 'Готово', 'done');
+          if (isLast) notify('Фото загружено', 'success');
         } else if (json && json.error === 'image_limit') {
           setUploadProgress(input, 0, 'Достигнут лимит: ' + MAX_PRODUCT_IMAGES + ' фото товара', 'error');
         } else setUploadProgress(input, 0, 'Ошибка загрузки', 'error');
@@ -292,6 +319,7 @@
       input.value = '';
       return;
     }
+    if (skipped) notify('Пропущено фото больше 6 МБ: ' + skipped, 'warning');
     selectionText(input, files.length + ' фото выбрано');
     setUploadProgress(input, 0, skipped ? 'В очереди · пропущено: ' + skipped : 'В очереди', 'queued');
     input.disabled = true;
@@ -333,14 +361,15 @@
     post('/images/remove', { src: chip.dataset.src })
       .then(function (json) {
         if (json && json.ok) {
+          clearNotice();
           allOrder = allOrder.filter(function (src) { return src !== chip.dataset.src; });
           chip.remove();
           if (wasMain) markMain(allOrder[0]);
           refreshGroups();
           refreshBandCounts();
-        } else { chip.classList.remove('is-busy'); alert('Не удалось удалить фото'); }
+        } else { chip.classList.remove('is-busy'); notify('Не удалось удалить фото'); }
       })
-      .catch(function () { chip.classList.remove('is-busy'); alert('Не удалось удалить фото: нет связи с сервером'); });
+      .catch(function () { chip.classList.remove('is-busy'); notify('Не удалось удалить фото: нет связи с сервером'); });
   });
 
   document.addEventListener('click', function (e) {
@@ -354,14 +383,15 @@
     chip.classList.add('is-main');
     post('/images/main', { src: chip.dataset.src }).then(function (json) {
       if (json && json.ok) {
+        clearNotice();
         allOrder = [chip.dataset.src].concat(allOrder.filter(function (src) { return src !== chip.dataset.src; }));
         chip.parentNode.insertBefore(chip, chip.parentNode.firstElementChild);
         refreshGroups();
       } else {
         chip.classList.remove('is-main'); if (previous) previous.classList.add('is-main');
-        alert('Не удалось назначить главное фото');
+        notify('Не удалось назначить главное фото');
       }
-    }).catch(function () { chip.classList.remove('is-main'); if (previous) previous.classList.add('is-main'); });
+    }).catch(function () { chip.classList.remove('is-main'); if (previous) previous.classList.add('is-main'); notify('Не удалось назначить главное фото: нет связи с сервером'); });
   });
 
   // Меняем только тот селект, который тронули: второй сервер оставит как был.
@@ -377,6 +407,7 @@
       .then(function (json) {
         chip.classList.remove('is-busy');
         if (json && json.ok) {
+          clearNotice();
           // Подпись корпуса читается через attr() у самого .img-chip-media,
           // поэтому атрибут держим на обоих элементах: чип ищут скрипты, медиа — CSS.
           var media = chip.querySelector('.img-chip-media');
@@ -387,9 +418,9 @@
           else targetGroup.appendChild(chip);
           refreshGroups();
           refreshBandCounts();
-        } else alert('Не удалось изменить привязку фото');
+        } else notify('Не удалось изменить привязку фото');
       })
-      .catch(function () { chip.classList.remove('is-busy'); });
+      .catch(function () { chip.classList.remove('is-busy'); notify('Не удалось изменить привязку фото: нет связи с сервером'); });
   });
 
   function moveChip(chip, target, after) {
@@ -408,13 +439,14 @@
     post('/images/order', { images: nextOrder }).then(function (json) {
       setBusy(chip, false); setBusy(target, false);
       orderBusy = false;
-      if (json && json.ok) { allOrder = nextOrder; markMain(allOrder[0]); }
-      else { oldChildren.forEach(function (item) { parent.appendChild(item); }); alert('Не удалось изменить порядок фото'); }
+      if (json && json.ok) { clearNotice(); allOrder = nextOrder; markMain(allOrder[0]); }
+      else { oldChildren.forEach(function (item) { parent.appendChild(item); }); notify('Не удалось изменить порядок фото'); }
       refreshGroups();
     }).catch(function () {
       setBusy(chip, false); setBusy(target, false);
       orderBusy = false;
       oldChildren.forEach(function (item) { parent.appendChild(item); });
+      notify('Не удалось изменить порядок фото: нет связи с сервером');
       refreshGroups();
     });
   }

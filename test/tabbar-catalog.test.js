@@ -129,10 +129,9 @@ test('нижняя панель: полоса как у i-store.by, значки
   // Закрытое окно возвращает фокус туда, откуда открыли: на телефоне — на вкладку.
   assert.match(chat, /var back = button && button\.offsetParent !== null \? button : document\.querySelector\('\[data-chat-open\]'\);/);
   assert.match(chat, /tab\.setAttribute\('aria-label', 'Чат, новых сообщений: ' \+ state\.unread\)/);
-  // Кнопка чата, тост и липкий ряд покупки поднимаются на высоту панели —
+  // Кнопка чата и липкий ряд покупки поднимаются на высоту панели —
   // правила стоят в конце файла, после своих блоков.
   assert.match(tail, /\.chat-widget\{bottom:calc\(12px \+ var\(--tabbar-h\)\)\}/);
-  assert.match(tail, /\.toast\{bottom:calc\(16px \+ var\(--tabbar-h\)\)\}/);
   assert.match(tail, /\.product \.buy-row\{bottom:var\(--tabbar-h\);padding-bottom:12px;margin-bottom:0\}/);
   assert.match(tail, /\.product-page \.chat-widget\{bottom:calc\(84px \+ var\(--tabbar-h,0px\)\)\}/);
   assert.match(tail, /@media print\{\.tabbar\{display:none!important\}\}/);

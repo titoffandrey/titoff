@@ -1,0 +1,24 @@
+/* Только размещение, доступность и защита исходного компонента от CSS магазина. */
+.store-toast-card {
+  --store-toast-top: calc(1rem + env(safe-area-inset-top, 0px));
+  top: var(--store-toast-top);
+  right: max(1rem, env(safe-area-inset-right, 0px));
+  z-index: 12000;
+  max-width: calc(100vw - 2rem);
+  color: #171717;
+  text-align: left;
+  font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+.dark .store-toast-card { color: #fafafa; }
+.store-toast-card button { appearance: none; min-width: 0; min-height: 0; box-shadow: none; }
+.store-toast-card button:focus-visible,
+.store-toast-card[data-toast-href]:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.store-toast-card[data-toast-href] { cursor: pointer; }
+.store-toast-card p { min-width: 0; }
+[data-store-toast][data-store-toast-enhanced="true"] { display: none !important; }
+@media print { .store-toast-card { display: none !important; } }

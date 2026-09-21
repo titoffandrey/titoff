@@ -3237,7 +3237,7 @@ test('добавление в корзину сразу уводит в корз
   // Признак успеха обязателен: без него переход случался бы и на отказе, и
   // покупатель уезжал бы в корзину, куда ничего не положили.
   assert.match(add, /if \(!next\) return false;/);
-  assert.match(add, /слишком много разных товаров'\); return false;/);
+  assert.match(add, /слишком много разных товаров', 'warning'\); return false;/);
   assert.match(add, /return true;\s*\},/);
   assert.match(js, /var added = Cart\.add\(/);
   // Уход в корзину ждёт цель Метрики «в корзину» (без счётчика — сразу).
@@ -7911,94 +7911,30 @@ test('режим правки не выключается после удале�
   assert.doesNotMatch(editing, /purge-all|\/restore/);
 });
 
-test('плашка «Сохранено» гаснет сама и не оставляет пустой полосы', () => {
-  const css = PANEL_CSS;
-  assert.match(css, /@keyframes a-flash-out\{/);
-  assert.match(css, /\.a-flash:not\(\.err\)\{overflow:hidden;animation:a-flash-out [\d.]+s ease \ds forwards\}/);
-  /* Гаснет только «получилось». Ошибка отвечает на другой вопрос — «почему не
-   * сохранилось», — и нужна всё время, пока человек правит форму: пропасть у
-   * него из-под рук вместе с объяснением она не имеет права. */
-  assert.doesNotMatch(css, /\.a-flash\{[^}]*animation:a-flash-out/);
-  const frames = css.slice(css.indexOf('@keyframes a-flash-out{'), css.indexOf('@keyframes a-flash-out{') + 400);
-  // Гаснет не только цвет: поля, рамка и высота уходят в ноль, иначе на месте
-  // плашки осталась бы пустая полоса, читаемая как незагрузившийся блок.
-  for (const prop of ['visibility:hidden', 'max-height:0', 'margin-top:0', 'padding-top:0', 'border-width:0']) {
-    assert.ok(frames.includes(prop), 'плашка обязана схлопываться: ' + prop);
-  }
-  // При выключенной анимации она не остаётся навсегда — просто исчезает без
-  // движения: «висит вечно» здесь хуже, чем «пропало резко».
-  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\.a-flash:not\(\.err\)\{animation-duration:[\d.]+s\}\}/);
-  // И ни строчки скрипта: плашку рисует сервер, гаснуть она обязана и там, где
-  // скрипты панели не загрузились.
-  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
-  assert.doesNotMatch(ui, /a-flash/);
-});
-
-test('«получилось» приходит карточкой в угол, ошибка остаётся плашкой у формы', () => {
-  const orders = [{
-    id: 'o1', number: '853211', total: 78500, items: [{ id: 'p1', name: 'iPhone', qty: 1 }],
-    customerName: 'Саша', contact: '@s', createdAt: 1
-  }];
-  const db = {
-    getOrders: () => orders, visibleOrders: () => orders,
-    getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
-  };
-
-  /* Плашка стояла первой строкой содержимого, то есть увидеть её можно было,
-   * только стоя наверху: действие делают внизу длинного списка, а страница после
-   * него приходит заново. Карточка падает в тот же угол, что и события канала. */
-  const done = adminViews.ordersList(SETTINGS, db, 'Касса ещё ждёт оплату', 1);
-  assert.match(done, /<div class="a-notes" id="a-notes" aria-live="polite"><div class="a-note a-note-flash"/);
-  assert.match(done, /a-note-msg">Касса ещё ждёт оплату</);
-  assert.doesNotMatch(done, /class="a-flash/, 'плашки в потоке у «получилось» больше нет');
-  // Закрывается она тем же крестиком, что и события: двух похожих крестиков в
-  // одном углу быть не должно.
-  assert.match(done, /a-note-flash[\s\S]{0,400}data-note-close/);
-  // Текст сообщения разметкой не становится.
-  assert.doesNotMatch(adminViews.ordersList(SETTINGS, db, '<img src=x onerror=alert(1)>', 1), /<img src=x/);
-
-  /* Ошибка отвечает на другой вопрос — «почему не сохранилось», — нужна всё
-   * время, пока правят форму, и место ей рядом с формой, а не в углу. */
+test('панель: успех, информация и ошибки используют общий SmoothUI BasicToast', () => {
+  const orders = [{ id: 'o1', number: '853211', total: 78500, items: [{ id: 'p1', name: 'iPhone', qty: 1 }], customerName: 'Саша', contact: '@s', createdAt: 1 }];
+  const db = { getOrders: () => orders, visibleOrders: () => orders, getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0 };
+  const done = adminViews.ordersList(SETTINGS, db, 'Порядок сохранён', 1);
+  const info = adminViews.ordersList(SETTINGS, db, 'Касса ещё ждёт оплату', 1);
   const bad = adminViews.settingsPage(SETTINGS, db, 'Укажите название магазина', 'err', { draft: {} });
-  assert.match(bad, /<div class="a-flash err" data-flash>Укажите название магазина<\/div>/);
-  assert.doesNotMatch(bad, /a-note-flash/);
-
-  /* Контейнер нужен и странице без живого канала: «Сохранено» есть и у формы
-   * настроек, а живого обновления у неё нет и быть не должно. */
+  assert.match(done, /data-store-toast data-toast-type="success" data-toast-duration="6000"/);
+  assert.match(info, /data-store-toast data-toast-type="info"/);
+  assert.match(bad, /data-flash data-store-toast data-toast-type="error" data-toast-duration="0"/);
+  assert.match(bad, /role="alert">Укажите название магазина</);
+  assert.match(adminViews.ordersList(SETTINGS, db, 'Не удалось сохранить', 1), /data-toast-type="error"/);
+  assert.match(adminViews.ordersList(SETTINGS, db, 'Касса выключена', 1), /data-toast-type="warning"/);
+  assert.doesNotMatch(adminViews.ordersList(SETTINGS, db, '<img src=x onerror=alert(1)>', 1), /<img src=x/);
+  for (const html of [done, bad, adminViews.loginPage(SETTINGS, 'Неверный пароль')]) {
+    assert.match(html, /smoothui-toast\.css/);
+    assert.match(html, /smoothui-toast\.js[^>]+defer/);
+  }
+  assert.ok(done.indexOf('/static/smoothui-toast.js') < done.indexOf('/static/admin-ui.js'));
   assert.match(adminViews.settingsPage(SETTINGS, db, 'Сохранено'), /id="a-notes"/);
   assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db), /id="a-notes"/);
-  assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db, 'Сохранено'), /admin-live\.js/,
-    'карточка карточкой, а живого канала у формы по-прежнему нет');
-
-  const css = PANEL_CSS;
-  // Уходит карточка сама и чистым CSS — как гасла плашка. Число секунд записано
-  // ровно один раз: скрипт убирает узел по концу анимации, а не по таймеру.
-  assert.match(css, /\.a-note-flash\{[^}]*animation:a-note-in [\d.]+s ease,a-note-away [\d.]+s ease (\d+)s forwards\}/);
-  const secs = css.match(/\.a-note-flash\{[^}]*a-note-away [\d.]+s ease (\d+)s forwards\}/)[1];
-  // Без скриптов узел останется в колонке, и невидимая карточка перехватывала бы
-  // клики по странице под ней.
-  assert.match(css, /@keyframes a-note-away\{to\{[^}]*visibility:hidden/);
-  // Под курсором карточка не уходит: читать уведомление, которое исчезает
-  // из-под руки, невозможно.
-  assert.match(css, /\.a-note-flash:hover,\.a-note-flash:focus-within\{animation-play-state:paused\}/);
-  // При выключенной анимации она не остаётся навсегда — просто исчезает без
-  // движения, тем же сроком.
-  assert.match(css, new RegExp('\\.a-note-flash\\{animation:a-note-away [\\d.]+s ease ' + secs + 's forwards\\}'));
-  /* На телефоне карточка стоит внизу, и домашняя полоса iPhone — её дело.
-   * Отдельным объявлением: без поддержки `env()` недействительным становится всё
-   * объявление целиком, и отступ пропал бы вместе с ним. */
-  assert.match(css, /\.a-notes\{right:10px;left:10px;bottom:10px;width:auto\}/);
-  assert.match(css, /\.a-notes\{bottom:calc\(10px \+ env\(safe-area-inset-bottom\)\)\}/);
-
-  /* Уход у карточки один на обе — событие канала и ответ сервера, — и лежит он
-   * в admin-ui.js: тот грузится на каждой странице панели, а живой канал есть
-   * не у всех. Второй копии в admin-live.js быть не должно. */
-  const ui = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
-  assert.match(ui, /window\.AdminNotes = \{ hide: hide \}/);
-  assert.match(ui, /e\.animationName !== 'a-note-away'/);
+  assert.doesNotMatch(adminViews.settingsPage(SETTINGS, db, 'Сохранено'), /admin-live\.js/);
   const live = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-live.js'), 'utf8');
-  assert.match(live, /var notes = window\.AdminNotes/);
-  assert.doesNotMatch(live, /classList\.add\('is-out'\)/, 'уход карточки описан один раз');
+  assert.match(live, /StoreToast\.show\(message, options\)/);
+  assert.doesNotMatch(live, /AdminNotes|classList\.add\('is-out'\)/);
 });
 
 test('после действия панель возвращает на прежнее место, а не в начало страницы', () => {
@@ -13450,15 +13386,16 @@ test('заказ, отзыв и реплика в чате приходят ка
   const order = { id: 'o1', number: '360317', total: 69000, items: [{ id: 'p1', name: 'iPhone 17 Pro Max 256 ГБ', qty: 1 }, { id: 'p1', name: 'AirTag', qty: 1 }] };
 
   const card = adminViews.noteOrder(SETTINGS, db, order);
-  assert.match(card, /class="a-note a-note-order"/);
+  assert.match(card, /class="a-note-order"/);
+  assert.match(card, /data-store-toast data-toast-type="info" data-toast-duration="12000"/);
   // Ссылка ведёт к самой заявке, а не в начало списка: разбирать событие будут
   // там, где оно случилось.
   assert.match(card, /href="\/admin\/orders#order-o1"/);
   assert.match(card, /Новый заказ №360317/);
   assert.match(card, /и ещё 1/, 'состав не обрывается на первой позиции молча');
   assert.match(card, /69 000/);
-  assert.match(card, /a-note-thumb/, 'миниатюра товара — то, ради чего карточку и читают');
-  assert.match(card, /data-note-close/, 'закрыть её можно руками, не дожидаясь');
+  assert.match(card, /data-toast-href="\/admin\/orders#order-o1"/);
+  assert.doesNotMatch(card, /a-note-thumb|data-note-close/, 'карточку и крестик рисует исходный BasicToast');
 
   const review = adminViews.noteReview(SETTINGS, db, { id: 'r1', productId: 'p1', rating: 5, text: 'Всё пришло целым' });
   assert.match(review, /a-note-review/);
@@ -13468,12 +13405,12 @@ test('заказ, отзыв и реплика в чате приходят ка
   const chat = adminViews.noteChat({ id: 'c'.repeat(32), name: 'Марина', messages: [] }, 'Есть 512 ГБ?');
   assert.match(chat, /a-note-chat/);
   assert.match(chat, new RegExp('href="/admin/chat/' + 'c'.repeat(32) + '"'));
-  assert.match(chat, /chat-ava/, 'у собеседника вместо фото аватар из списка диалогов');
+  assert.match(chat, /data-toast-message="Сообщение в чат · Марина · Есть 512 ГБ\?/);
 
   // Фото у товара нет — берётся значок раздела: плейсхолдер витрины рисуется
   // ссылкой на спрайт, которого в панели нет, и вышел бы пустой квадрат.
   const noPic = adminViews.noteOrder(SETTINGS, { getProduct: () => ({ id: 'p2', name: 'Товар', images: [] }), UPLOAD_DIR: '/nonexistent' }, order);
-  assert.match(noPic, /a-note-ico/);
+  assert.match(noPic, /data-store-toast/);
   assert.doesNotMatch(noPic, /a-note-thumb/);
 
   // Текст покупателя разметкой не становится — ни в имени, ни в самой реплике.
@@ -15651,7 +15588,7 @@ test('диалог в панели — экран мессенджера на л
    * обычном её месте плашка осталась бы за краем. Класс тот же, поэтому гаснет
    * она сама через пять секунд — правило одно на всю панель. */
   const flashed = adminViews.chatPage(SETTINGS, db, chat, 'Реплика изменена', [], false);
-  assert.match(flashed, /<div class="chat-view"[\s\S]*a-flash ok chat-flash">Реплика изменена</);
+  assert.match(flashed, /<div class="chat-view"[\s\S]*data-store-toast data-toast-type="success"[^>]*>Реплика изменена</);
   assert.doesNotMatch(flashed, /a-main">\s*<div class="a-flash/);
   // На десктопе обёртка подробностей раньше убиралась из раскладки; теперь
   // раскрытие общее, и правило `display:contents` осталось только запасным.
@@ -18818,7 +18755,6 @@ test('появляющиеся поверхности идут по общей �
   assert.match(css, /--ease-out:cubic-bezier\(\.23,1,\.32,1\)/);
   assert.match(css, /--ease-drawer:cubic-bezier\(\.32,\.72,0,1\)/);
   assert.match(css, /\.cart-drawer\{[^}]*transition:transform \.25s var\(--ease-drawer\)/);
-  assert.match(css, /\.toast\{[^}]*transition:opacity \.25s var\(--ease-out\),transform \.25s var\(--ease-out\)/);
   assert.match(css, /\.chat-panel\{[\s\S]{0,600}?transition:opacity \.2s var\(--ease-out\)/);
 });
 
@@ -19176,11 +19112,10 @@ test('панель: «Сохранено» не повторяется при о
    * браузере, и тогда она пропала бы у тех, у кого скрипты не загрузились. */
   assert.doesNotMatch(code, /a-note-flash[^\n]*remove\(\)/, 'карточку скрипт не прячет сам');
 
-  /* Плашки ОШИБКИ это не касается вовсе: она приходит не через адрес, а прямо в
-   * ответе на POST, и живёт, пока человек правит форму. */
+  // Ошибка формы не исчезает по таймеру: она нужна, пока человек правит поля.
   const views = fs.readFileSync(path.join(__dirname, '..', 'lib', 'admin-views.js'), 'utf8');
-  assert.match(views, /flashErr \? `<div class="a-flash err" data-flash>/,
-    'ошибка остаётся плашкой в потоке, а не карточкой в углу');
+  assert.match(views, /data-toast-duration="\$\{kind === 'error' \? 0 : 6000\}/,
+    'ошибка остаётся до явного закрытия карточки');
 });
 
 /* ======================= Яндекс Метрика ======================= */

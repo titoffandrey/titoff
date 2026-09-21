@@ -163,7 +163,7 @@
         var changed = next.length !== Cart.items.length;
         Cart.items = next;
         Cart.save(); Cart.render();
-        if (changed) toast('Корзина обновлена: часть товаров больше недоступна');
+        if (changed) toast('Корзина обновлена: часть товаров больше недоступна', 'warning');
         return true;
       })
       .catch(function () { return false; /* офлайн — работаем с тем, что сохранено */ });
@@ -284,7 +284,7 @@
       + ' autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false">'
       + '<button type="submit" class="co-promo-apply">Применить</button>'
       + '</form>'
-      + '<p class="co-promo-note is-err" id="co-promo-note" role="status" hidden></p>'
+      + '<p class="co-promo-note is-err" id="co-promo-note" role="status" data-store-toast data-toast-type="error" data-toast-id="promo-result" hidden></p>'
       + '</div>';
 
     var form = document.getElementById('co-promo-form');
@@ -340,6 +340,7 @@
     var typed = input ? input.value.trim() : '';
     var code = cleanPromoCode(typed || (promoView && promoView.fallback) || '');
     promoError = '';
+    syncPromo(); // Новая попытка закрывает предыдущую ошибку, даже с тем же ответом.
     if (!code) { promoError = 'Введите промокод'; syncPromo(); return; }
     var btn = document.querySelector('.co-promo-apply');
     if (btn) btn.disabled = true;
@@ -581,7 +582,7 @@
         + '<span class="btn-checkout-ico" id="co-btn-ico">' + coIcon(checkoutMode() !== 'request' ? 'lock' : 'check', 'btn-ico') + '</span>'
         + '<span class="btn-checkout-label">Оформить заказ</span>'
         + '<span class="btn-checkout-sum" id="co-btn-sum">' + money(Cart.total()) + '</span></button>'
-        + '<p class="form-msg" id="order-msg" hidden></p>'
+        + '<p class="form-msg" id="order-msg" data-store-toast data-toast-id="order-result" hidden></p>'
         + '<p class="form-legal-note">'
         + '<a href="/privacy" target="_blank" rel="noopener">Политика конфиденциальности</a></p>'
         + '</div>';
@@ -1907,12 +1908,12 @@
         ex.price = next.price; ex.name = next.name; ex.img = next.img || ex.img;
         want = Math.min(99, ex.qty + next.qty);
         ex.qty = Math.min(want, this.fits(ex));
-        if (ex.qty < want) toast('Больше в один заказ не помещается: не более ' + money(ORDER_MAX));
+        if (ex.qty < want) toast('Больше в один заказ не помещается: не более ' + money(ORDER_MAX), 'warning');
       } else if (this.items.length < MAX_CART_LINES) {
         next.qty = Math.min(next.qty, this.fits(next));
-        if (next.qty < want) toast('Больше в один заказ не помещается: не более ' + money(ORDER_MAX));
+        if (next.qty < want) toast('Больше в один заказ не помещается: не более ' + money(ORDER_MAX), 'warning');
         this.items.push(next);
-      } else { toast('В корзине слишком много разных товаров'); return false; }
+      } else { toast('В корзине слишком много разных товаров', 'warning'); return false; }
       this.save(); this.render();
       // Признак успеха нужен вызывающему: после добавления он уводит на
       // страницу корзины, а на отказе («слишком много товаров», битая позиция)
@@ -2139,13 +2140,16 @@
     else if (typeof done === 'function') done();
   }
 
-  var toastTimer;
-  function toast(msg) {
+  // Внешний компонент — исходный BasicToast SmoothUI. Текстовый узел остаётся
+  // запасным выходом, если файл компонента не загрузился по сети.
+  function toast(msg, type) {
+    if (window.StoreToast && typeof window.StoreToast.show === 'function') {
+      window.StoreToast.show(msg, { type: type || 'info', id: 'store-notice' });
+      return;
+    }
     var t = document.getElementById('toast'); if (!t) return;
+    t.setAttribute('data-toast-type', type || 'info');
     t.textContent = msg; t.hidden = false;
-    requestAnimationFrame(function () { t.classList.add('show'); });
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.classList.remove('show'); setTimeout(function () { t.hidden = true; }, 250); }, 2200);
   }
 
   /* Глубина прокрутки — сколько процентов страницы человек увидел.
@@ -2598,7 +2602,7 @@
     if (checkoutNode) Cart.render();                               // страница оформления рисуется сразу
     refreshCartFromServer();                                       // подтянуть свежие фото, цены и наличие
     try {                                                          // благодарность после перезагрузки со свежим отзывом
-      if (sessionStorage.getItem('review_thanks')) { sessionStorage.removeItem('review_thanks'); toast('Спасибо за отзыв!'); }
+      if (sessionStorage.getItem('review_thanks')) { sessionStorage.removeItem('review_thanks'); toast('Спасибо за отзыв!', 'success'); }
     } catch (e) {}
     startAnalytics(true);
     initAnalyticsControls();
@@ -3391,6 +3395,7 @@
 
       function sendReview() {
         var msg = document.getElementById('review-msg');
+        if (msg) msg.hidden = true;
         var submit = rf.querySelector('button[type="submit"]');
         if (submit && submit.disabled) return;
         if (submit) { submit.disabled = true; submit.textContent = 'Отправляем...'; }
@@ -3431,7 +3436,7 @@
         var consent = document.getElementById('rv-consent');
         if (consent && !consent.checked) {
           var msg = document.getElementById('review-msg');
-          if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Отметьте согласие - без него отзыв отправить нельзя'; }
+          if (msg) { msg.hidden = true; msg.hidden = false; msg.className = 'form-msg err'; msg.textContent = 'Отметьте согласие - без него отзыв отправить нельзя'; }
           try { consent.focus(); } catch (err) {}
           return;
         }
@@ -3592,6 +3597,7 @@
     // после ответа страница уйдёт на оплату. Снимаем полный снимок прямо сейчас.
     rememberCheckout();
     var msg = document.getElementById('order-msg');
+    if (msg) msg.hidden = true;
     var val = function (id) { return ((document.getElementById(id) || {}).value || '').trim(); };
     // Те же требования, что и на сервере, — просто без ожидания ответа. Сервер
     // всё равно проверяет заново: клиентским данным не верим.

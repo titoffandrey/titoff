@@ -877,12 +877,22 @@
     if (notImage) note('Приложить можно только фотографии.');
     else if (tooBig) note('Один снимок — не больше 6 МБ.');
     else if (tooMany) note('К сообщению можно приложить не больше ' + MAX_SHOTS + ' фото.');
+    else clearNote('chat-attachment-error');
     if (added) renderPicks();
   }
 
-  // Короткая строка о том, почему не вышло. Обычная системная реплика в ленте:
-  // своего места для ошибок в окне нет, а это ровно то место, куда смотрят.
-  function note(text) { append({ role: 'system', text: text }); }
+  // Ошибки действия показываем общим уведомлением. Настоящие системные
+  // сообщения из истории по-прежнему остаются частью разговора.
+  function clearNote(id) {
+    if (window.StoreToast && typeof window.StoreToast.dismiss === 'function') window.StoreToast.dismiss(id);
+  }
+  function note(text, type, id) {
+    if (window.StoreToast && typeof window.StoreToast.show === 'function') {
+      window.StoreToast.show(text, { type: type || 'warning', duration: 0, id: id || 'chat-attachment-error' });
+      return;
+    }
+    append({ role: 'system', text: text });
+  }
 
   function renderPicks() {
     if (!picksBox) return;
@@ -962,6 +972,8 @@
     // текст и исходные File остаются в поле, а новые правки во время запроса
     // не стираются его запоздавшим ответом.
     function acceptedDraft() {
+      clearNote('chat-send-error');
+      clearNote('chat-attachment-error');
       if (input.value === draft) input.value = '';
       state.files = state.files.filter(function (file) { return files.indexOf(file) === -1; });
       renderPicks();
@@ -975,12 +987,12 @@
       if (rec && rec.at) { acceptedDraft(); return; }
       hideTyping();
       if (rec) { rec.failed = true; setTick(rec); }
-      append({ role: 'system', text: d && d.error && d.error !== 'network' ? d.error
-        : 'Не удалось подтвердить отправку. Текст и фото сохранены в поле. Проверьте переписку перед повтором.' });
+      note(d && d.error && d.error !== 'network' ? d.error
+        : 'Не удалось подтвердить отправку. Текст и фото сохранены в поле. Проверьте переписку перед повтором.', 'error', 'chat-send-error');
     }
     // Звук отправки — здесь, вместе с появлением пузыря: покупатель нажал, и
     // подтверждение должно прийти в тот же миг, а не через ответ сети. Ошибку,
-    // если она случится, он увидит отдельной строкой в ленте.
+    // если она случится, покажет общее уведомление.
     sound('out');
 
     var go = state.started ? Promise.resolve(true) : open();
