@@ -3016,6 +3016,41 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .band-colors[hidden],.band-sizes[hidden]{display:none}
 .band-tab[hidden],.swatch[hidden]{display:none}
 
+/* Общая подложка выбора памяти, характеристик и ремешков. Без JS остаются
+   обычные выбранные кнопки; псевдоэлемент не занимает места в раскладке. */
+.variant-tabs-ready{position:relative;isolation:isolate}
+.variant-tabs-ready::before{content:"";position:absolute;top:0;left:0;z-index:0;pointer-events:none;
+  width:var(--variant-width);height:var(--variant-height);border-radius:var(--variant-radius);
+  background:var(--text);transform:translate(var(--variant-x),var(--variant-y))}
+.variant-tabs-ready.variant-tabs-moving::before{
+  transition:transform .24s cubic-bezier(.22,1,.36,1),width .24s cubic-bezier(.22,1,.36,1),height .24s cubic-bezier(.22,1,.36,1)}
+.variant-tabs-ready>button{position:relative;z-index:1;background:transparent;
+  transition:color .18s ease,border-color .18s ease}
+.variant-tabs-ready>button.active{background:transparent;border-color:transparent}
+.variant-tabs-ready>button.out{background:var(--bg2)}
+@media(prefers-reduced-motion:reduce){
+  .variant-tabs-ready.variant-tabs-moving::before,.variant-tabs-ready>button{transition:none}
+}
+
+/* Цена сразу содержит точную сумму; движутся только декоративные цифры.
+   Одинаковые разряды сохраняют ширину, зачёркивание старой цены неподвижно. */
+.price-flow{display:inline-flex;align-items:baseline;white-space:nowrap;font-variant-numeric:tabular-nums}
+.price-flow-visual{position:relative;display:inline-flex;align-items:baseline;white-space:pre;--price-flow-in:100%;--price-flow-out:-100%}
+.price-flow-down{--price-flow-in:-100%;--price-flow-out:100%}
+.price-flow-char{position:relative;display:inline-block;overflow:hidden;vertical-align:bottom}
+.price-flow-digit{width:1ch;text-align:center}
+.price-flow-char::after{content:attr(data-to);display:block}
+.price-flow-change::before{content:attr(data-from);position:absolute;inset:0;animation:price-flow-out 360ms cubic-bezier(.22,1,.36,1) both}
+.price-flow-change::after{animation:price-flow-in 360ms cubic-bezier(.22,1,.36,1) both}
+@keyframes price-flow-in{from{transform:translateY(var(--price-flow-in));opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes price-flow-out{from{transform:translateY(0);opacity:1}to{transform:translateY(var(--price-flow-out));opacity:0}}
+.product-price .old-price.price-flow{text-decoration:none}
+.old-price.price-flow .price-flow-visual::after{content:"";position:absolute;left:0;right:0;top:50%;height:1.5px;background:rgba(110,110,115,.55);pointer-events:none}
+@media(prefers-reduced-motion:reduce){
+  .price-flow-change::before{display:none}
+  .price-flow-change::after{animation:none}
+}
+
 /* =========================================================
    ОНЛАЙН-ЧАТ ВИТРИНЫ
    =========================================================

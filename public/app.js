@@ -2911,6 +2911,67 @@
       if (fc) vstate.color = fc.dataset.color;
       var fs = document.querySelector('#storages .storage-opt.active') || document.querySelector('#storages .storage-opt');
       if (fs) { vstate.storageLabel = fs.dataset.label; vstate.storageAdd = Number(fs.dataset.add) || 0; }
+      var variantMotionReady = false;
+      var priceFlowStates = new WeakMap();
+      // Меняются только прежняя и новая цифры: промежуточных сумм нет.
+      // Полная новая цена сразу доступна чтению и копированию, а декоративные
+      // столбики скрыты от скринридера. Разряды сохраняют ширину при смене цены.
+      function setVariantPrice(el, value) {
+        if (!el) return;
+        var text = money(value);
+        var previous = priceFlowStates.get(el);
+        if (previous && previous.text === text) return;
+        if (!Number.isInteger(Number(value)) || value < 0) {
+          priceFlowStates.delete(el);
+          el.classList.remove('price-flow');
+          el.textContent = text;
+          return;
+        }
+        // Коллекция ремешков за один клик меняет цвет и размер. Пока браузер
+        // не показал кадр, исходной остаётся видимая до клика цена, а не сумма
+        // промежуточной сборки между двумя вызовами applyVariant().
+        var source = previous && previous.pending ? previous.source : previous;
+        var currency = escapeHtml(CUR);
+        var prefix = POS === 'before' ? currency : '';
+        var suffix = POS === 'before' ? '' : ' ' + currency;
+        var number = text.slice(prefix.length, text.length - suffix.length);
+        var oldNumber = source ? source.number : number;
+        var mask = source && source.mask.length > number.length ? source.mask : number;
+        var from = oldNumber.padStart(mask.length, ' ');
+        var to = number.padStart(mask.length, ' ');
+        var animate = variantMotionReady && source
+          && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var readable = document.createElement('span');
+        readable.className = 'sr-only';
+        readable.textContent = text;
+        var visual = document.createElement('span');
+        visual.className = 'price-flow-visual' + (source && value < source.value ? ' price-flow-down' : '');
+        visual.setAttribute('aria-hidden', 'true');
+        var character = function (before, after, digit) {
+          var span = document.createElement('span');
+          span.className = 'price-flow-char' + (digit ? ' price-flow-digit' : '');
+          span.dataset.to = after;
+          if (animate && before !== after && digit) {
+            span.dataset.from = before;
+            span.classList.add('price-flow-change');
+          }
+          visual.appendChild(span);
+        };
+        if (prefix) character(prefix, prefix, false);
+        for (var i = 0; i < mask.length; i++) character(from[i], to[i], /[0-9]/.test(mask[i]));
+        if (suffix) character(suffix, suffix, false);
+        el.classList.add('price-flow');
+        if (el.id === 'product-price') {
+          el.setAttribute('aria-live', 'polite');
+          el.setAttribute('aria-atomic', 'true');
+        }
+        el.replaceChildren(readable, visual);
+        priceFlowStates.set(el, { text: text, number: number, mask: mask, value: value, source: source, pending: true });
+        if (!previous || !previous.pending) requestAnimationFrame(function () {
+          var current = priceFlowStates.get(el);
+          if (current) { current.pending = false; current.source = null; }
+        });
+      }
       function applyVariant() {
         /* ПОЛНАЯ цена сборки: база товара плюс доплаты выбранного. Скидки в ней
          * нет — её срезает промоакция, ровно как на сервере (`saleFor` в
@@ -2919,11 +2980,11 @@
          * меняются обе суммы и выгода в рублях. */
         var full = basePrice + vstate.storageAdd + vstate.bandAdd + vstate.bandSizeAdd + vstate.optionsAdd;
         var total = salePrice(full);
-        var pe = document.getElementById('product-price'); if (pe) pe.textContent = money(total);
+        var pe = document.getElementById('product-price'); setVariantPrice(pe, total);
         addBtn.dataset.price = total;
         if (discountPct > 0) {
           var oe = document.getElementById('product-old-price');
-          if (oe) oe.textContent = money(full);
+          setVariantPrice(oe, full);
           var se = document.getElementById('product-save');
           if (se) se.textContent = '−' + discountPct + '%';
         }
@@ -2941,6 +3002,7 @@
         markLimits(full);
         refreshQtyCap();
         syncCartButtons(); // подпись кнопки зависит от выбранного варианта
+        syncVariantTabs(true);
       }
 
       // ===== Доп. характеристики: покрытие дисплея, связь, комплект =====
@@ -3151,6 +3213,55 @@
       // после неё vstate точно совпадает с тем, что видно на экране.
       if (onStorageChange) onStorageChange();
       applyVariant();
+      variantMotionReady = true;
+
+      // Подложка следует за выбранной кнопкой, в том числе после автоматической
+      // смены несовместимого варианта. Размеры берём из живой раскладки: на
+      // телефоне кнопки могут перейти на следующую строку.
+      var variantTabRows = document.querySelectorAll('.product-info .storage-opts, .product-info .option-opts, .product-info .band-tabs, .product-info .band-sizes');
+      function syncVariantTabs(animate) {
+        if (!variantTabRows) return;
+        variantTabRows.forEach(function (row) {
+          var selected = row.querySelector('button.active:not([hidden]):not([disabled])');
+          row.classList.toggle('variant-tabs-moving', !!animate);
+          if (!selected || !row.offsetWidth || !selected.offsetWidth) {
+            row.classList.remove('variant-tabs-ready');
+            return;
+          }
+          row.classList.add('variant-tabs-ready');
+          row.style.setProperty('--variant-x', selected.offsetLeft + 'px');
+          row.style.setProperty('--variant-y', selected.offsetTop + 'px');
+          row.style.setProperty('--variant-width', selected.offsetWidth + 'px');
+          row.style.setProperty('--variant-height', selected.offsetHeight + 'px');
+          row.style.setProperty('--variant-radius', getComputedStyle(selected).borderRadius);
+          if (row.classList.contains('band-tabs')) {
+            row.querySelectorAll('.band-tab').forEach(function (tab) {
+              tab.tabIndex = tab === selected ? 0 : -1;
+            });
+          }
+        });
+      }
+      syncVariantTabs(false);
+      if (window.ResizeObserver) {
+        var variantResize = new ResizeObserver(function () { syncVariantTabs(false); });
+        variantTabRows.forEach(function (row) { variantResize.observe(row); });
+      } else {
+        window.addEventListener('resize', function () { syncVariantTabs(false); });
+      }
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { syncVariantTabs(false); });
+      var bandTabs = document.getElementById('band-tabs');
+      if (bandTabs) bandTabs.addEventListener('keydown', function (e) {
+        var keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+        if (keys.indexOf(e.key) < 0 || !e.target.classList.contains('band-tab')) return;
+        var tabs = Array.prototype.slice.call(bandTabs.querySelectorAll('.band-tab:not([hidden]):not([disabled])'));
+        var idx = tabs.indexOf(e.target);
+        if (idx < 0 || !tabs.length) return;
+        e.preventDefault();
+        var next = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1
+          : (idx + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+        tabs[next].focus();
+        tabs[next].click();
+      });
     }
 
     // Отзывы листаются страницами: сервер и сортирует, и режет, а витрина только
