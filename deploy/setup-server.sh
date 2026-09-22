@@ -168,11 +168,9 @@ if command -v ufw >/dev/null 2>&1; then
   ufw --force enable >/dev/null
 fi
 
-say 'Ежедневное обновление дат демо-отзывов'
-# Даты считаются от релиза до «сегодня»: без обновления самый свежий отзыв через
-# месяц окажется месячной давности и витрина будет выглядеть заброшенной.
-CRON="20 1 * * * { date -Is; STORE_DATA_DIR=$DATA_DIR NODE_BIN=/usr/local/bin/node $PROJECT/scripts/refresh-demo-reviews.sh; } >> /home/$USER_NAME/demo-reviews.log 2>&1"
-sudo -u "$USER_NAME" -H bash -lc "(crontab -l 2>/dev/null | grep -v refresh-demo-reviews.sh; echo '$CRON') | crontab -"
+say 'Отключение автоматических демо-отзывов'
+# Повторная выкатка удаляет старое задание и никогда не включает его обратно.
+sudo -u "$USER_NAME" -H sh "$PROJECT/scripts/disable-demo-reviews-cron.sh"
 
 say 'База пунктов выдачи и её ежедневное обновление'
 # Отдельным заданием, а не вместе с отзывами: здесь ходят в чужой сервис по сети,

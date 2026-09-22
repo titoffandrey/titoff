@@ -1,6 +1,6 @@
 'use strict';
 
-// Добавляет или удаляет явно помеченные синтетические отзывы в живом хранилище.
+// Вручную добавляет на модерацию или удаляет помеченные синтетические отзывы.
 // Без флага команда только показывает, сколько записей будет создано.
 
 const fs = require('fs');
@@ -57,7 +57,7 @@ if (remove) {
 
 // Товары, которым привезли настоящие отзывы с площадки, демо-набор обходит
 // стороной: подмешивать к ним синтетику значит разбавлять живые отзывы, ради
-// которых их и заливали, а после каждой ночной пересборки они возвращались бы
+// которых их и заливали, а после каждой ручной пересборки они возвращались бы
 // сами. Признак — поле `source` у отзыва (см. scripts/import-ozon-reviews.js).
 const imported = new Set(realReviews.filter(review => review && review.source).map(review => review.productId));
 const demoProducts = products.filter(product => !imported.has(product.id));
@@ -70,20 +70,22 @@ const generated = generateDemoReviews(demoProducts, { now }).map(review => {
   // Идентификаторы стабильны, поэтому добавленные вручную фото не пропадут при
   // повторном обновлении дат или текстов демо-набора.
   const previous = currentDemoById.get(review.id);
+  // Новые записи всегда pending. Повторный запуск сохраняет решение владельца:
+  // скрытый/прочитанный отзыв не может сам вернуться на витрину.
+  if (previous && ['approved', 'pending', 'seen'].includes(previous.status)) review.status = previous.status;
   if (previous && Array.isArray(previous.photos)) review.photos = previous.photos.slice();
   // Ответ магазина писал человек, и пересборка набора его переживает — иначе он
-  // пропадал бы с витрины в ближайшую ночь (cron в 01:20 UTC), а автор ответа
-  // узнавал бы об этом случайно.
+  // пропадал бы с витрины после ручной пересборки.
   if (previous && previous.reply) review.reply = shiftedReply(previous, review.createdAt, now);
   return review;
 });
 if (!apply) {
-  console.log(`Будет создано ${generated.length} демо-отзывов для ${demoProducts.length} товаров.`);
-  console.log('Для записи в живой каталог запустите: node scripts/demo-reviews.js --apply');
+  console.log(`Будет подготовлено ${generated.length} демо-отзывов для ${demoProducts.length} товаров.`);
+  console.log('Только по просьбе владельца: node scripts/demo-reviews.js --apply. Новые отзывы попадут на модерацию; публикация — вручную в панели.');
   process.exit(0);
 }
 
 const merged = realReviews.concat(generated)
   .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 writeReviews(merged);
-console.log(`Готово. Добавлено ${generated.length} демо-отзывов, сохранено отзывов покупателей: ${realReviews.length}.`);
+console.log(`Готово. Подготовлено ${generated.length} демо-отзывов, сохранено отзывов покупателей: ${realReviews.length}. Новые отзывы ждут ручной публикации в панели.`);

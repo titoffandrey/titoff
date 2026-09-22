@@ -4,7 +4,7 @@
  *
  * Каталог товаров живёт в отдельном файле catalog.js — там вся линейка устройств Apple
  * (состав, цвета, объёмы памяти и характеристики по apple.com, июль 2026).
- * Здесь — только настройки магазина и демо-отзывы.
+ * Здесь — настройки магазина. Отзывы при запуске не создаются.
  *
  * Магазин один: домен задаётся обратным прокси, а не приложением, поэтому ни
  * списка сайтов, ни их настроек здесь больше нет.
@@ -12,8 +12,7 @@
  * ВНИМАНИЕ: цены ориентировочные (уровень РФ-рынка, июль 2026) и легко правятся в панели.
  */
 
-const { products, now } = require('./catalog');
-const { generateDemoReviews } = require('./lib/demo-reviews');
+const { products } = require('./catalog');
 
 module.exports = {
   settings: {
@@ -28,5 +27,5 @@ module.exports = {
     accentColor: '#0071e3'
   },
   products,
-  reviews: generateDemoReviews(products, { now })
+  reviews: []
 };

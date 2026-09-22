@@ -90,4 +90,4 @@ console.log(`\n${apply ? 'Слито карточек' : 'Будет слито 
   + (updated ? `, обновлено описаний: ${updated}` : '')
   + (missing ? `, пропущено: ${missing}` : '') + '.');
 if (!apply && (merged || updated)) console.log('Это был предпросмотр. Чтобы записать: node merge-products.js --apply');
-if (apply && merged) console.log('Дальше стоит обновить демо-отзывы: node scripts/demo-reviews.js --apply');
+if (apply && merged) console.log('Демо-отзывы автоматически не создаются. Их подготовка и публикация — только по просьбе владельца.');

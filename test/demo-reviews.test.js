@@ -52,7 +52,7 @@ test('у каждого товара своё число отзывов, а ме
     assert.doesNotMatch(review.text, /демо/i);
     assert.equal(review.demo, true);
     assert.equal(review.source, DEMO_SOURCE);
-    assert.equal(review.status, 'approved');
+    assert.equal(review.status, 'pending');
     assert.equal(isDemoReview(review), true);
   }
 });
