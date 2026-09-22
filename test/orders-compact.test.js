@@ -136,7 +136,9 @@ test('компактные заказы: счётчик оплат учитыв�
   const html = render(orders, { q: 'Анна', period: '7', pay: 'wait', edit: '1' }, 2);
   const topbar = element(html, 'a-topbar');
   assert.equal(attribute(topbar, 'data-live-part'), 'topbar');
-  const badge = element(element(topbar, 'of-orders-heading'), 'of-paid-count');
+  const content = element(html, 'a-content');
+  assert.equal(attribute(content, 'data-live-part'), 'content');
+  const badge = element(content, 'of-paid-count');
   assert.equal(text(badge), 'Оплатили (2)', 'учтены касса и ручная оплата, исключены mismatch, чужой поиск и старый заказ');
   assert.doesNotMatch(badge, /\bdata-live-part=/, 'бейдж обновляется через существующую шапку без вложенных live-блоков');
   const href = new URL(attribute(badge, 'href'), 'https://shop.test');

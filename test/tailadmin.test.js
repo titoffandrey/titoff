@@ -42,3 +42,46 @@ test('TailAdmin: имя магазина экранируется, подста�
   assert.match(login, /method="post" action="\/admin\/login"/);
   assert.throws(() => TA.render('metric', {}), /missing ICON/);
 });
+
+test('TailAdmin: ряды продаж сохраняют оплаченные суммы и московскую границу дня', () => {
+  const { salesSeries } = require('../lib/admin-charts');
+  const now = Date.parse('2026-09-22T10:00:00Z');
+  const rows = [
+    { createdAt: Date.parse('2026-09-21T20:59:59Z'), total: 100, payment: { status: 'paid' } },
+    { createdAt: Date.parse('2026-09-21T21:00:00Z'), total: 200, manualPaid: true },
+    { createdAt: Date.parse('2026-09-22T08:00:00Z'), total: 300, payment: { status: 'refunded' } },
+    { createdAt: now + 10000, total: 999, payment: { status: 'paid' } },
+    { createdAt: 'wrong', total: 999 }
+  ];
+  const data = salesSeries(rows, 2, now);
+  assert.deepEqual(data.total, [100, 500]);
+  assert.deepEqual(data.revenue, [100, 200]);
+  assert.deepEqual(data.count, [1, 2]);
+  const year = salesSeries([{ createdAt: now - 364 * 86400000, total: 500, manualPaid: true }], 365, now);
+  assert.equal(year.revenue.reduce((a, b) => a + b), 500, 'не теряется неполный месяц на начале годового периода');
+  assert.deepEqual(salesSeries([], 1, now).count, [0]);
+});
+
+test('TailAdmin: данные графика безопасны, а все исходные блоки обзора присутствуют', () => {
+  const dangerous = '</div><script>alert(1)</script>';
+  const chart = TA.chart('barChart', 'test', { labels: [dangerous], series: [{ name: 'Заказы', data: [0] }] }, { TITLE: 'Проверка', CONTROLS: '' });
+  assert.doesNotMatch(chart, /<script>alert/);
+  assert.match(chart, /&lt;script&gt;/);
+  const templates = require('../public/tailadmin-components.json');
+  for (const slot of ['METRICS','BAR','RADIAL','AREA','ACTIVITY','RECENT']) assert.ok(templates.dashboard.includes('@@' + slot + '@@'), slot);
+  assert.match(templates.recentOrders, /<thead/);
+  assert.match(templates.recentOrders, /@@ROWS@@/);
+  assert.match(templates.themeToggle, /data-ta-theme/);
+  assert.match(templates.profileMenu, /<details/);
+});
+
+test('TailAdmin: тема восстанавливается до отрисовки и не требует доступного localStorage', () => {
+  const vm = require('node:vm');
+  for (const value of ['true', 'false', null]) {
+    const states = {};
+    const context = { document: { documentElement: { classList: { toggle: (key, value) => { states[key] = value; } } } }, localStorage: { getItem: key => key === 'darkMode' ? value : 'false' } };
+    vm.runInNewContext(TA.themeBoot.replace(/<\/?script>/g, ''), context);
+    assert.equal(states.dark, value === 'true');
+  }
+  assert.doesNotThrow(() => vm.runInNewContext(TA.themeBoot.replace(/<\/?script>/g, ''), { localStorage: { getItem() { throw new Error('blocked'); } } }));
+});

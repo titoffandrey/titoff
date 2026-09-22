@@ -3,11 +3,14 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@tailwindcss/postcss": "4.3.3",
-    "tailwindcss": "4.3.3",
+    "@fontsource-variable/outfit": "5.2.8",
     "@tailwindcss/forms": "0.5.11",
-    "postcss": "8.5.28",
+    "@tailwindcss/postcss": "4.3.3",
+    "apexcharts": "3.54.1",
     "cheerio": "1.2.0",
-    "@fontsource-variable/outfit": "5.2.8"
+    "esbuild": "0.28.2",
+    "jsvectormap": "1.7.0",
+    "postcss": "8.5.28",
+    "tailwindcss": "4.3.3"
   }
 }

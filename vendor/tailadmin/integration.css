@@ -67,3 +67,147 @@ body.admin.a-app .a-main{padding-left:0}
 body.admin.a-app .a-menu-wrap,body.admin.a-app .a-topbar{display:none}
 body.admin.a-app .a-content{padding:0;max-width:none}
 @media(prefers-reduced-motion:reduce){body.admin .a-menu-wrap,body.admin .a-menu-panel,body.admin .ta-sidebar{transition:none}}
+/* Полная шапка, страницы и таблицы исходного шаблона. */
+body.admin .ta-header-row{min-width:0;width:auto;flex:1}
+body.admin .ta-header-actions{display:flex;align-items:center;width:auto;flex:none;padding:16px 0;gap:16px}
+body.admin .ta-header-search{max-width:100%;min-width:0}
+body.admin .ta-header-search input{max-width:100%}
+body.admin .a-menu-btn{display:inline-flex}
+body.admin .ta-page-heading h1{font-size:24px;font-weight:600;line-height:32px;margin:0}
+body.admin .ta-page-heading nav{display:flex;align-items:center;gap:16px}
+body.admin .ta-profile{display:flex;align-items:center;gap:12px;white-space:nowrap;font-size:14px;font-weight:500;color:var(--text)}
+body.admin .ta-profile-avatar{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--color-gray-100);color:var(--color-gray-700)}
+body.admin .ta-header [data-ta-theme]{flex:none;cursor:pointer}
+body.admin .ta-metric{min-width:0}
+body.admin .ta-metric.metric-card{padding:24px}
+body.admin .ta-metric.metric-card>div:first-child svg{width:24px;height:24px}
+body.admin .ta-activity{display:grid;gap:16px}
+body.admin .ta-history-link{color:var(--accent);font-size:14px}
+body.admin .ta-chart-ready>.ta-chart-fallback{display:none}
+body.admin .ta-chart-data{font-size:12px;width:100%;margin:16px 0}
+body.admin .ta-chart-data td,body.admin .ta-chart-data th{padding:4px 8px;text-align:left}
+body.admin .ta-chart-canvas{min-width:0}
+body.admin .ta-chart-card .ta-chart-canvas svg{max-width:none}
+body.admin .ta-orders-table{width:100%;border-collapse:collapse;text-align:left;color:var(--muted);font-size:14px}
+body.admin .ta-orders-table th{text-align:left;font-weight:500}
+body.admin .ta-orders-table td{vertical-align:middle}
+body.admin .ta-orders-table tbody tr{border-bottom:1px solid var(--border-soft)}
+body.admin .ta-orders-table tbody tr:last-child{border-bottom:0}
+body.admin .ta-product-cell{display:flex;align-items:center;gap:12px;color:var(--text);min-width:180px}
+body.admin .ta-product-cell b,body.admin .ta-customer-cell b{display:block;font-size:14px;font-weight:500;color:var(--text)}
+body.admin .ta-product-cell small,body.admin .ta-customer-cell small{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+body.admin .ta-product-symbol{display:grid;place-items:center;flex:none;width:50px;height:50px;border-radius:8px;background:var(--color-gray-100);color:var(--muted)}
+body.admin .ta-product-symbol svg{width:24px;height:24px}
+body.admin .ta-empty{padding:32px 24px;text-align:center;color:var(--muted);font-size:14px}
+body.admin .ta-order-dialog{position:fixed;inset:0;margin:auto;width:min(920px,calc(100vw - 32px));max-width:920px;max-height:90dvh;height:fit-content;padding:32px;border:1px solid var(--border);border-radius:24px;background:var(--color-white);color:var(--text);overflow:auto;overscroll-behavior:contain}
+body.admin .ta-order-dialog::backdrop{background:rgba(16,24,40,.55);backdrop-filter:blur(4px)}
+body.admin .ta-order-dialog .of-order{border:0;padding:0;background:transparent;box-shadow:none;white-space:normal}
+body.admin .ta-dialog-close{display:grid;place-items:center;margin-left:auto;margin-bottom:16px;width:40px;height:40px;border-radius:50%;border:0;background:var(--color-gray-100);color:var(--muted);font-size:24px;cursor:pointer}
+body.admin .orders-page:has(#orders-edit:checked) .ta-order-dialog .o-act{display:flex;justify-content:flex-end}
+body.admin .ta-orders-table .ta-order-dialog .btn{white-space:normal}
+body.admin .ta-recent{margin:0}
+body.admin .ta-dashboard-grid{align-items:start}
+html.ta-collapsed body.admin{--a-sidebar:90px}
+html.ta-collapsed body.admin .ta-sidebar .a-brand-name,html.ta-collapsed body.admin .ta-sidebar .menu-item-text,html.ta-collapsed body.admin .ta-sidebar .a-badge{display:none}
+html.ta-collapsed body.admin .ta-sidebar .menu-group-title{font-size:0}
+html.ta-collapsed body.admin .ta-sidebar .menu-group-title:after{content:'•••';font-size:14px}
+html.ta-collapsed body.admin .ta-sidebar .sidebar-header{justify-content:center}
+html.ta-collapsed body.admin .ta-sidebar .a-nav-item{justify-content:center;padding:8px}
+@media(min-width:1280px){body.admin .ta-header-search{display:block}body.admin .ta-header-row{gap:16px}}
+@media(max-width:1279px){
+ html.ta-collapsed body.admin{--a-sidebar:290px}
+ html.ta-collapsed body.admin .ta-sidebar .a-brand-name,html.ta-collapsed body.admin .ta-sidebar .menu-item-text,html.ta-collapsed body.admin .ta-sidebar .a-badge{display:revert}
+ html.ta-collapsed body.admin .ta-sidebar .menu-group-title{font-size:12px}
+ html.ta-collapsed body.admin .ta-sidebar .menu-group-title:after{content:none}
+ body.admin .ta-header>div{flex-direction:row;padding:0 16px;gap:12px}
+ body.admin .ta-header-search{display:none}
+ body.admin .ta-header-row{border:0;padding-inline:0}
+ body.admin .ta-profile>span:last-child{display:none}
+ body.admin .ta-header-actions{gap:12px;padding:12px 0}
+ body.admin .ta-header{border-bottom:1px solid var(--border)}
+}
+@media(max-width:800px){body.admin .ta-page-heading nav{flex-wrap:wrap;gap:10px}body.admin .ta-order-dialog{padding:20px}body.admin .ta-metric.metric-card{padding:20px}body.admin .ta-analytics-chart{overflow:auto}}
+/* Семантические переменные магазина используют палитру оригинальной dark-темы. */
+html.dark body.admin{color-scheme:dark;--text:var(--color-gray-100);--muted:var(--color-gray-400);--border:var(--color-gray-800);--border-soft:var(--color-gray-800);--bg:var(--color-gray-900);--bg2:var(--color-gray-900);--surface-soft:var(--color-gray-800);--surface:var(--color-gray-900);background:var(--color-gray-900);color:var(--text)}
+html.dark body.admin .a-menu-btn,html.dark body.admin .a-menu-close{background:transparent;border-color:var(--border);color:var(--muted)}
+html.dark body.admin .a-menu-panel{background:var(--color-gray-900)}
+html.dark body.admin .a-nav-item:not(.active){color:var(--color-gray-300)}
+html.dark body.admin .a-nav-item.active{background:rgb(70 95 255/.12);color:var(--color-brand-400)}
+html.dark body.admin .a-nav-item:hover{background:rgb(255 255 255/.05)}
+html.dark body.admin .a-badge{background:rgb(70 95 255/.15);color:var(--color-brand-400)}
+html.dark body.admin .ta-profile-avatar,html.dark body.admin .ta-product-symbol,html.dark body.admin .ta-dialog-close{background:var(--color-gray-800);color:var(--color-gray-300)}
+html.dark body.admin .ta-order-dialog{background:var(--color-gray-900)}
+html.dark body.admin .orders-page{--of-text:var(--color-gray-100);--of-muted:var(--color-gray-400);--of-line:var(--color-gray-800);--of-border:var(--color-gray-800);--of-soft:var(--color-gray-800);--of-accent:var(--color-brand-400)}
+html.dark body.admin :is(.a-panel,.a-form,.set,.chat-list,.a-orders-focused .of-order,.metric-panel,.metric-card,.metric-section-nav,.a-review,.review-card,.a-table-sortable tr,.pay-log-summary,.o-summary-details,.o-provider-details,.ta-recent){border-color:var(--border);background:rgb(255 255 255/.03)}
+html.dark body.admin :is(.a-panel,.a-form,.set,.metric-panel,.metric-card,.ta-order-dialog) :is(h2,h3,h4,strong){color:var(--text)}
+html.dark body.admin :is(.set-body,.a-form-actions,.a-form>.a-panel,.o-filters,.orders-page .g-pill,.metric-ranges,.metric-legend,.metric-people,.g-menu,.calendar-popover,.ac-menu,.img-group,.color-row,.storage-row,.photo-upload-box,.chat-head,.chat-compose,.chat-message,.chat-empty){background:var(--color-gray-900);border-color:var(--border);color:var(--text)}
+html.dark body.admin :is(.set-note,.muted,.small,.of-filter-label,.metric-toolbar-note,.metric-chart-caption,.metric-panel-head>span,.metric-more-link){color:var(--muted)}
+html.dark body.admin :is(.o-payment-details,.of-order-meta,.of-city,.of-contact-values,.of-label,.o-payment-method,.of-contact,.of-filter-reset){color:var(--muted);border-color:var(--border)}
+html.dark body.admin .of-contact{background:var(--color-gray-800)}
+html.dark body.admin :is(.o-tag,.pill,.metric-trend,.review-status){border-color:transparent}
+html.dark body.admin .o-tag{background:var(--color-gray-800);color:var(--color-gray-300)}
+html.dark body.admin :is(.o-tag-ok,.pill-ok,.metric-trend.is-up){background:rgb(18 183 106/.15);color:var(--color-success-500)}
+html.dark body.admin :is(.o-tag-wait,.o-tag-warn){background:rgb(247 144 9/.15);color:var(--color-warning-500)}
+html.dark body.admin :is(.o-tag-off,.pill-danger,.metric-trend.is-down){background:rgb(240 68 56/.15);color:var(--color-error-500)}
+html.dark body.admin .btn-danger{background:rgb(240 68 56/.12);border-color:rgb(240 68 56/.3);color:var(--color-error-400)}
+html.dark body.admin .a-live{background:rgb(18 183 106/.08);border-color:rgb(18 183 106/.15);color:var(--color-success-500)}
+html.dark body.admin :is(input,select,textarea){color-scheme:dark}
+html.dark body.admin .a-settings{background:transparent}
+html.dark body.admin .a-settings>.a-form-actions{background:var(--bg2)}
+html.dark body.admin .ta-signin .bg-brand-950{background:rgb(255 255 255/.03)}
+html.dark body.admin .apexcharts-tooltip{border-color:var(--border);background:var(--color-gray-900);color:var(--text)}
+body.admin.a-app .ta-page-heading{display:none}
+body.admin .ta-profile>summary{cursor:pointer;list-style:none}
+body.admin .ta-profile>summary::-webkit-details-marker,body.admin .ta-notifications>summary::-webkit-details-marker{display:none}
+body.admin .ta-profile-menu{min-width:220px;right:0;left:auto;top:calc(100% + 16px);z-index:50}
+body.admin .ta-notifications>summary{cursor:pointer;list-style:none;display:flex}
+body.admin .ta-notifications-menu{right:0;left:auto;top:calc(100% + 16px);max-height:none;height:auto;width:320px;z-index:50;padding:20px}
+body.admin .ta-notifications-menu h3{font-size:18px;font-weight:600;margin:0 0 12px;color:var(--text)}
+body.admin .ta-notifications-menu a{display:flex;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--border);font-size:14px;color:var(--muted)}
+body.admin .ta-notification-count{position:absolute;right:-3px;top:-3px;border-radius:50%;min-width:16px;background:var(--color-brand-500);color:white;font-size:10px;text-align:center}
+body.admin .ta-notification-count:empty{display:none}
+body.admin .ta-table-frame .a-table{display:table;min-width:900px;width:100%;margin:0}
+body.admin .ta-table-frame .a-table thead{display:table-header-group}
+body.admin .ta-table-frame .a-table tbody{display:table-row-group}
+body.admin .ta-table-frame .a-table tr{display:table-row;border:0;border-radius:0;padding:0;box-shadow:none}
+body.admin .ta-table-frame .a-table td{display:table-cell;border:0;border-bottom:1px solid var(--border);padding:16px 20px;font-size:14px;vertical-align:middle}
+body.admin .ta-table-frame .a-table th{padding:12px 20px;background:transparent;border-bottom:1px solid var(--border);font-size:12px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)}
+body.admin .ta-table-frame .a-table .a-actions{white-space:nowrap}
+body.admin .ta-table-frame .a-table .a-actions .btn{width:auto;min-width:0}
+body.admin .ta-table-frame .a-table .a-order-btns{display:inline-flex}
+body.admin .ta-table-frame .a-table .a-thumb img{width:50px;height:50px}
+body.admin .ta-table-frame .a-table .a-pname{max-width:260px;min-width:180px}
+body.admin .ta-table-frame .a-table .a-marks{white-space:nowrap}
+html.dark body.admin input::placeholder,html.dark body.admin textarea::placeholder{color:var(--color-gray-400);opacity:1}
+html.dark body.admin :is(.o-items-list,.o-items-list b,.o-items-list span,.o-sum,.a-pname,.a-price){color:var(--text)}
+html.dark body.admin .ship-badge,html.dark body.admin .ship-mark{background:var(--color-gray-800);border-color:var(--border);color:var(--color-brand-400)}
+html.dark body.admin .btn:not(.btn-primary):not(.btn-danger){background:var(--color-gray-800);border-color:var(--color-gray-700);color:var(--color-gray-300)}
+html.dark body.admin .edit-btn{background:var(--color-gray-800);border-color:var(--color-gray-700);color:var(--color-gray-300)}
+@media(max-width:800px){body.admin .ta-notifications-menu{position:fixed;top:76px;left:16px;right:16px;width:auto}body.admin .ta-profile-menu{position:fixed;top:76px;right:16px}body.admin .ta-header-actions{gap:10px}body.admin .a-live{display:none}}
+html.dark body.admin .set-group{background:transparent}
+html.dark body.admin .set>summary,html.dark body.admin .set[open]>summary,html.dark body.admin .set>summary:hover{background:transparent;color:var(--text)}
+html.dark body.admin .set .set-ico{background:var(--color-gray-800);color:var(--color-gray-300);border-color:var(--border)}
+html.dark body.admin .set .set-ico svg{color:inherit}
+html.dark body.admin .field :is(input,textarea)::placeholder{color:var(--color-gray-400);opacity:1}
+html.dark body.admin :is(.pay-switch,.pay-mode.is-off,.promo-row,.promo-row.is-off,.gm-stage,.metric-more-link,.gm-zoom button,.a-move){background:var(--color-gray-900);border-color:var(--border);color:var(--muted)}
+html.dark body.admin .set-body .field-check,html.dark body.admin .set-body .field-check:hover{background:var(--color-gray-900);border-color:var(--border);color:var(--text)}
+html.dark body.admin :is(.promo-tag,.pill.ok){background:rgb(18 183 106/.15);color:var(--color-success-500)}
+html.dark body.admin :is(.promo-tag.is-off,.pill.off){background:var(--color-gray-800);color:var(--muted)}
+html.dark body.admin .gm-shape{fill:var(--color-gray-700);stroke:var(--color-gray-900)}
+html.dark body.admin .gm-shape.heat-1{fill:#1f3470}html.dark body.admin .gm-shape.heat-2{fill:#263e99}html.dark body.admin .gm-shape.heat-3{fill:#3641f5}html.dark body.admin .gm-shape.heat-4{fill:#465fff}html.dark body.admin .gm-shape.heat-5{fill:#8098f9}
+html.dark body.admin .gm-svg text,html.dark body.admin .rm-svg text{fill:var(--color-gray-400)}
+@media(min-width:1280px){
+ html.ta-collapsed body.admin .a-menu-panel:hover,html.ta-collapsed body.admin .a-menu-panel:focus-within{width:290px}
+ html.ta-collapsed body.admin .ta-sidebar:hover,html.ta-collapsed body.admin .ta-sidebar:focus-within{width:290px}
+ html.ta-collapsed body.admin .ta-sidebar:is(:hover,:focus-within) :is(.a-brand-name,.menu-item-text,.a-badge){display:revert}
+ html.ta-collapsed body.admin .ta-sidebar:is(:hover,:focus-within) .a-nav-item{justify-content:flex-start;padding:8px 12px}
+ html.ta-collapsed body.admin .ta-sidebar:is(:hover,:focus-within) .menu-group-title{font-size:12px}
+ html.ta-collapsed body.admin .ta-sidebar:is(:hover,:focus-within) .menu-group-title:after{content:none}
+}
+/* Карта из исходного dashboard: контейнер следует ширине колонки. */
+body.admin [data-ta-map] { width:calc(100% + 2rem); height:212px; }
+body.admin [data-ta-map-canvas] { width:100%; height:100%; }
+body.admin .ta-country-flag { font-size:28px; }
+body.admin .ta-map-card + .ta-activity { margin-top:24px; }
+@media(min-width:640px){body.admin [data-ta-map]{width:calc(100% + 3rem)}}
+html.dark body.admin .o-ship-new{background:var(--color-gray-800);border-color:var(--color-gray-700);color:var(--color-gray-300)}

@@ -133,7 +133,7 @@
    * его слот ПУСТ — морфинг детей стирал бы цифру на каждом обновлении.
    */
   function browserOwned(el) {
-    return !!(el.classList && el.classList.contains('a-live'));
+    return !!(el.classList && el.classList.contains('a-live')) || (el.hasAttribute('data-ta-chart-canvas') || el.hasAttribute('data-ta-map-canvas'));
   }
 
   function morph(from, to) {
@@ -183,6 +183,8 @@
     if (el && FIELDS[el.tagName] && el.closest && el.closest('[data-live-part]')) return true;
     // Открыт просмотрщик вложений: он держит ссылки на узлы страницы.
     if (document.body.classList.contains('lb-open')) return true;
+    // Детали заказа не перерисовываются под рукой; обновление дождётся закрытия.
+    if (document.querySelector('dialog[open]')) return true;
     // Открыто меню разделов — из-под руки его выдёргивать незачем.
     var menu = document.getElementById('a-menu');
     return !!(menu && menu.checked);

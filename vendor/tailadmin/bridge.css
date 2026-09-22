@@ -25,3 +25,27 @@
 .g-select > summary { @apply rounded-lg border-gray-300 bg-white shadow-theme-xs; }
 .g-menu-item.is-on { @apply bg-brand-50 text-brand-500; }
 .chat-list { @apply rounded-2xl border-gray-200 bg-white; }
+/* Оригинальные dark-варианты TailAdmin для действующих форм и разделов. */
+.a-panel, .a-form, .o-money, .o-states, .set, .chat-list, .metric-card, .review-card, .a-review {
+ @apply dark:border-gray-800 dark:bg-white/3;
+}
+.a-panel h2, .a-form h2, .set-cap h3, .metric-card h4 { @apply dark:text-white/90; }
+.btn-ghost { @apply dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/3; }
+.field > label { @apply dark:text-gray-400; }
+.field input:where(:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):not([type=range])), .field select, .field textarea {
+ @apply dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800;
+}
+.a-table th { @apply dark:border-gray-800 dark:text-gray-400 dark:bg-gray-900; }
+.a-table td { @apply dark:border-gray-800 dark:text-gray-400; }
+.a-table tbody tr:hover td { @apply dark:bg-white/3; }
+.a-tab, .a-page { @apply dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400; }
+.a-tab.active, .a-page-cur { @apply dark:bg-brand-500/15 dark:border-brand-500/15 dark:text-brand-400; }
+.set-ico { @apply dark:bg-gray-800 dark:text-white/90; }
+.g-select > summary, .g-menu { @apply dark:bg-gray-dark dark:border-gray-800 dark:text-gray-400; }
+.g-menu-item.is-on { @apply dark:bg-brand-500/15 dark:text-brand-400; }
+.pay-tag { @apply inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
+.pay-tag.pay-ok { @apply bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500; }
+.pay-tag.pay-wait, .pay-tag.pay-warn { @apply bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-500; }
+.pay-tag.pay-off, .pay-tag.pay-none, .pay-tag.pay-draft { @apply bg-gray-100 text-gray-700 dark:bg-white/5 dark:text-white/80; }
+.pay-tag.pay-idle { @apply bg-brand-50 text-brand-500 dark:bg-brand-500/15 dark:text-brand-400; }
+.edit-btn { @apply rounded-lg border border-gray-300 bg-white text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400; }

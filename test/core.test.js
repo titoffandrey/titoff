@@ -1601,7 +1601,7 @@ test('отчёт метрики по умолчанию — сегодняшни
   // Значки в списках — те же, что в строке заказа: подбираются ключом из
   // lib/client-icons.js, а не своим набором картинок.
   assert.match(html, /class="metric-bar-ico"/);
-  assert.match(html, /class="metric-card-ico"/);
+  assert.match(html, /data-tailadmin-component="metric"/);
 
   const week = analytics.snapshot({ days: 7 });
   const weekHtml = adminViews.analyticsPage(SETTINGS, fakeDb, week);
@@ -5014,7 +5014,7 @@ test('главная показывает товары в порядке кат�
      раскладку задаёт сетка: безымянные <td> ей не адресовать. */
   const css = PANEL_CSS;
   for (const cls of ['a-pname', 'a-price', 'a-marks']) assert.match(list, new RegExp(`<td class="${cls}"`));
-  assert.match(list, /<div class="a-panel a-panel-list">/);
+  assert.match(list, /ta ta-table-frame/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-table\.a-table-sortable\{min-width:0;display:block\}/);
   assert.match(mobile, /\.a-table-sortable tr\{display:grid/);
@@ -6007,7 +6007,7 @@ test('меню панели сохраняет навигацию, счётчи�
   assert.ok(items >= 6, 'разделов в меню стало подозрительно мало: ' + items);
   assert.equal((menu.match(/class="a-nav-ico"/g) || []).length, items, 'значки не у всех разделов');
   // Витрина открывается отдельно и остаётся доступна из общего меню.
-  assert.match(menu, /<a target="_blank" rel="noopener noreferrer" href="\/" class="a-nav-item[^"]*"/);
+  assert.match(menu, /<a target="_blank" rel="noopener noreferrer" aria-label="Открыть витрину" href="\/" class="a-nav-item[^"]*"/);
   // Незнакомый ключ не ломает разметку: подпись раздела остаётся и без значка.
   assert.equal(render.adminIcon('выдумка'), '');
   assert.equal(render.adminIcon(''), '');
@@ -6341,8 +6341,9 @@ test('архивирование оплаченного заказа не уме
     getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   };
   const dash = adminViews.dashboard(SETTINGS, db);
-  assert.match(dash, /Выручка<\/span>\s*<strong>5\s?000\s?₽/);
-  assert.match(dash, /<dd>1 из 2 заказа · 50%<\/dd>/);
+  assert.match(dash, /Выручка<\/span>\s*<h4[^>]*>5\s?000\s?₽/);
+  assert.match(dash, /Оплачено 1 из 2 заказов/);
+  assert.match(dash, /&quot;series&quot;:\[50\]/);
 });
 
 test('осознанный sparkles отличается от промаха подбора иконки', () => {
@@ -10970,14 +10971,11 @@ test('счётчики и выручка одинаковы на «Обзоре�
   assert.ok(list.indexOf('class="o-filters"') < list.indexOf('class="a-panel o-list-panel"'));
   assert.ok(list.indexOf('class="a-panel o-list-panel"') < list.indexOf('o-summary-details'));
 
-  // Разметка сводки одна на обе страницы: разъехавшиеся счётчики читались бы
-  // как разные числа об одном и том же.
-  const bar = html => {
-    const from = html.indexOf('<div class="o-stats">');
-    return html.slice(from, html.indexOf('</section></div>', from) + 16);
-  };
-  assert.equal(bar(dash), bar(list));
-  for (const html of [dash, list]) {
+  // TailAdmin показывает ту же выручку и долю оплат в карточке и круговой диаграмме.
+  assert.match(dash, /Выручка<\/span>\s*<h4[^>]*>150\s?000\s?₽/);
+  assert.match(dash, /Оплачено 2 из 10 заказов/);
+  assert.match(dash, /&quot;series&quot;:\[20\]/);
+  for (const html of [list]) {
     assert.match(html, /Выручка<\/span>\s*<strong>150\s?000\s?₽/);
     // Доля оплаченных — и словами, и полосой: «2 из 10» читается за секунду,
     // полоса — с одного взгляда.
@@ -11010,23 +11008,23 @@ test('счётчики и выручка одинаковы на «Обзоре�
     payment: { status: 'expired', invoiceId: 'i', requisite: '79104693811', expiresAt: Date.now() - 1000 }
   }), 'o-row o-row-off');
   assert.equal(render.orderRowClass({}), 'o-row', 'заявка без оплаты остаётся белой');
-  assert.match(list, /<tr id="order-o1" class="o-row o-row-ok">/);
-  assert.match(list, /<tr id="order-o6" class="o-row o-row-off">/);
-  assert.match(list, /<tr id="order-o9" class="o-row">/);
+  assert.match(list, /<tr id="order-o1"[^>]*class="o-row o-row-ok">/);
+  assert.match(list, /<tr id="order-o6"[^>]*class="o-row o-row-off">/);
+  assert.match(list, /<tr id="order-o9"[^>]*class="o-row">/);
 
   // На «Обзоре» у каждой заявки сразу видно состояние и сумму — за этим туда и
   // заходят. Строка ведёт к якорю этой же заявки в разделе заказов.
   // data-live-key — чтобы при живом обновлении свежая заявка вставлялась сверху,
   // а остальные строки оставались теми же узлами, а не переписывались заново.
-  assert.match(dash, /<a class="o-recent-row o-row o-row-ok" data-live-key="recent-o1" href="\/admin\/orders#order-o1">/);
-  assert.match(dash, /o-recent-state"><span class="pay-tag pay-ok"><i><\/i>оплачено<\/span>/);
-  assert.match(dash, /o-recent-sum">100\s?000\s?₽/);
+  assert.match(dash, /id="recent-o1" data-live-key="recent-o1"[\s\S]*?href="\/admin\/orders#order-o1"/);
+  assert.match(dash, /<span class="pay-tag pay-ok"><i><\/i>оплачено<\/span>/);
+  assert.match(dash, /<td[^>]*>100\s?000\s?₽<\/td>/);
   assert.match(list, /<tr id="order-o1"/, 'якорь на месте, иначе ссылка с «Обзора» ведёт в пустоту');
 
   // Пустой магазин не показывает выдуманных чисел и не ломает раскладку.
   const empty = adminViews.dashboard(SETTINGS, statsDb([]));
   assert.match(empty, /Заказов пока нет/);
-  assert.match(empty, /o-recent-empty/);
+  assert.match(empty, /colspan="4" class="ta-empty"/);
   assert.doesNotMatch(empty, /o-recent-row/);
 });
 
@@ -11097,12 +11095,9 @@ test('период заказов выбирается тем же меню, ч�
   assert.equal((week.match(/<tr id="order-/g) || []).length, 2);
   assert.match(week, /<span>2 заказа<\/span><b class="o-list-sum">150\s?000\s?₽<\/b>/);
   assert.match(week, /Выручка<\/span>\s*<strong>100\s?000\s?₽/);
-  // Разметка сводки по-прежнему одна на обе страницы.
-  const bar = html => {
-    const from = html.indexOf('<div class="o-stats">');
-    return html.slice(from, html.indexOf('</section></div>', from) + 16);
-  };
-  assert.equal(bar(adminViews.dashboard(SETTINGS, db, {}, { period: '7' })), bar(week));
+  const weekDash = adminViews.dashboard(SETTINGS, db, {}, { period: '7' });
+  assert.match(weekDash, /Выручка<\/span>\s*<h4[^>]*>100\s?000\s?₽/);
+  assert.match(weekDash, /Оплачено 1 из 2 заказов/);
 
   // За выбранный период заявок может не быть, и это не «заказов пока нет».
   const dayList = adminViews.ordersList(SETTINGS, statsDb([orders[2]]), null, 1, null, { period: '1' });
@@ -11110,10 +11105,10 @@ test('период заказов выбирается тем же меню, ч�
   assert.match(adminViews.dashboard(SETTINGS, statsDb([orders[2]]), {}, { period: '1' }),
     /За выбранный период заказов нет/);
 
-  // «Сегодня» отдельной строкой показывается, только когда это ЧАСТЬ показанного:
-  // за сегодняшний период она повторяла бы «Оплачено N из N» и выручку над ней.
-  assert.match(adminViews.dashboard(SETTINGS, db, {}, {}), /<dt>Сегодня<\/dt>/);
-  assert.doesNotMatch(adminViews.dashboard(SETTINGS, db, {}, { period: '1' }), /<dt>Сегодня<\/dt>/);
+  // Отдельный дневной диапазон отражается в данных диаграммы и в карточках.
+  const dayDash = adminViews.dashboard(SETTINGS, db, {}, { period: '1' });
+  assert.match(dayDash, /Оплачено 1 из 1 заказов/);
+  assert.match(dayDash, /&quot;series&quot;:\[100\]/);
 
   // Период переживает поиск, «Сбросить» и действие над строкой: он охват
   // страницы, а не отбор, и после каждого удаления сбрасывать его нельзя.
@@ -11191,7 +11186,7 @@ test('состояние оплаты красит панель одним на�
 
   // На «Обзоре» таблицы больше нет вовсе — значит, и листать её вбок нечего.
   const db = statsDb(statsOrders());
-  assert.doesNotMatch(adminViews.dashboard(SETTINGS, db), /<table/);
+  assert.match(adminViews.dashboard(SETTINGS, db), /class="min-w-full ta-orders-table"/);
 });
 
 test('счёт создаётся в основных единицах и только для подтверждённого способа', async () => {
@@ -13332,6 +13327,11 @@ test('онлайн в шапке и на «Обзоре» считает одн�
   ];
   assert.equal(m.onlineCount(), 2);
   assert.equal(m.pulse().online, 2);
+  m.data.visitors[0].countryCode = 'RU';
+  m.data.visitors[1].countryCode = 'NL';
+  m.data.visitors[2].countryCode = 'US';
+  m.data.daily[m.today()] = { visitors: ['a', 'b', 'c'], visits: 4 };
+  assert.deepEqual(m.pulse().countries, [{ code: 'RU', value: 1 }, { code: 'NL', value: 1 }], 'география обзора считает подтверждённых посетителей сегодняшних московских суток');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -17229,7 +17229,7 @@ test('раздел «Отправления» — свой пункт меню �
   };
 
   const page = adminViews.shipmentsPage(SETTINGS, db, {});
-  assert.match(page, /<h1>Отправления<\/h1>/);
+  assert.match(page, /<h1[^>]*>Отправления<\/h1>/);
   // Пункт меню свой, а не подпись внутри заказов.
   assert.match(page, /href="\/admin\/shipments" aria-current="page" class="a-nav-item[^"]*menu-item-active"/);
   // Заказ без маршрута в раздел не попадает вовсе.

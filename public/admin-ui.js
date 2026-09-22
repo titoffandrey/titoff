@@ -62,7 +62,11 @@
   function syncMenu() {
     if (desktop.matches) menu.checked = false;
     var button = document.querySelector('.a-menu-btn');
-    if (button) button.setAttribute('aria-expanded', String(menu.checked));
+    if (button) {
+      var expanded = desktop.matches ? !document.documentElement.classList.contains('ta-collapsed') : menu.checked;
+      button.setAttribute('aria-expanded', String(expanded));
+      button.setAttribute('aria-label', desktop.matches ? (expanded ? 'Свернуть меню' : 'Развернуть меню') : (expanded ? 'Закрыть меню' : 'Открыть меню'));
+    }
     // Сам чекбокс — запасной механизм без JS; с JS фокус получает кнопка.
     menu.tabIndex = -1;
     document.body.classList.toggle('a-menu-open', menu.checked);

@@ -22,7 +22,7 @@ try {
   run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund']);
   run(process.execPath, ['build.mjs', output]);
   if (verify) {
-    for (const filename of ['tailadmin-components.json', 'tailadmin.css', 'tailadmin-grid.svg', 'tailadmin.LICENSE.txt', 'fonts/outfit-latin-wght-normal.woff2']) {
+    for (const filename of ['tailadmin-ui.js', 'tailadmin-charts.js', 'tailadmin-components.json', 'tailadmin.css', 'tailadmin-grid.svg', 'tailadmin.LICENSE.txt', 'fonts/outfit-latin-wght-normal.woff2']) {
       if (!fs.readFileSync(path.join(output, filename)).equals(fs.readFileSync(path.join(root, 'public', filename)))) {
         throw new Error(`${filename} отличается от воспроизводимой сборки`);
       }
