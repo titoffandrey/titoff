@@ -1,5 +1,4 @@
 /*! TailAdmin 2.4.0, MIT, commit 1bd2dc42a8467ae0281cf00bd0050da4c9c4be07. Built from vendor/tailadmin/upstream; see /static/tailadmin.LICENSE.txt */
-@font-face{font-family:Outfit;font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/outfit-latin-wght-normal.woff2) format("woff2")}
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
     body.admin *, body.admin :before, body.admin :after, body.admin ::backdrop {
@@ -95,7 +94,7 @@ body.admin, body.admin {
     --ease-in-out: cubic-bezier(.4, 0, .2, 1);
     --default-transition-duration: .15s;
     --default-transition-timing-function: cubic-bezier(.4, 0, .2, 1);
-    --font-outfit: Outfit, sans-serif;
+    --font-outfit: Roboto, sans-serif;
     --breakpoint-2xsm: 375px;
     --breakpoint-xsm: 425px;
     --breakpoint-3xl: 2000px;
@@ -807,6 +806,10 @@ body.admin .mt-2 {
     margin-top: calc(var(--spacing) * 2);
   }
 
+body.admin .mt-3 {
+    margin-top: calc(var(--spacing) * 3);
+  }
+
 body.admin .mt-4\.25 {
     margin-top: calc(var(--spacing) * 4.25);
   }
@@ -911,6 +914,10 @@ body.admin .h-7 {
     height: calc(var(--spacing) * 7);
   }
 
+body.admin .h-10 {
+    height: calc(var(--spacing) * 10);
+  }
+
 body.admin .h-11 {
     height: calc(var(--spacing) * 11);
   }
@@ -937,6 +944,10 @@ body.admin .h-screen {
 
 body.admin .max-h-48\.75 {
     max-height: calc(var(--spacing) * 48.75);
+  }
+
+body.admin .w-10 {
+    width: calc(var(--spacing) * 10);
   }
 
 body.admin .w-11 {
@@ -1619,6 +1630,12 @@ body.admin .ease-linear {
     transition-timing-function: linear;
   }
 
+@media (hover: hover) {
+    body.admin .group-hover\:fill-gray-700:is(:where(.group):hover *) {
+      fill: var(--color-gray-700);
+    }
+  }
+
 body.admin .placeholder\:text-gray-400::placeholder {
     color: var(--color-gray-400);
   }
@@ -1837,6 +1854,10 @@ body.admin .focus\:outline-hidden:focus {
 
     body.admin .xl\:flex {
       display: flex;
+    }
+
+    body.admin .xl\:hidden {
+      display: none;
     }
 
     body.admin .xl\:w-98\.25 {
@@ -2149,6 +2170,12 @@ body.admin .dark\:text-white\/90:is(.dark *) {
 @supports (color: color-mix(in lab, red, red)) {
     body.admin .dark\:text-white\/90:is(.dark *) {
       color: color-mix(in oklab, var(--color-white) 90%, transparent);
+    }
+  }
+
+@media (hover: hover) {
+    body.admin .dark\:group-hover\:fill-gray-300:is(.dark *):is(:where(.group):hover *) {
+      fill: var(--color-gray-300);
     }
   }
 
@@ -3879,7 +3906,7 @@ body.admin .jvm-line[animation="true"] {
   inherits: false
 }
 /* Раскладка и действующие элементы магазина; компоненты и оформление — из TailAdmin. */
-body.admin{--a-sidebar:290px;--a-topbar:81px;--accent:var(--color-brand-500);--bg2:var(--color-gray-50);--text:var(--color-gray-800);--muted:var(--color-gray-500);--border:var(--color-gray-200);--border-soft:var(--color-gray-100);--surface-soft:var(--color-gray-50);font-family:Outfit,Roboto,sans-serif;line-height:1.5}
+body.admin{--a-sidebar:290px;--a-topbar:81px;--accent:var(--color-brand-500);--bg2:var(--color-gray-50);--text:var(--color-gray-800);--muted:var(--color-gray-500);--border:var(--color-gray-200);--border-soft:var(--color-gray-100);--surface-soft:var(--color-gray-50);font-family:Roboto,sans-serif;line-height:1.5}
 body.admin .a-topbar{height:auto;min-height:0;padding:0;display:block;border:0;background:transparent;z-index:30}
 body.admin .ta-header{z-index:30}
 body.admin .ta-header-row{gap:16px;min-height:80px}
@@ -3931,7 +3958,7 @@ body.admin :focus-visible{outline:2px solid var(--color-brand-300);outline-offse
 @media(max-width:1279px){body.admin.a-menu-open{overflow:hidden}}
 @media(max-width:800px){
  body.admin .a-content{padding:20px 16px}
- body.admin .ta-header-row{flex-wrap:wrap;gap:12px;min-height:72px;padding:14px 16px}
+ body.admin .ta-header-row{gap:12px;padding:12px 12px}
  body.admin .ta-header-row h1{font-size:20px}
  body.admin .a-topbar-acts{margin:0;flex:1 0 100%}
  body.admin .a-period{align-items:flex-start;flex-wrap:wrap}
@@ -3950,6 +3977,9 @@ body.admin.a-app .a-content{padding:0;max-width:none}
 /* Полная шапка, страницы и таблицы исходного шаблона. */
 body.admin .ta-header-row{min-width:0;width:auto;flex:1}
 body.admin .ta-header-actions{display:flex;align-items:center;width:auto;flex:none;padding:16px 0;gap:16px}
+body.admin .ta-header-brand{font-size:18px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+body.admin [data-ta-actions]{flex:none;cursor:pointer}
+body.admin [data-ta-actions].is-on{background:var(--color-gray-100)}
 body.admin .ta-header-search{max-width:100%;min-width:0}
 body.admin .ta-header-search input{max-width:100%}
 body.admin .a-menu-btn{display:inline-flex}
@@ -3971,6 +4001,9 @@ body.admin .ta-chart-card .ta-chart-canvas svg{max-width:none}
 body.admin .ta-orders-table{width:100%;border-collapse:collapse;text-align:left;color:var(--muted);font-size:14px}
 body.admin .ta-orders-table th{text-align:left;font-weight:500}
 body.admin .ta-orders-table td{vertical-align:middle}
+body.admin .ta-orders-table td.ta-status-cell{white-space:normal;min-width:150px}
+body.admin .ta-orders-table .o-when,body.admin .ta-orders-table .o-left,body.admin .ta-orders-table .o-note{margin-top:4px}
+body.admin .ta-product-cell img{width:50px;height:50px;object-fit:cover;border-radius:8px;flex:none;background:var(--color-gray-100)}
 body.admin .ta-orders-table tbody tr{border-bottom:1px solid var(--border-soft)}
 body.admin .ta-orders-table tbody tr:last-child{border-bottom:0}
 body.admin .ta-product-cell{display:flex;align-items:center;gap:12px;color:var(--text);min-width:180px}
@@ -3999,12 +4032,25 @@ html.ta-collapsed body.admin .ta-sidebar .a-nav-item{justify-content:center;padd
  html.ta-collapsed body.admin .ta-sidebar .a-brand-name,html.ta-collapsed body.admin .ta-sidebar .menu-item-text,html.ta-collapsed body.admin .ta-sidebar .a-badge{display:revert}
  html.ta-collapsed body.admin .ta-sidebar .menu-group-title{font-size:12px}
  html.ta-collapsed body.admin .ta-sidebar .menu-group-title:after{content:none}
- body.admin .ta-header>div{flex-direction:row;padding:0 16px;gap:12px}
+ /* Как в оригинале ниже xl: ряд «меню · бренд · ⋯» и под ним, по нажатию «⋯»,
+    ряд действий во всю ширину с тенью. */
+ body.admin .ta-header>div{flex-direction:column;padding:0;gap:0}
  body.admin .ta-header-search{display:none}
- body.admin .ta-header-row{border:0;padding-inline:0}
- body.admin .ta-profile>span:last-child{display:none}
- body.admin .ta-header-actions{gap:12px;padding:12px 0}
- body.admin .ta-header{border-bottom:1px solid var(--border)}
+ body.admin .ta-header-row{width:100%;flex:none;justify-content:space-between;min-height:0;padding:12px 16px;border-bottom:1px solid var(--border)}
+ body.admin .ta-header-actions{display:none;width:100%;justify-content:space-between;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);box-shadow:0 4px 12px rgb(16 24 40/.06)}
+ html.ta-actions-open body.admin .ta-header-actions{display:flex}
+}
+@media(max-width:800px){
+ body.admin .ta-profile>summary>span:not(.ta-profile-avatar){display:none}
+ body.admin .ta-orders-table,body.admin .ta-orders-table tbody{display:block;width:100%}
+ body.admin .ta-orders-table thead{display:none}
+ body.admin .ta-orders-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding:14px 0}
+ body.admin .ta-orders-table td{display:block;padding:0;white-space:normal;border:0;min-width:0}
+ body.admin .ta-orders-table td.ta-status-cell,body.admin .ta-orders-table td.ta-actions-cell,body.admin .ta-orders-table td.ta-product-td{grid-column:1/-1}
+ body.admin .ta-orders-table td.ta-total-cell{font-weight:600;color:var(--text);text-align:right}
+ body.admin .ta-orders-table td.ta-actions-cell .ta-order-open{width:100%}
+ body.admin .ta-orders-table td.ta-empty{grid-column:1/-1;padding:24px 0}
+ body.admin .ta-product-cell{min-width:0}
 }
 @media(max-width:800px){body.admin .ta-page-heading nav{flex-wrap:wrap;gap:10px}body.admin .ta-order-dialog{padding:20px}body.admin .ta-metric.metric-card{padding:20px}body.admin .ta-analytics-chart{overflow:auto}}
 /* Семантические переменные магазина используют палитру оригинальной dark-темы. */
@@ -4106,6 +4152,38 @@ html.dark body.admin .g-menu-line{background:var(--color-gray-800)}
 html.dark body.admin .g-menu-search{box-shadow:inset 0 0 0 1px var(--color-gray-700)}
 html.dark body.admin .g-menu-search:focus-within{box-shadow:inset 0 0 0 2px var(--color-brand-400)}
 html.dark body.admin .g-menu-search input{color:var(--color-gray-100)}
+
+/* Ночная тема для поверхностей, у которых в admin.css зашит светлый цвет:
+   форма товара с редакторами вариантов и фото, отзывы, журнал касс,
+   отправления, фильтры и календарь метрики, предпросмотр оформления. */
+html.dark body.admin :is(.form-section,.a-stat,.img-chip,.img-chip .img-color,.img-move,.photo-queue-item,.photo-queue-actions button,#color-uploads .cu-field,#band-uploads .cu-field,#band-uploads .cu-case-tab,.a-sort,.rv-row,.rv-row.is-seen,.a-filters-btn,.band-opt-row,.option-val-row,.ship-steps input,.ship-share-url,.ship-share.is-hidden .ship-share-ico,.mf-date input,.mf-sort select,.mf-date-trigger,.mf-chip,.bp-cart,.color-field input[type=color],.login-card){background:rgb(255 255 255/.03);border-color:var(--border);color:var(--text)}
+html.dark body.admin :is(.band-group-box,.option-group-box,.upload-fold,.band-editor .band-opt-row .bo-for,#band-uploads .cu-case,.st-price-wrap,.color-editor .color-row .color-hexed,.color-row.row-out,.storage-row.row-out,.band-opt-row.row-out,.option-val-row.row-out,.o-fact,.o-summary-details>.o-stats,.visit-steps li:nth-child(odd),.rv-thumb,.rv-file-body,.rv-prod-pic img,.rv-prod-pic svg,.a-thumb img,.a-thumb svg,.photo-queue-item img,.metric-bar-ico,.rule-sig,.rule-mark.is-skip,.pay-method-tag-off,.pay-log-tag.is-idle){background:var(--color-gray-800);border-color:var(--border);color:var(--color-gray-300)}
+html.dark body.admin :is(.st-price-wrap:focus-within,.color-editor .color-row .color-hexed:focus,.img-move:hover,.pay-fold>summary:hover,.pay-method-check:hover,.a-orders .o-who summary:hover,.rv-prod:hover,.mf-chip:hover,.set>summary:hover){background:var(--color-gray-800);color:var(--text)}
+html.dark body.admin .form-actions-bar{background:rgb(16 24 40/.86);border-color:var(--border)}
+html.dark body.admin .a-sort{color:var(--muted)}
+html.dark body.admin .a-sort.active{background:rgb(70 95 255/.15);border-color:rgb(70 95 255/.3);color:var(--color-brand-400)}
+html.dark body.admin :is(.rv-row.is-pending,.rv-prod.has-wait,.pay-log-row.is-bad,.storage-row.row-cheap,.option-val-row.row-cheap,.band-opt-row.row-cheap,.a-newrules,details.metric-bots,.ship-list tr.is-late,.ship-list tr.is-late td){background:rgb(247 144 9/.08);border-color:rgb(247 144 9/.3)}
+html.dark body.admin details.metric-bots>summary:hover{background:rgb(247 144 9/.14)}
+html.dark body.admin .rv-row :is(.rv-who,.rv-text,.rv-head b){color:var(--text)}
+html.dark body.admin :is(.a-flash.err,.form-alert,.field.has-error input,.field.has-error textarea){background:rgb(240 68 56/.1);border-color:rgb(240 68 56/.35);color:var(--color-error-400)}
+html.dark body.admin :is(.photo-upload-cancel,.color-del:hover){background:rgb(240 68 56/.1);border-color:rgb(240 68 56/.35);color:var(--color-error-400)}
+html.dark body.admin .pay-log-tag.is-paid{background:rgb(18 183 106/.15);color:var(--color-success-500)}
+html.dark body.admin .rule-mark.is-block{background:rgb(240 68 56/.15);color:var(--color-error-400)}
+html.dark body.admin .pay-log-tag.is-bad{background:rgb(247 144 9/.15);color:var(--color-warning-500)}
+html.dark body.admin .pay-log-tag.is-fail{background:rgb(240 68 56/.15);color:var(--color-error-400)}
+html.dark body.admin .a-orders tr.o-row:target td{background:rgb(247 144 9/.12)}
+html.dark body.admin :is(.mc-tip,.gm-tip,.gcal-dialog,.gcal-pane,.gcal-pane-value,.gcal-range-field){background:var(--color-gray-800);color:var(--text);border-color:var(--border)}
+html.dark body.admin .gcal-radio{background:var(--color-gray-900);border-color:var(--color-gray-500)}
+html.dark body.admin .a-menu-dot{border-color:var(--color-gray-900)}
+html.dark body.admin .bp-bar{background:rgb(16 24 40/.9);border-color:var(--border)}
+html.dark body.admin .set-photo-x{background:rgb(16 24 40/.85);color:var(--color-gray-300)}
+html.dark body.admin .set-photo-x:hover{background:var(--color-gray-800);color:var(--color-error-400)}
+html.dark body.admin .switch-row input::after{background:var(--color-gray-100)}
+html.dark body.admin :is(#color-add,#storage-add){background:var(--color-gray-800);border-color:var(--color-gray-700);color:var(--color-gray-300)}
+html.dark body.admin :is(#color-add,#storage-add):hover{background:var(--color-gray-700);color:var(--text)}
+html.dark body.admin [data-ta-actions].is-on{background:var(--color-gray-800)}
+html.dark body.admin .ta-header-brand{color:var(--color-gray-100)}
+html.dark body.admin .ta-header-actions{box-shadow:0 4px 12px rgb(0 0 0/.35)}
 
 /* Ночная палитра реальных элементов чата панели, включая заполненные состояния. */
 html.dark body.admin .chat-row {

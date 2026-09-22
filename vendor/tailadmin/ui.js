@@ -2,6 +2,17 @@
 (function () {
   'use strict';
   var root = document.documentElement;
+  // Ряд действий шапки на телефоне: как в оригинале, скрыт за кнопкой «⋯».
+  // Состояние держит класс на <html>, а не на самом ряде: тот лежит в живом
+  // блоке шапки, и подмена разметки стирала бы класс на каждом обновлении.
+  function syncActions() {
+    var open = root.classList.contains('ta-actions-open');
+    document.querySelectorAll('[data-ta-actions]').forEach(function (button) {
+      button.setAttribute('aria-expanded', String(open));
+      button.setAttribute('aria-label', open ? 'Скрыть действия' : 'Показать действия');
+      button.classList.toggle('is-on', open);
+    });
+  }
   function syncTheme() {
     var dark = root.classList.contains('dark');
     document.querySelectorAll('[data-ta-theme]').forEach(function (button) {
@@ -27,6 +38,10 @@
       try { localStorage.setItem('darkMode', JSON.stringify(root.classList.contains('dark'))); } catch (_) {}
       syncTheme();
       document.dispatchEvent(new CustomEvent('tailadmin:theme'));
+    }
+    if (event.target.closest('[data-ta-actions]')) {
+      root.classList.toggle('ta-actions-open');
+      syncActions();
     }
     if (event.target.closest('[data-ta-search-focus]')) {
       var input = document.getElementById('search-input'); if (input) input.focus();
@@ -57,6 +72,7 @@
   var openedHash = '';
   function refresh() {
     syncTheme();
+    syncActions();
     if (location.hash.indexOf('#order-') === 0 && openedHash !== location.hash) {
       var row = document.getElementById(location.hash.slice(1));
       var dialog = row && row.querySelector('dialog');

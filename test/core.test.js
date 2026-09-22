@@ -5987,7 +5987,12 @@ test('меню панели сохраняет навигацию, счётчи�
     'панель обязана идти ПОСЛЕ чекбокса — открывает её селектор соседа');
   assert.ok(html.indexOf('class="a-menu-wrap"') < html.indexOf('class="a-topbar"'),
     'кнопка в шапке — тоже сосед чекбокса, иначе рамка фокуса ей не достанется');
-  assert.equal(/\/admin\/logout/.test(html), false, 'выход переехал в настройки');
+  /* Выход — в меню профиля (там же, где «Sign out» у оригинала TailAdmin) и в
+   * «Настройках»; в самой шапке, рядом с разделами, кнопки нет: там она
+   * нажималась вместо соседей. */
+  const profileMenu = html.slice(html.indexOf(' ta-profile-menu"'), html.indexOf('</details>', html.indexOf(' ta-profile-menu"')));
+  assert.match(profileMenu, /action="\/admin\/logout"/, 'выход есть в меню профиля');
+  assert.equal((html.match(/\/admin\/logout/g) || []).length, 1, 'а больше в шапке его нет');
   assert.match(html, /admin-ui\.js/);
   assert.ok(html.indexOf('/static/tailadmin.css?') > html.indexOf('/static/admin.css?'),
     'тема панели подключается после её базовых стилей');

@@ -55,13 +55,22 @@ const theme = $rawHeader('button').filter((_, el) => String(el.attribs['@click.p
 for (const attr of Object.keys(theme[0].attribs)) if (/^(x-|:|@)/.test(attr)) theme.removeAttr(attr);
 theme.attr({ type: 'button', 'data-ta-theme': '', 'aria-label': 'Включить тёмную тему', 'aria-pressed': 'false' });
 templates.themeToggle = $rawHeader.html(theme);
+// Мобильная шапка оригинала: ссылка-логотип по центру и кнопка «⋯», которая
+// раскрывает ряд действий (тема, уведомления, профиль). Alpine снят, состояние
+// держит класс на <html> — его живое обновление панели не трогает.
+const brandLink = headerRow.children('a').first().clone().attr({ href: '/admin', class: 'ta-header-brand xl:hidden' }).html('@@BRAND@@');
+templates.headerBrand = $header.html(brandLink);
+const actionsToggle = headerRow.children('button').eq(1).clone();
+actionsToggle.attr({ type: 'button', 'data-ta-actions': '', 'aria-expanded': 'false', 'aria-controls': 'ta-header-actions', 'aria-label': 'Показать действия' });
+actionsToggle.find('svg').attr('aria-hidden', 'true');
+templates.actionsToggle = $header.html(actionsToggle);
 const search = headerRow.find('form').first().clone().attr({ action: '/admin/orders', method: 'get', class: 'ta-header-search' });
 search.find('input').attr({ name: 'q', type: 'search', placeholder: 'Поиск заказа…', 'aria-label': 'Поиск заказов', autocomplete: 'off' });
 search.find('button').attr({ type: 'button', 'data-ta-search-focus': '', 'aria-label': 'Перейти к поиску' });
 templates.headerSearch = $header.html(search);
 // Панель справа сохраняет оригинальную раскладку шапки, значения подставляет магазин.
 headerRow.html('@@CONTENT@@').addClass('ta-header-row');
-headerInner.children('div').eq(1).html('@@ACTIONS@@').addClass('ta-header-actions');
+headerInner.children('div').eq(1).html('@@ACTIONS@@').addClass('ta-header-actions').attr('id', 'ta-header-actions');
 templates.header = $header.html(header);
 
 const $profile = await source('partials/header.html');
@@ -74,9 +83,16 @@ profileButton.removeAttr('href').attr('aria-label', 'Меню профиля');
 profileButton.children('span').first().addClass('ta-profile-avatar').html('@@INITIAL@@');
 profileButton.children('span').eq(1).text('@@NAME@@');
 const profileMenu = profile.children('div').last().addClass('ta-profile-menu');
-const profileLink = profileMenu.find('a').first().clone().attr('href', '/admin/settings').text('Настройки');
+const profileLink = profileMenu.find('a').eq(1).clone().attr('href', '/admin/settings');
+profileLink.find('span').last().text('Настройки');
+profileLink.find('svg').attr('aria-hidden', 'true');
+const signOut = profileMenu.children('button').last().clone().attr('type', 'submit').addClass('w-full');
+signOut.find('span').last().text('Выйти');
+signOut.find('svg').attr('aria-hidden', 'true');
 profileMenu.html('<p class="text-sm text-gray-500 dark:text-gray-400">@@NAME@@</p>');
 profileMenu.append(profileLink);
+profileMenu.append('<form method="post" action="/admin/logout" class="ta-profile-logout"></form>');
+profileMenu.children('form').append(signOut);
 templates.profileMenu = $profile.html(profile);
 
 const $notifications = await source('partials/header.html');
@@ -132,13 +148,15 @@ templates.recentOrders = $recent.html(recent);
 const $tableSource = await source('partials/table/table-01.html');
 const row = $tableSource('tbody tr').first().clone();
 row.attr({id: '@@ID@@', 'data-live-key': '@@ID@@'});
-row.children('td').each((i, el) => $tableSource(el).html(['@@PRODUCT@@', '@@CUSTOMER@@', '@@TOTAL@@', '@@STATUS@@'][i]));
+// Ячейки получают имена: на телефоне строка складывается в карточку, а
+// безымянные <td> сетке не адресовать (то же правило, что у списка каталога).
+row.children('td').each((i, el) => $tableSource(el).html(['@@PRODUCT@@', '@@CUSTOMER@@', '@@TOTAL@@', '@@STATUS@@'][i]).addClass(['ta-product-td', 'ta-customer-cell-td', 'ta-total-cell', 'ta-status-cell'][i]));
 templates.orderRow = $tableSource.html(row);
 const ordersTable = table.clone();
 ordersTable.find('thead tr').append('<th class="px-6 py-3 text-theme-xs font-medium text-gray-500 dark:text-gray-400">Действия</th>');
 templates.ordersTable = '<div class="ta custom-scrollbar max-w-full overflow-x-auto">' + $recent.html(ordersTable) + '</div>';
 const fullRow = row.clone().attr('class', '@@ROWCLASS@@');
-fullRow.append('<td class="px-6 py-3 text-sm">@@ACTIONS@@</td>');
+fullRow.append('<td class="px-6 py-3 text-sm ta-actions-cell">@@ACTIONS@@</td>');
 templates.orderFullRow = $tableSource.html(fullRow);
 
 const $map = await source('partials/map-01.html');
@@ -233,6 +251,10 @@ await fs.writeFile(path.join(output, 'tailadmin-components.json'), JSON.stringif
 // Компилируем оригинальный CSS, заменяя удалённый шрифт и список шаблонов.
 let input = await fs.readFile(path.join(dir, 'upstream/src/css/style.css'), 'utf8');
 input = input.replace(/@import url\([^;]+;/, '').replace('@import "tailwindcss";', '@import "tailwindcss" source(none);');
+// Одна гарнитура на латиницу и кириллицу: Outfit не знает кириллицы, и русская
+// панель набиралась двумя шрифтами в одной строке. Roboto уже лежит в
+// public/fonts (кириллица, латиница, ₽) и объявлен в admin.css.
+input = input.replace(/--font-outfit:\s*[^;]+;/, '--font-outfit: Roboto, sans-serif;');
 // Адаптеры после компиляции тоже используют палитру: сохраняем все исходные токены.
 input = input.replace('@theme {', '@theme static {');
 input = input.replaceAll('#chartOne', '[data-ta-chart="bar"]').replaceAll('#chartTwo', '[data-ta-chart="radialBar"]').replaceAll('#chartThree', '[data-ta-chart="area"]');
@@ -257,7 +279,7 @@ css.walkRules(rule => {
 });
 css.walkAtRules('layer', rule => { if (rule.nodes) rule.replaceWith(...rule.nodes); else rule.remove(); });
 const banner = `TailAdmin ${manifest.version}, MIT, commit ${manifest.commit}. Built from vendor/tailadmin/upstream; see /static/tailadmin.LICENSE.txt`;
-const font = '@font-face{font-family:Outfit;font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/outfit-latin-wght-normal.woff2) format("woff2")}\n';
+const font = '';
 const compatibility = await Promise.all(['integration.css', 'chat-dark.css'].map(file => fs.readFile(path.join(dir, file), 'utf8')));
 const definedColors = new Set([...css.toString().matchAll(/(--color-[\w-]+)\s*:/g)].map(match => match[1]));
 for (const [, token] of compatibility.join('\n').matchAll(/var\((--color-[\w-]+)/g)) {
@@ -265,10 +287,8 @@ for (const [, token] of compatibility.join('\n').matchAll(/var\((--color-[\w-]+)
 }
 await fs.writeFile(path.join(output, 'tailadmin.css'), `/*! ${banner} */\n${font}${css.toString()}\n${compatibility.join('\n')}`);
 await fs.copyFile(path.join(dir, 'upstream/src/images/shape/grid-01.svg'), path.join(output, 'tailadmin-grid.svg'));
-await fs.mkdir(path.join(output, 'fonts'), { recursive: true });
-await fs.copyFile(path.join(dir, 'node_modules/@fontsource-variable/outfit/files/outfit-latin-wght-normal.woff2'), path.join(output, 'fonts/outfit-latin-wght-normal.woff2'));
 let license = `TailAdmin ${manifest.version}\n${manifest.repository}\nCommit: ${manifest.commit}\n\n` + await fs.readFile(path.join(dir, 'upstream/LICENSE'), 'utf8');
-for (const name of ['tailwindcss', '@tailwindcss/forms', '@fontsource-variable/outfit', 'apexcharts', 'jsvectormap']) {
+for (const name of ['tailwindcss', '@tailwindcss/forms', 'apexcharts', 'jsvectormap']) {
  const folder = path.join(dir, 'node_modules', name);
  const filename = (await fs.readdir(folder)).find(f => /^licen[sc]e(?:\.|$)/i.test(f));
  license += `\n\n${name}\n${await fs.readFile(path.join(folder, filename), 'utf8')}`;

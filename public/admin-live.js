@@ -142,6 +142,11 @@
       return;
     }
     if (from.nodeType !== 1) return;
+    /* `<noscript>` живой страницы хранит текст, а из DOMParser приходит
+     * разобранными элементами: вставь их сюда — и `<style>` «без JS» стал бы
+     * настоящим правилом при включённом JS. Содержимое noscript при работающих
+     * скриптах не нужно никому, поэтому оно не сравнивается вовсе. */
+    if (from.tagName === 'NOSCRIPT') return;
     if (browserOwned(from)) return;
     syncAttrs(from, to);
     // У поля ввода детей либо нет, либо они и есть его значение (textarea).

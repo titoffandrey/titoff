@@ -11,11 +11,23 @@ const factories = { bar: barOptions, radialBar: radialOptions, area: areaOptions
 const instances = new Map();
 const maps = new Map();
 const number = value => Number(value || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+// Ближайший целый шаг оси не меньше запрошенного — та же лестница, что у
+// прежнего графика метрики (`niceStep` в lib/analytics-view.js).
+function niceStep(raw) {
+  const v = Math.max(1, Number(raw) || 0);
+  if (v <= 1) return 1;
+  const power = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const step of [1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7.5, 10]) {
+    const candidate = Math.round(step * power);
+    if (candidate >= v) return candidate;
+  }
+  return Math.ceil(v);
+}
 function optionsFor(el, data) {
   const dark = document.documentElement.classList.contains('dark');
   const options = factories[el.dataset.taChart]();
   options.series = data.series;
-  options.chart.fontFamily = 'Outfit, Roboto, sans-serif';
+  options.chart.fontFamily = 'Roboto, sans-serif';
   options.chart.foreColor = dark ? '#98a2b3' : '#667085';
   options.chart.animations = { enabled: !matchMedia('(prefers-reduced-motion: reduce)').matches };
   options.chart.background = 'transparent';
@@ -30,6 +42,15 @@ function optionsFor(el, data) {
     options.xaxis.categories = data.labels;
     options.xaxis.labels = { ...options.xaxis.labels, hideOverlappingLabels: true, trim: true };
     options.yaxis = { ...options.yaxis, labels: { formatter: format }, min: 0 };
+    if (!data.currency) {
+      // Заказы и посетители — штуки: ось делится на пять целым шагом, как у
+      // прежнего серверного графика. Иначе ApexCharts рисует «0,2 посетителя».
+      const top = Math.max(0, ...data.series.flatMap(s => s.data).filter(Number.isFinite));
+      const step = niceStep(top / 5);
+      options.yaxis.max = step * 5;
+      options.yaxis.tickAmount = 5;
+      options.yaxis.labels = { formatter: value => number(Math.round(value)) };
+    }
     options.grid.borderColor = dark ? '#1d2939' : '#f2f4f7';
     options.tooltip = { ...options.tooltip, theme: dark ? 'dark' : 'light', y: { formatter: format } };
     options.noData = { text: 'Пока нет данных', style: { color: dark ? '#98a2b3' : '#667085' } };
