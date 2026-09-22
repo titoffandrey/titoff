@@ -4156,7 +4156,7 @@ html.dark body.admin .g-menu-search input{color:var(--color-gray-100)}
 /* Ночная тема для поверхностей, у которых в admin.css зашит светлый цвет:
    форма товара с редакторами вариантов и фото, отзывы, журнал касс,
    отправления, фильтры и календарь метрики, предпросмотр оформления. */
-html.dark body.admin :is(.form-section,.a-stat,.img-chip,.img-chip .img-color,.img-move,.photo-queue-item,.photo-queue-actions button,#color-uploads .cu-field,#band-uploads .cu-field,#band-uploads .cu-case-tab,.a-sort,.rv-row,.rv-row.is-seen,.a-filters-btn,.band-opt-row,.option-val-row,.ship-steps input,.ship-share-url,.ship-share.is-hidden .ship-share-ico,.mf-date input,.mf-sort select,.mf-date-trigger,.mf-chip,.bp-cart,.color-field input[type=color],.login-card){background:rgb(255 255 255/.03);border-color:var(--border);color:var(--text)}
+html.dark body.admin :is(.form-section,.a-stat,.img-chip,.img-chip .img-color,.img-move,.photo-queue-item,.photo-queue-actions button,#color-uploads .cu-field,#band-uploads .cu-field,#band-uploads .cu-case-tab,.a-sort,.rv-row,.rv-row.is-seen,.a-filters-btn,.band-opt-row,.option-val-row,.ship-steps input,.ship-share-url,.ship-share.is-hidden .ship-share-ico,.mf-date input,.mf-sort select,.mf-date-trigger,.mf-chip,.color-field input[type=color],.login-card){background:rgb(255 255 255/.03);border-color:var(--border);color:var(--text)}
 html.dark body.admin :is(.band-group-box,.option-group-box,.upload-fold,.band-editor .band-opt-row .bo-for,#band-uploads .cu-case,.st-price-wrap,.color-editor .color-row .color-hexed,.color-row.row-out,.storage-row.row-out,.band-opt-row.row-out,.option-val-row.row-out,.o-fact,.o-summary-details>.o-stats,.visit-steps li:nth-child(odd),.rv-thumb,.rv-file-body,.rv-prod-pic img,.rv-prod-pic svg,.a-thumb img,.a-thumb svg,.photo-queue-item img,.metric-bar-ico,.rule-sig,.rule-mark.is-skip,.pay-method-tag-off,.pay-log-tag.is-idle){background:var(--color-gray-800);border-color:var(--border);color:var(--color-gray-300)}
 html.dark body.admin :is(.st-price-wrap:focus-within,.color-editor .color-row .color-hexed:focus,.img-move:hover,.pay-fold>summary:hover,.pay-method-check:hover,.a-orders .o-who summary:hover,.rv-prod:hover,.mf-chip:hover,.set>summary:hover){background:var(--color-gray-800);color:var(--text)}
 html.dark body.admin .form-actions-bar{background:rgb(16 24 40/.86);border-color:var(--border)}
@@ -4175,7 +4175,6 @@ html.dark body.admin .a-orders tr.o-row:target td{background:rgb(247 144 9/.12)}
 html.dark body.admin :is(.mc-tip,.gm-tip,.gcal-dialog,.gcal-pane,.gcal-pane-value,.gcal-range-field){background:var(--color-gray-800);color:var(--text);border-color:var(--border)}
 html.dark body.admin .gcal-radio{background:var(--color-gray-900);border-color:var(--color-gray-500)}
 html.dark body.admin .a-menu-dot{border-color:var(--color-gray-900)}
-html.dark body.admin .bp-bar{background:rgb(16 24 40/.9);border-color:var(--border)}
 html.dark body.admin .set-photo-x{background:rgb(16 24 40/.85);color:var(--color-gray-300)}
 html.dark body.admin .set-photo-x:hover{background:var(--color-gray-800);color:var(--color-error-400)}
 html.dark body.admin .switch-row input::after{background:var(--color-gray-100)}

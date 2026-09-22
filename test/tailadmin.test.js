@@ -143,9 +143,11 @@ test('TailAdmin: ночная тема покрывает форму товар�
       // любой класс, и ночная пара обязана называть его по имени.
       const classes = selector.match(/[.#][a-zA-Z0-9_-]+/g) || [];
       const key = classes[classes.length - 1];
-      // `.a-topbar` и `.login-card` панель TailAdmin не рисует, `.chat-item::after`
-      // и оранжевая `.img-main` — акценты, одинаковые в обеих темах.
-      if (!key || ['.a-topbar', '.login-card', '.chat-item', '.img-main'].includes(key)) continue;
+      /* `.a-topbar` и `.login-card` панель TailAdmin не рисует, `.chat-item::after`
+       * и оранжевая `.img-main` — акценты, одинаковые в обеих темах, а `.bp-*`
+       * — предпросмотр оформления: это окно в ВИТРИНУ, и она светлая всегда.
+       * Ночная пара сделала бы его картинкой, которой покупатель не увидит. */
+      if (!key || ['.a-topbar', '.login-card', '.chat-item', '.img-main', '.bp-bar', '.bp-cart'].includes(key)) continue;
       // Ночная пара — либо своё правило `html.dark …`, либо dark-вариант
       // Tailwind из bridge.css (компилируется в `…:is(.dark *)`).
       const escaped = key.replace(/^[.#]/, m => '\\' + m);
@@ -187,6 +189,25 @@ test('TailAdmin: выход из панели есть в меню профил�
   assert.match(charts, /fontFamily = 'Roboto, sans-serif'/);
   assert.match(charts, /options\.yaxis\.tickAmount = 5/);
   assert.match(charts, /number\(Math\.round\(value\)\)/);
+});
+
+test('предпросмотр оформления остаётся витриной и в ночной теме', () => {
+  /* Со снимка владельца 22 сентября 2026: в ночной теме предпросмотр показывал
+   * тёмную шапку над белой карточкой, а цена «от 99 990 ₽» на ней не читалась.
+   * Причина — цвета брались у ПАНЕЛИ (`--text`, `--muted`, `--border-soft`), а
+   * фоны стоят светлые: витрина светлая всегда, ночной темы у неё нет. */
+  const css = fs.readFileSync(path.join(root, 'public/admin.css'), 'utf8');
+  const preview = css.slice(css.indexOf('.brand-preview{'), css.indexOf('.bp-btn{'));
+  assert.match(preview, /\.brand-preview\{--bp-ink:#1d1d1f;--bp-muted:#6e6e73;--bp-line:#ececf0;/);
+  assert.doesNotMatch(preview, /var\(--text\)|var\(--muted\)|var\(--border-soft\)/,
+    'предпросмотр взял переменную панели — в ночной теме он станет нечитаемым');
+  for (const name of ['.bp-logo', '.bp-name', '.bp-price']) {
+    assert.match(preview, new RegExp(name.replace('.', '\\.') + '\\{[^}]*color:var\\(--bp-ink\\)'), name);
+  }
+  // Ночных правил у предпросмотра нет вовсе: красить окно в витрину под панель
+  // значило бы показывать владельцу то, чего покупатель никогда не увидит.
+  const dark = fs.readFileSync(path.join(root, 'public/tailadmin.css'), 'utf8');
+  assert.doesNotMatch(dark, /html\.dark[^{]*\.bp-/);
 });
 
 test('в настройках нет подсказок, а раздел отвечает на один вопрос', () => {
