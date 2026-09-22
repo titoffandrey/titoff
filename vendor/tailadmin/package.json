@@ -1,0 +1,13 @@
+{
+  "name": "store-tailadmin-build",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "@tailwindcss/forms": "0.5.11",
+    "postcss": "8.5.28",
+    "cheerio": "1.2.0",
+    "@fontsource-variable/outfit": "5.2.8"
+  }
+}

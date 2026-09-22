@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/TailAdmin/tailadmin-free-tailwind-dashboard-template",
+  "commit": "1bd2dc42a8467ae0281cf00bd0050da4c9c4be07",
+  "version": "2.4.0",
+  "files": {
+    "LICENSE": "8988044d6cd6bdcb6e7f2c955fb0d848d3c4fc6c8e766857a4e02313eb706d5e",
+    "src/css/style.css": "324a3f5ec50dd91ace11e521e81439ea35a04330043b105aeeae79f40d359e62",
+    "src/partials/sidebar.html": "24b5896486dd9e547c822e3d32d9df003bf693edfe7be8f7a92e21b79809a3cb",
+    "src/partials/header.html": "5410c8ef357de449a46d64e9e638e29ab31f4a8c3650b7100e512ca0d045db1e",
+    "src/partials/metric-group/metric-group-01.html": "9cf2cb1b5960b221c0d829140075384696f51f5a390590b3e724f6dcd9d85d69",
+    "src/partials/table/table-01.html": "b57c25443bcd03ee01ace0bfbb795c392598c7ac2a2e28ce9f1a0198ffccfd9c",
+    "src/partials/table/table-06.html": "563671c43efabb5bfa88b7b7332dd3d78f546c56ba19bf3eb38256f54f78ba9a",
+    "src/signin.html": "7663c769e38e3b81c15bb2ec6087c156ff9753879c39798b57fe30909f58a1bf",
+    "src/index.html": "8785edd58e19e0dcbd05501e8590190fdd6899e04255f091fb0f85aff32ba6f7",
+    "src/form-elements.html": "7237d2591eed8fe674b2a5ee7b3c056b6c7756d66c82f46be94ff03dca9638b1",
+    "src/buttons.html": "b8ec353842f03a8d6950082eff01a11d8f25602de12a87c49bc6480660d2070c",
+    "src/partials/common-grid-shape.html": "adb6dbf1f327ef79889077ba900a27e0818dfeee7857b183f0faa09f7119b7c3",
+    "src/images/shape/grid-01.svg": "4bd148be933633de0c680138ee6c07fc8e2e7fda912a64a208bd20e8d9f65d0d"
+  }
+}

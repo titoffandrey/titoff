@@ -1,0 +1,69 @@
+/* Раскладка и действующие элементы магазина; компоненты и оформление — из TailAdmin. */
+body.admin{--a-sidebar:290px;--a-topbar:81px;--accent:var(--color-brand-500);--bg2:var(--color-gray-50);--text:var(--color-gray-800);--muted:var(--color-gray-500);--border:var(--color-gray-200);--border-soft:var(--color-gray-100);--surface-soft:var(--color-gray-50);font-family:Outfit,Roboto,sans-serif;line-height:1.5}
+body.admin .a-topbar{height:auto;min-height:0;padding:0;display:block;border:0;background:transparent;z-index:30}
+body.admin .ta-header{z-index:30}
+body.admin .ta-header-row{gap:16px;min-height:80px}
+body.admin .ta-header-row h1{font-size:22px;line-height:1.3;font-weight:600;margin:0;flex:1;min-width:0}
+body.admin .a-topbar-acts{margin-left:auto}
+body.admin .a-content{width:100%;max-width:1536px;padding:24px;margin:0 auto}
+body.admin .a-menu-wrap{z-index:40}
+body.admin .a-menu-panel{border:0;border-radius:0;box-shadow:none}
+body.admin .ta-sidebar{position:relative;transform:none;height:100%;width:var(--a-sidebar);max-width:calc(100vw - 40px);border-radius:0}
+body.admin .a-menu-list{width:auto;height:auto;padding:0;overflow:visible;display:block}
+body.admin .a-menu-brand{display:contents}
+body.admin .a-brand{display:flex;align-items:center;gap:10px;min-width:0;color:var(--text)}
+body.admin .a-brand-icon{display:grid;place-items:center;flex:none;width:40px;height:40px;background:var(--accent);border-radius:10px;color:white}
+body.admin .a-brand-icon svg{color:inherit;width:24px;height:24px}
+body.admin .a-brand-name{font-size:20px;font-weight:600;overflow-wrap:anywhere;line-height:1.3}
+body.admin .a-brand-name small{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:4px}
+body.admin .a-menu-close{display:flex;align-items:center;justify-content:center;width:36px;height:36px;flex:none;margin-left:auto;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:24px;cursor:pointer}
+body.admin .a-nav-item{min-height:40px;line-height:1.5}
+body.admin .a-nav-item .a-nav-ico{width:24px;height:24px;flex:none;color:inherit}
+body.admin .a-nav-item>span:not(.a-badge){padding:0}
+body.admin .a-badge{margin-left:auto;background:var(--color-brand-50);color:var(--color-brand-500);border-radius:6px;font-size:12px;padding:2px 8px;height:auto}
+body.admin .a-menu-btn{margin:0;width:44px;height:44px;border:1px solid var(--border);border-radius:8px;background:white;color:var(--muted)}
+body.admin .a-menu-sep{display:block;margin:16px 0;background:var(--border);height:1px}
+body.admin .a-menu-check:checked~.a-menu-wrap .a-menu-panel{width:min(var(--a-sidebar),calc(100vw - 40px))}
+body.admin .a-period{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
+body.admin .a-overview-heading h2{font-size:24px;font-weight:600;margin:0}
+body.admin .a-overview-heading p{font-size:14px;color:var(--muted);margin:4px 0 0}
+body.admin .a-panel{margin-bottom:24px}
+body.admin .a-form-actions{margin:24px -24px -24px;padding:16px 24px;border-radius:0 0 16px 16px}
+body.admin .a-settings{padding:0;background:none;border:0}
+body.admin .a-settings>.a-form-actions{margin:0;padding:16px 0;background:var(--bg2)}
+body.admin .ta-recent{margin-bottom:24px}
+body.admin .ta-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}
+body.admin .ta-metrics>a{min-width:0;color:inherit;text-decoration:none}
+body.admin .ta-metric{height:100%}
+body.admin .ta-metric>.mt-5{align-items:flex-start;flex-direction:column;gap:8px}
+body.admin .ta-metric h4{overflow-wrap:anywhere}
+body.admin .ta-signin{width:100%;min-height:100dvh}
+body.admin.login-body{display:block;padding:0;background:white}
+body.admin .ta-signin .h-screen{min-height:100dvh;height:auto}
+body.admin .ta-signin .bg-brand-950{min-height:100dvh;overflow:hidden}
+body.admin :focus-visible{outline:2px solid var(--color-brand-300);outline-offset:3px}
+@media(min-width:1280px){
+ body.admin .a-main{padding-left:var(--a-sidebar)}
+ body.admin .a-menu-wrap{width:var(--a-sidebar);visibility:visible;transition:none}
+ body.admin .a-menu-panel{width:var(--a-sidebar)}
+ body.admin .a-menu-scrim,body.admin .a-menu-btn,body.admin .a-menu-close,body.admin .a-menu-check{display:none}
+}
+@media(max-width:1279px){body.admin.a-menu-open{overflow:hidden}}
+@media(max-width:800px){
+ body.admin .a-content{padding:20px 16px}
+ body.admin .ta-header-row{flex-wrap:wrap;gap:12px;min-height:72px;padding:14px 16px}
+ body.admin .ta-header-row h1{font-size:20px}
+ body.admin .a-topbar-acts{margin:0;flex:1 0 100%}
+ body.admin .a-period{align-items:flex-start;flex-wrap:wrap}
+ body.admin .a-overview-heading h2{font-size:22px}
+ body.admin .a-overview-heading p{font-size:12px}
+ body.admin .a-form-actions{margin:20px -20px -20px;padding:16px 20px}
+ body.admin .a-settings>.a-form-actions{margin:0;padding:16px 0}
+ body.admin .ta-metrics{grid-template-columns:minmax(0,1fr);gap:16px}
+ body.admin .a-panel.a-panel-list{padding:0;border:0;background:none;box-shadow:none}
+}
+@media(pointer:coarse){body.admin .field input,body.admin .field select,body.admin .field textarea,body.admin .ta-signin input{font-size:16px}}
+body.admin.a-app .a-main{padding-left:0}
+body.admin.a-app .a-menu-wrap,body.admin.a-app .a-topbar{display:none}
+body.admin.a-app .a-content{padding:0;max-width:none}
+@media(prefers-reduced-motion:reduce){body.admin .a-menu-wrap,body.admin .a-menu-panel,body.admin .ta-sidebar{transition:none}}

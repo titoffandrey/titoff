@@ -57,7 +57,7 @@
   'use strict';
   var menu = document.getElementById('a-menu');
   if (!menu) return;
-  var desktop = window.matchMedia('(min-width:1101px)');
+  var desktop = window.matchMedia('(min-width:1280px)');
   var wasOpen = false;
   function syncMenu() {
     if (desktop.matches) menu.checked = false;
@@ -68,7 +68,8 @@
     document.body.classList.toggle('a-menu-open', menu.checked);
     if (menu.checked && !wasOpen) {
       var close = document.querySelector('.a-menu-close');
-      if (close) close.focus();
+      // Нативный клик по label сначала переводит фокус на чекбокс.
+      requestAnimationFrame(function () { if (menu.checked && close) close.focus(); });
     } else if (!menu.checked && wasOpen) {
       var target = desktop.matches ? document.querySelector('.a-nav-item.active') : button;
       if (target) target.focus();

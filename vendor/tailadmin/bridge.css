@@ -1,0 +1,27 @@
+/* Поля и таблицы магазина используют классы оригинальных signin.html,
+   table/table-06.html и metric-group/metric-group-01.html. Серверная логика сохранена. */
+.a-panel, .a-form, .o-money, .o-states {
+  @apply rounded-2xl border border-gray-200 bg-white p-5 md:p-6 shadow-none;
+}
+.a-panel h2 { @apply text-lg font-semibold text-gray-800; }
+.btn { @apply rounded-lg text-sm font-medium shadow-theme-xs; }
+.btn-primary { @apply bg-brand-500 text-white hover:bg-brand-600 border-brand-500; }
+.btn-ghost { @apply border border-gray-300 bg-white text-gray-700 hover:bg-gray-50; }
+.field > label { @apply mb-1.5 block text-sm font-medium text-gray-700; }
+.field input:where(:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):not([type=range])), .field select, .field textarea {
+  @apply w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 focus:outline-hidden;
+}
+.field.has-error input, .field.has-error textarea, .field.has-error select { @apply border-error-500; }
+@media (min-width: 801px) {
+  .a-table th { @apply border-gray-100 px-5 py-3 text-left text-theme-xs font-medium text-gray-500; }
+  .a-table td { @apply border-gray-100 px-5 py-4 text-theme-sm text-gray-500; }
+}
+.a-table tbody tr:target td { @apply bg-warning-50; }
+.a-tab, .a-page { @apply rounded-lg border-gray-200 text-gray-700; }
+.a-tab.active, .a-page-cur { @apply bg-brand-50 border-brand-50 text-brand-500; }
+.set { @apply rounded-xl border-gray-200 bg-white shadow-none; }
+.set[open] { @apply border-brand-200 shadow-none; }
+.set-ico { @apply rounded-xl bg-gray-100 text-gray-800 border-0; }
+.g-select > summary { @apply rounded-lg border-gray-300 bg-white shadow-theme-xs; }
+.g-menu-item.is-on { @apply bg-brand-50 text-brand-500; }
+.chat-list { @apply rounded-2xl border-gray-200 bg-white; }

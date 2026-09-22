@@ -1685,7 +1685,7 @@ test('«Обзор» показывает, сколько человек на в
     visibleOrders: () => [], pendingReviewCount: () => 0
   };
   const html = adminViews.dashboard(SETTINGS, fakeDb, { online: 3, visitors: 26, pageViews: 200, visits: 30, orders: 1 });
-  assert.match(html, /class="a-stat a-stat-live"/);
+  assert.match(html, /data-tailadmin-component="metric"[\s\S]*?Сейчас на сайте[\s\S]*?<h4[^>]*>3<\/h4>/);
   assert.match(html, /Сейчас на сайте/);
   // Просмотры сняты со всей панели: рядом с посетителями они читались как ещё
   // одно число о том же самом, только больше.
@@ -1696,11 +1696,8 @@ test('«Обзор» показывает, сколько человек на в
   assert.doesNotMatch(html, /Товаров на витрине/);
   // Число обязано обновляться само, иначе это снимок момента открытия страницы.
   assert.match(html, /data-live="[^"]*analytics/);
-  // Никого на сайте — точка серая и неподвижная: зелёный пульс рядом с нулём
-  // обещал бы движение, которого нет.
-  assert.match(adminViews.dashboard(SETTINGS, fakeDb, { online: 0 }), /class="a-stat a-stat-live is-idle"/);
-  const css = PANEL_CSS;
-  assert.match(css, /\.a-stat-live\.is-idle \.a-stat-num i\{[^}]*animation:none/);
+  // Пустой онлайн сохраняется как ноль, без выдуманного прироста из демо.
+  assert.match(adminViews.dashboard(SETTINGS, fakeDb, { online: 0 }), /Сейчас на сайте[\s\S]*?<h4[^>]*>0<\/h4>/);
 });
 
 test('метрика безопасно считает специальные ключи объектов', t => {
@@ -5675,8 +5672,8 @@ test('срез отзывов сортирует и режет одинаков�
 
 test('подписи полей панели связаны с элементами форм', () => {
   const login = adminViews.loginPage({ storeName: 'Тест' }, null);
-  assert.match(login, /<label for="admin-login">Логин<\/label><input id="admin-login"/);
-  assert.match(login, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
+  assert.match(login, /<label[^>]*for="admin-login"[^>]*>Логин<\/label>\s*<input[^>]*id="admin-login"/);
+  assert.match(login, /<label[^>]*for="admin-password"[^>]*>Пароль<\/label>\s*<div[^>]*>\s*<input[^>]*id="admin-password"/);
   /* Связь ставит либо сама разметка (у полей настроек теперь свои id — их видно
    * в исходнике и по ним удобно ссылаться), либо `accessibleFields()` у тех, у
    * кого `for` не проставлен. Проверяем именно СВЯЗЬ, а не то, кто её сделал:
@@ -5969,7 +5966,7 @@ test('строка заказа: оплата собрана одним блок
 });
 
 test('меню панели сохраняет навигацию, счётчики и управление без JavaScript', () => {
-  const css = PANEL_CSS + '\n' + fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-tailadmin.css'), 'utf8');
+  const css = PANEL_CSS + '\n' + fs.readFileSync(path.join(__dirname, '..', 'public', 'tailadmin.css'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
   const db = {
     getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [],
@@ -5984,15 +5981,15 @@ test('меню панели сохраняет навигацию, счётчи�
    * этом остаётся в живом блоке — счётчик на ней обязан обновляться сам. */
   assert.match(html, /<input type="checkbox" id="a-menu" class="a-menu-check"/);
   assert.match(html, /<div class="a-menu-wrap">\s*<label class="a-menu-scrim" for="a-menu"/);
-  assert.match(html, /<nav class="a-menu-panel"[^>]*data-live-part="menu"/);
-  assert.match(html, /<div class="a-topbar" data-live-part="topbar"><label class="a-menu-btn" for="a-menu"/);
+  assert.match(html, /<div class="a-menu-panel"[^>]*data-live-part="menu"/);
+  assert.match(html, /<div class="a-topbar" data-live-part="topbar">[\s\S]*?<label class="a-menu-btn" for="a-menu"/);
   assert.ok(html.indexOf('class="a-menu-check"') < html.indexOf('class="a-menu-wrap"'),
     'панель обязана идти ПОСЛЕ чекбокса — открывает её селектор соседа');
   assert.ok(html.indexOf('class="a-menu-wrap"') < html.indexOf('class="a-topbar"'),
     'кнопка в шапке — тоже сосед чекбокса, иначе рамка фокуса ей не достанется');
   assert.equal(/\/admin\/logout/.test(html), false, 'выход переехал в настройки');
   assert.match(html, /admin-ui\.js/);
-  assert.ok(html.indexOf('/static/admin-tailadmin.css?') > html.indexOf('/static/admin.css?'),
+  assert.ok(html.indexOf('/static/tailadmin.css?') > html.indexOf('/static/admin.css?'),
     'тема панели подключается после её базовых стилей');
   // Состояние — чекбокс: без скрипта меню всё равно открывается и закрывается,
   // а храниться ему негде — значит, и моргать на загрузке нечему.
@@ -6005,12 +6002,12 @@ test('меню панели сохраняет навигацию, счётчи�
    * тест падал при добавлении раздела, хотя правило («значок у КАЖДОГО»)
    * соблюдено, и правился он подгонкой числа — то есть переставал что-либо
    * проверять. */
-  const menu = html.slice(html.indexOf('class="a-menu-list"'), html.indexOf('</nav>'));
+  const menu = html.slice(html.indexOf('id="a-menu-navigation"'), html.indexOf('</nav>'));
   const items = (menu.match(/class="a-nav-item/g) || []).length;
   assert.ok(items >= 6, 'разделов в меню стало подозрительно мало: ' + items);
   assert.equal((menu.match(/class="a-nav-ico"/g) || []).length, items, 'значки не у всех разделов');
   // Витрина открывается отдельно и остаётся доступна из общего меню.
-  assert.match(menu, /<span class="a-menu-sep"[^>]*><\/span>\s*<a class="a-nav-item" href="\/" target="_blank"/);
+  assert.match(menu, /<a target="_blank" rel="noopener noreferrer" href="\/" class="a-nav-item[^"]*"/);
   // Незнакомый ключ не ломает разметку: подпись раздела остаётся и без значка.
   assert.equal(render.adminIcon('выдумка'), '');
   assert.equal(render.adminIcon(''), '');
@@ -17234,7 +17231,7 @@ test('раздел «Отправления» — свой пункт меню �
   const page = adminViews.shipmentsPage(SETTINGS, db, {});
   assert.match(page, /<h1>Отправления<\/h1>/);
   // Пункт меню свой, а не подпись внутри заказов.
-  assert.match(page, /href="\/admin\/shipments" class="a-nav-item active"/);
+  assert.match(page, /href="\/admin\/shipments" aria-current="page" class="a-nav-item[^"]*menu-item-active"/);
   // Заказ без маршрута в раздел не попадает вовсе.
   assert.doesNotMatch(page, /100004/);
   assert.match(page, /Задерживаются <b>1<\/b>/);
@@ -18004,7 +18001,7 @@ test('раздел промокодов есть в панели и говори
     pendingReviewCount: () => 0, newOrderCount: () => 0
   };
   const html = adminViews.promoPage(settings, db, {});
-  assert.match(html, /href="\/admin\/promo" class="a-nav-item active"/, 'раздел отмечен в меню');
+  assert.match(html, /href="\/admin\/promo" aria-current="page" class="a-nav-item[^"]*menu-item-active"/, 'раздел отмечен в меню');
   assert.match(html, /скидка витрины идёт по коду SALE/, 'строка состояния говорит про витрину, а не про галочки');
   assert.match(html, /по умолчанию/);
   assert.match(html, /1 заказ/, 'сколько заказов оформлено по коду — из самих заказов');
