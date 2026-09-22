@@ -211,3 +211,18 @@ body.admin .ta-country-flag { font-size:28px; }
 body.admin .ta-map-card + .ta-activity { margin-top:24px; }
 @media(min-width:640px){body.admin [data-ta-map]{width:calc(100% + 3rem)}}
 html.dark body.admin .o-ship-new{background:var(--color-gray-800);border-color:var(--color-gray-700);color:var(--color-gray-300)}
+/* Общие меню периода, оплаты и географии используют ту же ночную палитру. */
+html.dark body.admin .g-select>.g-pill{background:var(--color-gray-900);border-color:var(--color-gray-700);color:var(--color-gray-200)}
+html.dark body.admin .g-select>.g-pill:hover{background:var(--color-gray-800)}
+html.dark body.admin .g-select[open]>.g-pill{background:rgb(70 95 255/.15);border-color:var(--color-brand-800);color:var(--color-brand-400)}
+html.dark body.admin .g-select :is(.g-pill-ico,.g-chev){color:inherit}
+html.dark body.admin .g-menu{background:var(--color-gray-900);border-color:var(--color-gray-800)}
+html.dark body.admin .g-opt{color:var(--color-gray-200)}
+html.dark body.admin .g-opt:hover,html.dark body.admin .g-opt:focus-visible{background:var(--color-gray-800)}
+html.dark body.admin .g-opt.is-on{background:rgb(70 95 255/.15);color:var(--color-brand-400)}
+html.dark body.admin :is(.g-menu-head,.g-menu-title,.g-menu-empty,.g-opt>b,.g-menu-search){color:var(--color-gray-400)}
+html.dark body.admin .g-opt.is-on>b{color:inherit}
+html.dark body.admin .g-menu-line{background:var(--color-gray-800)}
+html.dark body.admin .g-menu-search{box-shadow:inset 0 0 0 1px var(--color-gray-700)}
+html.dark body.admin .g-menu-search:focus-within{box-shadow:inset 0 0 0 2px var(--color-brand-400)}
+html.dark body.admin .g-menu-search input{color:var(--color-gray-100)}

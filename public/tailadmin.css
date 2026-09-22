@@ -44,15 +44,28 @@
   }
 
 body.admin, body.admin {
+    --color-orange-50: #fff6ed;
+    --color-orange-100: #ffead5;
+    --color-orange-200: #fddcab;
+    --color-orange-300: #feb273;
+    --color-orange-400: #fd853a;
+    --color-orange-500: #fb6514;
+    --color-orange-600: #ec4a0a;
+    --color-orange-700: #c4320a;
+    --color-orange-800: #9c2a10;
+    --color-orange-900: #7e2410;
+    --color-orange-950: #511c10;
     --color-gray-50: #f9fafb;
     --color-gray-100: #f2f4f7;
     --color-gray-200: #e4e7ec;
     --color-gray-300: #d0d5dd;
     --color-gray-400: #98a2b3;
     --color-gray-500: #667085;
+    --color-gray-600: #475467;
     --color-gray-700: #344054;
     --color-gray-800: #1d2939;
     --color-gray-900: #101828;
+    --color-gray-950: #0c111d;
     --color-black: #101828;
     --color-white: #fff;
     --spacing: .25rem;
@@ -83,35 +96,121 @@ body.admin, body.admin {
     --default-transition-duration: .15s;
     --default-transition-timing-function: cubic-bezier(.4, 0, .2, 1);
     --font-outfit: Outfit, sans-serif;
+    --breakpoint-2xsm: 375px;
+    --breakpoint-xsm: 425px;
+    --breakpoint-3xl: 2000px;
+    --breakpoint-sm: 640px;
+    --breakpoint-md: 768px;
+    --breakpoint-lg: 1024px;
+    --breakpoint-xl: 1280px;
+    --breakpoint-2xl: 1536px;
+    --text-title-2xl: 72px;
+    --text-title-2xl--line-height: 90px;
+    --text-title-xl: 60px;
+    --text-title-xl--line-height: 72px;
+    --text-title-lg: 48px;
+    --text-title-lg--line-height: 60px;
     --text-title-md: 36px;
     --text-title-md--line-height: 44px;
     --text-title-sm: 30px;
     --text-title-sm--line-height: 38px;
+    --text-title-xs: 24px;
+    --text-title-xs--line-height: 32px;
+    --text-theme-xl: 20px;
+    --text-theme-xl--line-height: 30px;
     --text-theme-sm: 14px;
     --text-theme-sm--line-height: 20px;
     --text-theme-xs: 12px;
     --text-theme-xs--line-height: 18px;
+    --color-current: currentColor;
+    --color-transparent: transparent;
+    --color-brand-25: #f2f7ff;
     --color-brand-50: #ecf3ff;
+    --color-brand-100: #dde9ff;
     --color-brand-200: #c2d6ff;
     --color-brand-300: #9cb9ff;
     --color-brand-400: #7592ff;
     --color-brand-500: #465fff;
     --color-brand-600: #3641f5;
+    --color-brand-700: #2a31d8;
     --color-brand-800: #252dae;
+    --color-brand-900: #262e89;
     --color-brand-950: #161950;
+    --color-blue-light-25: #f5fbff;
+    --color-blue-light-50: #f0f9ff;
+    --color-blue-light-100: #e0f2fe;
+    --color-blue-light-200: #b9e6fe;
+    --color-blue-light-300: #7cd4fd;
+    --color-blue-light-400: #36bffa;
+    --color-blue-light-500: #0ba5ec;
+    --color-blue-light-600: #0086c9;
+    --color-blue-light-700: #026aa2;
+    --color-blue-light-800: #065986;
+    --color-blue-light-900: #0b4a6f;
+    --color-blue-light-950: #062c41;
+    --color-gray-25: #fcfcfd;
     --color-gray-dark: #1a2231;
+    --color-orange-25: #fffaf5;
+    --color-success-25: #f6fef9;
     --color-success-50: #ecfdf3;
+    --color-success-100: #d1fadf;
+    --color-success-200: #a6f4c5;
+    --color-success-300: #6ce9a6;
+    --color-success-400: #32d583;
     --color-success-500: #12b76a;
     --color-success-600: #039855;
+    --color-success-700: #027a48;
+    --color-success-800: #05603a;
+    --color-success-900: #054f31;
+    --color-success-950: #053321;
+    --color-error-25: #fffbfa;
     --color-error-50: #fef3f2;
+    --color-error-100: #fee4e2;
+    --color-error-200: #fecdca;
+    --color-error-300: #fda29b;
+    --color-error-400: #f97066;
     --color-error-500: #f04438;
     --color-error-600: #d92d20;
+    --color-error-700: #b42318;
+    --color-error-800: #912018;
+    --color-error-900: #7a271a;
+    --color-error-950: #55160c;
+    --color-warning-25: #fffcf5;
     --color-warning-50: #fffaeb;
+    --color-warning-100: #fef0c7;
+    --color-warning-200: #fedf89;
+    --color-warning-300: #fec84b;
+    --color-warning-400: #fdb022;
     --color-warning-500: #f79009;
     --color-warning-600: #dc6803;
+    --color-warning-700: #b54708;
+    --color-warning-800: #93370d;
+    --color-warning-900: #7a2e0e;
+    --color-warning-950: #4e1d09;
+    --color-theme-pink-500: #ee46bc;
+    --color-theme-purple-500: #7a5af8;
+    --shadow-theme-md: 0px 4px 8px -2px #1018281a,
+    0px 2px 4px -2px #1018280f;
+    --shadow-theme-lg: 0px 12px 16px -4px #10182814,
+    0px 4px 6px -2px #10182808;
+    --shadow-theme-sm: 0px 1px 3px 0px #1018281a,
+    0px 1px 2px 0px #1018280f;
+    --shadow-theme-xs: 0px 1px 2px 0px #1018280d;
+    --shadow-theme-xl: 0px 20px 24px -4px #10182814,
+    0px 8px 8px -4px #10182808;
+    --shadow-datepicker: -5px 0 0 #262d3c, 5px 0 0 #262d3c;
+    --shadow-focus-ring: 0px 0px 0px 4px #465fff1f;
+    --shadow-slider-navigation: 0px 1px 2px 0px #1018281a, 0px 1px 3px 0px #1018281a;
+    --shadow-tooltip: 0px 4px 6px -2px #1018280d,
+    -8px 0px 20px 8px #1018280d;
+    --drop-shadow-4xl: 0 35px 35px #00000040, 0 45px 65px #00000026;
     --z-index-1: 1;
+    --z-index-9: 9;
+    --z-index-99: 99;
+    --z-index-999: 999;
     --z-index-9999: 9999;
     --z-index-99999: 99999;
+    --z-index-999999: 999999;
   }
 
 *:where(.ta, .ta *), :where(.ta, .ta *):after, :where(.ta, .ta *):before, :where(.ta, .ta *)::backdrop {
@@ -3162,7 +3261,7 @@ body.admin .g-select > summary {
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
 
-body.admin .g-menu-item.is-on {
+body.admin .g-opt.is-on {
   background-color: var(--color-brand-50);
   color: var(--color-brand-500);
 }
@@ -3310,17 +3409,17 @@ body.admin :is(.g-select > summary, .g-menu):is(.dark *) {
   color: var(--color-gray-400);
 }
 
-body.admin .g-menu-item.is-on:is(.dark *) {
+body.admin .g-opt.is-on:is(.dark *) {
   background-color: #465fff26;
 }
 
 @supports (color: color-mix(in lab, red, red)) {
-  body.admin .g-menu-item.is-on:is(.dark *) {
+  body.admin .g-opt.is-on:is(.dark *) {
     background-color: color-mix(in oklab, var(--color-brand-500) 15%, transparent);
   }
 }
 
-body.admin .g-menu-item.is-on:is(.dark *) {
+body.admin .g-opt.is-on:is(.dark *) {
   color: var(--color-brand-400);
 }
 
@@ -3992,3 +4091,195 @@ body.admin .ta-country-flag { font-size:28px; }
 body.admin .ta-map-card + .ta-activity { margin-top:24px; }
 @media(min-width:640px){body.admin [data-ta-map]{width:calc(100% + 3rem)}}
 html.dark body.admin .o-ship-new{background:var(--color-gray-800);border-color:var(--color-gray-700);color:var(--color-gray-300)}
+/* Общие меню периода, оплаты и географии используют ту же ночную палитру. */
+html.dark body.admin .g-select>.g-pill{background:var(--color-gray-900);border-color:var(--color-gray-700);color:var(--color-gray-200)}
+html.dark body.admin .g-select>.g-pill:hover{background:var(--color-gray-800)}
+html.dark body.admin .g-select[open]>.g-pill{background:rgb(70 95 255/.15);border-color:var(--color-brand-800);color:var(--color-brand-400)}
+html.dark body.admin .g-select :is(.g-pill-ico,.g-chev){color:inherit}
+html.dark body.admin .g-menu{background:var(--color-gray-900);border-color:var(--color-gray-800)}
+html.dark body.admin .g-opt{color:var(--color-gray-200)}
+html.dark body.admin .g-opt:hover,html.dark body.admin .g-opt:focus-visible{background:var(--color-gray-800)}
+html.dark body.admin .g-opt.is-on{background:rgb(70 95 255/.15);color:var(--color-brand-400)}
+html.dark body.admin :is(.g-menu-head,.g-menu-title,.g-menu-empty,.g-opt>b,.g-menu-search){color:var(--color-gray-400)}
+html.dark body.admin .g-opt.is-on>b{color:inherit}
+html.dark body.admin .g-menu-line{background:var(--color-gray-800)}
+html.dark body.admin .g-menu-search{box-shadow:inset 0 0 0 1px var(--color-gray-700)}
+html.dark body.admin .g-menu-search:focus-within{box-shadow:inset 0 0 0 2px var(--color-brand-400)}
+html.dark body.admin .g-menu-search input{color:var(--color-gray-100)}
+
+/* Ночная палитра реальных элементов чата панели, включая заполненные состояния. */
+html.dark body.admin .chat-row {
+  background: transparent;
+  border-color: var(--color-gray-800);
+  color: var(--color-gray-100);
+}
+html.dark body.admin .chat-row.is-unread {
+  background: color-mix(in srgb, var(--color-brand-500) 10%, transparent);
+}
+html.dark body.admin .chat-row:hover,
+html.dark body.admin .chat-row:focus-visible {
+  background: var(--color-gray-800);
+}
+html.dark body.admin .chat-row.is-unread:hover,
+html.dark body.admin .chat-row.is-unread:focus-visible {
+  background: color-mix(in srgb, var(--color-brand-500) 18%, var(--color-gray-900));
+}
+html.dark body.admin .chat-row:focus-visible {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: -2px;
+}
+html.dark body.admin :is(.chat-row-name, .chat-row-last, .chat-head-name, .chat-order) {
+  color: var(--color-gray-100);
+}
+html.dark body.admin :is(.chat-row, .chat-head-meta) :is(.cmarks, .cmarks-link, .cmarks-go),
+html.dark body.admin :is(.chat-row-when, .chat-row-last i, .chat-head-chev, .chat-order-items, .chat-place, .chat-live) {
+  color: var(--color-gray-400);
+}
+html.dark body.admin .chat-head-meta .cmarks-link:hover {
+  background: var(--color-gray-800);
+  color: var(--color-gray-100);
+}
+html.dark body.admin .chat-ava.is-online::after {
+  border-color: var(--color-gray-900);
+  background: var(--color-success-400);
+}
+html.dark body.admin .chat-badge-mode.is-ai {
+  background: color-mix(in srgb, var(--color-brand-500) 15%, transparent);
+  color: var(--color-brand-300);
+}
+html.dark body.admin .chat-badge-mode.is-op {
+  background: color-mix(in srgb, var(--color-success-500) 15%, transparent);
+  color: var(--color-success-400);
+}
+html.dark body.admin .chat-badge-mode.is-done {
+  background: var(--color-gray-800);
+  color: var(--color-gray-400);
+}
+html.dark body.admin .chat-live.is-on { color: var(--color-success-400); }
+html.dark body.admin .chat-live.is-on i { background: var(--color-success-400); }
+
+/* Шапка, раскрытая карточка покупателя и поле ответа остаются непрозрачными. */
+html.dark body.admin :is(.chat-head-card, .chat-head-drop, .chat-orders, .chat-answer) {
+  background: var(--color-gray-dark);
+  border-color: var(--color-gray-800);
+  color: var(--color-gray-100);
+}
+html.dark body.admin :is(.chat-view, .chat-head-meta, .chat-thread) {
+  background: var(--color-gray-900);
+  border-color: var(--color-gray-800);
+  color: var(--color-gray-100);
+}
+html.dark body.admin :is(.chat-page, .chat-order:hover .chat-order-top b) { color: var(--color-brand-300); }
+html.dark body.admin .chat-profile-switch:focus-visible ~ .chat-head-box .chat-head-who {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 3px;
+}
+html.dark body.admin :is(.chat-back, .chat-ai-btn, .chat-drop-btn, .chat-tool, .chat-answer-clip) {
+  background: var(--color-gray-800);
+  border-color: var(--color-gray-700);
+  color: var(--color-gray-300);
+}
+html.dark body.admin :is(.chat-back, .chat-ai-btn, .chat-tool, .chat-answer-clip):hover,
+html.dark body.admin .chat-back:active,
+html.dark body.admin .chat-edit[open] .chat-tool {
+  background: var(--color-gray-700);
+  border-color: var(--color-gray-600);
+  color: var(--color-gray-100);
+}
+html.dark body.admin .chat-ai-btn { color: var(--color-brand-300); }
+html.dark body.admin :is(.chat-drop-btn, .chat-tool.is-drop) { color: var(--color-error-400); }
+html.dark body.admin :is(.chat-drop-btn, .chat-tool.is-drop):hover {
+  background: color-mix(in srgb, var(--color-error-500) 15%, var(--color-gray-900));
+  border-color: color-mix(in srgb, var(--color-error-500) 40%, transparent);
+  color: var(--color-error-300);
+}
+html.dark body.admin .chat-date span {
+  background: var(--color-gray-800);
+  border-color: var(--color-gray-700);
+  color: var(--color-gray-400);
+}
+
+/* Различаем автора цветом пузыря, сохраняя контраст текста и цитат. */
+html.dark body.admin .chat-line {
+  background: var(--color-gray-800);
+  border-color: var(--color-gray-700);
+  color: var(--color-gray-100);
+}
+html.dark body.admin .chat-line.is-ai {
+  background: color-mix(in srgb, var(--color-brand-500) 14%, var(--color-gray-900));
+  border-color: color-mix(in srgb, var(--color-brand-500) 30%, var(--color-gray-900));
+}
+html.dark body.admin .chat-line.is-operator {
+  background: color-mix(in srgb, var(--color-success-500) 12%, var(--color-gray-900));
+  border-color: color-mix(in srgb, var(--color-success-500) 25%, var(--color-gray-900));
+}
+html.dark body.admin .chat-line.is-system {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-gray-400);
+}
+html.dark body.admin .chat-bubble[open] > .chat-line { box-shadow: 0 0 0 2px var(--color-brand-400); }
+html.dark body.admin :is(.chat-line-who, .chat-line-text a) {
+  color: var(--color-brand-300);
+}
+html.dark body.admin .chat-line.is-operator :is(.chat-line-who, .chat-line-reply) {
+  color: var(--color-success-400);
+}
+html.dark body.admin :is(.chat-line-reply, .chat-answer-reply) {
+  background: color-mix(in srgb, var(--color-white) 5%, transparent);
+  border-left-color: var(--color-brand-300);
+  color: var(--color-brand-300);
+}
+html.dark body.admin .chat-line.is-operator .chat-line-reply { border-left-color: var(--color-success-400); }
+html.dark body.admin :is(.chat-line-reply span, .chat-answer-reply-text) { color: var(--color-gray-300); }
+html.dark body.admin .chat-answer-reply-who { color: var(--color-brand-300); }
+html.dark body.admin :is(.chat-line-at, .chat-line-at .chat-tick) { color: var(--color-gray-400); }
+html.dark body.admin .chat-line-at .chat-tick.is-read { color: var(--color-brand-300); }
+html.dark body.admin :is(.chat-line-shot img, .chat-answer-pick) { background: var(--color-gray-800); }
+html.dark body.admin .chat-answer-reply-x:hover {
+  background: var(--color-gray-700);
+  color: var(--color-gray-100);
+}
+
+/* Поля не входят в общие .field, поэтому задаём их палитру непосредственно. */
+html.dark body.admin :is(.chat-answer, .chat-edit-form) textarea {
+  background: var(--color-gray-900);
+  border-color: var(--color-gray-700);
+  color: var(--color-gray-100);
+}
+html.dark body.admin :is(.chat-answer, .chat-edit-form) textarea::placeholder {
+  color: var(--color-gray-400);
+  opacity: 1;
+}
+html.dark body.admin :is(.chat-answer, .chat-edit-form) textarea:focus {
+  border-color: var(--color-brand-400);
+  outline: 2px solid color-mix(in srgb, var(--color-brand-500) 25%, transparent);
+  outline-offset: 1px;
+}
+html.dark body.admin .chat-answer-send-round {
+  background: var(--color-brand-500);
+  color: var(--color-white);
+}
+html.dark body.admin .chat-answer-send-round:hover { background: var(--color-brand-600); }
+html.dark body.admin .chat-answer-file:focus-visible + .chat-answer-clip {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 2px;
+}
+html.dark body.admin .chat-answer-photo-note.is-error { color: var(--color-error-400); }
+
+/* Состояния интеграции чата в настройках используют те же семантические цвета. */
+html.dark body.admin .chat-state-row.is-ok {
+  background: color-mix(in srgb, var(--color-success-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-success-500) 30%, transparent);
+  color: var(--color-success-400);
+}
+html.dark body.admin .chat-state-row.is-warn {
+  background: color-mix(in srgb, var(--color-warning-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning-500) 30%, transparent);
+  color: var(--color-warning-400);
+}
+html.dark body.admin .chat-state-row.is-err {
+  background: color-mix(in srgb, var(--color-error-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-error-500) 30%, transparent);
+  color: var(--color-error-400);
+}

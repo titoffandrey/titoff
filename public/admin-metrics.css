@@ -1,4 +1,4 @@
-/* Собственная метрика магазина в светлой теме TailAdmin. Правила ограничены
+/* Собственная метрика магазина в теме TailAdmin. Правила ограничены
    панелью метрики: карточка посетителя использует общую тему админки. */
 .metric-dashboard {
   --metric-surface: #fff;
@@ -200,7 +200,7 @@
 .metric-dashboard .set-note { color: var(--metric-muted); font-size: 11px; }
 
 /* Тёмная палитра применяется только при явном выборе темы оболочкой. */
-[data-theme="dark"] .metric-dashboard, .metric-dashboard[data-theme="dark"] {
+html.dark .metric-dashboard, [data-theme="dark"] .metric-dashboard, .metric-dashboard[data-theme="dark"] {
   --metric-surface: #1d2939;
   --metric-soft: #101828;
   --metric-hover: #344054;

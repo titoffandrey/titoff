@@ -233,6 +233,8 @@ await fs.writeFile(path.join(output, 'tailadmin-components.json'), JSON.stringif
 // Компилируем оригинальный CSS, заменяя удалённый шрифт и список шаблонов.
 let input = await fs.readFile(path.join(dir, 'upstream/src/css/style.css'), 'utf8');
 input = input.replace(/@import url\([^;]+;/, '').replace('@import "tailwindcss";', '@import "tailwindcss" source(none);');
+// Адаптеры после компиляции тоже используют палитру: сохраняем все исходные токены.
+input = input.replace('@theme {', '@theme static {');
 input = input.replaceAll('#chartOne', '[data-ta-chart="bar"]').replaceAll('#chartTwo', '[data-ta-chart="radialBar"]').replaceAll('#chartThree', '[data-ta-chart="area"]');
 input += '\n@source "./components.scan.html";\n' + await fs.readFile(path.join(dir, 'bridge.css'), 'utf8');
 input += '\n' + await fs.readFile(path.join(dir, 'node_modules/jsvectormap/dist/jsvectormap.css'), 'utf8');
@@ -256,7 +258,12 @@ css.walkRules(rule => {
 css.walkAtRules('layer', rule => { if (rule.nodes) rule.replaceWith(...rule.nodes); else rule.remove(); });
 const banner = `TailAdmin ${manifest.version}, MIT, commit ${manifest.commit}. Built from vendor/tailadmin/upstream; see /static/tailadmin.LICENSE.txt`;
 const font = '@font-face{font-family:Outfit;font-style:normal;font-weight:100 900;font-display:swap;src:url(/static/fonts/outfit-latin-wght-normal.woff2) format("woff2")}\n';
-await fs.writeFile(path.join(output, 'tailadmin.css'), `/*! ${banner} */\n${font}${css.toString()}\n${await fs.readFile(path.join(dir, "integration.css"), "utf8")}`);
+const compatibility = await Promise.all(['integration.css', 'chat-dark.css'].map(file => fs.readFile(path.join(dir, file), 'utf8')));
+const definedColors = new Set([...css.toString().matchAll(/(--color-[\w-]+)\s*:/g)].map(match => match[1]));
+for (const [, token] of compatibility.join('\n').matchAll(/var\((--color-[\w-]+)/g)) {
+  if (!definedColors.has(token)) throw new Error(`В палитре TailAdmin отсутствует ${token}`);
+}
+await fs.writeFile(path.join(output, 'tailadmin.css'), `/*! ${banner} */\n${font}${css.toString()}\n${compatibility.join('\n')}`);
 await fs.copyFile(path.join(dir, 'upstream/src/images/shape/grid-01.svg'), path.join(output, 'tailadmin-grid.svg'));
 await fs.mkdir(path.join(output, 'fonts'), { recursive: true });
 await fs.copyFile(path.join(dir, 'node_modules/@fontsource-variable/outfit/files/outfit-latin-wght-normal.woff2'), path.join(output, 'fonts/outfit-latin-wght-normal.woff2'));

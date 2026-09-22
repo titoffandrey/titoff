@@ -23,7 +23,7 @@
 .set[open] { @apply border-brand-200 shadow-none; }
 .set-ico { @apply rounded-xl bg-gray-100 text-gray-800 border-0; }
 .g-select > summary { @apply rounded-lg border-gray-300 bg-white shadow-theme-xs; }
-.g-menu-item.is-on { @apply bg-brand-50 text-brand-500; }
+.g-opt.is-on { @apply bg-brand-50 text-brand-500; }
 .chat-list { @apply rounded-2xl border-gray-200 bg-white; }
 /* Оригинальные dark-варианты TailAdmin для действующих форм и разделов. */
 .a-panel, .a-form, .o-money, .o-states, .set, .chat-list, .metric-card, .review-card, .a-review {
@@ -42,7 +42,7 @@
 .a-tab.active, .a-page-cur { @apply dark:bg-brand-500/15 dark:border-brand-500/15 dark:text-brand-400; }
 .set-ico { @apply dark:bg-gray-800 dark:text-white/90; }
 .g-select > summary, .g-menu { @apply dark:bg-gray-dark dark:border-gray-800 dark:text-gray-400; }
-.g-menu-item.is-on { @apply dark:bg-brand-500/15 dark:text-brand-400; }
+.g-opt.is-on { @apply dark:bg-brand-500/15 dark:text-brand-400; }
 .pay-tag { @apply inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium; }
 .pay-tag.pay-ok { @apply bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-500; }
 .pay-tag.pay-wait, .pay-tag.pay-warn { @apply bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-500; }
