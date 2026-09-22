@@ -189,6 +189,29 @@ test('TailAdmin: выход из панели есть в меню профил�
   assert.match(charts, /number\(Math\.round\(value\)\)/);
 });
 
+test('в настройках нет подсказок, а раздел отвечает на один вопрос', () => {
+  /* Просьба владельца 22 сентября 2026: «слишком много всего в кучу». Абзацы
+   * под полями объясняли то, что поле и так говорит подписью и плейсхолдером:
+   * их читают один раз, а видят каждый день. Факт, которого иначе не узнать,
+   * переехал в саму подпись, а Callback URL кассы — в поле с кнопкой. */
+  const html = views.settingsPage({ storeName: 'iStore', adminUsername: 'admin', plategaEnabled: true },
+    fakeDb([]), null, 'ok', { origin: 'https://shop.example' });
+  const start = html.indexOf('<form class="a-form a-settings"');
+  const form = html.slice(start, html.indexOf('</form>', start));
+  assert.doesNotMatch(form, /class="field-hint"/);
+  assert.doesNotMatch(form, /class="muted small"/);
+  // Подписи взяли на себя то, что раньше объясняли абзацы.
+  assert.match(form, /Фотографии, до \d+</);
+  assert.match(form, /Дополнительные домены, по одному в строке \(до \d+\)</);
+  assert.match(form, /Новый пароль, от 10 знаков</);
+  assert.match(form, /буквы в \{фигурных скобках\} красятся акцентом/);
+  // Callback копируют, а не читают.
+  assert.match(form, /<button class="btn btn-sm" type="button" data-copy="https:\/\/shop\.example\/api\/pay\/platega\/callback">Скопировать<\/button>/);
+  // Состояние — не подсказка и остаётся.
+  assert.match(form, /class="set-note"/);
+  assert.match(form, /class="pay-mode/);
+});
+
 test('TailAdmin: на телефоне строки заказов складываются в карточки, статус переносится', () => {
   const css = fs.readFileSync(path.join(root, 'public/tailadmin.css'), 'utf8');
   const mobile = css.slice(css.indexOf('body.admin .ta-orders-table,body.admin .ta-orders-table tbody{display:block'));

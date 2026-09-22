@@ -3767,7 +3767,11 @@ test('адрес единственной офлайн-точки виден в 
 
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { storeAddress: address }), dbCore);
   assert.match(settingsHtml, /name="storeAddress" value="г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»"/);
-  assert.match(settingsHtml, /единственная точка и в других городах магазинов нет/);
+  /* Что точка единственная, знает консультант (см. факты `storeText`), а
+   * страница настроек об этом больше не рассказывает: подсказок в разделах нет
+   * ни одной. Адрес стоит своей подсекцией «Офлайн-точка». */
+  assert.match(settingsHtml, /<h3 class="a-subhead">Офлайн-точка<\/h3>/);
+  assert.doesNotMatch(settingsHtml, /class="field-hint"/);
 
   // Эти два факта относятся именно к текущему магазину, поэтому лежат в его
   // seed-настройках и при первой установке сразу попадают и на витрину, и в
@@ -8445,8 +8449,28 @@ test('настройки идут разделами, и свёрнутая ст
   // Разделы — обычные <details>, поэтому раскрываются и без скрипта.
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
-  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'domains', 'pay', 'price',
-    'chat', 'telegram', 'reviews', 'accounts', 'dadata', 'ym', 'legal', 'access']);
+  /* Пять групп, и каждая отвечает на свой вопрос: что это за магазин, как в нём
+   * покупают, как общаемся с покупателем, какие чужие сервисы подключены и кто
+   * продаёт. Ключи касс уехали из «Оплаты» в свой раздел, почта — из кабинета:
+   * оба раздела разрослись до кучи, в которой искали глазами. */
+  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'domains', 'pay', 'cashbox', 'ship', 'price',
+    'chat', 'reviews', 'accounts', 'mail', 'telegram', 'dadata', 'ym', 'legal', 'access']);
+  const groups = (html.match(/<section class="set-group"><h2>([^<]+)</g) || [])
+    .map(m => m.replace(/^.*<h2>/, '').replace('<', ''));
+  assert.deepEqual(groups, ['Магазин', 'Продажи', 'Покупатели', 'Подключения', 'Продавец и доступ']);
+
+  /* ПОДСКАЗОК В НАСТРОЙКАХ НЕТ НИ ОДНОЙ. Абзацы под полями объясняли то, что
+   * поле и так говорит подписью и плейсхолдером: их читают один раз, а видят
+   * каждый день, и из-за них страница разрасталась втрое. Осталось то, чего
+   * иначе не узнать: строка состояния раздела, плашка режима оплаты, цена
+   * запроса к модели и отказы формы — это не подсказки. */
+  /* Срез берётся от начала формы до её СОБСТВЕННОГО `</form>`: первый в
+   * документе принадлежит форме поиска в шапке, и срез выходил пустым — любая
+   * проверка по нему молчала бы, что бы в форме ни стояло. */
+  const formStart = html.indexOf('<form class="a-form a-settings"');
+  const form = html.slice(formStart, html.indexOf('</form>', formStart));
+  assert.doesNotMatch(form, /class="field-hint"/, 'подсказка вернулась в настройки');
+  assert.doesNotMatch(form, /class="muted small"/);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
    * описывает, что внутри: описание читают один раз, а видят каждый день. */
@@ -8464,9 +8488,14 @@ test('настройки идут разделами, и свёрнутая ст
    * ключей — это витрина, молча оставшаяся без оплаты. Всё в порядке — страница
    * остаётся коротким списком, и это её нормальный вид. */
   assert.doesNotMatch(html, /<details class="set[^"]*" id="set-[a-z]+" open>/, 'без поломок разделы свёрнуты');
+  /* Красным становится тот раздел, в котором это чинится: ключей нет — открыты
+   * «Кассы», а «Оплата на витрине» лишь предупреждает, что витрина осталась
+   * без оплаты не по решению владельца. */
   const broken = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true, crocopayClientSecret: '' }), db, null);
-  assert.match(broken, /<details class="set is-err" id="set-pay" open>/);
-  assert.match(broken, /касса включена, но ключи не заданы/);
+  assert.match(broken, /<details class="set is-err" id="set-cashbox" open>/);
+  assert.match(broken, /CrocoPAY: ключи не заданы/);
+  assert.match(broken, /<details class="set is-warn" id="set-pay">/);
+  assert.match(broken, /заявки без оплаты — у CrocoPAY не заданы ключи/);
 
   /* Что было открыто, остаётся открытым после сохранения: страница приходит
    * заново, и раздел, который только что правили, иначе захлопывался бы под
@@ -8493,7 +8522,6 @@ test('настройки идут разделами, и свёрнутая ст
    * поставить фокус в скрытое поле и молча отказывается отправлять форму,
    * написав об этом только в консоль, — кнопка «Сохранить» переставала бы
    * работать без единого слова на экране. Пустое название ловит сервер. */
-  const form = html.slice(html.indexOf('<form class="a-form a-settings"'), html.indexOf('</form>'));
   assert.doesNotMatch(form, /\srequired[\s>]/, 'required внутри свёрнутого раздела ломает отправку формы');
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(source, /storeName \|\| ''\)\.trim\(\)\) return fail\('Укажите название магазина'\)/);
@@ -8547,8 +8575,14 @@ test('в настройках видно режим витрины, а касс�
    * развернуть секцию с ключами ради того, чтобы ключей не трогать.
    */
   assert.match(offHtml, /class="pay-switches"[\s\S]{0,400}name="crocopayEnabled"[\s\S]{0,400}name="meridianpayEnabled"/);
-  assert.ok(offHtml.indexOf('class="pay-switches"') < offHtml.indexOf('<details class="pay-fold'),
+  /* Ключи касс живут своим разделом: «Оплата на витрине» отвечает на вопрос
+   * покупателя (чем платить), а здесь — вопрос владельца (какие доступы
+   * заданы). Внутри него порядок прежний: включатели выше свёрток. */
+  const cashbox = offHtml.slice(offHtml.indexOf('id="set-cashbox"'), offHtml.indexOf('id="set-ship"'));
+  assert.ok(cashbox.indexOf('class="pay-switches"') < cashbox.indexOf('<details class="pay-fold'),
     'переключатели касс стоят выше свёрток с ключами');
+  assert.ok(offHtml.indexOf('id="set-pay"') < offHtml.indexOf('id="set-cashbox"'),
+    'сначала то, что видит покупатель, потом доступы');
 
   const onHtml = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true }), db, null);
   assert.match(onHtml, /Сейчас: оплата на витрине/);
@@ -8976,7 +9010,8 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   const html = adminViews.settingsPage(on, { pendingReviewCount: () => 0 }, null);
   assert.match(html, /name="alfabankEnabled"/);
   assert.match(html, /name="alfabankToken"[^>]*value="fhojfle6ssav32c6ao42bkcr54"/);
-  assert.match(html, /Настройки → Платежный токен/);
+  // Какой доступ подойдёт, говорит сама подпись поля: подсказок в настройках нет.
+  assert.match(html, /<label for="alfa-token">Платёжный токен из ЛК<\/label>/);
   // Второй доступ — пара логин/пароль. Пароль прячется звёздочками, токен нет:
   // банк называет его несекретным, и сверять его с ЛК надо глазами.
   assert.match(html, /name="alfabankLogin"/);
@@ -14392,7 +14427,10 @@ test('в контекст ИИ уезжают живые цены и налич�
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { chatPrompt: '' }), dbCore);
   assert.match(settingsHtml, /name="chatPromptComplete" value="1"/);
   assert.match(settingsHtml, /Ты — Ксения/);
-  assert.match(settingsHtml, /скрытых правил поведения вне этого поля нет/);
+  // Поле инструкции стоит само за себя: подсказок в настройках больше нет,
+  // а цена запроса к модели остаётся строкой состояния под ним.
+  assert.match(settingsHtml, /name="chatPrompt"/);
+  assert.match(settingsHtml, /class="set-state">Запрос к модели/);
 });
 
 test('постоянная часть запроса не меняется от сообщения к сообщению', () => {

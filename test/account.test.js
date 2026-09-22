@@ -704,21 +704,28 @@ test('оформление: поле почты, привязка к вошед�
   assert.match(R.orderClient({ customerName: 'Иван', email: 'b@example.ru' }), /o-contact">b@example\.ru/);
 });
 
-test('панель: раздел «Личный кабинет и почта», секреты и перенос сайта', () => {
+test('панель: разделы «Личный кабинет» и «Почта для писем», секреты и перенос сайта', () => {
   const A = require('../lib/admin-views');
   const db = require('../lib/db');
   const base = Object.assign(db.defaultSettings(), { storeName: 'iStore' });
   const fake = { pendingReviewCount: () => 0, getOrders: () => [] };
   let html = A.settingsPage(base, fake, null);
+  /* Кабинет и почта — ДВА раздела: полей у почты семь, и вместе с галочкой
+   * кабинета они читались одной кучей. Связь между ними держат строки
+   * состояния: кабинет говорит, заводится ли он при заказе, почта — уходят ли
+   * письма вообще. */
   assert.match(html, /id="set-accounts"/);
-  assert.match(html, /кабинет включён · почты нет — вход и регистрация работают, кабинет при заказе не создаётся/);
+  assert.match(html, /id="set-mail"/);
+  assert.match(html, /включён · без почты: покупатель регистрируется сам, пароль не восстановить/);
+  assert.match(html, /не настроена — письма покупателям не уходят/);
   assert.match(html, /name="mailPass" type="password" value=""/, 'пароль почты в HTML не возвращается');
   assert.match(html, /name="mailTest" value="1"/);
   html = A.settingsPage(Object.assign({}, base, { mailHost: 'smtp.yandex.ru', mailUser: 'shop@yandex.ru', mailPass: 'x' }), fake, null);
-  assert.match(html, /письма через smtp\.yandex\.ru — пароль при заказе уходит на почту/);
+  assert.match(html, /письма уходят через smtp\.yandex\.ru/);
+  assert.match(html, /включён · кабинет заводится при заказе, пароль уходит письмом/);
   assert.doesNotMatch(html, /value="x"/);
   html = A.settingsPage(Object.assign({}, base, { accountsOn: false }), fake, null);
-  assert.match(html, /кабинет выключен/);
+  assert.match(html, /выключен — значка в шапке нет/);
   const post = serverSource.slice(serverSource.indexOf("app.post('/admin/settings'"), serverSource.indexOf('/* =========================== 404'));
   assert.match(post, /keepOrReplaceSecret\('mailPass', 'clearMailPass', 300\)/);
   assert.match(post, /if \(req\.body\.accountsForm !== undefined\) patch\.accountsOn = req\.body\.accountsOn !== undefined/);

@@ -2052,6 +2052,17 @@ details.metric-rules{margin-bottom:14px}
 .set-body .field-check:hover{background:#f7f7f9;border-color:#dcdce2}
 .set-body .field-check label{gap:10px;width:100%;padding:11px 13px;font-size:14px;font-weight:500;color:var(--text);cursor:pointer}
 .set-body .field-check input{flex:none;width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+/* Состояние внутри раздела — не подсказка. Подсказок здесь нет ни одной: абзацы
+   под полями объясняли то, что поле и так говорит подписью и плейсхолдером, и
+   страница из-за них разрасталась втрое. Этой строкой остаётся то, чего иначе
+   не узнать: цена запроса к модели в чате. */
+.set-state{margin:0 0 14px;font-size:12.5px;line-height:1.4;color:var(--muted)}
+/* Callback URL кассы — значение, которое КОПИРУЮТ в чужой кабинет, поэтому оно
+   лежит в поле рядом с кнопкой, а не в тексте: из абзаца адрес приходится
+   выделять мышью по буквам. */
+.set-copy-row{display:flex;gap:8px;align-items:center}
+.set-copy-row .btn{flex:none}
+.set-copy-url{flex:1;min-width:0;font-size:12.5px}
 
 /* ---- Цвет магазина: один, но выбирается по-человечески ----
 

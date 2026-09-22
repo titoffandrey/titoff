@@ -87,7 +87,7 @@ test('настройка в панели: галочка в «Оформлени
   const base = Object.assign(dbCore.defaultSettings(), { storeName: 'iStore', legalOperator: 'ИП Иванов' });
   const off = adminViews.settingsPage(base, db, null);
   assert.match(off, /<input type="hidden" name="brandForm" value="1">/);
-  assert.match(off, /<input type="checkbox" name="cardNameStorage"> В названии карточки каталога — объём памяти сборки, чья цена показана/);
+  assert.match(off, /<input type="checkbox" name="cardNameStorage"> В названии карточки каталога — объём памяти: «iPhone 15 Pro Max 256 ГБ»/);
   assert.doesNotMatch(off, /память в названии карточки/);
   const on = adminViews.settingsPage(Object.assign({}, base, { cardNameStorage: true }), db, null);
   assert.match(on, /<input type="checkbox" name="cardNameStorage" checked>/);
