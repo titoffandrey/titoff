@@ -80,6 +80,7 @@ const LIVE = require('./lib/live');
  * Четыре модуля: хранилище диалогов с живым каналом, клиент OpenAI, сборка
  * system-промпта из настроек и живого каталога, мост в Telegram. */
 const CHAT = require('./lib/chat');
+const ORDER_CHAT = require('./lib/order-chat');
 const AI = require('./lib/ai');
 const PROMPT = require('./lib/chat-prompt');
 const TGCHAT = require('./lib/chat-tg');
@@ -2062,6 +2063,7 @@ function orderApiBody(order, reused, s, shownPayableTotal) {
   }
   return {
     ok: true, reused: !!reused, id: order.id, number: order.number,
+    chatFollowup: !!order.chatFollowup,
     total: order.total, itemsTotal: order.itemsTotal,
     paymentFee: order.paymentFee || null,
     delivery: { price: order.deliveryPrice, zone: order.deliveryZone },
@@ -2095,6 +2097,7 @@ app.post('/api/order', async (req, res) => {
       return res.json({ ok: false, errorCode: 'idempotency_conflict', error: 'Данные заказа изменились. Обновите страницу и повторите оформление.' }, 409);
     }
     rememberOwnOrder(req, replay);
+    watchOrderChat(req, replay);
     return res.json(orderApiBody(replay, true, s, req.body.paymentPayableTotal));
   }
 
@@ -2396,6 +2399,7 @@ app.post('/api/order', async (req, res) => {
   // cookie-сессию покупателя (как id своего отзыва), поэтому запустить оплату
   // можно только по своей заявке, а не по чужой, угадав идентификатор.
   rememberOwnOrder(req, order);
+  watchOrderChat(req, order);
   /* Личный кабинет для этого заказа (см. `accountForOrder`). Отметка уходит и
    * в ответ — экран «заказ оформлен» её покажет, — и в сессию для страницы
    * оплаты: туда покупатель попадает следующим же переходом, и там ему
@@ -2434,6 +2438,22 @@ app.post('/api/order', async (req, res) => {
  * диалогов, обрезка переписки, удаление реплики и всего разговора) сходятся в
  * одной его функции, поэтому подставить уборку достаточно один раз здесь. */
 CHAT.init(db.DATA_DIR, { dropFiles: files => files.forEach(db.deleteUploadIfUnused) });
+const orderChat = ORDER_CHAT.create({ db, chat: CHAT, settings, prepareShipment,
+  busy: id => aiBusy.has(id) });
+const orderChatTimer = setInterval(() => {
+  try { orderChat.sweep(); }
+  catch (error) { console.error('[order-chat]', error.message); }
+}, ORDER_CHAT.SWEEP_INTERVAL);
+orderChatTimer.unref();
+function watchOrderChat(req, order) {
+  let current = currentChat(req);
+  if (!order.visitorId && !current && CHAT.visible(settings()) && AI.enabled(settings())) {
+    current = CHAT.create(chatContext(req));
+  }
+  const target = orderChat.watch(order, current);
+  if (target) req.session.chatId = target.id;
+  order.chatFollowup = (db.getOrder(order.id) || {}).chatFollowup;
+}
 
 /* Открытый чат — это тоже «человек на сайте», и метрика обязана знать об этом.
  *
@@ -3777,7 +3797,10 @@ async function reconcilePaymentAttempt(s, orderId, attempt) {
       // здесь один раз, и второе место с этим решением разошлось бы молча.
       // Расхождение сумм (`mismatch`) отправление не готовит: там сперва
       // смотрит человек.
-      if (state === 'paid') prepareShipment(result.order);
+      if (state === 'paid') {
+        prepareShipment(result.order);
+        orderChat.paid(result.order);
+      }
     }
     return { ok: true, state: (result.attempt && result.attempt.status) || state };
   })();
@@ -4968,7 +4991,10 @@ app.post('/admin/orders/:id/paid', (req, res) => {
   // и отправление здесь готовится тем же способом. Снятие отметки маршрут не
   // трогает: он мог быть уже поправлен руками, а стирать чужую работу из-за
   // промаха мышью нельзя.
-  if (result.ok && result.changed && paid) prepareShipment(result.order);
+  if (result.ok && result.changed && paid) {
+    prepareShipment(result.order);
+    orderChat.paid(result.order);
+  }
   const flash = result.ok
     ? (paid ? 'Заказ отмечен оплаченным' : 'Отметка оплаты снята')
     : (result.reason === 'settled_by_provider'

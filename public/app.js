@@ -3720,6 +3720,7 @@
         var d = reply.data;
         if (d.ok) {
           clearOrderRequest(requestId);
+          if (d.chatFollowup) document.dispatchEvent(new CustomEvent('store:order-created'));
           // Идём ли на оплату, говорит СЕРВЕР (`d.pay`): только он знает
           // пересчитанную сумму и пределы кассы. Витринная догадка выше нужна
           // была лишь для подписи кнопки.

@@ -1188,6 +1188,10 @@
   }
   // Ещё не открывал и разговора нет — приветствие не прочитано (см. markSeen).
   if (!waiting && !chatSeen() && !recall()) { state.unread = 1; paintBadge(); }
+  document.addEventListener('store:order-created', function () {
+    try { localStorage.setItem(STORE, JSON.stringify({ started: true, at: Date.now() })); } catch (e) {}
+    open();
+  });
   if (recall() || waiting) {
     var restoring = post('/api/chat/open', place()).then(function (d) {
       if (!d || !d.ok) return false;

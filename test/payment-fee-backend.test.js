@@ -66,6 +66,7 @@ function orderHarness(t, { shipping = 100 } = {}) {
   vm.runInNewContext(source.slice(from, to), {
     app: { post: (route, fn) => { assert.equal(route, '/api/order'); handler = fn; } },
     db, R, PAY, PAYMENTS, crypto, console, settings: () => settings,
+    watchOrderChat: () => {},
     PROMO: require('../lib/promo'), PRICING: require('../lib/pricing'),
     PHONE: require('../public/phone'), DELIVERY: require('../lib/delivery'),
     ADDRESS: { checkAddress: () => ({ ok: true }), normalize: require('../lib/address').normalize },

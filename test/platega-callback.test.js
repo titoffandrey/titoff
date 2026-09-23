@@ -49,7 +49,7 @@ function reconciliation(db) {
     PAYMENTS: { provider: id => id === 'platega' ? PLATEGA : null, startErrorCode: () => 'provider_error' },
     paymentReconcileJobs: new Map(), console: { error: () => {}, log: () => {} },
     notifyPayment: (order, state, note) => { notifications.push(state); notes.push(note || ''); },
-    prepareShipment: order => shipments.push(order.id)
+    orderChat: { paid: () => {} }, prepareShipment: order => shipments.push(order.id)
   });
   return { reconcile, notifications, notes, shipments };
 }

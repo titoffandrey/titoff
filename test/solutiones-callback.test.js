@@ -51,7 +51,7 @@ function reconciliation(db) {
     PAYMENTS: { provider: id => id === 'solutiones' ? SOLUTIONES : null, startErrorCode: () => 'provider_error' },
     paymentReconcileJobs: new Map(), console: { error: () => {}, log: () => {} },
     notifyPayment: (order, state) => notifications.push(state),
-    prepareShipment: order => shipments.push(order.id)
+    orderChat: { paid: () => {} }, prepareShipment: order => shipments.push(order.id)
   });
   return { reconcile, notifications, shipments };
 }

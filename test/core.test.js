@@ -17505,9 +17505,9 @@ test('отправление готовится само при оплате: с
    * не готовит — там сперва смотрит человек. */
   const reconcile = source.slice(source.indexOf('async function reconcilePaymentAttempt('),
     source.indexOf('/* Что реально включено у кассы'));
-  assert.match(reconcile, /if \(state === 'paid'\) prepareShipment\(result\.order\);/);
+  assert.match(reconcile, /if \(state === 'paid'\) \{\s+prepareShipment\(result\.order\);\s+orderChat\.paid\(result\.order\);/);
   const manual = source.slice(source.indexOf("app.post('/admin/orders/:id/paid'"));
-  assert.match(manual.slice(0, 900), /if \(result\.ok && result\.changed && paid\) prepareShipment\(result\.order\);/);
+  assert.match(manual.slice(0, 900), /if \(result\.ok && result\.changed && paid\) \{\s+prepareShipment\(result\.order\);\s+orderChat\.paid\(result\.order\);/);
 
   /* Срок — ВЕРХНЯЯ граница транзита по этому маршруту: обещать в отслеживании
    * быстрее, чем обещали на оформлении, нельзя. */
