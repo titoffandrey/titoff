@@ -376,7 +376,7 @@ function routes(t, opts) {
     pageOpts: (req, extra) => Object.assign({ categories: [] }, extra || {}),
     sendNotFound: (req, res) => { notFound.push(req.pathname); res.send('404', 404); },
     floodLimited: () => false, rateLimited: () => false,
-    paymentOrigin: () => 'https://shop.example', originOf: () => 'http://localhost:3000'
+    paymentOrigin: () => opts && opts.noPublicOrigin ? '' : 'https://shop.example', originOf: () => 'https://untrusted.example'
   });
   const call = async (method, route, session, body, params) => {
     const req = { method, pathname: route, session, body: body || {}, query: {}, params: params || {}, headers: { host: 'shop.example' } };
@@ -388,6 +388,21 @@ function routes(t, opts) {
   };
   return { db, customers, settings, sent, call, box, notFound, handlers };
 }
+
+test('письма кабинета не используют недоверенный Host при отсутствии PUBLIC_ORIGIN', async t => {
+  const { db, customers, sent, call, box, settings } = routes(t, { noPublicOrigin: true });
+  const made = customers.create({ email: 'buyer@example.ru', password: '123456' });
+  assert.equal(made.ok, true);
+  const token = customers.issueReset(made.customer.id);
+  const res = await call('POST', '/account/forgot', {}, { login: 'buyer@example.ru' });
+  assert.doesNotMatch(res.html, /Письмо отправлено/);
+  assert.equal(sent.length, 0, 'токен не отправлен на адрес из Host');
+  assert.ok(customers.byResetToken(token), 'запрос без доверенного origin не заменяет прежний токен');
+  const order = db.createOrder({ total: 1000, email: 'new@example.ru' });
+  assert.equal(box.accountForOrder({ session: {}, headers: {} }, settings, order, null, order.email), null);
+  assert.equal(customers.byEmail(order.email), null, 'без безопасного письма кабинет автоматически не создаётся');
+  assert.equal(sent.length, 0);
+});
 
 test('маршруты кабинета: регистрация, вход, чужой заказ, смена и восстановление пароля', async t => {
   const { db, customers, sent, call, box, settings } = routes(t);

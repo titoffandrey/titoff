@@ -7266,12 +7266,14 @@ test('оформление с онлайн-оплатой не чистит ко
   // покупатель теряет и заказ, и товары разом. А перед очисткой — снимок:
   // оплату по своим реквизитам покупатель вправе отменить, и тогда корзина
   // возвращается к нему целиком, с вариантами (см. `Cart.hold`).
-  assert.match(js, /if \(!online \|\| !d\.draft\) \{ Cart\.hold\(d\.id\); Cart\.clear\(\); \}/);
+  assert.match(js, /Cart\.rememberOrder\(d\.id, submittedItems\)/);
+  assert.match(js, /if \(!online \|\| !d\.draft\) Cart\.completeOrder\(d\.id\)/);
   // А при отказе кассы корзина ОСТАЁТСЯ: заплатить не вышло, и покупателю нужно
   // чем-то попробовать ещё раз. Раньше она чистилась и здесь — по флагу
   // `placed`, — и «назад» возвращало пустую корзину с пустой формой.
-  assert.match(pay, /d\.ok && window\.Cart[\s\S]{0,40}Cart\.clear\(\)/);
-  assert.doesNotMatch(pay, /d\.placed[\s\S]{0,80}Cart\.clear\(\)/);
+  assert.match(pay, /d\.ok && window\.Cart[\s\S]{0,60}Cart\.completeOrder\(orderId\)/);
+  assert.doesNotMatch(pay, /d\.placed[\s\S]{0,80}Cart\.completeOrder\(/);
+  assert.doesNotMatch(pay, /Cart\.clear\(/, 'оплата вычитает снимок заказа, а не всю текущую корзину');
 
   // Заказ становится настоящим при выборе способа — ДО обращения к кассе:
   // отказ кассы (у неё кончились свободные реквизиты) не должен прятать от
@@ -9129,7 +9131,7 @@ test('при единственном способе с оплатой на ст
   // случилось, и повторит. Терять покупку на отказе кассы нельзя.
   assert.match(app, /\.catch\(function \(\) \{ location\.href = fallback; \}\)/);
   // Корзину чистим ТОЛЬКО при выставленном счёте — тот же порядок, что в pay.js.
-  assert.match(app, /if \(d && d\.ok && window\.Cart && Cart\.clear\) \{ Cart\.hold\(orderId\); Cart\.clear\(\); \}/);
+  assert.match(app, /if \(d && d\.ok && window\.Cart && Cart\.completeOrder\) Cart\.completeOrder\(orderId\);/);
   // Ключ идемпотентности: повторное нажатие не плодит второй счёт.
   assert.match(app, /function directRequestId/);
   assert.match(app, /pay_req_/);
@@ -16720,7 +16722,7 @@ test('оформил заказ — в чате он по имени, а не п
   assert.match(adminViews.chatList(SETTINGS, { ...db, visibleOrders: () => [] }, '', 1), /Сергей Петров/);
 });
 
-test('заказ находится по названному номеру телефона, а не только по метке браузера', () => {
+test('менеджер находит кандидатов по телефону, а ИИ просит подтверждённый доступ к заказу', () => {
   /* Заказы диалогу подбирала одна метка посетителя, а живёт она в браузере: в
    * чат пишут с телефона, из другого браузера, после чистки cookie и через
    * прокси — и метка тогда другая. На боевой витрине это выглядело так:
@@ -16766,8 +16768,8 @@ test('заказ находится по названному номеру те�
   assert.equal(chatStore.phoneTriesLeft(saved), chatStore.MAX_PHONE_TRIES - 2);
 
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const orders = source.slice(source.indexOf('function chatOrders('), source.indexOf('function identifyByPhone('));
-  assert.match(orders, /phone && o\.phone === phone/, 'заказы подбираются и по подтверждённому номеру');
+  const orders = source.slice(source.indexOf('function managerChatOrders('), source.indexOf('function identifyByPhone('));
+  assert.match(orders, /phone && o\.phone === phone/, 'менеджер видит кандидатов по названному номеру');
   const find = source.slice(source.indexOf('function identifyByPhone('), source.indexOf('function chatContext('));
   assert.match(find, /CHAT\.phoneTriesLeft\(chat\)/, 'исчерпанные попытки не ищут вовсе');
   assert.match(find, /PHONE\.find\(text\)/, 'свой разбор номера в маршруте завёлся бы вторым');
@@ -16795,7 +16797,8 @@ test('заказ находится по названному номеру те�
   /* И правила консультанта просят ровно тот ключ, который работает: прежде он
    * просил номер заказа — то есть обещал поиск, которого нет. */
   const rules = chatPrompt.build(promptDb, CHAT_ON, { messages: [] })[0].content;
-  assert.match(rules, /попроси номер телефона, на который оформлен заказ/);
+  assert.match(rules, /войти в \[личный кабинет\]\(\/account\)/);
+  assert.match(rules, /Телефон из сообщения и общий IP не подтверждают владение заказом/);
   assert.match(rules, /Номер заказа для поиска не проси/);
 });
 

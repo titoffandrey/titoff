@@ -1223,12 +1223,12 @@ function accountsOff(req, res) {
 }
 // Есть ли чем слать письма: без почты кабинет работает, но сам при заказе не
 // заводится, а «забыли пароль» честно говорит, что восстановление недоступно.
-function accountMailOn(s) { return CUSTOMERS.enabled(s) && MAIL.configured(s); }
+function accountMailOn(s, req) { return CUSTOMERS.enabled(s) && MAIL.configured(s) && !!mailOrigin(req); }
 
 function accountAuth(req, res, opts) {
   const o = opts || {};
   const s = settings();
-  res.send(R.accountAuthPage(s, pageOpts(req, Object.assign({ mailOn: accountMailOn(s) }, o))), o.status || 200);
+  res.send(R.accountAuthPage(s, pageOpts(req, Object.assign({ mailOn: accountMailOn(s, req) }, o))), o.status || 200);
 }
 function accountHome(req, res, customer, opts) {
   const o = opts || {};
@@ -1241,9 +1241,9 @@ const ACCOUNT_TOO_MANY = 'Слишком много попыток. Подожд
 
 /* Абсолютный адрес для писем. Публичный origin развёртывания — прежде всего:
  * ссылка восстановления с чужим `Host` уводила бы покупателя на чужой домен
- * вместе с ключом. На бою `PUBLIC_ORIGIN` задан всегда; запасной `originOf`
- * остаётся для разработки на localhost. */
-function mailOrigin(req) { return paymentOrigin(req) || originOf(req); }
+ * вместе с ключом. paymentOrigin уже разрешает localhost для разработки;
+ * при отсутствии доверенного адреса публичного магазина письма выключены. */
+function mailOrigin(req) { return paymentOrigin(req); }
 
 // Письмо с паролем — кабинет завёлся сам при заказе.
 function accountPasswordMail(s, customer, password, order, origin) {
@@ -1297,13 +1297,14 @@ function accountForOrder(req, s, order, customer, email) {
   // Номер заказа уже принадлежит кабинету — это его владелец: заводить второй
   // кабинет на тот же номер нельзя, а войти он может и по телефону.
   if (order.phone && CUSTOMERS.byPhone(order.phone)) return { exists: true, phone: order.phone };
-  if (!MAIL.configured(s)) return null;
+  const origin = mailOrigin(req);
+  if (!MAIL.configured(s) || !origin) return null;
   const password = CUSTOMERS.generatePassword();
   const made = CUSTOMERS.create({ email, password, name: order.customerName, phone: order.phone, address: order.address, auto: true });
   if (!made.ok) return null;
   loginCustomer(req, made.customer);
   db.attachOrderCustomer(order.id, made.customer.id);
-  MAIL.send(s, accountPasswordMail(s, made.customer, password, order, mailOrigin(req)))
+  MAIL.send(s, accountPasswordMail(s, made.customer, password, order, origin))
     .catch(e => console.error(`Письмо с паролем на ${email} не отправлено: ${MAIL.explain(e)}`));
   return { created: true, email };
 }
@@ -1396,7 +1397,7 @@ app.get('/account/forgot', (req, res) => {
 app.post('/account/forgot', (req, res) => {
   if (accountsOff(req, res)) return;
   const s = settings();
-  if (!accountMailOn(s)) return accountAuth(req, res, { mode: 'forgot' });
+  if (!accountMailOn(s, req)) return accountAuth(req, res, { mode: 'forgot' });
   /* Логин любой — e-mail или телефон, — но ссылка уходит только на почту:
    * другого канала у магазина нет. У кабинета, заведённого по телефону без
    * почты, восстанавливать нечем, и ответ об этом не говорит: он тот же, что
@@ -1880,11 +1881,12 @@ app.post('/api/delivery/points', (req, res) => {
   // Чужой перевозчик — пустой список, а не ошибка: список способов на витрине
   // мог устареть, и оформление из-за этого падать не должно.
   if (!DELIVERY.isValid(method)) return res.json({ ok: true, items: [] });
+  const address = String(req.body && req.body.address || '').slice(0, 400);
   const items = PICKUP.nearest(method, {
-    address: String(req.body && req.body.address || '').slice(0, 400),
+    address,
     lat: Number(req.body && req.body.lat),
     lon: Number(req.body && req.body.lon)
-  });
+  }).filter(point => SHIP.sameZone(address, point.address));
   /* У OZON своего списка пунктов нет, и точки берутся из OpenStreetMap плитками
    * по 0,1° вокруг покупателя (lib/pickup-osm.js). Обновление плитки НЕ ЖДЁМ:
    * отдаём то, что уже в базе, и помечаем ответ `refreshing` — по нему витрина
@@ -2251,6 +2253,12 @@ app.post('/api/order', async (req, res) => {
     pickupAddress = PICKUP.addressOf(point);
     const pickupCheck = ADDRESS.checkAddress(pickupAddress);
     if (!pickupCheck.ok) return res.json({ ok: false, error: pickupCheck.error }, 400);
+    if (!SHIP.sameZone(address, pickupAddress)) {
+      return res.json({
+        ok: false, errorCode: 'pickup_zone_changed',
+        error: 'Для выбранного пункта выдачи действует другой тариф доставки. Укажите адрес рядом с пунктом и выберите его заново.'
+      }, 409);
+    }
   }
 
   /* Доставку считаем заново по своей сетке тарифов — ровно так же, как цену
@@ -2260,8 +2268,8 @@ app.post('/api/order', async (req, res) => {
    * Зона берётся по адресу ПОКУПАТЕЛЯ, а не по адресу пункта выдачи, даже когда
    * посылка едет в пункт. Так цена не меняется от выбора пункта: покупатель
    * видит сумму до того, как выберет, и она обязана совпасть с той, что уйдёт в
-   * заказ. Разойтись зоны почти не могут — дальше 60 км пункты не предлагаются,
-   * а зоны здесь размером с федеральный округ.
+   * заказ. ПВЗ другой зоны не предлагаются в списке; здесь это дополнительно
+   * проверено по адресу пункта из базы, независимо от данных браузера.
    */
   // Тот же тариф, что показан при оформлении; пределы кассы его не меняют.
   const ship = SHIP.quote(delivery, deliveryMode, address, total);
@@ -2525,14 +2533,27 @@ function chatOrderLine(order) {
   return R.orderNo(order.number) + ' · ' + R.money(order.total, settings()) + ' · ' + view.label;
 }
 
-function chatOrders(chat, limit) {
+// Контекст, который можно показывать ПОКУПАТЕЛЮ и передавать ИИ. Номер
+// телефона из сообщения и общий IP не доказывают владение заказом.
+function chatOrders(chat, limit, req) {
+  if (!chat) return [];
+  const visitorId = /^[a-f0-9]{32}$/.test(String(chat.visitorId || '')) ? chat.visitorId : '';
+  const chatId = CHAT.validId(chat.id) ? chat.id : '';
+  return db.visibleOrders().filter(order =>
+    (visitorId && order.visitorId === visitorId)
+      || (chatId && order.chatFollowup && order.chatFollowup.chatId === chatId)
+      || (req && ownsOrder(req, order))
+  ).slice(0, limit || 10);
+}
+
+// Подсказки для менеджера в закрытой панели/Telegram. Названный телефон
+// помогает найти заявку для ручной проверки, но не открывает её собеседнику.
+function managerChatOrders(chat, limit) {
   if (!chat) return [];
   const visitorId = String(chat.visitorId || '');
   const ip = String(chat.ip || '');
-  /* Номер, которым покупатель опознал себя сам (см. `identifyByPhone`). Метки
-   * посетителя мало: она живёт в браузере, а в чат пишут с другого телефона,
-   * из другого браузера и через прокси — и тогда заказ не находился вовсе,
-   * хотя лежал в панели оплаченным. */
+  // Названный номер — подсказка оператору при обращении из другого браузера.
+  // Совпадение не подтверждает владельца и никогда не уходит в контекст ИИ.
   const phone = String(chat.phone || '');
   return db.visibleOrders()
     // У заявок до появления `visitorId` есть только адрес, и по нему же их
@@ -2550,18 +2571,19 @@ function chatOrders(chat, limit) {
  * задали через пару фраз. */
 const PHONE_LOOKBACK = 5;
 
-/* Покупатель назвал номер телефона — находим по нему его заказы.
+/* Покупатель назвал номер телефона — находим кандидатов для менеджера.
  *
  * ЗАЧЕМ ЭТО ВООБЩЕ НУЖНО. Заказы диалогу подбирала одна метка посетителя, а она
  * живёт в браузере: пишут же в чат с телефона, из другого браузера, после
  * чистки cookie и через прокси — и метка тогда другая. Консультант отвечал
  * «заявки не вижу» на заказ, который в панели лежит оплаченным и с собранным
  * отслеживанием, то есть ровно на тот вопрос, ради которого чат и открыли.
- * Телефон эту дыру закрывает: он у покупателя один и тот же, и он же записан в
- * самой заявке.
+ * Телефон помогает менеджеру найти запись, но сам по себе не подтверждает,
+ * что заказ принадлежит собеседнику. В контекст ИИ эта подсказка не попадает.
  *
  * ЧЕМ ЭТО ОГРАНИЧЕНО, и это здесь не формальность. Телефон — не секрет, и
  * назвавший чужой номер увидел бы чужую покупку. Поэтому:
+ *   - совпадение используется только менеджером, не в ответах ИИ;
  *   - номер обязан НАЙТИ заказ; неудачные попытки считаются, и после
  *     `CHAT.MAX_PHONE_TRIES` мы не ищем вовсе (перебор чужих номеров);
  *   - из фразы берём не больше трёх номеров (`PHONE.find`), иначе одна длинная
@@ -3113,10 +3135,8 @@ app.post('/api/chat/send', async (req, res) => {
   // Пишет — значит смотрит в окно: всё, что магазин ответил выше, прочитано.
   CHAT.markUser(chat, 'read');
   const own = CHAT.say(chat, 'user', text, { photos, exceptSid: String(req.body && req.body.sid || '') });
-  /* Назвал номер телефона — заказы по нему становятся видны и консультанту, и
-   * менеджеру. Стоит это ДО ответа модели: заказ обязан попасть в факты той же
-   * реплики, иначе на «мой номер такой-то» пришло бы «заявок не вижу», а нашлись
-   * бы они только со следующего вопроса. */
+  // Названный телефон помогает менеджеру найти кандидатов для ручной проверки.
+  // Список заказов для ответа ИИ отдельно проверяет право доступа ниже.
   identifyByPhone(chat, text);
   /* Что видит менеджер в Telegram. Сами файлы туда не уходят: `sendPhoto` — это
    * второй канал доставки со своими лимитами и своими отказами, а переписка со
@@ -3160,7 +3180,7 @@ app.post('/api/chat/send', async (req, res) => {
     // «оплатил, а статус прежний» — самые частые вопросы в чате, и без них
     // консультант мог только переспросить номер у того, кто и так на странице
     // оплаты. Подбирает их сервер по метке посетителя — чужие сюда не попадут.
-    aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5) }))
+    aiReply(chat, Object.assign({}, info, { cart, orders: chatOrders(chat, 5, req) }))
       .catch(e => console.error('Чат: ошибка ответа ИИ — ' + e));
   } else if (chat.mode === 'operator' && AI.enabled(s) && aiWaitsForAdmin(s)) {
     waitForAdmin(chat);
@@ -3272,7 +3292,7 @@ TGCHAT.start({
       return;
     }
     if (command === 'info') {
-      const orders = chatOrders(chat).map(o => '  ' + chatOrderLine(o));
+      const orders = managerChatOrders(chat).map(o => '  ' + chatOrderLine(o));
       TGCHAT.relaySystem(chat, [
         chat.city && ('Город: ' + chat.city),
         chat.device && ('Техника: ' + chat.device),
@@ -3288,7 +3308,7 @@ TGCHAT.start({
   },
   // Строку про заказы собирает сервер: мост о хранилище не знает вовсе.
   ordersLine: chat => {
-    const list = chatOrders(chat, 3);
+    const list = managerChatOrders(chat, 3);
     return list.length ? list.map(chatOrderLine).join(' · ') : '';
   }
 });
@@ -5267,7 +5287,7 @@ app.get('/admin/chat/:id', (req, res) => {
    * скриптов «Ответить» это обычная ссылка, и страница возвращается с уже
    * подставленной цитатой над полем ответа. Со скриптом переход перехватывается
    * и цитата встаёт на место без перезагрузки. */
-  res.send(A.chatPage(settings(), db, chat, req.query.flash, chatOrders(chat),
+  res.send(A.chatPage(settings(), db, chat, req.query.flash, managerChatOrders(chat),
     req.query.sent === '1', req.query.reply));
 });
 

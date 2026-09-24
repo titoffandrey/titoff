@@ -135,13 +135,20 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
+        if (requestSeq !== cartRefreshSeq || Cart.submitting) return false;
+        // Другая вкладка могла изменить корзину, пока сервер считал цены.
+        // Применяем ответ к актуальному составу, не сохраняя старый поверх него.
+        Cart.load();
         // Состояние промокода относится ко всей корзине, а не к конкретным
         // позициям, поэтому берём его до проверок состава: даже устаревший
         // ответ говорит правду о том, какой код применён.
         if (requestSeq === cartRefreshSeq) takePromo(d);
         if (requestSeq !== cartRefreshSeq || !d || !d.ok || !Array.isArray(d.items)
           || d.items.length !== snapshot.length || Cart.items.length !== snapshot.length
-          || Cart.items.some(function (item, idx) { return itemKey(item) !== snapshot[idx]; })) return false;
+          || Cart.items.some(function (item, idx) { return itemKey(item) !== snapshot[idx]; })) {
+          Cart.render();
+          return false;
+        }
         var next = [];
         d.items.forEach(function (fresh, idx) {
           var item = Cart.items[idx];
@@ -613,7 +620,7 @@
     var submit = document.getElementById('checkout-submit');
     if (submit) {
       var canOrder = Cart.availableCount() > 0;
-      submit.disabled = !canOrder || !!overLimit;
+      submit.disabled = !!Cart.submitting || !canOrder || !!overLimit;
       var label = submit.querySelector('.btn-checkout-label');
       if (label) label.textContent = canOrder ? submitLabel() : 'Нет доступных товаров';
       // «Нет доступных товаров» — не действие, и замок рядом с ним обещал бы
@@ -1705,6 +1712,9 @@
     var items = [], active = -1, timer = null, seq = 0, lastQuery = null, off = false;
 
     function close() {
+      // Закрытый или изменённый ввод отменяет и debounce, и уже летящий ответ.
+      // Иначе подсказки прежнего адреса возвращаются даже в очищенное поле.
+      clearTimeout(timer); timer = null; seq++;
       list.hidden = true; list.innerHTML = ''; items = []; active = -1;
       input.setAttribute('aria-expanded', 'false');
       input.removeAttribute('aria-activedescendant');
@@ -1724,7 +1734,8 @@
     }
     function move(step) {
       if (!items.length) return;
-      active = (active + step + items.length) % items.length;
+      active = active < 0 ? (step < 0 ? items.length - 1 : 0)
+        : (active + step + items.length) % items.length;
       paint();
       var el = list.querySelector('.suggest-item.active');
       if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
@@ -1747,7 +1758,7 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          if (my !== seq || document.activeElement !== input) return;   // ответ устарел
+          if (my !== seq || document.activeElement !== input || input.value.trim() !== q) return;   // ответ устарел
           if (!d || d.configured === false) { off = true; close(); return; }  // ключ не настроен — больше не дёргаем
           if (!d.ok) { close(); return; }                                     // временная ошибка: попробуем в следующий раз
           items = (d.items || []).slice(0, 7); active = -1; paint();
@@ -1758,19 +1769,19 @@
     input.addEventListener('input', function () {
       var q = input.value.trim();
       lastQuery = null;
-      clearTimeout(timer);
-      if (off || q.length < 3) { close(); return; }
+      close();
+      if (off || q.length < 3) return;
       // 220 мс тишины: у DaData запросы платные по счётчику, дёргать на каждую букву незачем
       timer = setTimeout(function () { if (q !== lastQuery) { lastQuery = q; ask(q); } }, 220);
     });
     input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { close(); return; }
       if (list.hidden) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
       // Enter с активной подсказкой выбирает её и гасит событие — по этому
       // признаку `initAddressField` понимает, что закрывать ввод не надо.
       else if (e.key === 'Enter') { if (active > -1) { e.preventDefault(); choose(active); } }
-      else if (e.key === 'Escape') { close(); }
     });
     // mousedown, а не click: click приходит уже после blur, и список успевает закрыться
     list.addEventListener('mousedown', function (e) {
@@ -1914,14 +1925,18 @@
 
   var Cart = {
     items: [],
+    submitting: false,
     load: function () {
-      try { this.items = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { this.items = []; }
+      // Запрещённое хранилище не должно стирать рабочую корзину в памяти.
+      try { this.items = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
       if (!Array.isArray(this.items)) this.items = [];
       this.items = this.items.slice(0, MAX_CART_LINES).map(cleanItem).filter(Boolean);
     },
     save: function () { try { localStorage.setItem(KEY, JSON.stringify(this.items)); } catch (e) {} this.updateBadge(); },
     find: function (key) { return this.items.find(function (i) { return itemKey(i) === key; }); },
     add: function (id, name, price, qty, opts) {
+      if (this.submitting) return false;
+      this.load();
       opts = opts || {};
       var next = cleanItem({ id: id, name: name, price: price, qty: qty, storage: opts.storage || '', color: opts.color || '',
         band: opts.band || '', bandSize: opts.bandSize || '', options: opts.options || [], img: opts.img || '' });
@@ -1945,6 +1960,8 @@
       return true;
     },
     setQty: function (key, qty) {
+      if (this.submitting) return;
+      this.load();
       var it = this.find(key);
       if (!it) return;
       var want = Math.max(1, Math.min(99, Math.floor(Number(qty)) || 1));
@@ -1953,6 +1970,15 @@
       // позиций, а не от одной этой.
       it.qty = Math.min(want, this.fits(it));
       this.save(); this.render();
+    },
+    adjustQty: function (key, delta) {
+      if (this.submitting) return;
+      this.load();
+      var item = this.find(key);
+      if (!item) { this.render(); return; }
+      // Кнопка +/− меняет свежий счётчик, а не число из старой вкладки.
+      if (item.qty + delta < 1) this.remove(key);
+      else this.setQty(key, item.qty + delta);
     },
     // Сколько штук этой позиции помещается в один заказ вместе с остальными.
     // Считается по ключу позиции, поэтому работает и до того, как её положили в
@@ -1966,15 +1992,68 @@
       }, 0);
       return Math.max(1, Math.min(99, Math.floor((ORDER_MAX - others) / price)));
     },
-    remove: function (key) { this.items = this.items.filter(function (i) { return itemKey(i) !== key; }); this.save(); this.render(); },
+    remove: function (key) { if (this.submitting) return; this.load(); this.items = this.items.filter(function (i) { return itemKey(i) !== key; }); this.save(); this.render(); },
     clear: function () { this.items = []; this.save(); this.render(); },
+    // Снимок нужен и после перехода на /pay: там может лежать уже другая
+    // корзина. Использованный снимок сохраняет только отметку заказа, чтобы
+    // повторный успешный ответ кассы не вычел новые товары второй раз.
+    orders: [],
+    readOrders: function () {
+      try {
+        var rows = JSON.parse(localStorage.getItem('cart_orders_v1') || '[]');
+        this.orders = Array.isArray(rows) ? rows : [];
+      } catch (e) {}
+      var now = Date.now();
+      this.orders = this.orders.filter(function (row) {
+        return row && typeof row.order === 'string' && row.order.length <= 100
+          && Number.isFinite(row.at) && now >= row.at && now - row.at <= FORM_TTL
+          && Array.isArray(row.items);
+      }).slice(-10);
+      return this.orders;
+    },
+    saveOrders: function () {
+      this.orders = this.orders.slice(-10);
+      try { localStorage.setItem('cart_orders_v1', JSON.stringify(this.orders)); } catch (e) {}
+    },
+    rememberOrder: function (orderId, items) {
+      var id = String(orderId || '');
+      if (!id || !Array.isArray(items)) return;
+      var rows = this.readOrders();
+      if (rows.some(function (row) { return row.order === id; })) return;
+      rows.push({ order: id, at: Date.now(), done: false,
+        items: items.slice(0, MAX_CART_LINES).map(cleanItem).filter(Boolean) });
+      this.saveOrders();
+    },
+    completeOrder: function (orderId) {
+      var row = this.readOrders().find(function (entry) { return entry.order === String(orderId || ''); });
+      if (!row || row.done) return false;
+      var ordered = row.items.slice(0, MAX_CART_LINES).map(cleanItem).filter(Boolean);
+      this.load();
+      this.hold(orderId, ordered);
+      var quantities = Object.create(null);
+      ordered.forEach(function (item) {
+        var key = itemKey(item);
+        quantities[key] = (quantities[key] || 0) + item.qty;
+      });
+      this.items = this.items.filter(function (item) {
+        var key = itemKey(item), taken = Math.min(item.qty, quantities[key] || 0);
+        quantities[key] = Math.max(0, (quantities[key] || 0) - taken);
+        item.qty -= taken;
+        return item.qty > 0;
+      });
+      row.done = true; row.items = [];
+      this.saveOrders();
+      this.save(); this.render();
+      return true;
+    },
     /* Отложить корзину перед тем, как её очистит оформленный заказ (`HOLD_KEY`
      * выше). Снимок один — на последний заказ: корзина после оформления пуста,
      * и второй заказ подряд собирается уже из новых товаров. */
-    hold: function (orderId) {
+    hold: function (orderId, items) {
       var id = String(orderId || '');
-      if (!id || !this.items.length) return;
-      try { localStorage.setItem(HOLD_KEY, JSON.stringify({ at: Date.now(), order: id, items: this.items })); } catch (e) {}
+      var snapshot = items || this.items;
+      if (!id || !snapshot.length) return;
+      try { localStorage.setItem(HOLD_KEY, JSON.stringify({ at: Date.now(), order: id, items: snapshot })); } catch (e) {}
     },
     /* Вернуть отложенное после отмены оплаты. Какой заказ отменён, говорит
      * СЕРВЕР (`data-restore` на странице оформления) — снимок берётся только
@@ -2572,7 +2651,16 @@
   // записи истории.
   window.addEventListener('pageshow', function (event) {
     if (!event.persisted) return;
+    Cart.submitting = false;
     rememberCheckout();
+    Cart.load();
+    Cart.updateBadge();
+    Cart.render();
+    refreshCartFromServer();
+  });
+  window.addEventListener('storage', function (event) {
+    if (event.key !== KEY && event.key !== null) return;
+    if (event.storageArea && event.storageArea !== localStorage) return;
     Cart.load();
     Cart.updateBadge();
     Cart.render();
@@ -2687,10 +2775,9 @@
       var act = e.target.closest('[data-act]');
       if (act) {
         var key = act.dataset.key;
-        var item = Cart.find(key);
-        if (act.dataset.act === 'inc' && item) Cart.setQty(key, item.qty + 1);
+        if (act.dataset.act === 'inc') Cart.adjustQty(key, 1);
         // минус на единице убирает позицию — иначе счётчик упирается в 1 и товар не выкинуть
-        else if (act.dataset.act === 'dec' && item) { if (item.qty <= 1) Cart.remove(key); else Cart.setQty(key, item.qty - 1); }
+        else if (act.dataset.act === 'dec') Cart.adjustQty(key, -1);
         else if (act.dataset.act === 'rm') Cart.remove(key);
         return;
       }
@@ -3497,7 +3584,7 @@
         // Счёт выставлен — товары уехали в заказ, и корзине пора опустеть. Тот
         // же порядок, что на странице оплаты: чистим ТОЛЬКО при `ok`, иначе
         // покупатель остался бы и без оплаты, и без корзины.
-        if (d && d.ok && window.Cart && Cart.clear) { Cart.hold(orderId); Cart.clear(); }
+        if (d && d.ok && window.Cart && Cart.completeOrder) Cart.completeOrder(orderId);
         // Ссылка банка приходит отдельным полем и уже проверена сервером
         // (только https и явный хост), но перед переходом смотрим ещё раз:
         // адрес уезжает в location, и доверять ему на слово нельзя.
@@ -3617,6 +3704,9 @@
   }
 
   function submitOrder(btn) {
+    // Пересчёт доставки/цен может перерисовать кнопку во время отправки.
+    // Флаг запроса хранится отдельно от DOM и не допускает второй заказ.
+    if (Cart.submitting) return;
     // В активном поле `change` мог ещё не случиться (Enter, автозаполнение), а
     // после ответа страница уйдёт на оплату. Снимаем полный снимок прямо сейчас.
     rememberCheckout();
@@ -3714,11 +3804,14 @@
     promoFields(payload);
     var requestId = orderRequestId(payload);
     payload.requestId = requestId;
+    var submittedItems = Cart.items.map(cleanItem).filter(Boolean);
+    Cart.submitting = true;
     fetch('/api/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then(function (r) { return r.json().then(function (d) { return { status: r.status, data: d }; }); })
       .then(function (reply) {
         var d = reply.data;
         if (d.ok) {
+          Cart.rememberOrder(d.id, submittedItems);
           clearOrderRequest(requestId);
           if (d.chatFollowup) document.dispatchEvent(new CustomEvent('store:order-created'));
           // Идём ли на оплату, говорит СЕРВЕР (`d.pay`): только он знает
@@ -3732,7 +3825,8 @@
           // Перед очисткой откладываем снимок: оплату по своим реквизитам
           // покупатель вправе отменить, и тогда корзина возвращается к нему
           // целиком, с вариантами (см. `Cart.hold`).
-          if (!online || !d.draft) { Cart.hold(d.id); Cart.clear(); }
+          if (!online || !d.draft) Cart.completeOrder(d.id);
+          if (!online) Cart.submitting = false;
           var number = d.number || '';
           var page = document.getElementById('checkout-page');
           if (page) {                       // страница оформления: показываем результат на всю ширину
@@ -3771,7 +3865,9 @@
           }
           if (foot) foot.innerHTML = '<button class="btn btn-primary btn-block btn-lg" onclick="Cart.close()">Продолжить покупки</button>';
         } else {
+          Cart.submitting = false;
           btn.disabled = false; btn.innerHTML = btnHtml;
+          syncSubmit();
           if (d && d.errorCode === 'cart_changed') {
             clearOrderRequest(requestId);
             refreshCartFromServer().then(function () {
@@ -3786,7 +3882,9 @@
         }
       })
       .catch(function () {
+        Cart.submitting = false;
         btn.disabled = false; btn.innerHTML = btnHtml;
+        syncSubmit();
         if (msg) { msg.hidden = false; msg.className = 'form-msg err'; msg.dataset.toastType = 'error'; msg.textContent = 'Ошибка сети'; }
       });
   }

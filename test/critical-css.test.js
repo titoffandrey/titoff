@@ -71,10 +71,24 @@ test('styles.css разбирается целиком: ни одного «ут
 const ANCHORS = {
   home: [':root', 'body.storefront', '.site-header', '.nav-wrap', '.nav-panel', '.cart-badge[hidden]', '.tabbar', '.store-hero', '.cat-grid', '.cat-tile-media', '.card-media'],
   // «Весь каталог на главной» (`homeCatalog`): под слоганом сразу сетка карточек.
-  'home-catalog': [':root', 'body.storefront', '.site-header', '.nav-wrap', '.nav-panel', '.cart-badge[hidden]', '.tabbar', '.store-hero', '.store-hero + .section', '.grid', '.card', '.card-media', '.card-price'],
-  catalog: [':root', '.site-header', '.nav-wrap', '.cart-badge[hidden]', '.tabbar', '.cat-row', '.grid', '.card', '.card-price'],
-  product: [':root', '.site-header', '.nav-wrap', '.cart-badge[hidden]', '.tabbar', '.product-gallery', '.swatch', '.storage-opt', '.option-opt', '.band-tab', '.buy-row', '.btn-primary', '.trust']
+  'home-catalog': [':root', 'body.storefront', '.site-header', '.nav-wrap', '.nav-panel', '.cart-badge[hidden]', '.tabbar', '.store-hero', '.store-hero + .section', '.grid', '.card', '.card-media', '.card-price', '.rt-star', '.rt-bubble', '.rt-avg', '.rating-count'],
+  catalog: [':root', '.site-header', '.nav-wrap', '.cart-badge[hidden]', '.tabbar', '.cat-row', '.grid', '.card', '.card-price', '.rt-star', '.rt-bubble', '.rt-avg', '.rating-count'],
+  product: [':root', '.site-header', '.nav-wrap', '.cart-badge[hidden]', '.tabbar', '.product-gallery', '.swatch', '.storage-opt', '.option-opt', '.band-tab', '.buy-row', '.btn-primary', '.trust', '.rt-star', '.rt-bubble', '.rating-count', '.rating-summary b', '.rating-summary .rt-star', '.rating-summary .rt-bubble', '.rating-summary .rating-count']
 };
+
+test('критические стили сохраняют рейтинг настоящих товаров при сборке без демо-отзывов', () => {
+  for (const kind of ['catalog', 'home-catalog', 'product']) {
+    const kept = new Set(RULES.flatten(RULES.parse(fs.readFileSync(
+      path.join(ROOT, 'public', 'critical', kind + '.css'), 'utf8'))).map(RULES.leafKey));
+    const ratingRules = FULL.filter(leaf => leaf.node.type === 'rule' &&
+      RULES.splitSelectors(leaf.node.selector).some(selector =>
+        ['.rt-star', '.rt-bubble', '.rt-avg', '.rating-count'].includes(selector)
+        || (kind === 'product' && /^\.rating-summary(?:\s|$)/.test(selector))));
+    assert.ok(ratingRules.length > 0);
+    for (const leaf of ratingRules) assert.ok(kept.has(RULES.leafKey(leaf)),
+      `${kind}: отсутствует стиль рейтинга вместе с его media-обёрткой: ${RULES.leafKey(leaf)}`);
+  }
+});
 
 test('критические стили: у каждого вида страниц свой файл, каждое правило — правило styles.css в том же порядке и с той же обёрткой', () => {
   for (const kind of render.CRITICAL_KINDS) {

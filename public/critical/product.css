@@ -1,7 +1,7 @@
 /* СГЕНЕРИРОВАНО scripts/build-critical-css.js из public/styles.css — РУКАМИ НЕ ПРАВИТЬ.
  * Правила первого экрана витрины (product), уезжают инлайном в <head> на
  * посадочном заходе (см. layout() в lib/render.js), полный styles.css грузится
- * следом без блокировки. Правил: 355. Правишь styles.css — прогони
+ * следом без блокировки. Правил: 347. Правишь styles.css — прогони
  * `npm run css:critical`; свежесть сторожит test/critical-css.test.js. */
 :root{--accent:#0071e3; --bg:#ffffff; --bg2:#f5f5f7; --text:#1d1d1f; --muted:#6e6e73; --border:#d2d2d7; --radius:18px; --radius-sm:12px; --shadow:0 2px 14px rgba(0,0,0,.06); --shadow-lg:0 12px 40px rgba(0,0,0,.14); --max:1180px; --gold:#ff9f0a; --ease-out:cubic-bezier(.23,1,.32,1); --ease-drawer:cubic-bezier(.32,.72,0,1); --sale:#e31076; --price-was:#6d747c;}
 *{box-sizing:border-box}
@@ -12,7 +12,6 @@ img{max-width:100%;display:block}
 h1,h2,h3{margin:0 0 .4em;line-height:1.15;letter-spacing:-.02em;font-weight:600}
 .container{width:100%;max-width:var(--max);margin:0 auto;padding:0 16px}
 .muted{color:var(--muted)}
-.small{font-size:13px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px; border:1px solid var(--border);background:#fff;color:var(--text); padding:10px 18px;border-radius:980px;font-size:15px;font-weight:500;cursor:pointer; font-family:inherit;line-height:1.2;box-sizing:border-box; transition:transform .06s ease, background .15s ease, opacity .15s;white-space:nowrap;}
 .btn:active{transform:scale(.97)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
@@ -128,9 +127,6 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .option-opt{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left}
 .option-opt .opt-add{font-size:11.5px;font-weight:400;color:var(--muted)}
 .option-opt.active .opt-add,.option-opt.active .opt-note{color:#fff;opacity:1}
-.rev-page{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box; min-width:38px;height:38px;padding:0 10px;border:1px solid var(--border-soft);border-radius:12px; background:#fff;color:var(--text);font-size:14px;font-variant-numeric:tabular-nums;text-decoration:none; transition:background .15s ease,border-color .15s ease,color .15s ease}
-.rev-page:hover{background:var(--bg2);border-color:var(--border)}
-.rev-page:active{transform:scale(.96)}
 .gallery{position:relative}
 .g-arrow{position:absolute;top:50%;transform:translateY(-50%); width:36px;height:36px;border-radius:50%;padding:0;cursor:pointer; display:flex;align-items:center;justify-content:center; border:1px solid rgba(17,17,26,.05); background:rgba(255,255,255,.74);color:rgba(29,29,31,.66); box-shadow:0 2px 10px rgba(17,17,26,.07); transition:background .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease;z-index:2; -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
 @media (hover:hover) and (pointer:fine){
@@ -171,7 +167,6 @@ button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}
 ::selection{background:var(--accent);color:#fff}
 h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .container{padding-inline:24px}
-.small{font-size:13px;line-height:1.45}
 .btn{min-height:44px;padding:10px 20px;border-color:var(--border);border-radius:14px; font-size:14px;font-weight:650;letter-spacing:-.01em;transition:transform .14s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease,filter .18s ease}
 .btn:hover{border-color:#c7c7cd;background:#f7f7f9}
 .btn-primary{background-color:var(--accent);background-image:linear-gradient(to right,var(--accent),var(--accent-deep,var(--accent)));border-color:var(--accent);color:#fff}
@@ -202,6 +197,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .cart-badge{top:2px;right:2px;box-shadow:0 0 0 2px #fff}
 .section{padding-block:54px}
 .rt-star{width:16px;height:16px;flex:none;margin-left:-2px;color:#ffa800}
+.rt-avg{padding-left:2px;font-size:12px;font-weight:600;line-height:16px;color:#070707}
 .rt-bubble{width:16px;height:16px;flex:none;margin-left:4px;color:rgba(0,26,52,.4)}
 .rating-count{padding-left:2px;font-size:12px;font-weight:600;line-height:16px;color:rgba(0,26,51,.6)}
 .price-sale .price-now{color:var(--sale)}
@@ -310,10 +306,6 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
   .trust{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:14px;padding-top:12px}
   .stock{margin-top:10px;font-size:13.5px}
   .section{padding-block:24px}
-  .reviews-toolbar>*{flex:none}
-  .sort-label{display:none}
-  .rev-far{display:none}
-  .rev-page{min-width:34px;height:40px;padding:0 6px}
   .site-footer{text-align:center;padding:26px 0 22px}
   .footer-col{min-width:0}
   .footer-col-head{display:none}

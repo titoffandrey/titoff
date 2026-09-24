@@ -109,6 +109,16 @@ function mediaKind(prelude) {
   return 'always';
 }
 
+// Seed намеренно не содержит отзывов. Рейтинг реального товара может быть
+// на первом экране, хотя браузер в пустой fixture видит «Нет отзывов».
+// Сохраняем только стили строки рейтинга, без блока отзывов ниже сгиба;
+// сами правила и их media-обёртки по-прежнему берутся из styles.css.
+function requiredRatingSelector(kind, selector) {
+  if (!['catalog', 'home-catalog', 'product'].includes(kind)) return false;
+  return /^\.(?:rt-star|rt-avg|rt-bubble|rating-count)$/.test(selector)
+    || (kind === 'product' && /^\.rating-summary(?:\s|$)/.test(selector));
+}
+
 /* ------------------------------ Chrome по CDP ------------------------------ */
 function findChrome() {
   const cands = [
@@ -371,6 +381,7 @@ async function collect(chrome, store) {
           } else if (a.name === 'supports' && !supportsMatch.get(a.prelude)) return;
         }
         for (const s of probes[i]) {
+          if (requiredRatingSelector(kind, s)) { kept.add(i); return; }
           const v = hit.get(s);
           if (v === 2) unknown.add(s);
           if (v) { kept.add(i); return; }

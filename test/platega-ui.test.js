@@ -338,12 +338,15 @@ test('в запрос заказа входят процент Platega и пре
     totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox',
     checkoutAmountNotice: () => ({ type: 'info', message: '' }),
     Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }] }, promoFields() {},
-    orderRequestId: () => 'test-request'
+    orderRequestId: () => 'test-request', cleanItem: item => ({ ...item })
   };
   for (const fee of [FEE.included(1000, 8.5), FEE.included(1000, 0), null]) {
+    // Ниже исполняется только сборка payload, без fetch и снятия pending.
+    // Каждый тариф — независимая отправка, как новая открытая форма.
+    env.Cart.submitting = false;
     const make = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
       phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-      checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountNotice } = env;
+      checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountNotice, cleanItem } = env;
       ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`);
     const payload = make(env, () => fee)({ innerHTML: 'Оплатить' });
     if (fee) {
@@ -356,9 +359,10 @@ test('в запрос заказа входят процент Platega и пре
     assert.equal(payload.items[0].price, 1000, 'цена товара не подменяется суммой с комиссией');
   }
   // Заказ дороже кассы полей комиссии не несёт: он в Platega не пойдёт.
+  env.Cart.submitting = false;
   const away = new Function('env', 'checkoutFeeQuote', `const { rememberCheckout, document, phoneCheck,
     phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
-    checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountNotice } = env;
+    checkoutMode, Cart, promoFields, orderRequestId, checkoutAmountNotice, cleanItem } = env;
     ${source.slice(begin, send)}\nreturn payload; }\nreturn submitOrder;`)(
     { ...env, checkoutMode: () => 'request' }, () => FEE.included(1000, 8.5))({ innerHTML: 'Оформить заказ' });
   assert.equal(Object.hasOwn(away, 'paymentFeePercent'), false);
@@ -382,19 +386,22 @@ test('неизвестная или устаревшая доставка бло
     deliveryChoice: () => 'cdek', deliveryModeChoice: () => 'courier', pickup: {},
     totalLimitError: () => '', orderTotal: () => 1000, checkoutMode: () => 'cashbox', coIcon: () => '',
     Cart: { items: [{ id: 'p1', qty: 1, price: 1000 }], total: () => 1000, availableCount: () => 1 },
-    promoFields() {}, orderRequestId: () => 'test-request', setText() {}, money: String,
+    promoFields() {}, orderRequestId: () => 'test-request', cleanItem: item => ({ ...item }), setText() {}, money: String,
     submitLabel: () => 'Оплатить', addressValue: () => address, shipCurrent: () => price,
     checkoutFeeQuote: () => hasFee ? FEE.included(1000, percent) : null
   };
   const ui = new Function('env', `const { rememberCheckout, document, phoneCheck,
     phoneValue, ship, deliveryChoice, deliveryModeChoice, pickup, totalLimitError, orderTotal,
     checkoutMode, coIcon, Cart, promoFields, orderRequestId, setText, money, submitLabel,
-    addressValue, shipCurrent, checkoutFeeQuote } = env;
+    addressValue, shipCurrent, checkoutFeeQuote, cleanItem } = env;
     ${amount}\n${sync}\n${source.slice(begin, send)}\nreturn payload; }
     return { syncSubmit, submitOrder };`)(env);
   ui.syncSubmit();
   assert.equal(button.disabled, false, 'подтверждённая бесплатная доставка допустима');
   assert.equal(ui.submitOrder(button).paymentTotal, 1000);
+  // Сеть вырезана из теста: завершаем искусственную отправку перед проверкой
+  // ограничений суммы. Pending реального POST покрыт полным скриптом отдельно.
+  env.Cart.submitting = false;
   for (const change of [
     () => { ship.pending = true; }, () => { ship.valid = false; },
     () => { ship.key = '900|Адрес'; }, () => { address = 'Другой адрес'; },

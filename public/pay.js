@@ -312,7 +312,7 @@
          * напоминает полоса под шапкой (`payRemind` в server.js) — так что
          * второй такой же заказ покупатель оформит разве что нарочно. */
         if (d && d.terminal === 'order_cancelled') { location.href = safePayUrl(d.url); return; }
-        if (d && d.ok && window.Cart && Cart.clear) { Cart.hold(orderId); Cart.clear(); }
+        if (d && d.ok && window.Cart && Cart.completeOrder) Cart.completeOrder(orderId);
         // Способ выбран — черновик стал заказом, и это цель «заказ» для Директа.
         // `placed` стоит и у отказа кассы (заказ записан, менеджер его видит),
         // поэтому цель уходит и тогда; повтор по тому же заказу отсекает ключ
