@@ -2462,7 +2462,8 @@ test('приближением карты владеет человек, а кн
   const css = PANEL_CSS;
   assert.match(css, /\.gm-shape\{fill:#c9cdd2/);
   assert.match(css, /\.gm-shape\.heat-5\{fill:#1c3f96\}/);
-  assert.match(css, /\.g-opt\.is-on\{background:#ceead6;color:#188038\}/, 'выбранный пункт меню — зелёная плашка Google');
+  // Зелёный Google 900, а не 800: #188038 на #ceead6 давал подписи 3.9:1 — ниже порога 4.5.
+  assert.match(css, /\.g-opt\.is-on\{background:#ceead6;color:#0d652d\}/, 'выбранный пункт меню — зелёная плашка Google');
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.gm-zoom button\{width:40px;height:40px\}/, 'на телефоне в кнопку надо попадать пальцем');
 });

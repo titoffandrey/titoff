@@ -477,9 +477,13 @@ body.lb-open{overflow:hidden}
    называются поимённо; `visibility` идёт в списке намеренно, она и держит
    затемнение видимым, пока прозрачность доезжает до нуля. */
 .cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;z-index:50}
-.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer);display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
+.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer),visibility 0s linear .25s;visibility:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
 body.cart-open .cart-overlay{opacity:1;visibility:visible}
-body.cart-open .cart-drawer{transform:translateX(0)}
+/* Закрытая шторка стоит за правым краем, но её тень (−24 px при размытии 70 px)
+   заходила на страницу светлой полосой вдоль всего правого края витрины.
+   Скрываем её после выезда: `visibility` переключается с задержкой ровно на срок
+   движения, поэтому закрытие по-прежнему видно целиком. */
+body.cart-open .cart-drawer{transform:translateX(0);visibility:visible;transition-delay:0s}
 .cart-head{display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--border)}
 .cart-head h2{margin:0;font-size:20px}
 .cart-items{flex:1;overflow-y:auto;padding:8px 16px}
@@ -691,7 +695,7 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .storage-opt,.option-opt{padding:9px 16px;border:1px solid var(--border);border-radius:12px;background:#fff;cursor:pointer;
   font-size:14px;font-weight:500;color:var(--text);font-family:inherit;transition:border-color .12s,background .12s}
 .storage-opt:hover,.option-opt:hover{border-color:var(--accent)}
-.storage-opt.active,.option-opt.active{border-color:var(--accent);background:rgba(0,113,227,.08);color:var(--accent)}
+.storage-opt.active,.option-opt.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);color:var(--accent)}
 
 /* Распроданный вариант: виден, но не выбирается (как в highlights у Apple). */
 .swatch.out{cursor:not-allowed;opacity:.45;box-shadow:inset 0 0 0 2px #fff}
@@ -913,7 +917,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 }
 .field textarea{min-height:112px;line-height:1.5}
 .field input:hover,.field textarea:hover,.field select:hover{border-color:#c4c4ca}
-.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,110,115,.13)}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent)}
 .field input[type=file]{max-width:100%;font-size:14px}
 
 /* Шапка витрины.
@@ -2266,7 +2270,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
   border-radius:12px;background:#fff;font:inherit;font-size:15px;letter-spacing:.04em;
   text-transform:uppercase}
 .co-promo-form input::placeholder{letter-spacing:0;text-transform:none;color:var(--muted)}
-.co-promo-form input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,.12)}
+.co-promo-form input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
 .co-promo-apply{flex:none;height:42px;padding:0 15px;border:1px solid var(--accent);border-radius:12px;
   background:var(--accent);color:#fff;-webkit-text-fill-color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
 .co-promo-apply:hover{background:var(--accent-hover,var(--accent))}
@@ -3533,6 +3537,9 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .acc-order-acts .btn{min-height:38px;padding:8px 15px;font-size:14px}
 .acc-ships{margin:0}
 .acc-form .field:last-of-type{margin-bottom:14px}
+/* Подсказка под последним полем профиля стояла вплотную к «Сохранить»: отступ
+   `.field:last-of-type` достаётся полю, а подсказка идёт уже после него. */
+.acc-form>.field-hint{margin:-4px 0 16px}
 .acc-form .btn{min-height:42px}
 /* Смена пароля — под раскрытием: раз в жизни, а форма занимает половину
    карточки. У кабинета с присланным паролем она открыта сразу — там это

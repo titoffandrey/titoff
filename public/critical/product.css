@@ -75,7 +75,7 @@ body.storefront{--nav-top:58px}
 .form-msg{margin:10px 0 0;font-size:14px}
 .site-footer{background:var(--bg2);border-top:1px solid var(--border);margin-top:30px;padding:30px 0 40px;text-align:center;font-size:14px;color:var(--muted)}
 .cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;z-index:50}
-.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer);display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
+.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer),visibility 0s linear .25s;visibility:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
 @media(min-width:900px){
   .product{grid-template-columns:1fr 1fr;gap:40px;align-items:start}
   .product-gallery{position:sticky;top:80px}
@@ -119,7 +119,7 @@ body{-webkit-tap-highlight-color:transparent;text-rendering:optimizeLegibility}
 .storage-opts{display:flex;flex-wrap:wrap;gap:8px}
 .storage-opt,.option-opt{padding:9px 16px;border:1px solid var(--border);border-radius:12px;background:#fff;cursor:pointer; font-size:14px;font-weight:500;color:var(--text);font-family:inherit;transition:border-color .12s,background .12s}
 .storage-opt:hover,.option-opt:hover{border-color:var(--accent)}
-.storage-opt.active,.option-opt.active{border-color:var(--accent);background:rgba(0,113,227,.08);color:var(--accent)}
+.storage-opt.active,.option-opt.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent);color:var(--accent)}
 .option-groups{display:flex;flex-direction:column;gap:18px}
 .option-group .variant-label{margin-bottom:3px}
 .variant-hint{margin:0 0 9px;font-size:13px;line-height:1.4;color:var(--muted)}
@@ -177,7 +177,7 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em}
 .btn:active,.btn-primary:active{transform:scale(.98);box-shadow:none}
 .btn-lg{min-height:50px;padding:13px 26px;font-size:16px;border-radius:16px}
 .field input:hover,.field textarea:hover,.field select:hover{border-color:#c4c4ca}
-.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,110,115,.13)}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent)}
 .site-header{padding-top:env(safe-area-inset-top);background:rgba(255,255,255,.7);border-color:var(--border-soft); -webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%); transition:background .24s ease,border-color .24s ease,box-shadow .24s ease; contain:layout paint}
 @media(prefers-reduced-motion:reduce){
   .site-header,.header-row,.apple-logo-mark,.header-search{transition:none!important}

@@ -61,7 +61,7 @@ body.storefront{--nav-top:58px}
 .form-msg{margin:10px 0 0;font-size:14px}
 .site-footer{background:var(--bg2);border-top:1px solid var(--border);margin-top:30px;padding:30px 0 40px;text-align:center;font-size:14px;color:var(--muted)}
 .cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s;z-index:50}
-.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer);display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
+.cart-drawer{position:fixed;top:0;right:0;height:100%;width:400px;max-width:90vw;background:#fff;z-index:60;transform:translateX(100%);transition:transform .25s var(--ease-drawer),visibility 0s linear .25s;visibility:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
 @media(min-width:640px){
   .grid{grid-template-columns:repeat(3,1fr);gap:18px}
 }
