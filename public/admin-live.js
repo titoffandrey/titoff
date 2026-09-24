@@ -121,6 +121,8 @@
      * Отметку `data-zoomed` ставит сам зум, поэтому нетронутая карта обновляется
      * как обычно — вместе с новым кадром от сервера. */
     if (name === 'viewBox' && el.hasAttribute && el.hasAttribute('data-zoomed')) return true;
+    // Отметку «график поднят» ставит скрипт графиков, сервер о ней не знает.
+    if (name === 'data-bk-mounted') return true;
     return FIELDS[el.tagName] && (name === 'value' || name === 'checked' || name === 'selected');
   }
 
@@ -144,6 +146,11 @@
     if (from.nodeType !== 1) return;
     if (browserOwned(from)) return;
     syncAttrs(from, to);
+    /* Остров графика Bklit (`vendor/bklit`): внутри живёт React, и дерево его
+     * узлов разметке сервера не соответствует вовсе. Переносим только атрибуты —
+     * новые данные лежат в `data-bk-props`, — а перерисует график сам скрипт по
+     * событию `admin-live:updated`. Пока график не поднят, остров обычный. */
+    if (from.hasAttribute('data-bk-mounted')) return;
     // У поля ввода детей либо нет, либо они и есть его значение (textarea).
     if (FIELDS[from.tagName]) return;
     morphChildren(from, to);

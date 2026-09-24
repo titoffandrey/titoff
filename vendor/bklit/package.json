@@ -1,0 +1,32 @@
+{
+  "name": "store-bklit-charts-build",
+  "private": true,
+  "type": "module",
+  "description": "Изолированные зависимости для пересборки браузерных графиков Bklit UI в панели; сервер их не использует.",
+  "dependencies": {
+    "@base-ui/react": "1.1.0",
+    "@number-flow/react": "0.5.11",
+    "@tailwindcss/postcss": "4.1.18",
+    "@visx/curve": "4.0.1-alpha.0",
+    "@visx/event": "4.0.1-alpha.0",
+    "@visx/gradient": "4.0.1-alpha.0",
+    "@visx/grid": "4.0.1-alpha.0",
+    "@visx/group": "4.0.1-alpha.0",
+    "@visx/pattern": "4.0.1-alpha.0",
+    "@visx/responsive": "4.0.1-alpha.0",
+    "@visx/scale": "4.0.1-alpha.0",
+    "@visx/shape": "4.0.1-alpha.0",
+    "clsx": "2.1.1",
+    "d3-array": "3.2.4",
+    "d3-scale": "4.0.2",
+    "d3-shape": "3.2.0",
+    "esbuild": "0.28.2",
+    "motion": "12.27.0",
+    "postcss": "8.5.28",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-use-measure": "2.1.7",
+    "tailwind-merge": "2.6.0",
+    "tailwindcss": "4.1.18"
+  }
+}

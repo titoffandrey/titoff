@@ -1973,7 +1973,11 @@ test('в admin.css нет ни одного правила витрины', () =
     { id: 'TO_CARD', name: 'Перевод на карту', hint: 'номер карты', kind: 'card' },
     { id: 'CARD_ONLINE', name: 'Карта или СБП', hint: 'на странице банка', kind: 'link', hosted: true }
   ];
-  const shipment = TRACKING.normalize(TRACKING.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Екатеринбург', zone: 'ural', seed: 'a1b2', startedAt: Date.now() - 2 * 86400000, days: 5 }));
+  // Трое суток назад, а не двое: застрявший шаг обязан стоять дольше суток
+  // (`holdDays`), а время шагов раскладывается по дневным часам — с началом
+  // «двое суток назад» утром он оказывался моложе суток, и плашки задержки
+  // (`.trk-delay`) в наборе не было, то есть тест зависел от времени запуска.
+  const shipment = TRACKING.normalize(TRACKING.build({ carrier: 'cdek', mode: 'pvz', from: 'Москва', to: 'Екатеринбург', zone: 'ural', seed: 'a1b2', startedAt: Date.now() - 3 * 86400000, days: 5 }));
   shipment.steps[3].hold = true;
   const shipped = Object.assign({}, order, { shipment, payment: { status: 'paid', method: 'SBP_ONLINE', paidAt: Date.now() - 86400000 } });
   const ozonShip = Object.assign({}, order, { id: 'c3d4', number: '482914', shipment: TRACKING.normalize(TRACKING.build({ carrier: 'ozon', mode: 'courier', from: 'Москва', to: 'Казань', zone: 'pfo', seed: 'c3d4', startedAt: Date.now() - 86400000, days: 4 })) });

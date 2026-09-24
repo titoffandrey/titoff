@@ -9,6 +9,8 @@
     "test": "node --test test/*.test.js",
     "ui:toast": "node scripts/build-smoothui-toast.js",
     "ui:toast:verify": "node scripts/build-smoothui-toast.js --verify",
+    "ui:charts": "node scripts/build-bklit-charts.js",
+    "ui:charts:verify": "node scripts/build-bklit-charts.js --verify",
     "css:critical": "node scripts/build-critical-css.js",
     "css:critical:verify": "node scripts/build-critical-css.js --verify",
     "reset:admin": "node scripts/reset-admin-password.js",
