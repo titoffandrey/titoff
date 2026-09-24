@@ -363,7 +363,7 @@
       .catch(function () {
         if (btn) btn.disabled = false;
         promoNoticeType = 'error';
-        promoError = 'Нет связи - попробуйте ещё раз';
+        promoError = 'Нет связи — попробуйте ещё раз';
         syncPromo();
       });
   }
@@ -394,7 +394,7 @@
       items.innerHTML = '<div class="checkout-empty">'
         + '<div class="checkout-empty-ico" aria-hidden="true">' + coIcon('cart', 'co-empty-ico') + '</div>'
         + '<h2>В корзине пока пусто</h2>'
-        + '<p>Выберите товары в каталоге - они появятся здесь.</p>'
+        + '<p>Выберите товары в каталоге — они появятся здесь.</p>'
         + '<a class="btn btn-primary btn-lg" href="/catalog">Перейти в каталог</a></div>';
       // Удаление последнего товара снимает DOM формы без navigation/pagehide.
       // Сохраняем активное поле прямо перед этим, иначе последняя правка могла
@@ -429,7 +429,7 @@
           + '<div class="co-item-body">'
           + '<h3 class="co-item-name">' + escapeHtml(i.name) + '</h3>'
           + (variant ? '<div class="co-item-variant">' + escapeHtml(variant) + '</div>' : '')
-          + (out ? '<div class="co-item-warn">Нет в наличии - позиция не попадёт в заказ</div>' : '')
+          + (out ? '<div class="co-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
           // Цена за штуку — тем же набором классов, что и в карточке каталога:
           // розовая цена, зачёркнутая старая с наклонной чертой, розовый процент.
           + '<div class="co-item-unit' + (i.qty > 1 ? ' is-relevant' : '') + '">'
@@ -452,7 +452,7 @@
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Уменьшить количество">−</button>'
           + '<span>' + i.qty + '</span>'
           + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Увеличить количество"'
-          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ - не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
+          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ — не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
           + '<button type="button" class="co-remove" data-act="rm" data-key="' + k + '" aria-label="Удалить из корзины" title="Удалить">'
           + '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3h6M4 6h12M6.5 6l.6 10a1.4 1.4 0 0 0 1.4 1.3h3a1.4 1.4 0 0 0 1.4-1.3l.6-10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
           + '</button>'
@@ -1017,7 +1017,7 @@
   // Текст отказа по сумме заказа или пустая строка. Заказ вне пределов не
   // оформляется вовсе: кнопка гаснет, а сервер такую сумму всё равно не примет.
   function totalLimitError(sum) {
-    if (ORDER_MAX && sum > ORDER_MAX) return 'Один заказ - не более ' + money(ORDER_MAX) + '. Разделите покупку на несколько заказов.';
+    if (ORDER_MAX && sum > ORDER_MAX) return 'Один заказ — не более ' + money(ORDER_MAX) + '. Разделите покупку на несколько заказов.';
     if (ORDER_MIN && sum > 0 && sum < ORDER_MIN) return 'Минимальная сумма заказа - ' + money(ORDER_MIN) + '.';
     return '';
   }
@@ -1402,8 +1402,8 @@
     if (!pickup.items.length) {
       box.innerHTML = '<span class="co-modes-label">Пункт выдачи</span>'
         + '<p class="co-points-note">' + (pickup.ready
-          ? 'Рядом с вашим адресом пунктов не нашлось - выберите доставку курьером.'
-          : 'Списка пунктов этого перевозчика у нас сейчас нет - выберите доставку курьером или другого перевозчика.')
+          ? 'Рядом с вашим адресом пунктов не нашлось — выберите доставку курьером.'
+          : 'Списка пунктов этого перевозчика у нас сейчас нет — выберите доставку курьером или другого перевозчика.')
         + '</p>';
       syncSubmit();
       return;
@@ -2086,12 +2086,12 @@
           + '<div class="cart-item-info">'
           + '<div class="cart-item-name">' + escapeHtml(i.name) + '</div>'
           + (variant ? '<div class="cart-item-variant">' + escapeHtml(variant) + '</div>' : '')
-          + (out ? '<div class="cart-item-warn">Нет в наличии - позиция не попадёт в заказ</div>' : '')
+          + (out ? '<div class="cart-item-warn">Нет в наличии — позиция не попадёт в заказ</div>' : '')
           + '<div class="cart-item-price">' + money(i.price) + '</div>'
           + '<div class="cart-item-controls">'
           + '<div class="cart-qty"><button type="button" data-act="dec" data-key="' + k + '" aria-label="Меньше">−</button><span>' + i.qty + '</span>'
           + '<button type="button" data-act="inc" data-key="' + k + '" aria-label="Больше"'
-          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ - не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
+          + (i.qty >= Cart.fits(i) ? ' disabled title="Больше нельзя: один заказ — не более ' + escapeHtml(money(ORDER_MAX)) + '"' : '') + '>+</button></div>'
           + '<button type="button" class="cart-remove" data-act="rm" data-key="' + k + '">Удалить</button>'
           + '</div></div></div>';
       }).join('');
@@ -2821,7 +2821,7 @@
       input.value = v;
       if (plus) {
         plus.disabled = v >= cap;
-        plus.title = plus.disabled ? 'Больше нельзя: один заказ - не более ' + money(ORDER_MAX) : '';
+        plus.title = plus.disabled ? 'Больше нельзя: один заказ — не более ' + money(ORDER_MAX) : '';
       }
     }
     if (qtyBox) {
@@ -3413,7 +3413,7 @@
           var max = Number(rvPhotos.dataset.max) || 0;
           // «фото» не склоняется, поэтому одна форма подходит любому числу
           rvNote.textContent = !n ? ''
-            : (max && n > max ? 'Выбрано ' + n + ' фото - отправим первые ' + max : 'Выбрано ' + n + ' фото');
+            : (max && n > max ? 'Выбрано ' + n + ' фото — отправим первые ' + max : 'Выбрано ' + n + ' фото');
         });
       }
 
@@ -3460,7 +3460,7 @@
         var consent = document.getElementById('rv-consent');
         if (consent && !consent.checked) {
           var msg = document.getElementById('review-msg');
-          if (msg) { msg.hidden = true; msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = 'Отметьте согласие - без него отзыв отправить нельзя'; }
+          if (msg) { msg.hidden = true; msg.hidden = false; msg.className = 'form-msg'; msg.dataset.toastType = 'info'; msg.textContent = 'Отметьте согласие — без него отзыв отправить нельзя'; }
           try { consent.focus(); } catch (err) {}
           return;
         }
@@ -3549,7 +3549,7 @@
     var text = account.created
       ? 'Мы создали для вас личный кабинет: пароль отправили на ' + account.email + '. Там будут все ваши заказы и отправления.'
       : account.exists
-        ? 'На ' + account.email + ' уже есть личный кабинет - войдите, и этот заказ появится там.'
+        ? 'На ' + account.email + ' уже есть личный кабинет — войдите, и этот заказ появится там.'
         : '';
     if (!text) return '';
     return '<div class="order-success-next order-success-account"><span class="order-success-step" aria-hidden="true">2</span><div><strong>Личный кабинет</strong><p>'

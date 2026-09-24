@@ -56,8 +56,8 @@
     // значения уносила цену с галочкой на следующую строку.
     row.innerHTML =
       '<div class="ov-main">' +
-        '<input type="text" class="ov-label" placeholder="Например: Нанотекстурное стекло">' +
-        '<div class="st-price-wrap"><input type="text" class="ov-price" inputmode="numeric" placeholder="Цена с этим значением"><span class="st-cur">₽</span></div>' +
+        '<input type="text" class="ov-label" aria-label="Значение характеристики" placeholder="Например: Нанотекстурное стекло">' +
+        '<div class="st-price-wrap"><input type="text" class="ov-price" aria-label="Цена с этим значением, ₽" inputmode="numeric" placeholder="Цена с этим значением"><span class="st-cur">₽</span></div>' +
         '<label class="stock-toggle" title="Снимите галочку, если вариант распродан"><input type="checkbox" class="ov-stock"><span>в наличии</span></label>' +
         '<button type="button" class="color-del" title="Удалить значение" aria-label="Удалить значение">&times;</button>' +
       '</div>' +
@@ -90,8 +90,8 @@
     box.className = 'option-group-box';
     box.innerHTML =
       '<div class="option-group-head">' +
-        '<input type="text" class="og-name" placeholder="Название, например Покрытие дисплея">' +
-        '<input type="text" class="og-hint" placeholder="Подсказка под заголовком (необязательно)">' +
+        '<input type="text" class="og-name" aria-label="Название характеристики" placeholder="Название, например Покрытие дисплея">' +
+        '<input type="text" class="og-hint" aria-label="Подсказка под заголовком" placeholder="Подсказка под заголовком (необязательно)">' +
         '<button type="button" class="color-del" title="Удалить характеристику" aria-label="Удалить характеристику">&times;</button>' +
       '</div>' +
       '<div class="option-vals"></div>' +

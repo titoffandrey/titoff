@@ -7,7 +7,7 @@
   --metric-border: #e4e7ec;
   --metric-text: #101828;
   --metric-muted: #667085;
-  --metric-accent: #465fff;
+  --metric-accent: #3a50e0; /* было #465fff: 4.4:1 у подписи выбранной вкладки и у числа пика — ниже порога 4.5 */
   --metric-accent-soft: #eef4ff;
   --metric-good: #027a48;
   --metric-bad: #b42318;

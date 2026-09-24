@@ -4183,6 +4183,15 @@ html.dark body.admin :is(#color-add,#storage-add):hover{background:var(--color-g
 html.dark body.admin [data-ta-actions].is-on{background:var(--color-gray-800)}
 html.dark body.admin .ta-header-brand{color:var(--color-gray-100)}
 html.dark body.admin .ta-header-actions{box-shadow:0 4px 12px rgb(0 0 0/.35)}
+/* Читаемость (docs/design-system.md, порог 4.5:1). В светлой теме брендовый
+   #465fff на подложке brand-50 давал подписи 4.3:1 — активный пункт меню,
+   выбранная вкладка, выбранный период; заголовок группы меню gray-400 — 2.6:1.
+   Текст на подложке берёт brand-600 (5.8:1), заголовок группы — gray-500
+   (5.0:1). Заливки кнопок остаются brand-500: белой подписи там 4.8:1.
+   Ночную тему не трогаем — у неё свои тона brand-400 и gray-400. */
+body.admin{--text-3:var(--color-gray-500);--a-chart:var(--color-brand-500)}
+html:not(.dark) body.admin :is(.menu-item-active,.a-tab.active,.a-page-cur,.g-opt.is-on){color:var(--color-brand-600)}
+html:not(.dark) body.admin .menu-group-title{color:var(--color-gray-500)}
 
 /* Ночная палитра реальных элементов чата панели, включая заполненные состояния. */
 html.dark body.admin .chat-row {

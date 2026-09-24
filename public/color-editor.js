@@ -29,8 +29,8 @@
     row.dataset.key = 'c' + (makeRow._n = (makeRow._n || 0) + 1);
     row.innerHTML =
       '<input type="color" class="color-hex" value="' + hex + '" aria-label="Оттенок">' +
-      '<input type="text" class="color-name" placeholder="Название цвета">' +
-      '<input type="text" class="color-hexed" placeholder="#hex" spellcheck="false" maxlength="7" value="' + hex + '">' +
+      '<input type="text" class="color-name" aria-label="Название цвета" placeholder="Название цвета">' +
+      '<input type="text" class="color-hexed" aria-label="Код цвета" placeholder="#hex" spellcheck="false" maxlength="7" value="' + hex + '">' +
       '<label class="stock-toggle" title="Снимите галочку, если цвет распродан">' +
         '<input type="checkbox" class="color-stock"><span>в наличии</span></label>' +
       '<button type="button" class="color-del" title="Удалить цвет" aria-label="Удалить">&times;</button>';
@@ -170,8 +170,8 @@
     // стирал бы её при каждой правке цены.
     if (forChoice) row.dataset.forChoice = forChoice;
     row.innerHTML =
-      '<input type="text" class="st-label" placeholder="Например: 256 ГБ">' +
-      '<div class="st-price-wrap"><input type="text" class="st-price" inputmode="numeric" placeholder="Цена">' +
+      '<input type="text" class="st-label" aria-label="Название варианта" placeholder="Например: 256 ГБ">' +
+      '<div class="st-price-wrap"><input type="text" class="st-price" aria-label="Цена варианта, ₽" inputmode="numeric" placeholder="Цена">' +
       '<span class="st-cur">₽</span></div>' +
       '<label class="stock-toggle" title="Снимите галочку, если вариант распродан">' +
         '<input type="checkbox" class="st-stock"><span>в наличии</span></label>' +

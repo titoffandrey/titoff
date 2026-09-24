@@ -50,8 +50,8 @@
     row.className = 'band-opt-row';
     row.innerHTML =
       '<input type="color" class="bo-hex" value="' + norm(opt.hex) + '" aria-label="Оттенок ремешка">' +
-      '<input type="text" class="bo-name" placeholder="Название цвета">' +
-      '<div class="st-price-wrap"><input type="text" class="bo-price" inputmode="numeric" placeholder="Цена с ремешком"><span class="st-cur">₽</span></div>' +
+      '<input type="text" class="bo-name" aria-label="Название цвета ремешка" placeholder="Название цвета">' +
+      '<div class="st-price-wrap"><input type="text" class="bo-price" aria-label="Цена с ремешком, ₽" inputmode="numeric" placeholder="Цена с ремешком"><span class="st-cur">₽</span></div>' +
       '<select class="bo-for" title="Для какого корпуса доступна вариация"></select>' +
       '<label class="stock-toggle" title="Снимите галочку, если вариант распродан"><input type="checkbox" class="bo-stock"><span>в наличии</span></label>' +
       '<button type="button" class="color-del" title="Удалить вариацию" aria-label="Удалить вариацию">&times;</button>';
@@ -80,8 +80,8 @@
     // растягивал форму на тысячи пикселей.
     box.innerHTML =
       '<div class="band-group-head">' +
-        '<input type="text" class="bg-name" placeholder="Название коллекции, например Trail Loop">' +
-        '<input type="text" class="bg-sizes" placeholder="Размеры через запятую: S/M, M/L">' +
+        '<input type="text" class="bg-name" aria-label="Название коллекции ремешков" placeholder="Название коллекции, например Trail Loop">' +
+        '<input type="text" class="bg-sizes" aria-label="Размеры ремешков" placeholder="Размеры через запятую: S/M, M/L">' +
         '<button type="button" class="color-del" title="Удалить коллекцию" aria-label="Удалить коллекцию">&times;</button>' +
       '</div>' +
       '<details class="band-fold">' +
