@@ -15,9 +15,7 @@
     "reviews:demo": "node scripts/demo-reviews.js",
     "reviews:demo:remove": "node scripts/demo-reviews.js --remove",
     "seed": "node seed.js",
-    "seed:all": "node seed.js --all",
-    "ui:admin": "node scripts/build-tailadmin.js",
-    "ui:admin:verify": "node scripts/build-tailadmin.js --verify"
+    "seed:all": "node seed.js --all"
   },
   "dependencies": {},
   "engines": {

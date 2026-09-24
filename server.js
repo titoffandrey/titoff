@@ -5568,15 +5568,14 @@ app.get('/admin/settings', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const s = settings();
   res.send(A.settingsPage(s, db, req.query.flash, 'ok',
-    { live: await livePayMethods(s), open: openSections(req.query.open), origin: paymentOrigin(req) }));
+    { live: await livePayMethods(s), open: openSections(req.query.open) }));
 });
 app.post('/admin/settings', async (req, res) => {
   if (!guardAdmin(req, res)) return;
   const current = settings();
   const live = await livePayMethods(current);
   const open = openSections(req.body.openSections);
-  const fail = (error) => res.send(A.settingsPage(current, db, error, 'err',
-    { draft: req.body, live, open, origin: paymentOrigin(req) }), 400);
+  const fail = (error) => res.send(A.settingsPage(current, db, error, 'err', { draft: req.body, live, open }), 400);
   if (!String(req.body.storeName || '').trim()) return fail('Укажите название магазина');
   const passwordProblem = passwordError(req.body.adminPassword, false);
   if (passwordProblem) return fail(passwordProblem);
@@ -6128,10 +6127,10 @@ app.post('/admin/settings', async (req, res) => {
     }
     if (problem) {
       return res.send(A.settingsPage(next, db, 'Настройки сохранены, но проверочное письмо не ушло: ' + problem, 'err',
-        { live, open: open ? open + ',mail' : 'mail', origin: paymentOrigin(req) }));
+        { live, open: open ? open + ',accounts' : 'accounts' }));
     }
     return res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено. Проверочное письмо отправлено на ' + to)
-      + '&open=' + encodeURIComponent(open ? open + ',mail' : 'mail'));
+      + '&open=' + encodeURIComponent(open ? open + ',accounts' : 'accounts'));
   }
   res.redirect('/admin/settings?flash=' + encodeURIComponent('Сохранено')
     + (open ? '&open=' + encodeURIComponent(open) : ''));

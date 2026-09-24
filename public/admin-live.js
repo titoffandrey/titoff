@@ -133,7 +133,7 @@
    * его слот ПУСТ — морфинг детей стирал бы цифру на каждом обновлении.
    */
   function browserOwned(el) {
-    return !!(el.classList && el.classList.contains('a-live')) || (el.hasAttribute('data-ta-chart-canvas') || el.hasAttribute('data-ta-map-canvas'));
+    return !!(el.classList && el.classList.contains('a-live'));
   }
 
   function morph(from, to) {
@@ -142,11 +142,6 @@
       return;
     }
     if (from.nodeType !== 1) return;
-    /* `<noscript>` живой страницы хранит текст, а из DOMParser приходит
-     * разобранными элементами: вставь их сюда — и `<style>` «без JS» стал бы
-     * настоящим правилом при включённом JS. Содержимое noscript при работающих
-     * скриптах не нужно никому, поэтому оно не сравнивается вовсе. */
-    if (from.tagName === 'NOSCRIPT') return;
     if (browserOwned(from)) return;
     syncAttrs(from, to);
     // У поля ввода детей либо нет, либо они и есть его значение (textarea).
@@ -188,8 +183,6 @@
     if (el && FIELDS[el.tagName] && el.closest && el.closest('[data-live-part]')) return true;
     // Открыт просмотрщик вложений: он держит ссылки на узлы страницы.
     if (document.body.classList.contains('lb-open')) return true;
-    // Детали заказа не перерисовываются под рукой; обновление дождётся закрытия.
-    if (document.querySelector('dialog[open]')) return true;
     // Открыто меню разделов — из-под руки его выдёргивать незачем.
     var menu = document.getElementById('a-menu');
     return !!(menu && menu.checked);

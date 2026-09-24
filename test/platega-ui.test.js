@@ -48,32 +48,27 @@ test('онлайн-оплата доступна по умолчанию тол�
   assert.deepEqual(PAYMENTS.offeredMethods(settings()), [{ id: 'ONLINE_PAYMENT', provider: 'platega' }]);
 });
 
-test('в панели Platega есть доступ и callback для копирования, секрет остаётся скрытым', () => {
+test('в панели Platega есть доступ и инструкция callback, секрет остаётся скрытым', () => {
   const s = { ...settings(), plategaFeePercent: 8.5 };
-  const html = admin.settingsPage(s, { pendingReviewCount: () => 0 }, null, 'ok', { origin: 'https://shop.example' });
+  const html = admin.settingsPage(s, { pendingReviewCount: () => 0 }, null);
   assert.match(html, /name="plategaEnabled" checked/);
   assert.match(html, /name="plategaMerchantId" value="00000000-0000-4000-8000-000000000001"/);
   assert.match(html, /name="plategaSecret" type="password" value=""/);
   assert.match(html, /name="clearPlategaSecret"/);
-  /* Callback URL — не подсказка, а значение, которое КОПИРУЮТ в кабинет кассы:
-   * поле с кнопкой рядом, а не абзац, из которого адрес выделяют мышью по
-   * буквам. Адрес тот же, что уходит кассе в `callback_url`. */
-  assert.match(html, /<input id="platega-callback" class="set-copy-url" value="https:\/\/shop\.example\/api\/pay\/platega\/callback" readonly/);
-  assert.match(html, /data-copy="https:\/\/shop\.example\/api\/pay\/platega\/callback"/);
-  // Что комиссия сидит внутри цены, говорит сама подпись поля.
+  assert.match(html, /\/api\/pay\/platega\/callback/);
+  assert.match(html, /https:\/\/docs\.platega\.io\//);
   assert.match(html, /Комиссия Platega, включённая в цены, %/);
   assert.match(html, /name="plategaFeePercent" type="number" min="0" max="100" step="0\.01" value="8\.5"/);
+  assert.match(html, /Он сидит внутри цены: кассе уходит цена без него/);
   assert.doesNotMatch(html, /Комиссия сверху для покупателя/);
-  assert.doesNotMatch(html, /class="field-hint"/, 'подсказок в настройках нет');
   /* Потолок одного платежа — настройка рядом с тарифом: лимит СБП Platega
    * (20 000 ₽ вместе с комиссией) публично не описан, значит его могут поднять,
    * и владелец впишет число сам. Подсказка называет путь заказа дороже. */
   assert.match(html, /name="plategaMaxTotal" inputmode="numeric" autocomplete="off"\s*value="20000" placeholder="20000"/);
-  /* Куда уходит заказ дороже потолка, говорит плашка режима и свёрнутая строка
-   * раздела — там же, где владелец читает, что видит покупатель. */
-  assert.match(html, /В кассу уходят заказы до 20\s000\s₽, дороже — заявкой/);
+  assert.match(html, /Заказ дороже уходит заявкой — менеджер связывается с покупателем сам/);
   const withOwn = admin.settingsPage({ ...s, plategaMaxTotal: 50000, ownPayEnabled: true, ownPayPhone: '+79991234567', ownPayOwner: 'Иван И.' }, { pendingReviewCount: () => 0 }, null);
   assert.match(withOwn, /value="50000" placeholder="20000"/);
+  assert.match(withOwn, /Заказ дороже уходит переводом по своим реквизитам/);
   assert.match(withOwn, /на них уходят заказы дороже 50\s000\s₽/, 'свёртка своих реквизитов знает про запасной путь');
   assert.match(withOwn, /В кассу уходят заказы до 50\s000\s₽, дороже — переводом по своим реквизитам/);
   // Свёрнутая строка раздела оплаты тоже называет порог и путь за ним.

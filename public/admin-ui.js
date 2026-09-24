@@ -45,9 +45,9 @@
  * закрывает, ни один раздел без JS не пропадает, а состояние нигде не хранится
  * и потому ничем не моргает на загрузке.
  *
- * Скрипт управляет клавиатурным фокусом, Esc и состоянием при смене ширины.
- * Постоянное меню на компьютере не включает чекбокс: открытый чекбокс
- * приостанавливает живые обновления, пока человек выбирает раздел.
+ * Скрипту остаётся то, чего разметка не умеет: закрыть меню по Esc и вернуть
+ * фокус на кнопку. Открытая панель, которую не убрать иначе как попаданием
+ * мышью, — ровно та мелочь, что бесит каждый раз.
  *
  * Клик мимо здесь не обрабатывается намеренно: затемнение — это подпись к тому
  * же чекбоксу, и второй обработчик снимал бы галочку ПЕРЕД тем, как её вернёт
@@ -57,59 +57,12 @@
   'use strict';
   var menu = document.getElementById('a-menu');
   if (!menu) return;
-  var desktop = window.matchMedia('(min-width:1280px)');
-  var wasOpen = false;
-  function syncMenu() {
-    if (desktop.matches) menu.checked = false;
-    var button = document.querySelector('.a-menu-btn');
-    if (button) {
-      var expanded = desktop.matches ? !document.documentElement.classList.contains('ta-collapsed') : menu.checked;
-      button.setAttribute('aria-expanded', String(expanded));
-      button.setAttribute('aria-label', desktop.matches ? (expanded ? 'Свернуть меню' : 'Развернуть меню') : (expanded ? 'Закрыть меню' : 'Открыть меню'));
-    }
-    // Сам чекбокс — запасной механизм без JS; с JS фокус получает кнопка.
-    menu.tabIndex = -1;
-    document.body.classList.toggle('a-menu-open', menu.checked);
-    if (menu.checked && !wasOpen) {
-      var close = document.querySelector('.a-menu-close');
-      // Нативный клик по label сначала переводит фокус на чекбокс.
-      requestAnimationFrame(function () { if (menu.checked && close) close.focus(); });
-    } else if (!menu.checked && wasOpen) {
-      var target = desktop.matches ? document.querySelector('.a-nav-item.active') : button;
-      if (target) target.focus();
-    }
-    wasOpen = menu.checked;
-  }
-  menu.addEventListener('change', syncMenu);
-  if (desktop.addEventListener) desktop.addEventListener('change', syncMenu);
-  else desktop.addListener(syncMenu);
-  // Живое обновление может заменить кнопку, поэтому слушатель на документе.
+
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (!e.target.matches('.a-menu-btn,.a-menu-close')) return;
-    e.preventDefault();
-    menu.checked = !menu.checked;
-    syncMenu();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Tab' && menu.checked) {
-      var panel = document.querySelector('.a-menu-panel');
-      var stops = Array.prototype.filter.call(panel.querySelectorAll('a[href],[tabindex="0"]'), function (el) {
-        return el.getClientRects().length > 0;
-      });
-      var first = stops[0], last = stops[stops.length - 1];
-      if (stops.length && (!panel.contains(document.activeElement)
-        || (e.shiftKey && document.activeElement === first)
-        || (!e.shiftKey && document.activeElement === last))) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-      }
-    }
     if (e.key !== 'Escape' || !menu.checked) return;
     menu.checked = false;
-    syncMenu();
+    menu.focus();
   });
-  syncMenu();
 })();
 
 /* ================= Календарь диапазона в метрике =================

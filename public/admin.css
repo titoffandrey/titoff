@@ -431,9 +431,9 @@ body.admin{background:var(--bg2)}
    --text-3   #6b6f75 — третичный текст: подписи под числами, время, счётчики.
               Вместо россыпи #8e8e93/#a1a1a6/#9aa0a6/#80868b (2.6–3.3:1).
               На фоне панели #f1f4f9 даёт 4.6:1.
-   --a-chart  #4285f4 — линии и точки графиков: это не текст, им хватает 3:1,
+   --a-chart  var(--accent) — линии и точки графиков: это не текст, им хватает 3:1,
               и привычный синий Google там остаётся. */
-body.admin{--a-topbar:66px;--accent:#0b57d0;--accent-deep:#0842a0;--text-3:#6b6f75;--a-chart:#4285f4;
+body.admin{--a-topbar:66px;--accent:#0b57d0;--accent-deep:#0842a0;--text-3:#6b6f75;--a-chart:var(--accent);
   --bg2:#f1f4f9;--surface-soft:#f8fafd;
   --text:#1f1f1f;--muted:#5f6368;--border:#dadce0;--border-soft:#e3e3e3;
   background:#f1f4f9;color:#1f1f1f;
@@ -2066,17 +2066,6 @@ details.metric-rules{margin-bottom:14px}
 .set-body .field-check:hover{background:#f7f7f9;border-color:#dcdce2}
 .set-body .field-check label{gap:10px;width:100%;padding:11px 13px;font-size:14px;font-weight:500;color:var(--text);cursor:pointer}
 .set-body .field-check input{flex:none;width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
-/* Состояние внутри раздела — не подсказка. Подсказок здесь нет ни одной: абзацы
-   под полями объясняли то, что поле и так говорит подписью и плейсхолдером, и
-   страница из-за них разрасталась втрое. Этой строкой остаётся то, чего иначе
-   не узнать: цена запроса к модели в чате. */
-.set-state{margin:0 0 14px;font-size:12.5px;line-height:1.4;color:var(--muted)}
-/* Callback URL кассы — значение, которое КОПИРУЮТ в чужой кабинет, поэтому оно
-   лежит в поле рядом с кнопкой, а не в тексте: из абзаца адрес приходится
-   выделять мышью по буквам. */
-.set-copy-row{display:flex;gap:8px;align-items:center}
-.set-copy-row .btn{flex:none}
-.set-copy-url{flex:1;min-width:0;font-size:12.5px}
 
 /* ---- Цвет магазина: один, но выбирается по-человечески ----
 
@@ -2114,27 +2103,20 @@ details.metric-rules{margin-bottom:14px}
    правке подменяет `admin-ui.js`), поэтому предпросмотр не зависит от акцента
    ПАНЕЛИ — она красится тем же цветом магазина, и на сохранённом значении
    разницы было бы не видно. */
-/* ПРЕДПРОСМОТР — ОКНО В ВИТРИНУ, А НЕ ЧАСТЬ ПАНЕЛИ, и цвета у него СВОИ.
-   Витрина светлая всегда: ночной темы у неё нет вовсе. Пока предпросмотр брал
-   переменные панели (`--text`, `--muted`, `--border-soft`), в ночной теме
-   выходило невозможное — белая карточка со светлым текстом: цена «от 99 990 ₽»
-   на ней не читалась, а шапка жила своей жизнью. Значения здесь те же, что в
-   `:root` витрины, и жёсткие намеренно: панель их менять не вправе. */
-.brand-preview{--bp-ink:#1d1d1f;--bp-muted:#6e6e73;--bp-line:#ececf0;
-  margin:2px 0 18px;border:1px solid var(--bp-line);border-radius:14px;overflow:hidden;
-  background:linear-gradient(180deg,#fff,#fbfbfd);font-family:var(--brand-font);color:var(--bp-ink)}
-.bp-bar{display:flex;align-items:center;gap:14px;padding:11px 15px;border-bottom:1px solid var(--bp-line);background:rgba(255,255,255,.9)}
+.brand-preview{margin:2px 0 18px;border:1px solid var(--border-soft);border-radius:14px;overflow:hidden;
+  background:linear-gradient(180deg,#fff,#fbfbfd);font-family:var(--brand-font)}
+.bp-bar{display:flex;align-items:center;gap:14px;padding:11px 15px;border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.9)}
 /* Предпросмотр обязан показывать ровно то, что увидит покупатель, — значит и
    строчные, и тот же трекинг. Кегль мельче витринного: полоса предпросмотра
    ниже настоящей шапки, и 27px в ней задели бы соседние строки. */
-.bp-logo{font-size:24px;font-weight:700;letter-spacing:-.045em;text-transform:lowercase;line-height:1.1;color:var(--bp-ink);overflow:hidden}
+.bp-logo{font-size:24px;font-weight:700;letter-spacing:-.045em;text-transform:lowercase;line-height:1.1;color:var(--text);overflow:hidden}
 .bp-logo .logo-img{height:26px;max-width:150px}
-.bp-link{font-size:13px;color:var(--bp-muted)}
+.bp-link{font-size:13px;color:var(--muted)}
 .bp-cart{margin-left:auto;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;
-  border:1px solid var(--bp-line);color:#3a3a3c;background:#fff}
+  border:1px solid var(--border-soft);color:#3a3a3c;background:#fff}
 .bp-card{display:flex;align-items:center;gap:12px;padding:12px 15px}
-.bp-name{font-size:13.5px;font-weight:600;color:var(--bp-ink)}
-.bp-price{font-size:14px;font-weight:700;color:var(--bp-ink);font-variant-numeric:tabular-nums}
+.bp-name{font-size:13.5px;font-weight:600;color:var(--text)}
+.bp-price{font-size:14px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
 .bp-btn{margin-left:auto;padding:9px 17px;border-radius:11px;color:#fff;font-size:13px;font-weight:600;
   background:var(--accent)}
 /* Кнопка сохранения не уезжает с экрана: разделов девять, и открыв нижний, до

@@ -1601,7 +1601,7 @@ test('отчёт метрики по умолчанию — сегодняшни
   // Значки в списках — те же, что в строке заказа: подбираются ключом из
   // lib/client-icons.js, а не своим набором картинок.
   assert.match(html, /class="metric-bar-ico"/);
-  assert.match(html, /data-tailadmin-component="metric"/);
+  assert.match(html, /class="metric-card-ico"/);
 
   const week = analytics.snapshot({ days: 7 });
   const weekHtml = adminViews.analyticsPage(SETTINGS, fakeDb, week);
@@ -1685,7 +1685,7 @@ test('«Обзор» показывает, сколько человек на в
     visibleOrders: () => [], pendingReviewCount: () => 0
   };
   const html = adminViews.dashboard(SETTINGS, fakeDb, { online: 3, visitors: 26, pageViews: 200, visits: 30, orders: 1 });
-  assert.match(html, /data-tailadmin-component="metric"[\s\S]*?Сейчас на сайте[\s\S]*?<h4[^>]*>3<\/h4>/);
+  assert.match(html, /class="a-stat a-stat-live"/);
   assert.match(html, /Сейчас на сайте/);
   // Просмотры сняты со всей панели: рядом с посетителями они читались как ещё
   // одно число о том же самом, только больше.
@@ -1696,8 +1696,11 @@ test('«Обзор» показывает, сколько человек на в
   assert.doesNotMatch(html, /Товаров на витрине/);
   // Число обязано обновляться само, иначе это снимок момента открытия страницы.
   assert.match(html, /data-live="[^"]*analytics/);
-  // Пустой онлайн сохраняется как ноль, без выдуманного прироста из демо.
-  assert.match(adminViews.dashboard(SETTINGS, fakeDb, { online: 0 }), /Сейчас на сайте[\s\S]*?<h4[^>]*>0<\/h4>/);
+  // Никого на сайте — точка серая и неподвижная: зелёный пульс рядом с нулём
+  // обещал бы движение, которого нет.
+  assert.match(adminViews.dashboard(SETTINGS, fakeDb, { online: 0 }), /class="a-stat a-stat-live is-idle"/);
+  const css = PANEL_CSS;
+  assert.match(css, /\.a-stat-live\.is-idle \.a-stat-num i\{[^}]*animation:none/);
 });
 
 test('метрика безопасно считает специальные ключи объектов', t => {
@@ -3768,11 +3771,7 @@ test('адрес единственной офлайн-точки виден в 
 
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { storeAddress: address }), dbCore);
   assert.match(settingsHtml, /name="storeAddress" value="г\. Ноябрьск, проспект Мира, 88А, ТЦ «Ноябрьский»"/);
-  /* Что точка единственная, знает консультант (см. факты `storeText`), а
-   * страница настроек об этом больше не рассказывает: подсказок в разделах нет
-   * ни одной. Адрес стоит своей подсекцией «Офлайн-точка». */
-  assert.match(settingsHtml, /<h3 class="a-subhead">Офлайн-точка<\/h3>/);
-  assert.doesNotMatch(settingsHtml, /class="field-hint"/);
+  assert.match(settingsHtml, /единственная точка и в других городах магазинов нет/);
 
   // Эти два факта относятся именно к текущему магазину, поэтому лежат в его
   // seed-настройках и при первой установке сразу попадают и на витрину, и в
@@ -5019,7 +5018,7 @@ test('главная показывает товары в порядке кат�
      раскладку задаёт сетка: безымянные <td> ей не адресовать. */
   const css = PANEL_CSS;
   for (const cls of ['a-pname', 'a-price', 'a-marks']) assert.match(list, new RegExp(`<td class="${cls}"`));
-  assert.match(list, /ta ta-table-frame/);
+  assert.match(list, /<div class="a-panel a-panel-list">/);
   const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
   assert.match(mobile, /\.a-table\.a-table-sortable\{min-width:0;display:block\}/);
   assert.match(mobile, /\.a-table-sortable tr\{display:grid/);
@@ -5677,8 +5676,8 @@ test('срез отзывов сортирует и режет одинаков�
 
 test('подписи полей панели связаны с элементами форм', () => {
   const login = adminViews.loginPage({ storeName: 'Тест' }, null);
-  assert.match(login, /<label[^>]*for="admin-login"[^>]*>Логин<\/label>\s*<input[^>]*id="admin-login"/);
-  assert.match(login, /<label[^>]*for="admin-password"[^>]*>Пароль<\/label>\s*<div[^>]*>\s*<input[^>]*id="admin-password"/);
+  assert.match(login, /<label for="admin-login">Логин<\/label><input id="admin-login"/);
+  assert.match(login, /<label for="admin-password">Пароль<\/label><input id="admin-password"/);
   /* Связь ставит либо сама разметка (у полей настроек теперь свои id — их видно
    * в исходнике и по ним удобно ссылаться), либо `accessibleFields()` у тех, у
    * кого `for` не проставлен. Проверяем именно СВЯЗЬ, а не то, кто её сделал:
@@ -5970,37 +5969,32 @@ test('строка заказа: оплата собрана одним блок
   assert.match(css, /\.a-orders td\{[^}]*vertical-align:middle/);
 });
 
-test('меню панели сохраняет навигацию, счётчики и управление без JavaScript', () => {
-  const css = PANEL_CSS + '\n' + fs.readFileSync(path.join(__dirname, '..', 'public', 'tailadmin.css'), 'utf8');
+test('меню панели — кнопка в шапке и панель разделов, выезжающая слева', () => {
+  const css = PANEL_CSS;
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin-ui.js'), 'utf8');
   const db = {
     getProducts: () => [], visibleProducts: () => [], visibleOrders: () => [],
     getOrders: () => [], pendingReviewCount: () => 3, categories: () => [], visibleCategories: () => [], ratingFor: () => ({ avg: 0, count: 0 })
   };
   const html = adminViews.dashboard(SETTINGS, db);
-  /* На широком экране разделы видны постоянно, на узком их открывает кнопка
-   * в шапке. В обоих случаях это одна навигация с живыми счётчиками.
+  /* Кнопка стоит в шапке, панель выезжает слева поверх страницы. Ни боковой
+   * колонки, ни ленты разделов, ни кнопки выхода рядом с ними.
+   *
    * Чекбокс лежит РЯДОМ с шапкой, а не внутри неё, и это не вкусовщина:
    * `backdrop-filter` у шапки делает её опорной для `position:fixed`, поэтому
    * панель внутри шапки считала бы координаты от неё, а не от окна. Кнопка при
    * этом остаётся в живом блоке — счётчик на ней обязан обновляться сам. */
   assert.match(html, /<input type="checkbox" id="a-menu" class="a-menu-check"/);
   assert.match(html, /<div class="a-menu-wrap">\s*<label class="a-menu-scrim" for="a-menu"/);
-  assert.match(html, /<div class="a-menu-panel"[^>]*data-live-part="menu"/);
-  assert.match(html, /<div class="a-topbar" data-live-part="topbar">[\s\S]*?<label class="a-menu-btn" for="a-menu"/);
+  assert.match(html, /<nav class="a-menu-panel" data-live-part="menu">/);
+  assert.match(html, /<div class="a-topbar" data-live-part="topbar"><label class="a-menu-btn" for="a-menu"/);
   assert.ok(html.indexOf('class="a-menu-check"') < html.indexOf('class="a-menu-wrap"'),
     'панель обязана идти ПОСЛЕ чекбокса — открывает её селектор соседа');
   assert.ok(html.indexOf('class="a-menu-wrap"') < html.indexOf('class="a-topbar"'),
     'кнопка в шапке — тоже сосед чекбокса, иначе рамка фокуса ей не достанется');
-  /* Выход — в меню профиля (там же, где «Sign out» у оригинала TailAdmin) и в
-   * «Настройках»; в самой шапке, рядом с разделами, кнопки нет: там она
-   * нажималась вместо соседей. */
-  const profileMenu = html.slice(html.indexOf(' ta-profile-menu"'), html.indexOf('</details>', html.indexOf(' ta-profile-menu"')));
-  assert.match(profileMenu, /action="\/admin\/logout"/, 'выход есть в меню профиля');
-  assert.equal((html.match(/\/admin\/logout/g) || []).length, 1, 'а больше в шапке его нет');
+  assert.equal(/a-sidebar/.test(html), false, 'боковой колонки больше нет');
+  assert.equal(/\/admin\/logout/.test(html), false, 'выход переехал в настройки');
   assert.match(html, /admin-ui\.js/);
-  assert.ok(html.indexOf('/static/tailadmin.css?') > html.indexOf('/static/admin.css?'),
-    'тема панели подключается после её базовых стилей');
   // Состояние — чекбокс: без скрипта меню всё равно открывается и закрывается,
   // а храниться ему негде — значит, и моргать на загрузке нечему.
   assert.equal(/nav-off|admin_nav_off/.test(html + css + js), false, 'прежнего состояния меню не осталось');
@@ -6012,18 +6006,51 @@ test('меню панели сохраняет навигацию, счётчи�
    * тест падал при добавлении раздела, хотя правило («значок у КАЖДОГО»)
    * соблюдено, и правился он подгонкой числа — то есть переставал что-либо
    * проверять. */
-  const menu = html.slice(html.indexOf('id="a-menu-navigation"'), html.indexOf('</nav>'));
+  const menu = html.slice(html.indexOf('class="a-menu-list"'), html.indexOf('</nav>'));
   const items = (menu.match(/class="a-nav-item/g) || []).length;
   assert.ok(items >= 6, 'разделов в меню стало подозрительно мало: ' + items);
   assert.equal((menu.match(/class="a-nav-ico"/g) || []).length, items, 'значки не у всех разделов');
-  // Витрина открывается отдельно и остаётся доступна из общего меню.
-  assert.match(menu, /<a target="_blank" rel="noopener noreferrer" aria-label="Открыть витрину" href="\/" class="a-nav-item[^"]*"/);
+  // Служебное отбито волосяной линией — как «Справка» у образца.
+  assert.match(menu, /<span class="a-menu-sep"[^>]*><\/span>\s*<a class="a-nav-item" href="\/" target="_blank"/);
   // Незнакомый ключ не ломает разметку: подпись раздела остаётся и без значка.
   assert.equal(render.adminIcon('выдумка'), '');
   assert.equal(render.adminIcon(''), '');
   assert.match(render.adminIcon('orders'), /<svg class="a-nav-ico"/);
 
-  /* Esc закрывает мобильное меню. Клика мимо в скрипте быть НЕ должно: затемнение —
+  // Колонки нет — содержимое раздаётся во всю ширину.
+  assert.match(css, /\.a-content\{width:100%;max-width:1500px/);
+  /* Числа сняты с бокового меню Google Trends: панель 320 px со скруглением
+   * правого края, пункт 56 px пилюлей, выбранный залит голубым, разделитель
+   * волосяной, затемнение — чёрное под 40 %, движение — четверть секунды. */
+  assert.match(css, /\.a-menu-wrap\{position:fixed;inset:0;z-index:9;visibility:hidden/);
+  assert.match(css, /\.a-menu-scrim\{position:absolute;inset:0;background:#000;opacity:0/);
+  assert.match(css, /\.a-menu-panel\{position:absolute[^}]*width:0;overflow:hidden[^}]*border-radius:0 16px 16px 0/);
+  /* У `visibility` длительности нет — только задержка, и только на закрытие:
+     она переключается ступенькой, и с длительностью открытое меню оставалось бы
+     невидимым всю четверть секунды движения. На этом уже наступили. */
+  assert.match(css, /\.a-menu-wrap\{[^}]*transition:visibility 0s \.25s\}/);
+  assert.match(css, /\.a-menu-check:checked~\.a-menu-wrap\{visibility:visible;transition:visibility 0s\}/);
+  assert.match(css, /\.a-menu-check:checked~\.a-menu-wrap \.a-menu-scrim\{opacity:\.4\}/);
+  assert.match(css, /\.a-menu-check:checked~\.a-menu-wrap \.a-menu-panel\{width:min\(320px,calc\(100vw - 56px\)\)\}/);
+  assert.match(css, /\.a-menu-sep\{height:1px;margin:0 28px;background:#c4c7c5\}/);
+  assert.match(css, /\.a-nav-item\{[^}]*min-height:56px[^}]*border-radius:9999px[^}]*font-size:16px/);
+  assert.match(css, /\.a-nav-item\.active\{background:#c2e7ff;color:#004a77\}/);
+  /* Панель раскрывается ШИРИНОЙ, а содержимое лежит в блоке фиксированной
+   * ширины: иначе текст пересобирался бы на каждом кадре движения. */
+  assert.match(css, /\.a-menu-list\{width:min\(320px,calc\(100vw - 56px\)\)/);
+  // Сверху панель уходит под шапку, и высота у обеих одна — переменная.
+  assert.match(css, /body\.admin\{--a-topbar:66px/);
+  assert.match(css, /\.a-topbar\{height:var\(--a-topbar\)/);
+  assert.match(css, /\.a-menu-list\{[^}]*padding:calc\(var\(--a-topbar\) \+ 8px\)/);
+  /* На телефоне меню накрывает шапку, и слой ей приходится назвать явно:
+     `backdrop-filter` делает её отдельным контекстом наложения, и Chromium
+     рисует её поверх позиционированной панели, хотя сама она не позиционирована.
+     `static` тут вернул бы шапку наверх — на этом уже наступили. */
+  const mobile = css.slice(css.indexOf('@media(max-width:800px){'));
+  assert.match(mobile, /\.a-topbar\{position:relative;z-index:1;min-height:0/);
+  assert.equal(/\.a-topbar\{position:static/.test(mobile), false, 'у static слоя нет — меню окажется под шапкой');
+  assert.match(mobile, /\.a-menu-list\{padding-top:max\(8px,env\(safe-area-inset-top\)\)\}/);
+  /* Скрипту остаётся один Esc. Клика мимо в нём быть НЕ должно: затемнение —
    * подпись к тому же чекбоксу, и второй обработчик снимал бы галочку перед
    * тем, как её вернёт действие подписи, то есть меню не закрывалось бы. */
   assert.match(js, /menu\.checked = false/);
@@ -6351,9 +6378,8 @@ test('архивирование оплаченного заказа не уме
     getProducts: () => [], visibleProducts: () => [], pendingReviewCount: () => 0
   };
   const dash = adminViews.dashboard(SETTINGS, db);
-  assert.match(dash, /Выручка<\/span>\s*<h4[^>]*>5\s?000\s?₽/);
-  assert.match(dash, /Оплачено 1 из 2 заказов/);
-  assert.match(dash, /&quot;series&quot;:\[50\]/);
+  assert.match(dash, /Выручка<\/span>\s*<strong>5\s?000\s?₽/);
+  assert.match(dash, /<dd>1 из 2 заказа · 50%<\/dd>/);
 });
 
 test('осознанный sparkles отличается от промаха подбора иконки', () => {
@@ -8452,28 +8478,8 @@ test('настройки идут разделами, и свёрнутая ст
   // Разделы — обычные <details>, поэтому раскрываются и без скрипта.
   const ids = (html.match(/<details class="set[^"]*" id="set-([a-z]+)"/g) || [])
     .map(m => m.replace(/^.*id="set-/, '').replace('"', ''));
-  /* Пять групп, и каждая отвечает на свой вопрос: что это за магазин, как в нём
-   * покупают, как общаемся с покупателем, какие чужие сервисы подключены и кто
-   * продаёт. Ключи касс уехали из «Оплаты» в свой раздел, почта — из кабинета:
-   * оба раздела разрослись до кучи, в которой искали глазами. */
-  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'domains', 'pay', 'cashbox', 'ship', 'price',
-    'chat', 'reviews', 'accounts', 'mail', 'telegram', 'dadata', 'ym', 'legal', 'access']);
-  const groups = (html.match(/<section class="set-group"><h2>([^<]+)</g) || [])
-    .map(m => m.replace(/^.*<h2>/, '').replace('<', ''));
-  assert.deepEqual(groups, ['Магазин', 'Продажи', 'Покупатели', 'Подключения', 'Продавец и доступ']);
-
-  /* ПОДСКАЗОК В НАСТРОЙКАХ НЕТ НИ ОДНОЙ. Абзацы под полями объясняли то, что
-   * поле и так говорит подписью и плейсхолдером: их читают один раз, а видят
-   * каждый день, и из-за них страница разрасталась втрое. Осталось то, чего
-   * иначе не узнать: строка состояния раздела, плашка режима оплаты, цена
-   * запроса к модели и отказы формы — это не подсказки. */
-  /* Срез берётся от начала формы до её СОБСТВЕННОГО `</form>`: первый в
-   * документе принадлежит форме поиска в шапке, и срез выходил пустым — любая
-   * проверка по нему молчала бы, что бы в форме ни стояло. */
-  const formStart = html.indexOf('<form class="a-form a-settings"');
-  const form = html.slice(formStart, html.indexOf('</form>', formStart));
-  assert.doesNotMatch(form, /class="field-hint"/, 'подсказка вернулась в настройки');
-  assert.doesNotMatch(form, /class="muted small"/);
+  assert.deepEqual(ids, ['store', 'brand', 'contacts', 'ship', 'domains', 'pay', 'price',
+    'chat', 'telegram', 'reviews', 'accounts', 'dadata', 'ym', 'legal', 'access']);
 
   /* Свёрнутая строка отвечает на вопрос, ради которого раздел открывают, а не
    * описывает, что внутри: описание читают один раз, а видят каждый день. */
@@ -8491,14 +8497,9 @@ test('настройки идут разделами, и свёрнутая ст
    * ключей — это витрина, молча оставшаяся без оплаты. Всё в порядке — страница
    * остаётся коротким списком, и это её нормальный вид. */
   assert.doesNotMatch(html, /<details class="set[^"]*" id="set-[a-z]+" open>/, 'без поломок разделы свёрнуты');
-  /* Красным становится тот раздел, в котором это чинится: ключей нет — открыты
-   * «Кассы», а «Оплата на витрине» лишь предупреждает, что витрина осталась
-   * без оплаты не по решению владельца. */
   const broken = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true, crocopayClientSecret: '' }), db, null);
-  assert.match(broken, /<details class="set is-err" id="set-cashbox" open>/);
-  assert.match(broken, /CrocoPAY: ключи не заданы/);
-  assert.match(broken, /<details class="set is-warn" id="set-pay">/);
-  assert.match(broken, /заявки без оплаты — у CrocoPAY не заданы ключи/);
+  assert.match(broken, /<details class="set is-err" id="set-pay" open>/);
+  assert.match(broken, /касса включена, но ключи не заданы/);
 
   /* Что было открыто, остаётся открытым после сохранения: страница приходит
    * заново, и раздел, который только что правили, иначе захлопывался бы под
@@ -8525,6 +8526,7 @@ test('настройки идут разделами, и свёрнутая ст
    * поставить фокус в скрытое поле и молча отказывается отправлять форму,
    * написав об этом только в консоль, — кнопка «Сохранить» переставала бы
    * работать без единого слова на экране. Пустое название ловит сервер. */
+  const form = html.slice(html.indexOf('<form class="a-form a-settings"'), html.indexOf('</form>'));
   assert.doesNotMatch(form, /\srequired[\s>]/, 'required внутри свёрнутого раздела ломает отправку формы');
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(source, /storeName \|\| ''\)\.trim\(\)\) return fail\('Укажите название магазина'\)/);
@@ -8578,14 +8580,8 @@ test('в настройках видно режим витрины, а касс�
    * развернуть секцию с ключами ради того, чтобы ключей не трогать.
    */
   assert.match(offHtml, /class="pay-switches"[\s\S]{0,400}name="crocopayEnabled"[\s\S]{0,400}name="meridianpayEnabled"/);
-  /* Ключи касс живут своим разделом: «Оплата на витрине» отвечает на вопрос
-   * покупателя (чем платить), а здесь — вопрос владельца (какие доступы
-   * заданы). Внутри него порядок прежний: включатели выше свёрток. */
-  const cashbox = offHtml.slice(offHtml.indexOf('id="set-cashbox"'), offHtml.indexOf('id="set-ship"'));
-  assert.ok(cashbox.indexOf('class="pay-switches"') < cashbox.indexOf('<details class="pay-fold'),
+  assert.ok(offHtml.indexOf('class="pay-switches"') < offHtml.indexOf('<details class="pay-fold'),
     'переключатели касс стоят выше свёрток с ключами');
-  assert.ok(offHtml.indexOf('id="set-pay"') < offHtml.indexOf('id="set-cashbox"'),
-    'сначала то, что видит покупатель, потом доступы');
 
   const onHtml = adminViews.settingsPage(Object.assign({}, base, { crocopayEnabled: true }), db, null);
   assert.match(onHtml, /Сейчас: оплата на витрине/);
@@ -9013,8 +9009,7 @@ test('Альфа-Банк выдаёт ссылку на оплату по то�
   const html = adminViews.settingsPage(on, { pendingReviewCount: () => 0 }, null);
   assert.match(html, /name="alfabankEnabled"/);
   assert.match(html, /name="alfabankToken"[^>]*value="fhojfle6ssav32c6ao42bkcr54"/);
-  // Какой доступ подойдёт, говорит сама подпись поля: подсказок в настройках нет.
-  assert.match(html, /<label for="alfa-token">Платёжный токен из ЛК<\/label>/);
+  assert.match(html, /Настройки → Платежный токен/);
   // Второй доступ — пара логин/пароль. Пароль прячется звёздочками, токен нет:
   // банк называет его несекретным, и сверять его с ЛК надо глазами.
   assert.match(html, /name="alfabankLogin"/);
@@ -11014,11 +11009,14 @@ test('счётчики и выручка одинаковы на «Обзоре�
   assert.ok(list.indexOf('class="o-filters"') < list.indexOf('class="a-panel o-list-panel"'));
   assert.ok(list.indexOf('class="a-panel o-list-panel"') < list.indexOf('o-summary-details'));
 
-  // TailAdmin показывает ту же выручку и долю оплат в карточке и круговой диаграмме.
-  assert.match(dash, /Выручка<\/span>\s*<h4[^>]*>150\s?000\s?₽/);
-  assert.match(dash, /Оплачено 2 из 10 заказов/);
-  assert.match(dash, /&quot;series&quot;:\[20\]/);
-  for (const html of [list]) {
+  // Разметка сводки одна на обе страницы: разъехавшиеся счётчики читались бы
+  // как разные числа об одном и том же.
+  const bar = html => {
+    const from = html.indexOf('<div class="o-stats">');
+    return html.slice(from, html.indexOf('</section></div>', from) + 16);
+  };
+  assert.equal(bar(dash), bar(list));
+  for (const html of [dash, list]) {
     assert.match(html, /Выручка<\/span>\s*<strong>150\s?000\s?₽/);
     // Доля оплаченных — и словами, и полосой: «2 из 10» читается за секунду,
     // полоса — с одного взгляда.
@@ -11051,23 +11049,23 @@ test('счётчики и выручка одинаковы на «Обзоре�
     payment: { status: 'expired', invoiceId: 'i', requisite: '79104693811', expiresAt: Date.now() - 1000 }
   }), 'o-row o-row-off');
   assert.equal(render.orderRowClass({}), 'o-row', 'заявка без оплаты остаётся белой');
-  assert.match(list, /<tr id="order-o1"[^>]*class="o-row o-row-ok">/);
-  assert.match(list, /<tr id="order-o6"[^>]*class="o-row o-row-off">/);
-  assert.match(list, /<tr id="order-o9"[^>]*class="o-row">/);
+  assert.match(list, /<tr id="order-o1" class="o-row o-row-ok">/);
+  assert.match(list, /<tr id="order-o6" class="o-row o-row-off">/);
+  assert.match(list, /<tr id="order-o9" class="o-row">/);
 
   // На «Обзоре» у каждой заявки сразу видно состояние и сумму — за этим туда и
   // заходят. Строка ведёт к якорю этой же заявки в разделе заказов.
   // data-live-key — чтобы при живом обновлении свежая заявка вставлялась сверху,
   // а остальные строки оставались теми же узлами, а не переписывались заново.
-  assert.match(dash, /id="recent-o1" data-live-key="recent-o1"[\s\S]*?href="\/admin\/orders#order-o1"/);
-  assert.match(dash, /<span class="pay-tag pay-ok"><i><\/i>оплачено<\/span>/);
-  assert.match(dash, /<td[^>]*>100\s?000\s?₽<\/td>/);
+  assert.match(dash, /<a class="o-recent-row o-row o-row-ok" data-live-key="recent-o1" href="\/admin\/orders#order-o1">/);
+  assert.match(dash, /o-recent-state"><span class="pay-tag pay-ok"><i><\/i>оплачено<\/span>/);
+  assert.match(dash, /o-recent-sum">100\s?000\s?₽/);
   assert.match(list, /<tr id="order-o1"/, 'якорь на месте, иначе ссылка с «Обзора» ведёт в пустоту');
 
   // Пустой магазин не показывает выдуманных чисел и не ломает раскладку.
   const empty = adminViews.dashboard(SETTINGS, statsDb([]));
   assert.match(empty, /Заказов пока нет/);
-  assert.match(empty, /colspan="4" class="ta-empty"/);
+  assert.match(empty, /o-recent-empty/);
   assert.doesNotMatch(empty, /o-recent-row/);
 });
 
@@ -11138,9 +11136,12 @@ test('период заказов выбирается тем же меню, ч�
   assert.equal((week.match(/<tr id="order-/g) || []).length, 2);
   assert.match(week, /<span>2 заказа<\/span><b class="o-list-sum">150\s?000\s?₽<\/b>/);
   assert.match(week, /Выручка<\/span>\s*<strong>100\s?000\s?₽/);
-  const weekDash = adminViews.dashboard(SETTINGS, db, {}, { period: '7' });
-  assert.match(weekDash, /Выручка<\/span>\s*<h4[^>]*>100\s?000\s?₽/);
-  assert.match(weekDash, /Оплачено 1 из 2 заказов/);
+  // Разметка сводки по-прежнему одна на обе страницы.
+  const bar = html => {
+    const from = html.indexOf('<div class="o-stats">');
+    return html.slice(from, html.indexOf('</section></div>', from) + 16);
+  };
+  assert.equal(bar(adminViews.dashboard(SETTINGS, db, {}, { period: '7' })), bar(week));
 
   // За выбранный период заявок может не быть, и это не «заказов пока нет».
   const dayList = adminViews.ordersList(SETTINGS, statsDb([orders[2]]), null, 1, null, { period: '1' });
@@ -11148,10 +11149,10 @@ test('период заказов выбирается тем же меню, ч�
   assert.match(adminViews.dashboard(SETTINGS, statsDb([orders[2]]), {}, { period: '1' }),
     /За выбранный период заказов нет/);
 
-  // Отдельный дневной диапазон отражается в данных диаграммы и в карточках.
-  const dayDash = adminViews.dashboard(SETTINGS, db, {}, { period: '1' });
-  assert.match(dayDash, /Оплачено 1 из 1 заказов/);
-  assert.match(dayDash, /&quot;series&quot;:\[100\]/);
+  // «Сегодня» отдельной строкой показывается, только когда это ЧАСТЬ показанного:
+  // за сегодняшний период она повторяла бы «Оплачено N из N» и выручку над ней.
+  assert.match(adminViews.dashboard(SETTINGS, db, {}, {}), /<dt>Сегодня<\/dt>/);
+  assert.doesNotMatch(adminViews.dashboard(SETTINGS, db, {}, { period: '1' }), /<dt>Сегодня<\/dt>/);
 
   // Период переживает поиск, «Сбросить» и действие над строкой: он охват
   // страницы, а не отбор, и после каждого удаления сбрасывать его нельзя.
@@ -11229,7 +11230,7 @@ test('состояние оплаты красит панель одним на�
 
   // На «Обзоре» таблицы больше нет вовсе — значит, и листать её вбок нечего.
   const db = statsDb(statsOrders());
-  assert.match(adminViews.dashboard(SETTINGS, db), /class="min-w-full ta-orders-table"/);
+  assert.doesNotMatch(adminViews.dashboard(SETTINGS, db), /<table/);
 });
 
 test('счёт создаётся в основных единицах и только для подтверждённого способа', async () => {
@@ -13370,11 +13371,6 @@ test('онлайн в шапке и на «Обзоре» считает одн�
   ];
   assert.equal(m.onlineCount(), 2);
   assert.equal(m.pulse().online, 2);
-  m.data.visitors[0].countryCode = 'RU';
-  m.data.visitors[1].countryCode = 'NL';
-  m.data.visitors[2].countryCode = 'US';
-  m.data.daily[m.today()] = { visitors: ['a', 'b', 'c'], visits: 4 };
-  assert.deepEqual(m.pulse().countries, [{ code: 'RU', value: 1 }, { code: 'NL', value: 1 }], 'география обзора считает подтверждённых посетителей сегодняшних московских суток');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -14430,10 +14426,7 @@ test('в контекст ИИ уезжают живые цены и налич�
   const settingsHtml = adminViews.settingsPage(Object.assign({}, SETTINGS, { chatPrompt: '' }), dbCore);
   assert.match(settingsHtml, /name="chatPromptComplete" value="1"/);
   assert.match(settingsHtml, /Ты — Ксения/);
-  // Поле инструкции стоит само за себя: подсказок в настройках больше нет,
-  // а цена запроса к модели остаётся строкой состояния под ним.
-  assert.match(settingsHtml, /name="chatPrompt"/);
-  assert.match(settingsHtml, /class="set-state">Запрос к модели/);
+  assert.match(settingsHtml, /скрытых правил поведения вне этого поля нет/);
 });
 
 test('постоянная часть запроса не меняется от сообщения к сообщению', () => {
@@ -17276,9 +17269,9 @@ test('раздел «Отправления» — свой пункт меню �
   };
 
   const page = adminViews.shipmentsPage(SETTINGS, db, {});
-  assert.match(page, /<h1[^>]*>Отправления<\/h1>/);
+  assert.match(page, /<h1>Отправления<\/h1>/);
   // Пункт меню свой, а не подпись внутри заказов.
-  assert.match(page, /href="\/admin\/shipments" aria-current="page" class="a-nav-item[^"]*menu-item-active"/);
+  assert.match(page, /href="\/admin\/shipments" class="a-nav-item active"/);
   // Заказ без маршрута в раздел не попадает вовсе.
   assert.doesNotMatch(page, /100004/);
   assert.match(page, /Задерживаются <b>1<\/b>/);
@@ -18048,7 +18041,7 @@ test('раздел промокодов есть в панели и говори
     pendingReviewCount: () => 0, newOrderCount: () => 0
   };
   const html = adminViews.promoPage(settings, db, {});
-  assert.match(html, /href="\/admin\/promo" aria-current="page" class="a-nav-item[^"]*menu-item-active"/, 'раздел отмечен в меню');
+  assert.match(html, /href="\/admin\/promo" class="a-nav-item active"/, 'раздел отмечен в меню');
   assert.match(html, /скидка витрины идёт по коду SALE/, 'строка состояния говорит про витрину, а не про галочки');
   assert.match(html, /по умолчанию/);
   assert.match(html, /1 заказ/, 'сколько заказов оформлено по коду — из самих заказов');
